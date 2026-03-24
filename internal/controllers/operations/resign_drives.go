@@ -50,7 +50,7 @@ type ResignDrivesOperation struct {
 	namespace       string
 }
 
-func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaOwnerDetails, ownerStatus *string, successCallback, failureCallback lifecycle.StepFunc) *ResignDrivesOperation {
+func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaOwnerDetails, ownerStatus *string, successCallback, failureCallback lifecycle.StepFunc) *ResignDrivesOperation { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	return &ResignDrivesOperation{
 		mgr:             mgr,
 		client:          mgr.GetClient(),
@@ -109,13 +109,13 @@ func (o *ResignDrivesOperation) ProcessResult(ctx context.Context) error {
 
 	if resignResult.Err != "" {
 		err = fmt.Errorf("resign drives operation failed: %s, re-creating container", resignResult.Err)
-		_ = o.DeleteContainer(ctx)
+		_ = o.DeleteContainer(ctx) //nolint:errcheck // best-effort cleanup; returning primary error
 		return err
 	}
 
 	if len(resignResult.ResignedDrives) == 0 {
 		err = fmt.Errorf("resign drives operation did not resign any drives, re-creating container")
-		_ = o.DeleteContainer(ctx)
+		_ = o.DeleteContainer(ctx) //nolint:errcheck // best-effort cleanup; returning primary error
 		return err
 	}
 
@@ -147,7 +147,7 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 	} else if strings.Contains(o.image, "weka.io/weka-in-container") {
 		err := fmt.Errorf("weka image is not allowed for sign-drives operation, do not set image to use default")
 		o.results.Err = err.Error()
-		o.failureCallback(ctx)
+		o.failureCallback(ctx) //nolint:errcheck // callback error is informational; returning primary error
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
@@ -235,7 +235,7 @@ func (o *ResignDrivesOperation) IsDone() bool {
 }
 
 func (o *ResignDrivesOperation) GetJsonResult() string {
-	resultJSON, _ := json.Marshal(o.results)
+	resultJSON, _ := json.Marshal(o.results) //nolint:errcheck // marshal of known-serializable struct; error not possible
 	return string(resultJSON)
 }
 

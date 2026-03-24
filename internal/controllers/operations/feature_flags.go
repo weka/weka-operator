@@ -39,7 +39,7 @@ func GetFeatureFlagsForImage(
 	ctx context.Context,
 	k8sClient client.Client,
 	scheme *runtime.Scheme,
-	params AdhocContainerParams,
+	params *AdhocContainerParams,
 ) (*domain.FeatureFlags, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetFeatureFlagsForImage", "image", params.Image)
 	defer end()

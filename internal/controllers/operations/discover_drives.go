@@ -62,7 +62,7 @@ type DiscoverDrivesResult struct {
 	Results map[string]DriveNodeResults `json:"results"`
 }
 
-func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaOwnerDetails, ownerStatus string, successCallback lifecycle.StepFunc, force bool) *DiscoverDrivesOperation {
+func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaOwnerDetails, ownerStatus string, successCallback lifecycle.StepFunc, force bool) *DiscoverDrivesOperation { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	kclient := mgr.GetClient()
 	return &DiscoverDrivesOperation{
 		mgr:             mgr,
@@ -129,10 +129,11 @@ func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 		existingContainerNodes[string(container.GetNodeAffinity())] = true
 	}
 
-	for _, node := range matchingNodes {
-		if existingContainerNodes[node.Name] {
+	for i := range matchingNodes {
+		if existingContainerNodes[matchingNodes[i].Name] {
 			continue
 		}
+		node := &matchingNodes[i]
 
 		// Skip nodes that already have the new full-drives annotation — those are up-to-date.
 		// Legacy-only annotation (weka-drives without weka-full-drives) still needs discovery.
@@ -208,7 +209,7 @@ func (o *DiscoverDrivesOperation) ProcessResult(ctx context.Context) error {
 }
 
 func processResult(ctx context.Context, containers []*v1alpha1.WekaContainer, skipIncompleted bool) (*DiscoverDrivesResult, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ProcessResult")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "ProcessResult")
 	defer end()
 
 	results := make(map[string]DriveNodeResults)
@@ -256,7 +257,7 @@ func (o *DiscoverDrivesOperation) GetResult() DiscoverDrivesResult {
 }
 
 func (o *DiscoverDrivesOperation) GetJsonResult() string {
-	resultJSON, _ := json.Marshal(o.results)
+	resultJSON, _ := json.Marshal(o.results) //nolint:errcheck // marshal of known-serializable struct; error not possible
 	return string(resultJSON)
 }
 

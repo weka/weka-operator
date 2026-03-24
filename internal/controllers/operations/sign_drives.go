@@ -64,7 +64,7 @@ func (o *SignDrivesOperation) AsStep() lifecycle.Step {
 	}
 }
 
-func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, ownerRef client.Object, ownerDetails weka.WekaOwnerDetails, ownerStatus string, successCallback, failureCallback lifecycle.StepFunc, force bool) *SignDrivesOperation {
+func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, ownerRef client.Object, ownerDetails weka.WekaOwnerDetails, ownerStatus string, successCallback, failureCallback lifecycle.StepFunc, force bool) *SignDrivesOperation { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	kclient := mgr.GetClient()
 	return &SignDrivesOperation{
 		mgr:             mgr,
@@ -124,7 +124,7 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 	} else if strings.Contains(o.image, "weka.io/weka-in-container") {
 		err := fmt.Errorf("weka image is not allowed for sign-drives operation, do not set image to use default")
 		o.results.Err = err.Error()
-		o.failureCallback(ctx)
+		o.failureCallback(ctx) //nolint:errcheck // callback error is informational; returning primary error
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
@@ -140,11 +140,11 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 
 	// filter out nodes that are not ready
 	readyNodes := []v1.Node{}
-	for _, node := range matchingNodes {
-		if resources.NodeIsReady(&node) {
-			readyNodes = append(readyNodes, node)
+	for i := range matchingNodes {
+		if resources.NodeIsReady(&matchingNodes[i]) {
+			readyNodes = append(readyNodes, matchingNodes[i])
 		} else {
-			logger.Info("Skipping node that is not ready", "node", node.Name)
+			logger.Info("Skipping node that is not ready", "node", matchingNodes[i].Name)
 		}
 	}
 
@@ -165,7 +165,8 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 	skip := 0
 
 	toCreate := []*weka.WekaContainer{}
-	for _, node := range readyNodes {
+	for i := range readyNodes {
+		node := &readyNodes[i]
 		if existingContainerNodes[node.Name] {
 			continue
 		}
@@ -178,13 +179,13 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 				if node.Annotations[consts.AnnotationWekaDrives] != "" && node.Annotations[consts.AnnotationSignDrivesHash] != "" {
 					// Clear hash so sign-drives re-runs and writes the new annotations
 					delete(node.Annotations, consts.AnnotationSignDrivesHash)
-					if err := o.client.Update(ctx, &node); err != nil {
-						return fmt.Errorf("failed to clear sign-drives hash for format migration on node %s: %w", node.Name, err)
+					if updateErr := o.client.Update(ctx, node); updateErr != nil {
+						return fmt.Errorf("failed to clear sign-drives hash for format migration on node %s: %w", node.Name, updateErr)
 					}
 				}
 			}
 
-			targetHash := domain.CalculateNodeDriveSignHash(&node)
+			targetHash := domain.CalculateNodeDriveSignHash(node)
 			if node.Annotations[consts.AnnotationSignDrivesHash] == targetHash {
 				skip += 1
 				continue
@@ -192,7 +193,7 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 		}
 
 		// read signed drives from weka.io/weka-drives node annotation and add to exclusions
-		alreadySignedDrives := getAlreadySignedDrives(&node)
+		alreadySignedDrives := getAlreadySignedDrives(node)
 		if len(alreadySignedDrives) > 0 {
 			extendedPayload.ExcludedSerialIds = alreadySignedDrives
 
@@ -201,9 +202,9 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 
 		if o.payload.Shared {
 			// in drive sharing mode, set the ssd proxy socket path in the instructions payload
-			ssdProxyUuid, err := o.GetSsdProxyContainerUuid(ctx, node.Name)
-			if err != nil {
-				return errors.Wrap(err, "failed to get ssdproxy container uuid")
+			ssdProxyUuid, ssdErr := o.GetSsdProxyContainerUuid(ctx, node.Name)
+			if ssdErr != nil {
+				return errors.Wrap(ssdErr, "failed to get ssdproxy container uuid")
 			}
 			if ssdProxyUuid != nil {
 				extendedPayload.SsdProxyContainerUuid = *ssdProxyUuid
@@ -212,19 +213,19 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 			}
 		}
 
-		instructions, err := o.createInstructions(extendedPayload)
-		if err != nil {
-			return err
+		instructions, instrErr := o.createInstructions(&extendedPayload)
+		if instrErr != nil {
+			return instrErr
 		}
 
-		labels := util.MergeMaps(o.ownerRef.GetLabels(), factory.RequiredAnyWekaContainerLabels(weka.WekaContainerModeAdhocOp))
+		nodeLabels := util.MergeMaps(o.ownerRef.GetLabels(), factory.RequiredAnyWekaContainerLabels(weka.WekaContainerModeAdhocOp))
 
 		containerName := fmt.Sprintf("weka-sign-and-discover-drives-%s", node.Name)
 		newContainer := &weka.WekaContainer{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      containerName,
 				Namespace: o.ownerRef.GetNamespace(),
-				Labels:    labels,
+				Labels:    nodeLabels,
 			},
 			Spec: weka.WekaContainerSpec{
 				Mode:               weka.WekaContainerModeAdhocOp,
@@ -242,14 +243,12 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 	}
 
 	results := workers.ProcessConcurrently(ctx, toCreate, 32, func(ctx context.Context, container *weka.WekaContainer) error {
-		err := controllerutil.SetControllerReference(o.ownerRef, container, o.scheme)
-		if err != nil {
-			return errors.Wrap(err, "failed to set controller reference")
+		if refErr := controllerutil.SetControllerReference(o.ownerRef, container, o.scheme); refErr != nil {
+			return errors.Wrap(refErr, "failed to set controller reference")
 		}
 
-		err = o.client.Create(ctx, container)
-		if err != nil {
-			return errors.Wrap(err, "failed to create container")
+		if createErr := o.client.Create(ctx, container); createErr != nil {
+			return errors.Wrap(createErr, "failed to create container")
 		}
 		return nil
 	})
@@ -339,11 +338,11 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 		ret["errors"] = errs
 	}
 
-	resultJSON, _ := json.Marshal(ret)
+	resultJSON, _ := json.Marshal(ret) //nolint:errcheck // marshal of known-serializable struct; error not possible
 	res := string(resultJSON)
 
 	if len(drivesByNode) > 0 {
-		o.RecordEvent("SignDrives", res)
+		_ = o.RecordEvent("SignDrives", res) //nolint:errcheck // event recording is best-effort; error not actionable
 	}
 	return res
 }
@@ -384,7 +383,7 @@ func (o *SignDrivesOperation) OperationFailed() bool {
 	return o.results.Err != ""
 }
 
-func (o *SignDrivesOperation) RecordEvent(reason string, message string) error {
+func (o *SignDrivesOperation) RecordEvent(reason, message string) error {
 	if o.ownerRef == nil {
 		return fmt.Errorf("ownerRef is nil")
 	}
@@ -422,7 +421,7 @@ func getAlreadySignedDrives(node *v1.Node) []string {
 	return alreadySignedDrives
 }
 
-func (o *SignDrivesOperation) createInstructions(extendedPayload SignedDrivesExtendedPayload) (*weka.Instructions, error) {
+func (o *SignDrivesOperation) createInstructions(extendedPayload *SignedDrivesExtendedPayload) (*weka.Instructions, error) {
 	// Marshal the extended payload
 	payloadBytes, err := json.Marshal(extendedPayload)
 	if err != nil {

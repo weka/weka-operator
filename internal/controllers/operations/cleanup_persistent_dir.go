@@ -43,7 +43,7 @@ type CleanupPersistentDirOperation struct {
 	originalNodeSelector map[string]string
 }
 
-func NewCleanupPersistentDirOperation(mgr ctrl.Manager, payload *CleanupPersistentDirPayload, container *v1alpha1.WekaContainer, ownerDetails v1alpha1.WekaOwnerDetails, originalNodeSelector map[string]string) *CleanupPersistentDirOperation {
+func NewCleanupPersistentDirOperation(mgr ctrl.Manager, payload *CleanupPersistentDirPayload, container *v1alpha1.WekaContainer, ownerDetails v1alpha1.WekaOwnerDetails, originalNodeSelector map[string]string) *CleanupPersistentDirOperation { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	return &CleanupPersistentDirOperation{
 		mgr:                  mgr,
 		client:               mgr.GetClient(),

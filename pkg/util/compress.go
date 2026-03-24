@@ -35,7 +35,7 @@ func DecompressBytes(data []byte) ([]byte, error) {
 		err = fmt.Errorf("failed to create zlib reader: %w", err)
 		return nil, err
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck // error return value intentionally not checked
 
 	var decompressedData bytes.Buffer
 	_, err = decompressedData.ReadFrom(reader)

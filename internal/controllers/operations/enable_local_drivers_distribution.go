@@ -110,7 +110,7 @@ func NewEnsureDistServiceOperation(
 	mgr ctrl.Manager,
 	payload *weka.DriverDistPayload,
 	policy *weka.WekaPolicy,
-	containerDetails weka.WekaOwnerDetails,
+	containerDetails weka.WekaOwnerDetails, //nolint:gocritic // hugeParam: WekaOwnerDetails is a value type; pointer would require API changes
 	ownerStatus string,
 	successCallback lifecycle.StepFunc,
 	failureCallback lifecycle.StepFunc,
@@ -139,7 +139,7 @@ func (o *EnsureDistServiceOperation) GetJsonResult() string {
 		"message": "All builds completed",
 		// TODO: Add more details like number of builders, errors, etc.
 	}
-	resultJSON, _ := json.Marshal(status)
+	resultJSON, _ := json.Marshal(status) //nolint:errcheck // marshal of known-serializable struct; error not possible
 	return string(resultJSON)
 }
 
@@ -151,7 +151,7 @@ func (o *EnsureDistServiceOperation) GetSteps() []lifecycle.Step {
 		&lifecycle.SimpleStep{Name: "EnsureDistContainer", Run: o.EnsureDistContainer},
 		&lifecycle.SimpleStep{Name: "EnsureBuilderContainers", Run: o.EnsureBuilderContainers},
 		&lifecycle.SimpleStep{Name: "PollBuilderContainersStatus", Run: o.PollBuilderContainersStatus},
-		//{Name: "CleanupOldBuilderContainers", Run: o.CleanupOldBuilderContainers}, // Optional: remove builders for stale image/kernel/arch
+		// {Name: "CleanupOldBuilderContainers", Run: o.CleanupOldBuilderContainers}, // Optional: remove builders for stale image/kernel/arch
 		&lifecycle.SimpleStep{Name: "UpdatePolicyStatusAndCallback", Run: o.UpdatePolicyStatusAndCallback},
 	}
 }
@@ -201,10 +201,10 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 				logger.Error(err, "Failed to list nodes with selector", "selector", sel.String())
 				return err // Failing the step if any selector list fails
 			}
-			for _, node := range currentNodes.Items {
-				if _, exists := nodesToProcessMap[node.Name]; !exists {
+			for i := range currentNodes.Items {
+				if _, exists := nodesToProcessMap[currentNodes.Items[i].Name]; !exists {
 					// This node hasn't been matched by a previous selector in the payload list, so record it with current selector.
-					nodesToProcessMap[node.Name] = nodeProcessingInfo{node: node, nodeSelector: selectorMap}
+					nodesToProcessMap[currentNodes.Items[i].Name] = nodeProcessingInfo{node: currentNodes.Items[i], nodeSelector: selectorMap}
 				}
 			}
 		}
@@ -215,14 +215,14 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 			logger.Error(err, "Failed to list all nodes")
 			return err
 		}
-		for _, node := range allNodesList.Items {
-			nodesToProcessMap[node.Name] = nodeProcessingInfo{node: node, nodeSelector: nil} // No specific payload selector
+		for i := range allNodesList.Items {
+			nodesToProcessMap[allNodesList.Items[i].Name] = nodeProcessingInfo{node: allNodesList.Items[i], nodeSelector: nil} // No specific payload selector
 		}
 	}
 
 	var processingItems []nodeProcessingInfo
-	for _, item := range nodesToProcessMap {
-		processingItems = append(processingItems, item)
+	for k := range nodesToProcessMap {
+		processingItems = append(processingItems, nodesToProcessMap[k])
 	}
 
 	return workers.ProcessConcurrently(ctx, processingItems, 32, func(ctx context.Context, item nodeProcessingInfo) error {
@@ -299,12 +299,12 @@ func (o *EnsureDistServiceOperation) DiscoverImages(ctx context.Context) error {
 		logger.Error(err, "Failed to list WekaClusters")
 		// Not returning error, proceed with EnsureImages if any
 	} else {
-		for _, cluster := range wekaClusterList.Items {
-			if cluster.Spec.Image != "" {
-				o.discoveredImages[cluster.Spec.Image] = true
+		for i := range wekaClusterList.Items {
+			if wekaClusterList.Items[i].Spec.Image != "" {
+				o.discoveredImages[wekaClusterList.Items[i].Spec.Image] = true
 			}
-			if cluster.Status.LastAppliedImage != "" {
-				o.discoveredImages[cluster.Status.LastAppliedImage] = true
+			if wekaClusterList.Items[i].Status.LastAppliedImage != "" {
+				o.discoveredImages[wekaClusterList.Items[i].Status.LastAppliedImage] = true
 			}
 		}
 	}
@@ -313,9 +313,9 @@ func (o *EnsureDistServiceOperation) DiscoverImages(ctx context.Context) error {
 	if err := o.client.List(ctx, &wekaClientList); err != nil {
 		logger.Error(err, "Failed to list WekaClients")
 	} else {
-		for _, wc := range wekaClientList.Items {
-			if wc.Spec.Image != "" {
-				o.discoveredImages[wc.Spec.Image] = true
+		for i := range wekaClientList.Items {
+			if wekaClientList.Items[i].Spec.Image != "" {
+				o.discoveredImages[wekaClientList.Items[i].Spec.Image] = true
 			}
 		}
 	}
@@ -430,9 +430,9 @@ func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) er
 	logger.Info("Ensuring drivers distribution (dist) container", "container", containerName, "namespace", namespace)
 
 	if o.containerDetails.Image == "" {
-		err := fmt.Errorf("image for drivers-dist container is not specified in WekaPolicy spec")
-		logger.Error(err, "Cannot create dist container")
-		return err
+		imgErr := fmt.Errorf("image for drivers-dist container is not specified in WekaPolicy spec")
+		logger.Error(imgErr, "Cannot create dist container")
+		return imgErr
 	}
 
 	wc := &weka.WekaContainer{
@@ -499,10 +499,10 @@ func (o *EnsureDistServiceOperation) DeleteIfNodeNotReady(ctx context.Context, c
 	if err := o.client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("Node not found, deleting dist container", "container", wc.Name, "node", nodeName)
-			err := o.client.Delete(ctx, container)
+			deleteErr := o.client.Delete(ctx, container)
 
 			return lifecycle.NewWaitErrorWithDuration(
-				fmt.Errorf("node %s not found, deleting dist container %s, err: %w", nodeName, wc.Name, err),
+				fmt.Errorf("node %s not found, deleting dist container %s, err: %w", nodeName, wc.Name, deleteErr),
 				time.Second*10,
 			)
 		}
@@ -511,10 +511,10 @@ func (o *EnsureDistServiceOperation) DeleteIfNodeNotReady(ctx context.Context, c
 
 	if NodeNotReady(node) {
 		logger.Info("Node is not ready, deleting dist container", "container", wc.Name, "node", nodeName)
-		err := o.client.Delete(ctx, container)
+		deleteErr := o.client.Delete(ctx, container)
 
 		return lifecycle.NewWaitErrorWithDuration(
-			fmt.Errorf("node %s is not ready, deleting dist container %s, err: %w", nodeName, wc.Name, err),
+			fmt.Errorf("node %s is not ready, deleting dist container %s, err: %w", nodeName, wc.Name, deleteErr),
 			time.Second*10,
 		)
 	}
@@ -594,10 +594,10 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 						return builderNodeSelector
 					}(),
 					// Instructions to tell the builder what kernel/arch to build for
-					//Instructions: &weka.Instructions{
-					//	Type:    "build-drivers",
-					//	Payload: fmt.Sprintf(`{"kernel": "%s", "arch": "%s", "osImage":"%s"}`, ka.kernelVersion, ka.architecture, ka.osImage),
-					//},
+					// Instructions: &weka.Instructions{
+					// 	Type:    "build-drivers",
+					// 	Payload: fmt.Sprintf(`{"kernel": "%s", "arch": "%s", "osImage":"%s"}`, ka.kernelVersion, ka.architecture, ka.osImage),
+					// },
 					// PreRunScript for kernel verification if needed, though scheduling should handle it.
 					// Example: wc.Spec.Overrides = &weka.WekaContainerSpecOverrides{ PreRunScript: "..." }
 					// Resources: Define appropriate resources for a builder container
@@ -689,12 +689,12 @@ func (o *EnsureDistServiceOperation) PollBuilderContainersStatus(ctx context.Con
 		}
 	}
 
-	for _, wc := range builderList.Items {
+	for i := range builderList.Items {
 		// Only count builders that are part of the current desired set
-		if !activeBuilders[wc.Name] {
+		if !activeBuilders[builderList.Items[i].Name] {
 			continue
 		}
-		if wc.Status.Status == weka.Completed {
+		if builderList.Items[i].Status.Status == weka.Completed {
 			completed++
 		} else {
 			// Consider Error, Building, PodNotRunning etc. as NotCompleted
@@ -745,11 +745,11 @@ func (o *EnsureDistServiceOperation) CleanupOldBuilderContainers(ctx context.Con
 		}
 	}
 
-	for _, wc := range existingBuilderList.Items {
-		if !currentBuilders[wc.Name] {
-			logger.Info("Deleting stale builder container", "name", wc.Name)
-			if err := o.client.Delete(ctx, &wc); err != nil && !apierrors.IsNotFound(err) {
-				logger.Error(err, "Failed to delete stale builder container", "name", wc.Name)
+	for i := range existingBuilderList.Items {
+		if !currentBuilders[existingBuilderList.Items[i].Name] {
+			logger.Info("Deleting stale builder container", "name", existingBuilderList.Items[i].Name)
+			if err := o.client.Delete(ctx, &existingBuilderList.Items[i]); err != nil && !apierrors.IsNotFound(err) {
+				logger.Error(err, "Failed to delete stale builder container", "name", existingBuilderList.Items[i].Name)
 				// Log and continue
 			}
 		}
@@ -766,9 +766,9 @@ func (o *EnsureDistServiceOperation) UpdatePolicyStatusAndCallback(ctx context.C
 func (o *EnsureDistServiceOperation) getCommonLabels() map[string]string {
 	baseLabels := make(map[string]string)
 
-	// Add labels from WekaPolicy.ObjectMeta.Labels first
-	if o.policy.ObjectMeta.Labels != nil {
-		for k, v := range o.policy.ObjectMeta.Labels {
+	// Add labels from WekaPolicy.Labels first
+	if o.policy.Labels != nil {
+		for k, v := range o.policy.Labels {
 			baseLabels[k] = v
 		}
 	}
@@ -781,20 +781,20 @@ func (o *EnsureDistServiceOperation) getCommonLabels() map[string]string {
 }
 
 func (o *EnsureDistServiceOperation) getDistContainerLabels() map[string]string {
-	labels := o.getCommonLabels()
-	labels["app"] = o.getDistAppName() // For service selector
-	labels["weka.io/mode"] = weka.WekaContainerModeDriversDist
-	return labels
+	labelMap := o.getCommonLabels()
+	labelMap["app"] = o.getDistAppName() // For service selector
+	labelMap["weka.io/mode"] = weka.WekaContainerModeDriversDist
+	return labelMap
 }
 
 func (o *EnsureDistServiceOperation) getBuilderContainerLabels(image, kernel, arch, osImage string) map[string]string {
-	labels := o.getCommonLabels()
-	labels["weka.io/mode"] = weka.WekaContainerModeDriversBuilder
-	labels["weka.io/target-image-hash"] = hashFNV(image) // To avoid overly long label values
-	labels["weka.io/target-kernel"] = strings.ReplaceAll(kernel, ".", "-")
-	labels["weka.io/target-arch"] = arch
-	labels["weka.io/target-os"] = sanitizeOsImageForLabel(osImage)
-	return labels
+	labelMap := o.getCommonLabels()
+	labelMap["weka.io/mode"] = weka.WekaContainerModeDriversBuilder
+	labelMap["weka.io/target-image-hash"] = hashFNV(image) // To avoid overly long label values
+	labelMap["weka.io/target-kernel"] = strings.ReplaceAll(kernel, ".", "-")
+	labelMap["weka.io/target-arch"] = arch
+	labelMap["weka.io/target-os"] = sanitizeOsImageForLabel(osImage)
+	return labelMap
 }
 
 func (o *EnsureDistServiceOperation) getOldBuilderContainerName(image, kernel, arch string) string {

@@ -9,7 +9,6 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/config"
@@ -43,10 +42,9 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 	}
 
 	if container.Spec.Image != container.Status.LastAppliedImage && container.Status.LastAppliedImage != "" {
-		var wekaPodContainer v1.Container
-		wekaPodContainer, err := resources.GetWekaPodContainer(pod)
-		if err != nil {
-			return err
+		wekaPodContainer, podContainerErr := resources.GetWekaPodContainer(pod)
+		if podContainerErr != nil {
+			return podContainerErr
 		}
 
 		if wekaPodContainer.Image != container.Spec.Image {
@@ -55,18 +53,18 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 	}
 
 	if r.container.Spec.GetOverrides().PodDeleteForceReplace {
-		_ = r.writeAllowForceStopInstruction(ctx, pod, skipExec)
+		_ = r.writeAllowForceStopInstruction(ctx, pod, skipExec) //nolint:errcheck // error return value intentionally not checked
 		return r.runWekaLocalStop(ctx, pod, true)
 	}
 
 	if r.container.Spec.GetOverrides().UpgradeForceReplace {
 		if upgradeRunning {
-			_ = r.writeAllowForceStopInstruction(ctx, pod, skipExec)
+			_ = r.writeAllowForceStopInstruction(ctx, pod, skipExec) //nolint:errcheck // error return value intentionally not checked
 			return r.runWekaLocalStop(ctx, pod, true)
 		}
 	}
 
-	if container.IsBackend() && config.Config.EvictContainerOnDeletion && !(container.IsComputeContainer() && container.Spec.GetOverrides().UpgradePreventEviction) && !(container.IsProtocolContainer()) {
+	if container.IsBackend() && config.Config.EvictContainerOnDeletion && (!container.IsComputeContainer() || !container.Spec.GetOverrides().UpgradePreventEviction) && !container.IsProtocolContainer() {
 		// unless overrides were used, we are not allowing container to stop on-pod-deletion
 		// unless this was a force delete, or a force-upgrade scenario, we are not allowing container to stop on-pod-deletion and unless going deactivate flow
 		logger.Info("Evicting container on pod deletion")
@@ -87,8 +85,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 				return err
 			}
 			if !ok {
-				err := errors.New("Node is unschedulable and has active mounts")
-				return err
+				return errors.New("Node is unschedulable and has active mounts")
 			}
 		}
 
@@ -113,7 +110,8 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 	// stop weka local if container has agent
 	if r.container.HasAgent() {
 		// check instruction in pod
-		forceStop, err := r.checkAllowForceStopInstruction(ctx, pod)
+		var forceStop bool
+		forceStop, err = r.checkAllowForceStopInstruction(ctx, pod)
 		if err != nil {
 			return err
 		}
@@ -125,15 +123,15 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 		if container.IsDriveContainer() || container.IsComputeContainer() {
 			if since, ok := r.container.Status.Timestamps[string(weka.TimestampStopAttempt)]; !ok {
 				r.container.Status.Timestamps[string(weka.TimestampStopAttempt)] = metav1.Time{Time: time.Now()}
-				if err := r.Status().Update(ctx, r.container); err != nil {
-					return err
+				if updateErr := r.Status().Update(ctx, r.container); updateErr != nil {
+					return updateErr
 				}
 			} else {
 				// Get timeout from cluster overrides
 				deactivationTimeout := config.Config.Timeouts.PodTerminationDeactivationTimeout // default value
-				cluster, err := r.getCluster(ctx)
-				if err != nil {
-					return err
+				cluster, clusterErr := r.getCluster(ctx)
+				if clusterErr != nil {
+					return clusterErr
 				} else if cluster.Spec.GetOverrides().PodTerminationDeactivationTimeout != nil {
 					timeoutDuration := cluster.Spec.GetOverrides().PodTerminationDeactivationTimeout.Duration
 					if timeoutDuration == 0 {
@@ -146,13 +144,12 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 
 				// Only deactivate if timeout is not 0 (disabled) and has exceeded
 				shouldDeactivate := deactivationTimeout > 0 && time.Since(since.Time) > deactivationTimeout
-				if shouldDeactivate && !(container.Spec.GetOverrides().MigrateOutFromPvc && container.Spec.PVC != nil) {
+				if shouldDeactivate && (!container.Spec.GetOverrides().MigrateOutFromPvc || container.Spec.PVC == nil) {
 					// lets start deactivate flow, we are doing it by deleting weka container
-					if err := r.ensureStateDeleting(ctx); err != nil {
-						return err
-					} else {
-						return lifecycle.NewWaitError(errors.New("deleting weka container"))
+					if stateErr := r.ensureStateDeleting(ctx); stateErr != nil {
+						return stateErr
 					}
+					return lifecycle.NewWaitError(errors.New("deleting weka container"))
 				}
 			}
 		}

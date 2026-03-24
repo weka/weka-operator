@@ -18,7 +18,7 @@ func (r *wekaClusterReconcilerLoop) GetFeatureFlags(ctx context.Context) (*domai
 		ctx,
 		r.Manager.GetClient(),
 		r.Manager.GetScheme(),
-		operations.AdhocContainerParams{
+		&operations.AdhocContainerParams{
 			Image:              r.cluster.Spec.Image,
 			Labels:             r.cluster.GetLabels(),
 			NodeSelector:       r.cluster.Spec.NodeSelector,

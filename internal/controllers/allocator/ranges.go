@@ -55,7 +55,7 @@ func SortRanges(ranges []Range) {
 	})
 }
 
-func GetFreeRangeWithOffset(boundaries Range, ranges []Range, size int, offset int) (int, error) {
+func GetFreeRangeWithOffset(boundaries Range, ranges []Range, size, offset int) (int, error) {
 	// Adjust boundaries base by offset
 	startBoundary := boundaries.Base + offset
 
@@ -176,7 +176,7 @@ func EnsureSpecificGlobalRange(cluster *weka.WekaCluster, name string, target Ra
 
 // EnsureGlobalRangeWithOffset finds a free range within the cluster's port range starting at the given offset.
 // Similar to the original ConfigMap-based version but reads from cluster status.
-func EnsureGlobalRangeWithOffset(cluster *weka.WekaCluster, name string, size int, offset int, nodePortClaims []Range) (Range, error) {
+func EnsureGlobalRangeWithOffset(cluster *weka.WekaCluster, name string, size, offset int, nodePortClaims []Range) (Range, error) {
 	existing := getClusterPortByName(cluster, name)
 
 	// Idempotency check - if already allocated, return it

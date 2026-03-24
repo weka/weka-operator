@@ -12,18 +12,19 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/internal/services"
-	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/internal/services/exec"
-	"github.com/weka/weka-operator/pkg/util"
 	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/services"
+	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/exec"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 type MaintainTraceSession struct {
@@ -47,7 +48,7 @@ func NewMaintainTraceSession(
 	restClient rest.Interface,
 	payload *weka.RemoteTracesSessionConfig,
 	ownerRef client.Object,
-	containerDetails weka.WekaOwnerDetails,
+	containerDetails weka.WekaOwnerDetails, //nolint:gocritic // hugeParam: WekaOwnerDetails is a value type; pointer would require API changes
 	runningCallback lifecycle.StepFunc,
 	successCallback lifecycle.StepFunc,
 	failureCallback lifecycle.StepFunc,
@@ -127,7 +128,7 @@ func (o *MaintainTraceSession) GetJsonResult() string {
 		result.InProgress = true
 	}
 
-	resultJson, _ := json.Marshal(result)
+	resultJson, _ := json.Marshal(result) //nolint:errcheck // marshal of known-serializable struct; error not possible
 	return string(resultJson)
 }
 
@@ -360,7 +361,7 @@ func (o *MaintainTraceSession) EnsureDeployment(ctx context.Context) error {
 	err = o.mgr.GetClient().Create(ctx, &deployment)
 	if err != nil {
 		if alreadyExists := client.IgnoreAlreadyExists(err); alreadyExists == nil {
-			//fetch current deployment
+			// fetch current deployment
 			err = o.mgr.GetClient().Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, &deployment)
 			if err != nil {
 				return err
@@ -396,7 +397,7 @@ func (o *MaintainTraceSession) EnsureSecret(ctx context.Context) error {
 	err = o.mgr.GetClient().Create(ctx, &secret)
 	if err != nil {
 		if alreadyExists := client.IgnoreAlreadyExists(err); alreadyExists == nil {
-			//fetch current secret
+			// fetch current secret
 			err = o.mgr.GetClient().Get(ctx, client.ObjectKey{Name: secret.Name, Namespace: secret.Namespace}, &secret)
 			if err != nil {
 				return err
@@ -455,23 +456,23 @@ func (o *MaintainTraceSession) EnsureWekaNodeRoutingConfigMap(ctx context.Contex
 		Containers: make(map[int]ContainerInfo),
 	}
 
-	for _, process := range processes {
-		nodeId, err := resources.NodeIdToInt(process.NodeId)
-		if err != nil {
-			return err
+	for i := range processes {
+		nodeId, nodeErr := resources.NodeIdToInt(processes[i].NodeId)
+		if nodeErr != nil {
+			return nodeErr
 		}
-		containerId, err := resources.HostIdToContainerId(process.NodeInfo.HostId)
-		if err != nil {
-			return err
+		containerId, containerErr := resources.HostIdToContainerId(processes[i].NodeInfo.HostId)
+		if containerErr != nil {
+			return containerErr
 		}
 		data.Nodes[nodeId] = NodeInfo{
-			Slot:        process.NodeInfo.Slot,
+			Slot:        processes[i].NodeInfo.Slot,
 			ContainerID: containerId,
 		}
 		if _, ok := data.Containers[containerId]; !ok {
 			data.Containers[containerId] = ContainerInfo{
-				Name:                process.NodeInfo.ContainerName,
-				TraceServerEndpoint: process.NodeInfo.ManagementIps[0] + ":" + strconv.Itoa(process.NodeInfo.ManagementPort+50),
+				Name:                processes[i].NodeInfo.ContainerName,
+				TraceServerEndpoint: processes[i].NodeInfo.ManagementIps[0] + ":" + strconv.Itoa(processes[i].NodeInfo.ManagementPort+50),
 			}
 		}
 	}
@@ -501,7 +502,7 @@ func (o *MaintainTraceSession) EnsureWekaNodeRoutingConfigMap(ctx context.Contex
 	err = o.mgr.GetClient().Create(ctx, &configMap)
 	if err != nil {
 		if alreadyExists := client.IgnoreAlreadyExists(err); alreadyExists == nil {
-			//fetch current config map
+			// fetch current config map
 			err = o.mgr.GetClient().Get(ctx, client.ObjectKey{Name: configMap.Name, Namespace: configMap.Namespace}, &configMap)
 			if err != nil {
 				return err
@@ -580,7 +581,7 @@ func (o *MaintainTraceSession) EnsureK8sContainerRoutingConfigMap(ctx context.Co
 	err = o.mgr.GetClient().Create(ctx, &configMap)
 	if err != nil {
 		if alreadyExists := client.IgnoreAlreadyExists(err); alreadyExists == nil {
-			//fetch current config map
+			// fetch current config map
 			err = o.mgr.GetClient().Get(ctx, client.ObjectKey{Name: configMap.Name, Namespace: configMap.Namespace}, &configMap)
 			if err != nil {
 				return err
@@ -598,7 +599,11 @@ func (o *MaintainTraceSession) EnsureK8sContainerRoutingConfigMap(ctx context.Co
 
 func (o *MaintainTraceSession) ensureClusterContainers(ctx context.Context) error {
 	if len(o.containers) == 0 {
-		o.containers = discovery.GetClusterContainers(ctx, o.mgr.GetClient(), o.cluster, "")
+		containers, err := discovery.GetClusterContainers(ctx, o.mgr.GetClient(), o.cluster, "")
+		if err != nil {
+			return err
+		}
+		o.containers = containers
 	}
 	if len(o.containers) == 0 {
 		return errors.New("no cluster containers found")
@@ -622,8 +627,8 @@ func (o *MaintainTraceSession) WaitTillExpiration(ctx context.Context) error {
 	}
 
 	sleepFor := time.Minute
-	if expirationTime.Sub(time.Now()) < sleepFor {
-		sleepFor = expirationTime.Sub(time.Now())
+	if time.Until(expirationTime) < sleepFor {
+		sleepFor = time.Until(expirationTime)
 	}
 	return lifecycle.NewWaitErrorWithDuration(errors.New("waiting for session expiration"), sleepFor)
 }

@@ -3,7 +3,7 @@ package csi
 import (
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/pointer" //nolint:staticcheck // using deprecated API, will be updated separately
 )
 
 func NewCsiDriver(name string) *storagev1.CSIDriver {

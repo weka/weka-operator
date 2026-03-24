@@ -80,7 +80,7 @@ func (r *containerReconcilerLoop) AllocateNICs(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocateNICs")
 	defer end()
 
-	logger.Debug("Allocating container NICS", "name", r.container.ObjectMeta.Name)
+	logger.Debug("Allocating container NICS", "name", r.container.Name)
 
 	nicsStr, ok := r.node.Annotations[domain.WEKANICs]
 	if !ok {
@@ -113,7 +113,7 @@ func (r *containerReconcilerLoop) AllocateNICs(ctx context.Context) error {
 
 	allocationIdentifier := domain.GetAllocationIdentifier(r.container.Namespace, r.container.Name)
 	nicsAllocationsNumber := 0
-	if _, ok := annotationAllocations[allocationIdentifier]; ok {
+	if _, exists := annotationAllocations[allocationIdentifier]; exists {
 		nicsAllocationsNumber = len(annotationAllocations[allocationIdentifier].NICs)
 	} else {
 		annotationAllocations[allocationIdentifier] = domain.Allocation{NICs: []string{}}
@@ -122,19 +122,23 @@ func (r *containerReconcilerLoop) AllocateNICs(ctx context.Context) error {
 	requiredNicsNumber := r.container.Spec.NumCores
 	logger.Debug("Allocated NICs", "allocatedNICs", allocatedNICs, "container", r.container.Name)
 	if nicsAllocationsNumber >= requiredNicsNumber {
-		logger.Debug("Container already allocated NICs", "name", r.container.ObjectMeta.Name)
+		logger.Debug("Container already allocated NICs", "name", r.container.Name)
 		return nil
 	}
 	logger.Info("Allocating NICs", "requiredNicsNumber", requiredNicsNumber, "nicsAllocationsNumber", nicsAllocationsNumber, "container", r.container.Name)
 	for range make([]struct{}, requiredNicsNumber-nicsAllocationsNumber) {
 		for _, nic := range allNICs {
-			if _, ok = allocatedNICs[nic.MacAddress]; !ok {
-				allocatedNICs[nic.MacAddress] = types.Nil{}
-				logger.Debug("Allocating NIC", "nic", nic.MacAddress, "container", r.container.Name)
-				nics := append(annotationAllocations[allocationIdentifier].NICs, nic.MacAddress)
-				annotationAllocations[allocationIdentifier] = domain.Allocation{NICs: nics}
-				break
+			if _, ok = allocatedNICs[nic.MacAddress]; ok {
+				continue
 			}
+			allocatedNICs[nic.MacAddress] = types.Nil{}
+			logger.Debug("Allocating NIC", "nic", nic.MacAddress, "container", r.container.Name)
+			existing := annotationAllocations[allocationIdentifier].NICs
+			nics := make([]string, len(existing)+1)
+			copy(nics, existing)
+			nics[len(existing)] = nic.MacAddress
+			annotationAllocations[allocationIdentifier] = domain.Allocation{NICs: nics}
+			break
 		}
 	}
 	allocationsBytes, err := json.Marshal(annotationAllocations)
@@ -143,7 +147,7 @@ func (r *containerReconcilerLoop) AllocateNICs(ctx context.Context) error {
 	}
 
 	r.node.Annotations[domain.WEKAAllocations] = string(allocationsBytes)
-	return r.Client.Update(ctx, r.node)
+	return r.Update(ctx, r.node)
 }
 
 func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
@@ -261,9 +265,9 @@ func (r *containerReconcilerLoop) verifyResourcesJson(ctx context.Context, execu
 	var verifyAllocations weka.ContainerAllocations
 	readContent := stdout.String()
 	if err = json.Unmarshal([]byte(readContent), &verifyAllocations); err != nil {
-		err := fmt.Errorf("invalid JSON in resources.json: %w", err)
-		logger.Error(err, "", "content", readContent)
-		return err
+		parseErr := fmt.Errorf("invalid JSON in resources.json: %w", err)
+		logger.Error(parseErr, "", "content", readContent)
+		return parseErr
 	}
 
 	// Verify the content matches what we intended to write
@@ -330,7 +334,7 @@ func (r *containerReconcilerLoop) FormReallocationRequest(ctx context.Context) (
 	}
 
 	node := &v1.Node{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
 		return nil, fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
 
@@ -413,7 +417,7 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 	result, err := containerAllocator.ReallocateDrives(ctx, reallocRequest)
 	if err != nil {
 		logger.Error(err, "Failed to allocate additional drives for container", "container", container.Name)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "AllocateContainerDrivesError", err.Error(), time.Minute)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "AllocateContainerDrivesError", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 		return err
 	}
 

@@ -49,8 +49,10 @@ func (r *containerReconcilerLoop) upgradeConditionsPass(ctx context.Context) (bo
 	}
 
 	// check if all pods have same image
-	for _, pod := range pods {
-		for _, podContainer := range pod.Spec.Containers {
+	for i := range pods {
+		for j := range pods[i].Spec.Containers {
+			podContainer := &pods[i].Spec.Containers[j]
+			pod := &pods[i]
 			if r.pod != nil && pod.UID == r.pod.UID {
 				// skip self
 				continue
@@ -72,11 +74,6 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 
 	container := r.container
 	pod := r.pod
-
-	upgradeType := container.Spec.UpgradePolicyType
-	if upgradeType == "" {
-		upgradeType = weka.UpgradePolicyTypeManual
-	}
 
 	var wekaPodContainer v1.Container
 	wekaPodContainer, err := resources.GetWekaPodContainer(pod)
@@ -103,19 +100,19 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 
 		canUpgrade, err := r.upgradeConditionsPass(ctx)
 		if err != nil || !canUpgrade {
-			err := fmt.Errorf("cannot upgrade: %w", err)
+			upgradeErr := fmt.Errorf("cannot upgrade: %w", err)
 
 			// if we are in all-at-once upgrade mode, check if we already
 			// have CondContainerImageUpdated set to false with the same reason
 			// In this case, consider this as expected error
 			if container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeAllAtOnce {
 				cond := meta.FindStatusCondition(container.Status.Conditions, condition.CondContainerImageUpdated)
-				if cond != nil && cond.Status == metav1.ConditionFalse && cond.Message == err.Error() {
-					return lifecycle.NewExpectedError(err)
+				if cond != nil && cond.Status == metav1.ConditionFalse && cond.Message == upgradeErr.Error() {
+					return lifecycle.NewExpectedError(upgradeErr)
 				}
 			}
 
-			return err
+			return upgradeErr
 		}
 
 		if wekaPodContainer.Image != container.Spec.Image {
@@ -123,10 +120,10 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				err = r.runFrontendUpgradePrepare(ctx)
 				if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 					logger.Info("No wekafs driver found, force terminating pod")
-					err := r.writeAllowForceStopInstruction(ctx, pod, false)
-					if err != nil {
-						logger.Error(err, "Error writing allow force stop instruction")
-						return err
+					writeErr := r.writeAllowForceStopInstruction(ctx, pod, false)
+					if writeErr != nil {
+						logger.Error(writeErr, "Error writing allow force stop instruction")
+						return writeErr
 					}
 					return r.deletePod(ctx, pod)
 				}

@@ -20,12 +20,12 @@ import (
 )
 
 func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
-	template allocator.ClusterTemplate,
+	template allocator.ClusterTemplate, //nolint:gocritic // ClusterTemplate is passed by value intentionally, changing to pointer would break all callers
 	hp allocator.ContainerHugepages,
 	role, name string,
 ) (*wekav1alpha1.WekaContainer, error) {
 	labels := RequiredWekaContainerLabels(cluster.UID, cluster.Name, role)
-	labels = util2.MergeMaps(cluster.ObjectMeta.GetLabels(), labels)
+	labels = util2.MergeMaps(cluster.GetLabels(), labels)
 
 	annotations := cluster.GetAnnotationsForRole(role)
 	network := cluster.GetNetworkForRole(role)

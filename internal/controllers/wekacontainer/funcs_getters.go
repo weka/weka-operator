@@ -346,7 +346,10 @@ func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*
 		return nil, fmt.Errorf("error getting cluster: %w", err)
 	}
 
-	clusterContainers := discovery.GetClusterContainers(ctx, r.Manager.GetClient(), cluster, "")
+	clusterContainers, err := discovery.GetClusterContainers(ctx, r.Manager.GetClient(), cluster, "")
+	if err != nil {
+		return nil, fmt.Errorf("error getting cluster containers: %w", err)
+	}
 	if len(clusterContainers) == 0 {
 		err := fmt.Errorf("no containers found in cluster %s", cluster.Name)
 		return nil, err
@@ -395,9 +398,9 @@ func (r *containerReconcilerLoop) pickMatchingNode(ctx context.Context) (*v1.Nod
 
 	// if container has affinity, try to find node that satisfies it
 	if r.container.Spec.Affinity != nil {
-		for _, node := range nodes {
-			if kubernetes.NodeSatisfiesAffinity(&node, r.container.Spec.Affinity) {
-				return &node, nil
+		for i := range nodes {
+			if kubernetes.NodeSatisfiesAffinity(&nodes[i], r.container.Spec.Affinity) {
+				return &nodes[i], nil
 			}
 		}
 	} else {

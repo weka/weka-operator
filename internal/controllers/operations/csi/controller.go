@@ -90,8 +90,8 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 	return util2.HashStruct(spec)
 }
 
-func GetCSIControllerName(CSIGroupName string) string {
-	return strings.Replace(CSIGroupName, ".", "-", -1) + "-weka-csi-controller"
+func GetCSIControllerName(csiGroupName string) string {
+	return strings.ReplaceAll(csiGroupName, ".", "-") + "-weka-csi-controller"
 }
 
 func GetCsiDriverName(csiGroup string) string {
@@ -99,7 +99,7 @@ func GetCsiDriverName(csiGroup string) string {
 }
 
 func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient) (*appsv1.Deployment, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "NewCsiControllerDeployment")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "NewCsiControllerDeployment")
 	defer end()
 
 	name := GetCSIControllerName(csiGroupName)
@@ -125,7 +125,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 	}
 
 	nodeSelector := wekaClient.Spec.NodeSelector
-	namespace, _ := util2.GetPodNamespace()
+	namespace, _ := util2.GetPodNamespace() //nolint:errcheck // namespace used for object metadata only; failure falls back to empty string
 
 	privileged := true
 	replicas := int32(2)

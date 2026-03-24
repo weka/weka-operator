@@ -27,9 +27,9 @@ import (
 const bootScriptConfigName = "weka-boot-scripts"
 
 func NewContainerController(mgr ctrl.Manager, restClient rest.Interface) *ContainerController {
-	config := mgr.GetConfig()
+	restConfig := mgr.GetConfig()
 	kClient := mgr.GetClient()
-	execService := exec.NewExecService(restClient, config)
+	execService := exec.NewExecService(restClient, restConfig)
 	return &ContainerController{
 		Client:        kClient,
 		Scheme:        mgr.GetScheme(),

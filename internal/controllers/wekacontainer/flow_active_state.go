@@ -26,7 +26,7 @@ import (
 // ActiveStateFlow returns the steps for a container in the active state
 func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 	// First part of the flow
-	steps1 := []lifecycle.Step{
+	steps := []lifecycle.Step{
 		&lifecycle.SimpleStep{
 			// TODO: check if this is still needed
 			Run: r.migrateEnsurePorts,
@@ -633,7 +633,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		},
 	}
 
-	steps := append(steps1, metricsSteps...)
+	steps = append(steps, metricsSteps...)
 	steps = append(steps, csiSteps...)
 	steps = append(steps, steps2...)
 
@@ -672,7 +672,8 @@ func (r *containerReconcilerLoop) checkPodUnhealthy(ctx context.Context) error {
 
 	if !podContainersReady {
 		// check pod's RESTARTS
-		for _, containerStatus := range pod.Status.ContainerStatuses {
+		for i := range pod.Status.ContainerStatuses {
+			containerStatus := &pod.Status.ContainerStatuses[i]
 			if containerStatus.Name == "weka-container" {
 				if containerStatus.RestartCount > 0 {
 					err := r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy)
@@ -713,7 +714,7 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 
 		var wekaContainers []weka.WekaContainer
 		var err error
-		if !(r.container.IsProtocolContainer() && !config.Config.AllowMultipleProtocolsPerNode) {
+		if !r.container.IsProtocolContainer() || config.Config.AllowMultipleProtocolsPerNode {
 			wekaContainers, err = r.KubeService.GetWekaContainersSimple(ctx, r.container.GetNamespace(), node, r.container.GetLabels())
 			if err != nil {
 				return err
@@ -725,18 +726,19 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 			}
 		}
 
-		for _, wc := range wekaContainers {
+		for i := range wekaContainers {
+			wc := &wekaContainers[i]
 			if wc.UID == r.container.UID {
 				continue // that's us, skipping
 			}
 
 			if wc.Status.NodeAffinity != "" {
 				// evicting for reschedule
-				ctx, logger, end := instrumentation.GetLogSpan(ctx, "enforceNodeAffinity-evict")
+				spanCtx, logger, end := instrumentation.GetLogSpan(ctx, "enforceNodeAffinity-evict")
 				logger.Info("Another container is already using this node, evicting it", "other_container", wc.Name, "container_name", r.container.Name, "node", node)
 				//goland:noinspection ALL
-				defer end()
-				if err := r.ensureStateDeleting(ctx); err != nil {
+				end()
+				if err := r.ensureStateDeleting(spanCtx); err != nil {
 					return err
 				}
 				return lifecycle.NewWaitError(errors.New("scheduling race, deleting current container"))
@@ -827,7 +829,7 @@ func (r *containerReconcilerLoop) deletePodIfUnschedulable(ctx context.Context) 
 			}
 		}
 
-		_ = r.RecordEvent(
+		_ = r.RecordEvent( //nolint:errcheck // error return value intentionally not checked
 			v1.EventTypeWarning,
 			"UnschedulablePod",
 			fmt.Sprintf("Pod is unschedulable since %s, deleting it", unschedulableSince),

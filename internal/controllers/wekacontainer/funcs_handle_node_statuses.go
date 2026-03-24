@@ -31,14 +31,14 @@ func (r *containerReconcilerLoop) HandleNodeNotReady(ctx context.Context) error 
 	if !NodeIsReady(node) {
 		err := fmt.Errorf("node %s is not ready", node.Name)
 
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", err.Error(), time.Minute)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 		// if node is not ready, we should terminate the pod and let it be rescheduled
 		if pod != nil && pod.Status.Phase == v1.PodRunning {
 			logger.Info("Deleting pod on NotReady node", "pod", pod.Name)
-			err := r.deletePod(ctx, pod)
+			deleteErr := r.deletePod(ctx, pod)
 			return lifecycle.NewWaitErrorWithDuration(
-				fmt.Errorf("deleting pod on NotReady node, err: %w", err),
+				fmt.Errorf("deleting pod on NotReady node, err: %w", deleteErr),
 				time.Second*15,
 			)
 		}
@@ -79,7 +79,7 @@ func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
 		_, err := r.KubeService.GetNode(ctx, k8sTypes.NodeName(affinity))
 		if err != nil {
 			if apierrors.IsNotFound(err) {
-				deleteError := r.Client.Delete(ctx, r.container)
+				deleteError := r.Delete(ctx, r.container)
 				if deleteError != nil {
 					return deleteError
 				}
@@ -119,7 +119,7 @@ func (r *containerReconcilerLoop) deleteIfTolerationsMismatch(ctx context.Contex
 		"container", r.container.Name,
 		"node", r.node.Name)
 
-	_ = r.RecordEvent(v1.EventTypeNormal, "TolerationMismatch", "Toleration mismatch, deleting container")
+	_ = r.RecordEvent(v1.EventTypeNormal, "TolerationMismatch", "Toleration mismatch, deleting container") //nolint:errcheck // error return value intentionally not checked
 
 	return services.SetContainerStateDeleting(ctx, r.container, r.Client)
 }
@@ -154,7 +154,7 @@ func (r *containerReconcilerLoop) deleteIfNodeSelectorMismatch(ctx context.Conte
 		"node", r.node.Name,
 		"nodeSelector", r.container.Spec.NodeSelector)
 
-	_ = r.RecordEvent(v1.EventTypeNormal, "NodeSelectorMismatch", "Node selector mismatch, deleting container")
+	_ = r.RecordEvent(v1.EventTypeNormal, "NodeSelectorMismatch", "Node selector mismatch, deleting container") //nolint:errcheck // error return value intentionally not checked
 
 	return services.SetContainerStateDeleting(ctx, r.container, r.Client)
 }

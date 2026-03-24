@@ -62,7 +62,8 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		nodeAffinity = container.GetNodeAffinity()
 
 		if nodeAffinity == "" {
-			node, err := r.pickMatchingNode(ctx)
+			var node *v1.Node
+			node, err = r.pickMatchingNode(ctx)
 			if err != nil {
 				return err
 			}
@@ -86,7 +87,8 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 
 	if r.IsNotAlignedImage() && !container.Spec.GetOverrides().UpgradeForceReplace {
 		// do not create pod with spec image if we know in advance that we cannot upgrade
-		canUpgrade, err := r.upgradeConditionsPass(ctx)
+		var canUpgrade bool
+		canUpgrade, err = r.upgradeConditionsPass(ctx)
 		if err != nil || !canUpgrade {
 			logger.Info("Cannot upgrade to new image, using last applied", "image", image, "error", err)
 			image = container.Status.LastAppliedImage
@@ -101,7 +103,7 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 		owner := ownerRef[0]
 
-		joinIps, _ := services.ClustersCachedInfo.GetJoinIps(ctx, string(owner.UID), owner.Name, container.Namespace)
+		joinIps, _ := services.ClustersCachedInfo.GetJoinIps(ctx, string(owner.UID), owner.Name, container.Namespace) //nolint:errcheck // error return value intentionally not checked
 		if len(joinIps) > 0 {
 			container.Spec.JoinIps = joinIps
 		}
@@ -114,13 +116,13 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 			image = override
 		} else {
 			node := &v1.Node{}
-			if err := r.Get(ctx, client.ObjectKey{Name: string(nodeAffinity)}, node); err != nil {
-				return errors.Wrap(err, "failed to get target node for drivers-builder")
+			if getErr := r.Get(ctx, client.ObjectKey{Name: string(nodeAffinity)}, node); getErr != nil {
+				return errors.Wrap(getErr, "failed to get target node for drivers-builder")
 			}
 			builderImage := drivers.GetBuilderImageForNode(node)
 			image = builderImage
 
-			payloadBytes, _ := json.Marshal(map[string]string{
+			payloadBytes, _ := json.Marshal(map[string]string{ //nolint:errcheck // error return value intentionally not checked
 				"targetImage": container.Spec.Image,
 				"cliImage":    builderImage,
 			})
@@ -157,12 +159,12 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		desiredPod.Annotations[consts.PodConfigVersionAnnotation] = podConfigVer
 	}
 
-	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
-		return errors.Wrapf(err, "Error setting controller reference")
+	if refErr := ctrl.SetControllerReference(container, desiredPod, r.Scheme); refErr != nil {
+		return errors.Wrapf(refErr, "Error setting controller reference")
 	}
 
-	if err := r.Create(ctx, desiredPod); err != nil {
-		return errors.Wrap(err, "Failed to create pod")
+	if createErr := r.Create(ctx, desiredPod); createErr != nil {
+		return errors.Wrap(createErr, "Failed to create pod")
 	}
 	r.pod = desiredPod
 	err = r.refreshPod(ctx)

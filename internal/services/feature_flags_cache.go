@@ -41,6 +41,7 @@ func HasFeatureFlags(ctx context.Context, image string) bool {
 
 // FeatureFlagsCache is exposed for backwards compatibility but prefer using
 // the package-level functions GetFeatureFlags, SetFeatureFlags, HasFeatureFlags.
+//
 // Deprecated: Use GetFeatureFlags, SetFeatureFlags, HasFeatureFlags instead.
 var FeatureFlagsCache FeatureFlagsCacheService = &featureFlagsCache
 

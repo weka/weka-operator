@@ -67,7 +67,7 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 
 	// Get the node
 	node := &v1.Node{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
 		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
 
@@ -81,14 +81,14 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 	failureDomain := r.getFailureDomain(ctx)
 
 	// Validate drive sharing configuration before allocation
-	if err := r.validateDriveSharingConfig(); err != nil {
+	if validationErr := r.validateDriveSharingConfig(); validationErr != nil {
 		var configErr *allocator.InvalidDriveSharingConfigError
-		if errors.As(err, &configErr) {
-			logger.Error(err, "Invalid drive sharing configuration")
-			_ = r.RecordEvent(v1.EventTypeWarning, "InvalidDriveSharingConfig", err.Error())
-			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
+		if errors.As(validationErr, &configErr) {
+			logger.Error(validationErr, "Invalid drive sharing configuration")
+			_ = r.RecordEvent(v1.EventTypeWarning, "InvalidDriveSharingConfig", validationErr.Error()) //nolint:errcheck // error return value intentionally not checked
+			return lifecycle.NewWaitErrorWithDuration(validationErr, 30*time.Second)
 		}
-		return err
+		return validationErr
 	}
 
 	// Determine which port allocations are needed
@@ -124,7 +124,7 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 		var insufficientDrivesErr *allocator.InsufficientDrivesError
 		if errors.As(err, &insufficientDrivesErr) {
 			logger.Error(err, "Insufficient drives on node, will retry")
-			_ = r.RecordEvent(v1.EventTypeWarning, "InsufficientDrives", err.Error())
+			_ = r.RecordEvent(v1.EventTypeWarning, "InsufficientDrives", err.Error()) //nolint:errcheck // error return value intentionally not checked
 			// Use longer wait to avoid starving other containers waiting for the lease
 			// Standard wait is ~5s, use 30s for resource exhaustion
 			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
@@ -133,7 +133,7 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 		var insufficientCapacityErr *allocator.InsufficientDriveCapacityError
 		if errors.As(err, &insufficientCapacityErr) {
 			logger.Error(err, "Insufficient drive capacity on node, will retry")
-			_ = r.RecordEvent(v1.EventTypeWarning, "InsufficientDriveCapacity", err.Error())
+			_ = r.RecordEvent(v1.EventTypeWarning, "InsufficientDriveCapacity", err.Error()) //nolint:errcheck // error return value intentionally not checked
 			// Longer wait for resource exhaustion
 			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
 		}
@@ -141,7 +141,7 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 		var portAllocationErr *allocator.PortAllocationError
 		if errors.As(err, &portAllocationErr) {
 			logger.Error(err, "Failed to allocate port ranges, will retry with backoff")
-			_ = r.RecordEvent(v1.EventTypeWarning, "PortAllocationFailed", err.Error())
+			_ = r.RecordEvent(v1.EventTypeWarning, "PortAllocationFailed", err.Error()) //nolint:errcheck // error return value intentionally not checked
 			// Longer wait for port exhaustion as well
 			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
 		}
@@ -190,16 +190,17 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 	}
 
 	portsPerContainer := allocator.GetPortsPerContainerFromFlags(featureFlags)
-	if wekaPort > 0 && agentPort > 0 {
+	switch {
+	case wekaPort > 0 && agentPort > 0:
 		allocMsg = fmt.Sprintf("Allocated %d drives, weka ports %d-%d, agent port %d", driveCount, wekaPort, wekaPort+portsPerContainer-1, agentPort)
-	} else if wekaPort > 0 {
+	case wekaPort > 0:
 		allocMsg = fmt.Sprintf("Allocated %d drives, weka ports %d-%d", driveCount, wekaPort, wekaPort+portsPerContainer-1)
-	} else if agentPort > 0 {
+	case agentPort > 0:
 		allocMsg = fmt.Sprintf("Allocated %d drives, agent port %d", driveCount, agentPort)
-	} else {
+	default:
 		allocMsg = fmt.Sprintf("Allocated %d drives", driveCount)
 	}
-	r.RecordEvent(v1.EventTypeNormal, "ResourcesAllocated", allocMsg)
+	_ = r.RecordEvent(v1.EventTypeNormal, "ResourcesAllocated", allocMsg) //nolint:errcheck // error return value intentionally not checked
 
 	return nil
 }
@@ -213,7 +214,7 @@ func (r *containerReconcilerLoop) getOwnerCluster(ctx context.Context) (*weka.We
 
 	clusterName := owners[0].Name
 	cluster := &weka.WekaCluster{}
-	err := r.Client.Get(ctx, client.ObjectKey{
+	err := r.Get(ctx, client.ObjectKey{
 		Name:      clusterName,
 		Namespace: r.container.Namespace,
 	}, cluster)

@@ -9,7 +9,6 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	apiutil "github.com/weka/weka-k8s-api/util"
-	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,7 +54,7 @@ func (r *containerReconcilerLoop) ensureProxyContainer(ctx context.Context) erro
 
 	// Check if proxy container already exists
 	existingProxy := &weka.WekaContainer{}
-	err = r.Client.Get(ctx, client.ObjectKey{
+	err = r.Get(ctx, client.ObjectKey{
 		Name:      proxyName,
 		Namespace: operatorNamespace,
 	}, existingProxy)
@@ -87,7 +86,7 @@ func (r *containerReconcilerLoop) ensureProxyContainer(ctx context.Context) erro
 	}
 
 	// Create the proxy container
-	if err := r.Client.Create(ctx, proxyContainer); err != nil {
+	if err := r.Create(ctx, proxyContainer); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			// Another drive container created it concurrently, this is fine
 			logger.Info("Proxy container already created by another reconciler")
@@ -147,8 +146,8 @@ func (r *containerReconcilerLoop) calculateProxyHugepages(ctx context.Context, n
 	defer end()
 
 	// Get the node to read annotations
-	node := &corev1.Node{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
+	node := &v1.Node{}
+	if err := r.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
 		return 0, errors.Wrap(err, "failed to get node")
 	}
 

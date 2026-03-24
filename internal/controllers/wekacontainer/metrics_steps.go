@@ -127,7 +127,7 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -135,8 +135,7 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("getContainerInfo failed: %s, status: %d", string(body), resp.StatusCode)
-		return err
+		return fmt.Errorf("getContainerInfo failed: %s, status: %d", string(body), resp.StatusCode)
 	}
 
 	var response node_agent.ContainerInfoResponse
@@ -154,7 +153,8 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	}
 
 	if r.container.HasFrontend() {
-		activeMounts, err := r.GetActiveMounts(ctx)
+		var activeMounts *int
+		activeMounts, err = r.GetActiveMounts(ctx)
 		if err != nil {
 			logger.Error(err, "Error getting active mounts")
 			return err
@@ -180,8 +180,9 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	r.container.Status.Stats.LastUpdate = metav1.NewTime(time.Now())
 
 	TracedPatch := func() error {
-		ctx, logger, end := instrumentation.GetLogSpan(ctx, "PatchContainerStatus")
+		spanCtx, logger, end := instrumentation.GetLogSpan(ctx, "PatchContainerStatus")
 		defer end()
+		ctx = spanCtx
 		ret := r.Status().Patch(ctx, r.container, patch)
 		if ret != nil {
 			logger.SetError(ret, "Error patching container status")
@@ -271,7 +272,7 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 		return errors.Wrap(err, "Error sending register request")
 	}
 
-	_ = resp.Body.Close()
+	_ = resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
 	if resp.StatusCode != http.StatusOK {
 		return errors.New("error sending register request, status: " + resp.Status)
 	}
@@ -464,7 +465,7 @@ func (r *containerReconcilerLoop) DeregisterContainerFromMetrics(ctx context.Con
 		logger.Warn("Failed to deregister container from metrics", "error", err)
 		return nil
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
 
 	if resp.StatusCode != http.StatusOK {
 		logger.Warn("Node agent returned non-200 status for deregistration", "status", resp.StatusCode)

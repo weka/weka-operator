@@ -35,17 +35,17 @@ type WekaClusterReconciler struct {
 }
 
 func NewWekaClusterController(mgr ctrl.Manager, restClient rest.Interface) *WekaClusterReconciler {
-	client := mgr.GetClient()
-	config := mgr.GetConfig()
+	k8sClient := mgr.GetClient()
+	restConfig := mgr.GetConfig()
 	scheme := mgr.GetScheme()
-	execService := exec.NewExecService(restClient, config)
+	execService := exec.NewExecService(restClient, restConfig)
 
 	ret := &WekaClusterReconciler{
-		Client:         client,
+		Client:         k8sClient,
 		Scheme:         scheme,
 		Manager:        mgr,
 		RestClient:     restClient,
-		SecretsService: services.NewSecretsService(client, scheme, execService),
+		SecretsService: services.NewSecretsService(k8sClient, scheme, execService),
 		ThrottlingMap:  throttling.NewSyncMapThrottler(),
 	}
 	return ret
@@ -76,11 +76,11 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	//// TODO: This seems buggy, lots of lost spans, dropped for now, needs re-visit
-	//ctx, err = r.GetProvisionContext(ctx, loop.cluster)
-	//if err != nil {
-	//	logger.SetError(err, "Failed to get shared cluster context")
-	//	return ctrl.Result{}, err
-	//}
+	// ctx, err = r.GetProvisionContext(ctx, loop.cluster)
+	// if err != nil {
+	// 	logger.SetError(err, "Failed to get shared cluster context")
+	// 	return ctrl.Result{}, err
+	// }
 
 	ctx, logger, end = instrumentation.GetLogSpan(ctx, "WekaClusterReconcileLoop", "cluster_uid", string(loop.cluster.GetUID()))
 	defer end()

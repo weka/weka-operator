@@ -52,8 +52,8 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 
 	clusterUUID := cluster.Status.ClusterID
 	if clusterUUID == "" {
-		err := errors.New("owner cluster UUID is not set, cannot add virtual drives")
-		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
+		missingErr := errors.New("owner cluster UUID is not set, cannot add virtual drives")
+		return lifecycle.NewWaitErrorWithDuration(missingErr, time.Second*10)
 	}
 
 	// Find the ssdproxy container on the same node
@@ -171,7 +171,7 @@ func (r *containerReconcilerLoop) addVirtualDriveViaJSONRPC(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("failed to call node agent /jsonrpc endpoint: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
 
 	// Read response body
 	respBody, readErr := io.ReadAll(resp.Body)
@@ -376,7 +376,7 @@ func (r *containerReconcilerLoop) removeVirtualDrive(ctx context.Context, virtua
 }
 
 // removeVirtualDriveViaJSONRPC removes a virtual drive by calling ssd_proxy_remove_virtual_drive via node agent
-func (r *containerReconcilerLoop) removeVirtualDriveViaJSONRPC(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string, virtualUUID string) error {
+func (r *containerReconcilerLoop) removeVirtualDriveViaJSONRPC(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token, virtualUUID string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "removeVirtualDriveViaJSONRPC")
 	defer end()
 
@@ -405,7 +405,7 @@ func (r *containerReconcilerLoop) removeVirtualDriveViaJSONRPC(ctx context.Conte
 	if err != nil {
 		return fmt.Errorf("failed to call node agent /jsonrpc endpoint: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
 
 	// Read response body
 	respBody, readErr := io.ReadAll(resp.Body)
@@ -536,7 +536,7 @@ func (r *containerReconcilerLoop) ssdProxyListPhysicalDrives(ctx context.Context
 	if err != nil {
 		return nil, fmt.Errorf("failed to call node agent /jsonrpc endpoint: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
 
 	// Read response body
 	respBody, readErr := io.ReadAll(resp.Body)
@@ -646,7 +646,7 @@ func (r *containerReconcilerLoop) ssdProxyListVirtualDrivesByPhysicalUuid(ctx co
 	if err != nil {
 		return nil, fmt.Errorf("failed to call node agent /jsonrpc endpoint for physical drive %s: %w", physicalDriveUuid, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
 
 	// Read response body
 	respBody, readErr := io.ReadAll(resp.Body)

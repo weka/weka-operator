@@ -60,7 +60,7 @@ func NewClientSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster) *v1
 	}
 }
 
-func NewCsiSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster, endpoints []string, nfsTargetIps []string) *v1.Secret {
+func NewCsiSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster, endpoints, nfsTargetIps []string) *v1.Secret {
 	nfsTargetIpsStr := ""
 	if len(nfsTargetIps) > 0 && nfsTargetIps[0] != "" {
 		nfsTargetIpsStr = strings.Join(nfsTargetIps, ",")
@@ -90,9 +90,9 @@ type SecretsService interface {
 	UpdateOperatorLoginSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error
 }
 
-func NewSecretsService(client client.Client, scheme *runtime.Scheme, service exec.ExecService) SecretsService {
+func NewSecretsService(k8sClient client.Client, scheme *runtime.Scheme, service exec.ExecService) SecretsService {
 	return &secretsService{
-		Client:      client,
+		Client:      k8sClient,
 		Scheme:      scheme,
 		ExecService: service,
 	}

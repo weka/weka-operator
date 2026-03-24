@@ -58,7 +58,7 @@ func GetPrePullDaemonSetName(ownerName, targetImage string) string {
 	return name
 }
 
-func BuildPrePullDaemonSet(cfg PrePullDaemonSetConfig) *appsv1.DaemonSet {
+func BuildPrePullDaemonSet(cfg *PrePullDaemonSetConfig) *appsv1.DaemonSet {
 	imageHash := GetPrePullImageHash(cfg.TargetImage)
 
 	labels := map[string]string{
@@ -168,21 +168,21 @@ func GetTargetNodes(ctx context.Context, c client.Client, nodeSelector map[strin
 	}
 
 	var targetNodes []corev1.Node
-	for _, node := range nodeList.Items {
+	for i := range nodeList.Items {
 		// Skip unschedulable nodes
-		if node.Spec.Unschedulable {
+		if nodeList.Items[i].Spec.Unschedulable {
 			continue
 		}
 		// Skip nodes that are not Ready
-		if NodeNotReady(&node) {
+		if NodeNotReady(&nodeList.Items[i]) {
 			continue
 		}
 		// Check if tolerations match node taints
-		if !util.CheckTolerations(node.Spec.Taints, tolerations, nil) {
+		if !util.CheckTolerations(nodeList.Items[i].Spec.Taints, tolerations, nil) {
 			continue
 		}
 
-		targetNodes = append(targetNodes, node)
+		targetNodes = append(targetNodes, nodeList.Items[i])
 	}
 
 	return targetNodes, nil
@@ -215,12 +215,12 @@ func CheckPrePullStatus(ctx context.Context, c client.Client, ds *appsv1.DaemonS
 	}
 
 	// Check status for each target node
-	for _, node := range targetNodes {
+	for i := range targetNodes {
 		status := PrePullNodeStatus{
-			NodeName: node.Name,
+			NodeName: targetNodes[i].Name,
 		}
 
-		pod, exists := nodeToPod[node.Name]
+		pod, exists := nodeToPod[targetNodes[i].Name]
 		if !exists {
 			status.Ready = false
 			status.Reason = "NoPod"

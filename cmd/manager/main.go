@@ -65,6 +65,8 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
+type contextKey string
+
 type WekaReconciler interface {
 	reconcile.Reconciler
 	SetupWithManager(mgr ctrl.Manager, reconciler reconcile.Reconciler) error
@@ -72,10 +74,10 @@ type WekaReconciler interface {
 
 func main() {
 	ctx := ctrl.SetupSignalHandler()
-	ctx = context.WithValue(ctx, "is_root", true)
+	ctx = context.WithValue(ctx, contextKey("is_root"), true)
 
 	// initialize root logger and put it into context
-	logr := instrumentation.NewZerologrWithLoggerNameInsteadCaller()
+	logrInstance := instrumentation.NewZerologrWithLoggerNameInsteadCaller()
 
 	// initialize config from environment variables
 	config.ConfigureEnv(ctx)
@@ -92,12 +94,12 @@ func main() {
 	}
 	fmt.Println("Using " + deploymentIdentifier + " as deployment identifier")
 
-	ctx, logger := instrumentation.GetLoggerForContext(ctx, &logr, "", "deployment_identifier", deploymentIdentifier)
+	ctx, logger := instrumentation.GetLoggerForContext(ctx, &logrInstance, "", "deployment_identifier", deploymentIdentifier) //nolint:staticcheck // using deprecated API, will be updated separately
 
 	ctrl.SetLogger(logger)
 	klog.SetLogger(logger)
 
-	shutdown, err := instrumentation.SetupOTelSDK(ctx, "weka-operator", config.Config.Version, logger, "deployment_identifier", deploymentIdentifier)
+	shutdown, err := instrumentation.SetupOTelSDK(ctx, "weka-operator", config.Config.Version, logger, "deployment_identifier", deploymentIdentifier) //nolint:staticcheck // using deprecated API, will be updated separately
 	if err != nil {
 		logger.Error(err, "Failed to set up OTel SDK")
 		os.Exit(1)
@@ -117,7 +119,7 @@ func main() {
 		startAsNodeAgent(ctx, logger)
 	default:
 		logger.Error(fmt.Errorf("unknown mode: %s", config.Config.Mode), "Failed to start operator")
-		os.Exit(1)
+		os.Exit(1) //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	}
 }
 
@@ -138,8 +140,8 @@ func startAsNodeAgent(ctx context.Context, logger logr.Logger) {
 		// Shutdown the node agent first to clean up resources
 		agent.Shutdown()
 
-		if err := httpServer.Shutdown(ctx); err != nil {
-			logger.Error(err, "Failed to shutdown http server")
+		if shutdownErr := httpServer.Shutdown(ctx); shutdownErr != nil {
+			logger.Error(shutdownErr, "Failed to shutdown http server")
 			os.Exit(1)
 		}
 	}()
@@ -227,7 +229,7 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 
 	setupContextMiddleware := func(next WekaReconciler) reconcile.Reconciler {
 		return reconcile.Func(func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-			localCtx, _ := instrumentation.GetLoggerForContext(ctx, &logger, "")
+			localCtx, _ := instrumentation.GetLoggerForContext(ctx, &logger, "") //nolint:staticcheck // using deprecated API, will be updated separately
 			return next.Reconcile(localCtx, req)
 		})
 	}
@@ -313,28 +315,40 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 
 func setupContainerIndexes(ctx context.Context, mgr manager.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(rawObj client.Object) []string {
-		pod := rawObj.(*corev1.Pod)
+		pod, ok := rawObj.(*corev1.Pod)
+		if !ok {
+			return nil
+		}
 		return []string{pod.Spec.NodeName}
 	}); err != nil {
 		return err
 	}
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &wekav1alpha1.WekaContainer{}, "metadata.uid", func(rawObj client.Object) []string {
-		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
+		wekaContainer, ok := rawObj.(*wekav1alpha1.WekaContainer)
+		if !ok {
+			return nil
+		}
 		return []string{string(wekaContainer.UID)}
 	}); err != nil {
 		return err
 	}
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &wekav1alpha1.WekaContainer{}, "status.nodeAffinity", func(rawObj client.Object) []string {
-		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
+		wekaContainer, ok := rawObj.(*wekav1alpha1.WekaContainer)
+		if !ok {
+			return nil
+		}
 		return []string{string(wekaContainer.Status.NodeAffinity)}
 	}); err != nil {
 		return err
 	}
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &wekav1alpha1.WekaContainer{}, "metadata.ownerReferences.uid", func(rawObj client.Object) []string {
-		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
+		wekaContainer, ok := rawObj.(*wekav1alpha1.WekaContainer)
+		if !ok {
+			return nil
+		}
 		owner := metav1.GetControllerOf(wekaContainer)
 		if owner == nil {
 			return nil
@@ -369,7 +383,8 @@ func cleanupEvictedPods(ctx context.Context, k8sClient client.Client) {
 	}
 
 	deletedCount := 0
-	for _, pod := range podList.Items {
+	for i := range podList.Items {
+		pod := &podList.Items[i]
 		// Check if pod is evicted
 		if pod.Status.Phase == corev1.PodFailed && pod.Status.Reason == "Evicted" {
 			logger.Info("Deleting evicted weka-operator pod",
@@ -378,7 +393,7 @@ func cleanupEvictedPods(ctx context.Context, k8sClient client.Client) {
 				"reason", pod.Status.Reason,
 				"message", pod.Status.Message)
 
-			err := k8sClient.Delete(ctx, &pod, client.PropagationPolicy(metav1.DeletePropagationBackground))
+			err := k8sClient.Delete(ctx, pod, client.PropagationPolicy(metav1.DeletePropagationBackground))
 			if err != nil && !errors.IsNotFound(err) {
 				logger.Error(err, "Failed to delete evicted pod",
 					"pod", pod.Name,

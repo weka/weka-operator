@@ -22,16 +22,15 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/scheme"
 	"k8s.io/utils/exec"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
 )
 
 type Exec interface {
-	Exec(ctx context.Context, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error)
-	ExecNamed(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error)
-	ExecSensitive(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error)
+	Exec(ctx context.Context, command []string) (stdout, stderr bytes.Buffer, err error)
+	ExecNamed(ctx context.Context, name string, command []string) (stdout, stderr bytes.Buffer, err error)
+	ExecSensitive(ctx context.Context, name string, command []string) (stdout, stderr bytes.Buffer, err error)
 }
 
 type PodExec struct {
@@ -53,14 +52,14 @@ func (e *ConfigurationError) Error() string {
 	return fmt.Sprintf("configuration error: %s, %v", e.Message, e.Err)
 }
 
-func NewExecWithConfig(client rest.Interface, cfg *rest.Config, pod types.NamespacedName, timeout *time.Duration, containerName, nodeName string) (Exec, error) {
+func NewExecWithConfig(restClient rest.Interface, cfg *rest.Config, pod types.NamespacedName, timeout *time.Duration, containerName, nodeName string) (Exec, error) {
 	if timeout == nil {
 		defaultTimeout := config.Config.Timeouts.KubeExecTimeout
 		timeout = &defaultTimeout
 	}
 
 	return &PodExec{
-		RestClient:    client,
+		RestClient:    restClient,
 		Pod:           pod,
 		ContainerName: containerName,
 		RestConfig:    cfg,
@@ -69,28 +68,28 @@ func NewExecWithConfig(client rest.Interface, cfg *rest.Config, pod types.Namesp
 	}, nil
 }
 
-func NewExecInPod(client rest.Interface, cfg *rest.Config, pod *v1.Pod) (Exec, error) {
-	return NewExecInPodWithTimeout(client, cfg, pod, nil)
+func NewExecInPod(restClient rest.Interface, cfg *rest.Config, pod *v1.Pod) (Exec, error) {
+	return NewExecInPodWithTimeout(restClient, cfg, pod, nil)
 }
 
-func NewExecInPodWithTimeout(client rest.Interface, cfg *rest.Config, pod *v1.Pod, timeout *time.Duration) (Exec, error) {
+func NewExecInPodWithTimeout(restClient rest.Interface, cfg *rest.Config, pod *v1.Pod, timeout *time.Duration) (Exec, error) {
 	namespacedObject := types.NamespacedName{
 		Namespace: pod.Namespace,
 		Name:      pod.Name,
 	}
-	return NewExecWithConfig(client, cfg, namespacedObject, timeout, "weka-container", pod.Spec.NodeName)
+	return NewExecWithConfig(restClient, cfg, namespacedObject, timeout, "weka-container", pod.Spec.NodeName)
 }
 
-func NewExecInPodByName(client rest.Interface, cfg *rest.Config, pod *v1.Pod, containerName string, timeout *time.Duration) (Exec, error) {
+func NewExecInPodByName(restClient rest.Interface, cfg *rest.Config, pod *v1.Pod, containerName string, timeout *time.Duration) (Exec, error) {
 	namespacedObject := types.NamespacedName{
 		Namespace: pod.Namespace,
 		Name:      pod.Name,
 	}
 
-	return NewExecWithConfig(client, cfg, namespacedObject, timeout, containerName, pod.Spec.NodeName)
+	return NewExecWithConfig(restClient, cfg, namespacedObject, timeout, containerName, pod.Spec.NodeName)
 }
 
-func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout, stderr bytes.Buffer, err error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "Exec", "command_name", name)
 	defer end()
 
@@ -152,16 +151,16 @@ func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command
 }
 
 // Exec executes a command in a pod. Logs input and output if exit code != 0. Should be used in rare cases as might reveal sensitive data.
-func (e *PodExec) Exec(ctx context.Context, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+func (e *PodExec) Exec(ctx context.Context, command []string) (stdout, stderr bytes.Buffer, err error) {
 	return e.exec(ctx, "", false, command)
 }
 
 // ExecNamed executes a command in a pod. Logs input and output if exit code != 0. However, provides a name for the span.
-func (e *PodExec) ExecNamed(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+func (e *PodExec) ExecNamed(ctx context.Context, name string, command []string) (stdout, stderr bytes.Buffer, err error) {
 	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), false, command)
 }
 
-func (e *PodExec) ExecSensitive(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+func (e *PodExec) ExecSensitive(ctx context.Context, name string, command []string) (stdout, stderr bytes.Buffer, err error) {
 	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), true, command)
 }
 
@@ -213,7 +212,7 @@ func GetOperatorPodName() (string, error) {
 	return name, nil
 }
 
-func GetOperatorPod(ctx context.Context, client client.Client) (*v1.Pod, error) {
+func GetOperatorPod(ctx context.Context, k8sClient crclient.Client) (*v1.Pod, error) {
 	namespace, err := GetPodNamespace()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get operator namespace")
@@ -225,7 +224,7 @@ func GetOperatorPod(ctx context.Context, client client.Client) (*v1.Pod, error) 
 	}
 
 	pod := &v1.Pod{}
-	err = client.Get(ctx, types.NamespacedName{
+	err = k8sClient.Get(ctx, types.NamespacedName{
 		Namespace: namespace,
 		Name:      name,
 	}, pod)
@@ -289,8 +288,8 @@ func GetKubeObjectFieldValue[T any, K runtime.Object](obj K, fieldPath string) (
 	return GetKubeFieldValue[T](unstr, fieldPath)
 }
 
-func GetKubernetesVersion(config *rest.Config) (string, error) {
-	clientset, err := kubernetes.NewForConfig(config)
+func GetKubernetesVersion(restConfig *rest.Config) (string, error) {
+	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to create kubernetes clientset")
 	}

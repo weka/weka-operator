@@ -49,8 +49,7 @@ func (api *ClusterAPI) getCluster(w rest.ResponseWriter, r *rest.Request) {
 
 	// Write the JSON response
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteJson(cluster)
-	return
+	w.WriteJson(cluster) //nolint:errcheck // error return value intentionally not checked
 }
 
 func (api *ClusterAPI) getClusterStatus(w rest.ResponseWriter, r *rest.Request) {
@@ -83,7 +82,7 @@ func (api *ClusterAPI) getClusterStatus(w rest.ResponseWriter, r *rest.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteJson(cluster.Status)
+	w.WriteJson(cluster.Status) //nolint:errcheck // error return value intentionally not checked
 }
 
 func (api *ClusterAPI) listClusters(w rest.ResponseWriter, r *rest.Request) {
@@ -102,8 +101,7 @@ func (api *ClusterAPI) listClusters(w rest.ResponseWriter, r *rest.Request) {
 
 	// Write the JSON response
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteJson(clusters)
-	return
+	w.WriteJson(clusters) //nolint:errcheck // error return value intentionally not checked
 }
 
 type CreateClusterApiResponse struct {
@@ -183,7 +181,7 @@ func (api *ClusterAPI) createCluster(w rest.ResponseWriter, r *rest.Request) {
 				return
 			}
 
-			w.WriteJson(&CreateClusterApiResponse{
+			w.WriteJson(&CreateClusterApiResponse{ //nolint:errcheck // error return value intentionally not checked
 				Message:  "Cluster created successfully, password is not available on any other API, other than this specific response, unless directly using k8s API for secrets",
 				Username: string(secret.Data["username"]),
 				Password: string(secret.Data["password"]),
@@ -192,5 +190,4 @@ func (api *ClusterAPI) createCluster(w rest.ResponseWriter, r *rest.Request) {
 		}
 		time.Sleep(1 * time.Second)
 	}
-	// w.WriteHeader(http.StatusCreated)
 }

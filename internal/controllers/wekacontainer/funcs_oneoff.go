@@ -56,14 +56,14 @@ func (r *containerReconcilerLoop) fetchResults(ctx context.Context) error {
 func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) error {
 	if r.container.IsDriversBuilder() || r.isSignOrDiscoverDrivesOperation(ctx) {
 		if r.pod != nil {
-			return r.Client.Delete(ctx, r.pod)
+			return r.Delete(ctx, r.pod)
 		}
 	}
 	if r.container.IsDriversLoaderMode() {
 		for _, c := range r.container.Status.Conditions {
 			if c.Type == condition.CondResultsProcessed && c.Status == metav1.ConditionTrue {
 				if time.Since(c.LastTransitionTime.Time) > time.Minute*5 {
-					return r.Client.Delete(ctx, r.container)
+					return r.Delete(ctx, r.container)
 				}
 			}
 		}
@@ -76,7 +76,7 @@ func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) err
 			if c.Type == condition.CondResultsProcessed && c.Status == metav1.ConditionTrue {
 				// Give a short grace period before cleanup to ensure cache is populated
 				if time.Since(c.LastTransitionTime.Time) > time.Second*30 {
-					return r.Client.Delete(ctx, r.container)
+					return r.Delete(ctx, r.container)
 				}
 			}
 		}
@@ -235,7 +235,17 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		}
 	}
 
-	//marshal blocked drives back and update annotation
+	availableDrives := 0
+	for _, entry := range updatedDrivesList {
+		if !slices.Contains(blockedDrives, entry.Serial) {
+			availableDrives++
+		}
+	}
+
+	// Update weka.io/drives extended resource
+	node.Status.Capacity[consts.ResourceDrives] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
+	node.Status.Allocatable[consts.ResourceDrives] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
+	// marshal blocked drives back and update annotation
 	blockedDrivesStr, err := json.Marshal(blockedDrives)
 	if err != nil {
 		err = fmt.Errorf("error marshalling blocked drives: %w", err)
@@ -271,7 +281,7 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 	// Read existing shared drives from annotation
 	existingDrives := []domain.SharedDriveInfo{}
 	if existingDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]; ok {
-		_ = json.Unmarshal([]byte(existingDrivesStr), &existingDrives)
+		_ = json.Unmarshal([]byte(existingDrivesStr), &existingDrives) //nolint:errcheck // error return value intentionally not checked
 	}
 
 	// Build map keyed by serial for efficient merge

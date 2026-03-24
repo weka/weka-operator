@@ -304,10 +304,10 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 	cluster.Status.Stats.Containers.Drive.Processes.Created = weka.IntMetric(int64(wekaStatus.Containers.Drives.Total * template.Cores.Drive))
 	// TODO: might be incorrect with bad drives, and better to buble up from containers
 	cluster.Status.Stats.Drives.DriveCounters.Created = weka.IntMetric(int64(wekaStatus.Drives.Total))
-	//TODO: this should go via template builder and not direct dynamic access
-	//if cluster.Spec.Dynamic.S3Containers != 0 {
-	//TODO: S3 cant be implemented this way, should buble up from containers instead(for all)
-	//}
+	// TODO: this should go via template builder and not direct dynamic access
+	// if cluster.Spec.Dynamic.S3Containers != 0 {
+	// TODO: S3 cant be implemented this way, should buble up from containers instead(for all)
+	// }
 
 	cluster.Status.Stats.IoStats.Throughput.Read = weka.IntMetric(int64(wekaStatus.Activity.SumBytesRead))
 	cluster.Status.Stats.IoStats.Throughput.Write = weka.IntMetric(int64(wekaStatus.Activity.SumBytesWritten))
@@ -462,14 +462,15 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 			},
 		},
 	}
-	if err := ctrl.SetControllerReference(r.cluster, &deployment, r.Manager.GetScheme()); err != nil {
+	err = ctrl.SetControllerReference(r.cluster, &deployment, r.Manager.GetScheme())
+	if err != nil {
 		return err
 	}
 
 	upsert := func() error {
 		existingDeployment := &apps.Deployment{}
-		err := r.getClient().Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, existingDeployment)
-		if err == nil {
+		getErr := r.getClient().Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, existingDeployment)
+		if getErr == nil {
 			// Deployment exists, check if hash changed
 			currentHash := existingDeployment.Spec.Template.Annotations["weka.io/monitoring-service-hash"]
 			if currentHash != targetHash {
@@ -477,11 +478,11 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 					"targetHash", targetHash, "currentHash", currentHash)
 
 				// Preserve the existing resource version and UID for proper updates
-				deployment.ObjectMeta.ResourceVersion = existingDeployment.ObjectMeta.ResourceVersion
-				deployment.ObjectMeta.UID = existingDeployment.ObjectMeta.UID
+				deployment.ResourceVersion = existingDeployment.ResourceVersion
+				deployment.UID = existingDeployment.UID
 
-				if err := r.getClient().Update(ctx, &deployment); err != nil {
-					return errors.Wrap(err, "Failed to update monitoring deployment")
+				if updateErr := r.getClient().Update(ctx, &deployment); updateErr != nil {
+					return errors.Wrap(updateErr, "Failed to update monitoring deployment")
 				}
 				logger.Info("Monitoring service deployment updated successfully")
 				return nil
@@ -492,14 +493,15 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 		}
 
 		// Deployment doesn't exist, create it
-		if err := r.getClient().Create(ctx, &deployment); err != nil {
-			return errors.Wrap(err, "Failed to create monitoring deployment")
+		if createErr := r.getClient().Create(ctx, &deployment); createErr != nil {
+			return errors.Wrap(createErr, "Failed to create monitoring deployment")
 		}
 		logger.Info("Monitoring service deployment created", "hash", targetHash)
 		return nil
 	}
 
-	if err := upsert(); err != nil {
+	err = upsert()
+	if err != nil {
 		return err
 	}
 
@@ -512,9 +514,9 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 	}
 	// find running pod
 	var pod *v1.Pod
-	for _, p := range pods {
-		if p.Status.Phase == v1.PodRunning {
-			pod = &p
+	for i := range pods {
+		if pods[i].Status.Phase == v1.PodRunning {
+			pod = &pods[i]
 			break
 		}
 	}
@@ -537,7 +539,7 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 		return err
 	}
 
-	data, err := metrics.BuildClusterPrometheusMetrics(ctx, r.cluster, status)
+	data, err := metrics.BuildClusterPrometheusMetrics(ctx, r.cluster, &status)
 	if err != nil {
 		return err
 	}
@@ -563,7 +565,7 @@ mv /data/metrics.tmp /data/metrics
 func tickCounter(counters *sync.Map, key string, value int64) {
 	val, ok := counters.Load(key)
 	if ok {
-		ptr := val.(int64)
+		ptr := val.(int64) //nolint:errcheck // error is intentionally ignored
 		ptr += value
 		counters.Store(key, ptr)
 	} else {
@@ -574,7 +576,7 @@ func tickCounter(counters *sync.Map, key string, value int64) {
 func getCounter(counters *sync.Map, key string) int64 {
 	val, ok := counters.Load(key)
 	if ok {
-		ptr := val.(int64)
+		ptr := val.(int64) //nolint:errcheck // error is intentionally ignored
 		return ptr
 	}
 	return 0

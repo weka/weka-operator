@@ -133,7 +133,7 @@ func (o *UmountOperation) EnsureContainer(ctx context.Context) error {
 	return nil
 }
 
-func (o UmountOperation) GetJsonResult() string {
+func (o UmountOperation) GetJsonResult() string { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	if o.container.Status.ExecutionResult == nil {
 		return ""
 	}

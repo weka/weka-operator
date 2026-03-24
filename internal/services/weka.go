@@ -255,8 +255,8 @@ type NfsInterfaceGroup struct {
 }
 
 type WekaUserResponse struct {
-	//OrgId    int    `json:"org_id"`
-	//PosixGid string `json:"posix_gid"`
+	// OrgId    int    `json:"org_id"`
+	// PosixGid string `json:"posix_gid"`
 	// PosixUid string `json:"posix_uid"`
 	// Role     string `json:"role"`
 	// S3Policy string `json:"s3_policy"`
@@ -332,7 +332,7 @@ type Process struct {
 	}
 }
 
-func (p Process) GetProcessId() int {
+func (p Process) GetProcessId() int { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	id, err := resources.NodeIdToProcessId(p.NodeId)
 	if err != nil {
 		return -1
@@ -353,7 +353,7 @@ type WekaService interface {
 	GetWekaStatus(ctx context.Context) (WekaStatusResponse, error)
 	CreateFilesystem(ctx context.Context, name, group string, params FSParams) error
 	CreateFilesystemGroup(ctx context.Context, name string) error
-	ConfigureNfs(ctx context.Context, nfsParams NFSParams) error
+	ConfigureNfs(ctx context.Context, nfsParams *NFSParams) error
 	EnsureNfsIpRanges(ctx context.Context, interfaceGroupName string, targetIpRanges []string) error
 	GetS3Cluster(ctx context.Context) (*S3Cluster, error)
 	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
@@ -374,11 +374,11 @@ type WekaService interface {
 	EnsureUser(ctx context.Context, username, password, role string) error
 	EnsureNoUser(ctx context.Context, username string) error
 	SetWekaHome(ctx context.Context, WekaHomeConfig weka.WekaHomeConfig) error
-	EmitCustomEvent(ctx context.Context, msg string, k8sVersion string) error
+	EmitCustomEvent(ctx context.Context, msg, k8sVersion string) error
 	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]weka.Drive, error)
 	ListContainerDrives(ctx context.Context, containerId int) ([]weka.Drive, error)
 	DeactivateContainer(ctx context.Context, containerId int) error
-	SupportsFlag(ctx context.Context, command string, flagName string) bool
+	SupportsFlag(ctx context.Context, command, flagName string) bool
 	AddDrive(ctx context.Context, containerId int, devicePath string, pool *string) error
 	RemoveDrive(ctx context.Context, driveUuid string) error
 	RemoveContainer(ctx context.Context, containerId int, noUnimprint bool) error
@@ -389,19 +389,19 @@ type WekaService interface {
 	GetWekaContainer(ctx context.Context, containerId int) (*WekaClusterContainer, error)
 	GetCapacity(ctx context.Context) (WekaCapacityInfo, error)
 	ConfigureDataServicesGlobalConfig(ctx context.Context) error
-	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
+	// GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
-func NewWekaService(ExecService exec.ExecService, container *weka.WekaContainer) WekaService {
+func NewWekaService(execService exec.ExecService, container *weka.WekaContainer) WekaService {
 	return &CliWekaService{
-		execService: ExecService,
+		execService: execService,
 		Container:   container,
 	}
 }
 
-func NewWekaServiceWithTimeout(ExecService exec.ExecService, container *weka.WekaContainer, timeout *time.Duration) WekaService {
+func NewWekaServiceWithTimeout(execService exec.ExecService, container *weka.WekaContainer, timeout *time.Duration) WekaService {
 	return &CliWekaService{
-		execService: ExecService,
+		execService: execService,
 		Container:   container,
 		timeout:     timeout,
 	}
@@ -442,8 +442,7 @@ func (c *CliWekaService) ListProcesses(ctx context.Context, listOptions ProcessL
 		filters = append(filters, fmt.Sprintf("containerId=%d", *listOptions.ContainerId))
 	}
 	if len(filters) != 0 {
-		cmdParts = append(cmdParts, "--filter")
-		cmdParts = append(cmdParts, strings.Join(filters, ","))
+		cmdParts = append(cmdParts, "--filter", strings.Join(filters, ","))
 	}
 
 	err := c.RunJsonCmd(ctx, cmdParts, "ListProcesses", &processes)
@@ -465,8 +464,7 @@ func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOp
 		filters = append(filters, fmt.Sprintf("status=%s", *listOptions.Status))
 	}
 	if len(filters) != 0 {
-		cmdParts = append(cmdParts, "--filter")
-		cmdParts = append(cmdParts, strings.Join(filters, ","))
+		cmdParts = append(cmdParts, "--filter", strings.Join(filters, ","))
 	}
 
 	err := c.RunJsonCmd(ctx, cmdParts, "ListDrives", &drives)
@@ -486,7 +484,7 @@ func (c *CliWekaService) SetWekaHome(ctx context.Context, wekaHomeConfig weka.We
 		return err
 	}
 	statsStr := "--cloud-stats off"
-	if *wekaHomeConfig.EnableStats == true {
+	if *wekaHomeConfig.EnableStats {
 		statsStr = "--cloud-stats on"
 	}
 
@@ -532,7 +530,7 @@ fi
 
 }
 
-func (c *CliWekaService) EmitCustomEvent(ctx context.Context, msg string, k8sVersion string) error {
+func (c *CliWekaService) EmitCustomEvent(ctx context.Context, msg, k8sVersion string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EmitCustomEvent")
 	defer end()
 
@@ -565,21 +563,21 @@ func (c *CliWekaService) EnsureNoUser(ctx context.Context, username string) erro
 	}
 
 	for _, user := range existingUsers {
-		if user.Username == username {
-			executor, err := c.getExecutor(ctx)
-			if err != nil {
-				logger.SetError(err, "Failed to get executor")
-				return err
-			}
-			cmd := fmt.Sprintf("wekaauthcli user delete %s", username)
-			_, stderr, err := executor.ExecSensitive(ctx, "RemoveUser", []string{"bash", "-ce", cmd})
-			if err != nil {
-				logger.SetError(err, "Failed to remove user", "stderr", stderr.String())
-				return err
-			}
-			return nil
+		if user.Username != username {
+			continue
 		}
-
+		executor, err := c.getExecutor(ctx)
+		if err != nil {
+			logger.SetError(err, "Failed to get executor")
+			return err
+		}
+		cmd := fmt.Sprintf("wekaauthcli user delete %s", username)
+		_, stderr, err := executor.ExecSensitive(ctx, "RemoveUser", []string{"bash", "-ce", cmd})
+		if err != nil {
+			logger.SetError(err, "Failed to remove user", "stderr", stderr.String())
+			return err
+		}
+		return nil
 	}
 	return nil
 }
@@ -993,9 +991,9 @@ func (c *CliWekaService) EnsureNfsInterfaceGroupPorts(ctx context.Context, inter
 
 	// Parse the response
 	var interfaceGroups []NfsInterfaceGroup
-	if err := json.Unmarshal(stdout.Bytes(), &interfaceGroups); err != nil {
-		logger.SetError(err, "Failed to parse NFS interface group JSON", "stdout", stdout.String())
-		return err
+	if parseErr := json.Unmarshal(stdout.Bytes(), &interfaceGroups); parseErr != nil {
+		logger.SetError(parseErr, "Failed to parse NFS interface group JSON", "stdout", stdout.String())
+		return parseErr
 	}
 
 	if len(interfaceGroups) == 0 {
@@ -1097,8 +1095,8 @@ func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params)
 		"--envoy-admin-port", strconv.Itoa(s3Params.EnvoyAdminPort),
 		"--internal-port", strconv.Itoa(s3Params.S3Port),
 		"--container", commaSeparatedInts(s3Params.ContainerIds),
-		//"--container-name", s3Params.MinioContainerName,
-		//"--envoy-container-name", s3Params.EnvoyContainerName,
+		// "--container-name", s3Params.MinioContainerName,
+		// "--envoy-container-name", s3Params.EnvoyContainerName,
 	}
 
 	// Append additional cluster create args from S3Config
@@ -1165,7 +1163,7 @@ func (c *CliWekaService) DeleteS3Cluster(ctx context.Context) error {
 	return nil
 }
 
-func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams NFSParams) error {
+func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams *NFSParams) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ConfigureNfs")
 	defer end()
 
@@ -1277,9 +1275,9 @@ func (c *CliWekaService) EnsureNfsIpRanges(ctx context.Context, interfaceGroupNa
 
 	// Parse the response
 	var interfaceGroups []NfsInterfaceGroup
-	if err := json.Unmarshal(stdout.Bytes(), &interfaceGroups); err != nil {
-		logger.SetError(err, "Failed to parse NFS interface group JSON", "stdout", stdout.String())
-		return err
+	if unmarshalErr := json.Unmarshal(stdout.Bytes(), &interfaceGroups); unmarshalErr != nil {
+		logger.SetError(unmarshalErr, "Failed to parse NFS interface group JSON", "stdout", stdout.String())
+		return unmarshalErr
 	}
 
 	if len(interfaceGroups) == 0 {
@@ -1412,8 +1410,7 @@ func (c *CliWekaService) CreateFilesystem(ctx context.Context, name, group strin
 	}
 
 	if params.ThinProvisioningEnabled {
-		cmd = append(cmd, "--thin-provision-max-ssd", params.TotalCapacity)
-		cmd = append(cmd, "--thin-provision-min-ssd", params.ThickProvisioningCapacity)
+		cmd = append(cmd, "--thin-provision-max-ssd", params.TotalCapacity, "--thin-provision-min-ssd", params.ThickProvisioningCapacity)
 	}
 
 	if params.IsEncrypted {
@@ -1483,7 +1480,7 @@ func (c *CliWekaService) DeactivateContainer(ctx context.Context, containerId in
 	return nil
 }
 
-func (c *CliWekaService) SupportsFlag(ctx context.Context, command string, flagName string) bool {
+func (c *CliWekaService) SupportsFlag(ctx context.Context, command, flagName string) bool {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SupportsFlag", "command", command, "flag", flagName)
 	defer end()
 
@@ -1505,9 +1502,9 @@ func (c *CliWekaService) SupportsFlag(ctx context.Context, command string, flagN
 		logger.Debug("Command has no executable part", "command", command)
 		return false
 	}
-	cmd := append(cmdParts, "--help")
+	cmdParts = append(cmdParts, "--help")
 
-	stdout, stderr, err := executor.ExecNamed(ctx, "CheckFlagSupport", cmd)
+	stdout, stderr, err := executor.ExecNamed(ctx, "CheckFlagSupport", cmdParts)
 	if err != nil {
 		logger.Debug("Flag is not supported or help command failed", "error", err)
 		return false
@@ -1559,7 +1556,7 @@ func (c *CliWekaService) RemoveDrive(ctx context.Context, driveUuid string) erro
 	}
 	_, stderr, err := executor.ExecNamed(ctx, "RemoveDrive", cmd)
 	// handle error: The given drive "3b265a18-3e1a-45ab-abe3-a7729497cb1a" does not exist.
-	notExistErr := fmt.Sprintf("The given drive \"%s\" does not exist", driveUuid)
+	notExistErr := fmt.Sprintf("The given drive %q does not exist", driveUuid)
 	if err != nil && strings.Contains(stderr.String(), notExistErr) {
 		return nil
 	}
@@ -1718,7 +1715,8 @@ func (c *CliWekaService) GetCapacity(ctx context.Context) (WekaCapacityInfo, err
 	var obsCount, activeObsCount int64
 
 	// Calculate total capacity information
-	for _, fs := range filesystems {
+	for fsIdx := range filesystems {
+		fs := &filesystems[fsIdx]
 		// Skip filesystems that are not ready
 		if !fs.IsReady {
 			continue
@@ -1741,8 +1739,8 @@ func (c *CliWekaService) GetCapacity(ctx context.Context) (WekaCapacityInfo, err
 			obsCount += int64(len(fs.ObsBuckets))
 
 			// Count active buckets (with status "UP")
-			for _, bucket := range fs.ObsBuckets {
-				if bucket.Status == "UP" {
+			for bucketIdx := range fs.ObsBuckets {
+				if fs.ObsBuckets[bucketIdx].Status == "UP" {
 					activeObsCount++
 				}
 			}

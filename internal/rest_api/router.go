@@ -11,12 +11,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func NewClusterAPI(k8sRestClient k8sRest.Interface, config *k8sRest.Config, client client.Client, logger logr.Logger) *ClusterAPI {
+func NewClusterAPI(k8sRestClient k8sRest.Interface, config *k8sRest.Config, k8sClient client.Client, logger logr.Logger) *ClusterAPI {
 	api := rest.NewApi()
 	api.Use(rest.DefaultDevStack...)
 
 	clusterAPI := &ClusterAPI{
-		client:        client,
+		client:        k8sClient,
 		logger:        logger.WithName("ClusterAPI"),
 		api:           api,
 		k8sRestClient: k8sRestClient,
@@ -56,7 +56,7 @@ func (api *ClusterAPI) StartServer(ctx context.Context) {
 }
 
 func (api *ClusterAPI) index(w rest.ResponseWriter, r *rest.Request) {
-	w.WriteJson(map[string]string{"message": "Welcome to the Weka Operator Cluster API"})
+	w.WriteJson(map[string]string{"message": "Welcome to the Weka Operator Cluster API"}) //nolint:errcheck // error return value intentionally not checked
 }
 
 func (api *ClusterAPI) registerRoutes() {

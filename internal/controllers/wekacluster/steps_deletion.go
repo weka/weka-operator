@@ -83,7 +83,7 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 	}
 
 	gracefulDestroyDuration := r.cluster.GetGracefulDestroyDuration()
-	deletionTime := cluster.GetDeletionTimestamp().Time.Add(gracefulDestroyDuration)
+	deletionTime := cluster.GetDeletionTimestamp().Add(gracefulDestroyDuration)
 
 	logger.Info("Cluster is in graceful deletion", "deletionTime", deletionTime)
 
@@ -181,7 +181,7 @@ func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	defer end()
 
 	gracefulDestroyDuration := r.cluster.GetGracefulDestroyDuration()
-	deletionTime := r.cluster.GetDeletionTimestamp().Time.Add(gracefulDestroyDuration)
+	deletionTime := r.cluster.GetDeletionTimestamp().Add(gracefulDestroyDuration)
 	logger.Debug("Not graceful deletion", "deletionTime", deletionTime, "now", time.Now(), "gracefulDestroyDuration", gracefulDestroyDuration)
 
 	err := r.updateClusterStatusIfNotEquals(ctx, weka.WekaClusterStatusDestroying)
@@ -237,17 +237,17 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	}
 
 	if len(wekaClients) > 0 {
-		err := fmt.Errorf("cannot delete cluster with dependent WekaClients, please delete them first")
+		clientsErr := fmt.Errorf("cannot delete cluster with dependent WekaClients, please delete them first")
 
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "DependentWekaClients", err.Error(), time.Second*30)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "DependentWekaClients", clientsErr.Error(), time.Second*30) //nolint:errcheck // error is intentionally ignored
 
-		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
+		return lifecycle.NewWaitErrorWithDuration(clientsErr, time.Second*15)
 	}
 
 	err = clusterService.EnsureNoContainers(ctx, weka.WekaContainerModeS3)
 	if err != nil {
 		reason := fmt.Sprintf("EnsureNo%sContainersError", weka.WekaContainerModeS3)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30) //nolint:errcheck // error is intentionally ignored
 
 		return err
 	}
@@ -255,7 +255,7 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	err = clusterService.EnsureNoContainers(ctx, weka.WekaContainerModeNfs)
 	if err != nil {
 		reason := fmt.Sprintf("EnsureNo%sContainersError", weka.WekaContainerModeNfs)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30) //nolint:errcheck // error is intentionally ignored
 
 		return err
 	}
@@ -271,7 +271,7 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	err = clusterService.EnsureNoContainers(ctx, "")
 	if err != nil {
 		reason := "EnsureNoContainersError"
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30) //nolint:errcheck // error is intentionally ignored
 
 		return err
 	}

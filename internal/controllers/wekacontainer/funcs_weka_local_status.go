@@ -24,7 +24,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	if node != nil && !NodeIsReady(node) {
 		err := fmt.Errorf("node %s is not ready", node.Name)
 
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", err.Error(), time.Minute)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 		logger.Info("Skipping weka local status reconciliation on NotReady node", "node", node.Name)
 
@@ -58,8 +58,8 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 				r.container.Spec.DriversBuildId, r.container.Spec.DriversDistService, r.container.HasFrontend(), true)
 			loaderErr := operations.ExecuteOperation(ctx, driversLoader)
 			if loaderErr != nil {
-				err := fmt.Errorf("drivers are not loaded: %v; %v", driversErr, loaderErr)
-				return lifecycle.NewWaitError(err)
+				driversLoadErr := fmt.Errorf("drivers are not loaded: %v; %v", driversErr, loaderErr)
+				return lifecycle.NewWaitError(driversLoadErr)
 			}
 
 			err = fmt.Errorf("weka local ps failed: %v", err)
@@ -70,16 +70,16 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 
 	err = r.checkContainerNotFound(localContainers, err)
 	if err != nil {
-		if err := r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy); err != nil {
-			return err
+		if statusErr := r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy); statusErr != nil {
+			return statusErr
 		}
 		return lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
 	}
 
 	var localContainer services.WekaLocalContainer
-	for _, c := range localContainers {
-		if c.Name == container.Spec.WekaContainerName {
-			localContainer = c
+	for i := range localContainers {
+		if localContainers[i].Name == container.Spec.WekaContainerName {
+			localContainer = localContainers[i]
 			break
 		}
 	}
@@ -95,7 +95,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 			"Container is not ready, status: %s, last failure: %s (%s)",
 			internalStatus, localContainer.LastFailure, localContainer.LastFailureTime,
 		)
-		r.RecordEventThrottled(v1.EventTypeWarning, "WekaLocalStatus", msg, time.Minute)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "WekaLocalStatus", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
 	}
 
 	// skip status update for DrivesAdding (if still adding drives)
@@ -108,14 +108,14 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	}
 
 	containerStatus := weka.ContainerStatus(status)
-	if container.Status.Status != containerStatus && r.IsStatusOverwritableByLocal() || container.Status.InternalStatus != internalStatus {
+	if (container.Status.Status != containerStatus && r.IsStatusOverwritableByLocal()) || container.Status.InternalStatus != internalStatus {
 		logger.Debug("Updating status", "old_status", container.Status.Status, "new_status", containerStatus, "old_internal_status", container.Status.InternalStatus, "new_internal_status", internalStatus)
 		if r.IsStatusOverwritableByLocal() {
 			container.Status.Status = containerStatus
 		}
 		container.Status.InternalStatus = internalStatus
-		if err := r.Status().Update(ctx, container); err != nil {
-			return err
+		if updateErr := r.Status().Update(ctx, container); updateErr != nil {
+			return updateErr
 		}
 		logger.WithValues("status", status, "internal_status", internalStatus).Info("Status updated")
 		return nil
@@ -132,15 +132,16 @@ func (r *containerReconcilerLoop) checkContainerNotFound(localPsResponse []servi
 	}
 
 	found := false
-	for _, c := range localPsResponse {
-		if c.Name == container.Spec.WekaContainerName {
+	for i := range localPsResponse {
+		switch {
+		case localPsResponse[i].Name == container.Spec.WekaContainerName:
 			found = true
-			break
-		} else if c.Name == "envoy" && container.IsEnvoy() {
+		case localPsResponse[i].Name == "envoy" && container.IsEnvoy():
 			found = true
-			break
-		} else if c.Name == "telemetry" && container.IsTelemetry() {
+		case localPsResponse[i].Name == "telemetry" && container.IsTelemetry():
 			found = true
+		}
+		if found {
 			break
 		}
 	}

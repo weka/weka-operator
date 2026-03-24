@@ -70,8 +70,8 @@ func (api *ClusterAPI) updateClusterPassword(w rest.ResponseWriter, r *rest.Requ
 
 	username := cluster.GetOperatorClusterUsername()
 	if username != string(existingCredentials.Data["username"]) {
-		err := pretty.Errorf("Username mismatch")
-		logger.Error(err, "Username mismatch")
+		mismatchErr := pretty.Errorf("Username mismatch")
+		logger.Error(mismatchErr, "Username mismatch")
 		rest.Error(w, "Username mismatch", http.StatusInternalServerError)
 		return
 	}
@@ -90,8 +90,8 @@ func (api *ClusterAPI) updateClusterPassword(w rest.ResponseWriter, r *rest.Requ
 		),
 	}
 
-	if err := api.updateCredentialsSecret(ctx, cluster, password); err != nil {
-		logger.Error(err, "Failed to update credentials secret")
+	if updateErr := api.updateCredentialsSecret(ctx, cluster, password); updateErr != nil {
+		logger.Error(updateErr, "Failed to update credentials secret")
 		rest.Error(w, "Failed to update credentials secret", http.StatusInternalServerError)
 		return
 	}
@@ -106,7 +106,7 @@ func (api *ClusterAPI) updateClusterPassword(w rest.ResponseWriter, r *rest.Requ
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (api *ClusterAPI) validateClusterExists(ctx context.Context, name string, namespace string) (*wekav1alpha1.WekaCluster, error) {
+func (api *ClusterAPI) validateClusterExists(ctx context.Context, name, namespace string) (*wekav1alpha1.WekaCluster, error) {
 	logger := api.logger.WithName("validateClusterExists")
 
 	if name == "" || namespace == "" {

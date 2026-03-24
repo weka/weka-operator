@@ -124,7 +124,7 @@ func (r *wekaClusterReconcilerLoop) cleanupTempFile(ctx context.Context, executo
 		return
 	}
 	// Best effort cleanup, don't fail if it doesn't work
-	_, _, _ = executor.ExecNamed(ctx, "CleanupTempFile", []string{"bash", "-c", fmt.Sprintf("rm -f %s", path)})
+	_, _, _ = executor.ExecNamed(ctx, "CleanupTempFile", []string{"bash", "-c", fmt.Sprintf("rm -f %s", path)}) //nolint:errcheck // error is intentionally ignored
 }
 
 // calculateTelemetryHash creates a deterministic hash of telemetry config for change detection.
@@ -341,38 +341,6 @@ func (r *wekaClusterReconcilerLoop) disableAutoStartTelemetryContainer(ctx conte
 	return nil
 }
 
-// enableTelemetryInfo enables telemetry via config override
-func (r *wekaClusterReconcilerLoop) enableTelemetryInfo(ctx context.Context, executor util.Exec) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "enableTelemetryInfo")
-	defer end()
-
-	cmd := "weka debug config override telemetryInfo.enabled true"
-	_, stderr, err := executor.ExecNamed(ctx, "EnableTelemetryInfo", []string{"bash", "-ce", cmd})
-	if err != nil {
-		stderrStr := stderr.String()
-		return errors.Wrapf(err, "failed to enable telemetry info: %s", stderrStr)
-	}
-
-	logger.Info("Telemetry info enabled successfully")
-	return nil
-}
-
-// disableTelemetryInfo disables telemetry via config override
-func (r *wekaClusterReconcilerLoop) disableTelemetryInfo(ctx context.Context, executor util.Exec) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "disableTelemetryInfo")
-	defer end()
-
-	cmd := "weka debug config override telemetryInfo.enabled false"
-	_, stderr, err := executor.ExecNamed(ctx, "DisableTelemetryInfo", []string{"bash", "-ce", cmd})
-	if err != nil {
-		stderrStr := stderr.String()
-		return errors.Wrapf(err, "failed to disable telemetry info: %s", stderrStr)
-	}
-
-	logger.Info("Telemetry info disabled successfully")
-	return nil
-}
-
 // enableAuditCluster runs `weka audit cluster enable`
 func (r *wekaClusterReconcilerLoop) enableAuditCluster(ctx context.Context, executor util.Exec) error {
 	_, logger, end := instrumentation.GetLogSpan(ctx, "enableAuditCluster")
@@ -486,14 +454,14 @@ func (r *wekaClusterReconcilerLoop) addTelemetryExport(ctx context.Context, exec
 	// Handle CA certificate if configured
 	var caCertPath string
 	if export.Splunk.CACertSecretRef != nil && *export.Splunk.CACertSecretRef != "" {
-		caCert, err := r.getSecretValue(ctx, *export.Splunk.CACertSecretRef, r.cluster.Namespace)
-		if err != nil {
-			return errors.Wrapf(err, "failed to get CA cert for export %s", exportName)
+		caCert, caErr := r.getSecretValue(ctx, *export.Splunk.CACertSecretRef, r.cluster.Namespace)
+		if caErr != nil {
+			return errors.Wrapf(caErr, "failed to get CA cert for export %s", exportName)
 		}
 
-		caCertPath, err = r.writeSecretToTempFile(ctx, executor, caCert, "splunk-cacert")
-		if err != nil {
-			return errors.Wrapf(err, "failed to write CA cert to temp file for export %s", exportName)
+		caCertPath, caErr = r.writeSecretToTempFile(ctx, executor, caCert, "splunk-cacert")
+		if caErr != nil {
+			return errors.Wrapf(caErr, "failed to write CA cert to temp file for export %s", exportName)
 		}
 		defer r.cleanupTempFile(ctx, executor, caCertPath)
 	}
@@ -577,14 +545,14 @@ func (r *wekaClusterReconcilerLoop) updateTelemetryExport(ctx context.Context, e
 	// Handle CA certificate if configured
 	var caCertPath string
 	if export.Splunk.CACertSecretRef != nil && *export.Splunk.CACertSecretRef != "" {
-		caCert, err := r.getSecretValue(ctx, *export.Splunk.CACertSecretRef, r.cluster.Namespace)
-		if err != nil {
-			return errors.Wrapf(err, "failed to get CA cert for export %s", export.Name)
+		caCert, caErr := r.getSecretValue(ctx, *export.Splunk.CACertSecretRef, r.cluster.Namespace)
+		if caErr != nil {
+			return errors.Wrapf(caErr, "failed to get CA cert for export %s", export.Name)
 		}
 
-		caCertPath, err = r.writeSecretToTempFile(ctx, executor, caCert, "splunk-cacert")
-		if err != nil {
-			return errors.Wrapf(err, "failed to write CA cert to temp file for export %s", export.Name)
+		caCertPath, caErr = r.writeSecretToTempFile(ctx, executor, caCert, "splunk-cacert")
+		if caErr != nil {
+			return errors.Wrapf(caErr, "failed to write CA cert to temp file for export %s", export.Name)
 		}
 		defer r.cleanupTempFile(ctx, executor, caCertPath)
 	}

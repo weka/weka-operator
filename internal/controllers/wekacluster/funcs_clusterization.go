@@ -106,12 +106,12 @@ func (r *wekaClusterReconcilerLoop) InitialContainersReady(ctx context.Context) 
 
 	if driveContainersCount < minDriveContainers {
 		err := fmt.Errorf("not enough drive containers ready, expected %d, got %d", minDriveContainers, driveContainersCount)
-		r.RecordEvent("", "MinContainersNotReady", err.Error())
+		r.RecordEvent("", "MinContainersNotReady", err.Error()) //nolint:errcheck // error is intentionally ignored
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 	if computeContainersCount < minComputeContainers {
 		err := fmt.Errorf("not enough compute containers ready, expected %d, got %d", minComputeContainers, computeContainersCount)
-		r.RecordEvent("", "MinContainersNotReady", err.Error())
+		r.RecordEvent("", "MinContainersNotReady", err.Error()) //nolint:errcheck // error is intentionally ignored
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
@@ -123,12 +123,12 @@ func (r *wekaClusterReconcilerLoop) InitialContainersReady(ctx context.Context) 
 
 	if driveContainersCount+computeContainersCount+ignoredContainersCount < expectedComputeContainersNum+expectedDriveContainersNum {
 		err := fmt.Errorf("waiting for all containers to be either ready or ignored before forming the cluster, expected %d, got %d", expectedComputeContainersNum+expectedDriveContainersNum, driveContainersCount+computeContainersCount+ignoredContainersCount)
-		r.RecordEvent("", "ContainersNotReady", err.Error())
+		r.RecordEvent("", "ContainersNotReady", err.Error()) //nolint:errcheck // error is intentionally ignored
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
 	msg := fmt.Sprintf("Initial containers are ready for cluster creation, drive containers: %d, compute containers: %d", driveContainersCount, computeContainersCount)
-	r.RecordEvent("", "InitialContainersReady", msg)
+	r.RecordEvent("", "InitialContainersReady", msg) //nolint:errcheck // error is intentionally ignored
 	logger.InfoWithStatus(codes.Ok, msg)
 
 	return nil
@@ -184,7 +184,7 @@ func (r *wekaClusterReconcilerLoop) WaitForContainersJoin(ctx context.Context) e
 		}
 		if container.Status.ClusterContainerID == nil {
 			err := fmt.Errorf("container %s does not have a cluster container id", container.Name)
-			r.RecordEvent(v1.EventTypeWarning, "ContainerJoinError", err.Error())
+			r.RecordEvent(v1.EventTypeWarning, "ContainerJoinError", err.Error()) //nolint:errcheck // error is intentionally ignored
 			return err
 		}
 	}
@@ -273,7 +273,7 @@ func (r *wekaClusterReconcilerLoop) WaitForDrivesAdd(ctx context.Context) error 
 	}
 
 	msg := fmt.Sprintf("Min drives num not added to the cluster yet, added drives: %d, min drives: %d", totalDrivesNum, minDrivesNum)
-	r.RecordEvent("", "WaitingForDrives", msg)
+	r.RecordEvent("", "WaitingForDrives", msg) //nolint:errcheck // error is intentionally ignored
 
 	return lifecycle.NewWaitErrorWithDuration(errors.New("containers did not add drives yet"), 10*time.Second)
 }
@@ -290,9 +290,9 @@ func (r *wekaClusterReconcilerLoop) StartIo(ctx context.Context) error {
 	containers := r.containers
 
 	if len(containers) == 0 {
-		err := errors.New("containers list is empty")
-		logger.Error(err, "containers list is empty")
-		return err
+		clusterErr := errors.New("containers list is empty")
+		logger.Error(clusterErr, "containers list is empty")
+		return clusterErr
 	}
 
 	kubeExecTimeout := config.Config.Timeouts.KubeExecTimeout

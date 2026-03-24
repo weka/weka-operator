@@ -552,37 +552,34 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	if f.container.HasPersistentStorage() {
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "weka-container-persistence-dir",
-			MountPath: inPodHostBinds + "/opt-weka",
-		})
-
-		// TODO: For now we are keeping ephmeral /opt/k8s-weka data along with global
-
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "weka-container-persistence-dir",
-			MountPath: "/var/log",
-			SubPath:   "var/log",
-		})
-
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name: "weka-container-persistence-dir",
-			// TODO: Should not use gethostsidepersistent
-			MountPath: inPodHostBinds + "/boot-level",
-			SubPath:   "tmpfss/boot-level",
-		})
-
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name: "weka-container-shared-dir", // shared between node-agent and pods
-			// TODO: Should not use gethostsidepersistent
-			MountPath: inPodHostBinds + "/shared",
-		})
-
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "weka-cluster-persistence-dir",
-			MountPath: inPodHostBinds + "/shared-configs",
-			SubPath:   "shared-configs",
-		})
+		// TODO: For now we are keeping ephemeral /opt/k8s-weka data along with global
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts,
+			corev1.VolumeMount{
+				Name:      "weka-container-persistence-dir",
+				MountPath: inPodHostBinds + "/opt-weka",
+			},
+			corev1.VolumeMount{
+				Name:      "weka-container-persistence-dir",
+				MountPath: "/var/log",
+				SubPath:   "var/log",
+			},
+			corev1.VolumeMount{
+				Name: "weka-container-persistence-dir",
+				// TODO: Should not use gethostsidepersistent
+				MountPath: inPodHostBinds + "/boot-level",
+				SubPath:   "tmpfss/boot-level",
+			},
+			corev1.VolumeMount{
+				Name: "weka-container-shared-dir", // shared between node-agent and pods
+				// TODO: Should not use gethostsidepersistent
+				MountPath: inPodHostBinds + "/shared",
+			},
+			corev1.VolumeMount{
+				Name:      "weka-cluster-persistence-dir",
+				MountPath: inPodHostBinds + "/shared-configs",
+				SubPath:   "shared-configs",
+			},
+		)
 
 		// Telemetry container needs shared-configs mounted to /opt/weka/external_mounts/shared_boot_level
 		// so that the telemetry gateway can auto-discover its configuration
@@ -594,35 +591,35 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			})
 		}
 
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "weka-container-persistence-dir",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: hostsideContainerPersistence,
-					Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+		pod.Spec.Volumes = append(pod.Spec.Volumes,
+			corev1.Volume{
+				Name: "weka-container-persistence-dir",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: hostsideContainerPersistence,
+						Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+					},
 				},
 			},
-		})
-
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "weka-container-shared-dir",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: hostsideSharedData,
-					Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+			corev1.Volume{
+				Name: "weka-container-shared-dir",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: hostsideSharedData,
+						Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+					},
 				},
 			},
-		})
-
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "weka-cluster-persistence-dir",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: hostsideClusterPersistence,
-					Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+			corev1.Volume{
+				Name: "weka-cluster-persistence-dir",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: hostsideClusterPersistence,
+						Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+					},
 				},
 			},
-		})
+		)
 
 		if f.container.Spec.PVC != nil {
 			// TODO: Support Path from PVC, this might/will be needed EBS support at cloud, which is optional but preferable over increase of boot volume
@@ -702,18 +699,20 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			globalCosHugepageSize := config.Config.GkeCompatibility.HugepageConfiguration.Size
 			globalCosHugepageCount := config.Config.GkeCompatibility.HugepageConfiguration.Count
 			// for discovery containers, set COS params for hugepages
-			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-				Name:  "WEKA_COS_ALLOW_HUGEPAGE_CONFIG",
-				Value: "true",
-			})
-			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-				Name:  "WEKA_COS_GLOBAL_HUGEPAGE_SIZE",
-				Value: globalCosHugepageSize,
-			})
-			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-				Name:  "WEKA_COS_GLOBAL_HUGEPAGE_COUNT",
-				Value: strconv.Itoa(globalCosHugepageCount),
-			})
+			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env,
+				corev1.EnvVar{
+					Name:  "WEKA_COS_ALLOW_HUGEPAGE_CONFIG",
+					Value: "true",
+				},
+				corev1.EnvVar{
+					Name:  "WEKA_COS_GLOBAL_HUGEPAGE_SIZE",
+					Value: globalCosHugepageSize,
+				},
+				corev1.EnvVar{
+					Name:  "WEKA_COS_GLOBAL_HUGEPAGE_COUNT",
+					Value: strconv.Itoa(globalCosHugepageCount),
+				},
+			)
 		}
 	}
 
@@ -810,32 +809,36 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 
 	// DiscoveryContainer on GKE only will force boot to set up hugepages. This is managed via Helm configuration
 	if f.container.IsDiscoveryContainer() {
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "proc-sysrq-trigger",
-			MountPath: "/hostside/proc/sysrq-trigger",
-		})
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "proc-cmdline",
-			MountPath: "/hostside/proc/cmdline",
-		})
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "proc-sysrq-trigger",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/proc/sysrq-trigger",
-					Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts,
+			corev1.VolumeMount{
+				Name:      "proc-sysrq-trigger",
+				MountPath: "/hostside/proc/sysrq-trigger",
+			},
+			corev1.VolumeMount{
+				Name:      "proc-cmdline",
+				MountPath: "/hostside/proc/cmdline",
+			},
+		)
+		pod.Spec.Volumes = append(pod.Spec.Volumes,
+			corev1.Volume{
+				Name: "proc-sysrq-trigger",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/proc/sysrq-trigger",
+						Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+					},
 				},
 			},
-		})
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "proc-cmdline",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/proc/cmdline",
-					Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+			corev1.Volume{
+				Name: "proc-cmdline",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/proc/cmdline",
+						Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+					},
 				},
 			},
-		})
+		)
 	}
 
 	if f.container.IsDriversContainer() { // Dependencies for driver-loader probably can be reduced
@@ -1077,9 +1080,7 @@ func AlignMemoryToHugepageBoundary(memoryMiB, numCores int) int {
 
 // GetHugePagesDetails returns hugepages details for a container based on its spec.
 func GetHugePagesDetails(container *weka.WekaContainer) HugePagesDetails {
-	hugePagesStr := ""
-	hugePagesK8sSuffix := "2Mi"
-	wekaMemoryString := ""
+	var hugePagesStr, hugePagesK8sSuffix, wekaMemoryString string
 	if container.Spec.HugepagesSize == "1Gi" {
 		hugePagesK8sSuffix = container.Spec.HugepagesSize
 		hugePagesStr = fmt.Sprintf("%dGi", container.Spec.Hugepages/1000)
@@ -1092,10 +1093,7 @@ func GetHugePagesDetails(container *weka.WekaContainer) HugePagesDetails {
 		wekaMemoryString = fmt.Sprintf("%dMiB", memoryMiB)
 	}
 
-	hugePagesName := corev1.ResourceName(
-		strings.Join(
-			[]string{corev1.ResourceHugePagesPrefix, hugePagesK8sSuffix},
-			""))
+	hugePagesName := corev1.ResourceName(corev1.ResourceHugePagesPrefix + hugePagesK8sSuffix)
 
 	return HugePagesDetails{
 		HugePagesStr:          hugePagesStr,
@@ -1176,7 +1174,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		}
 		switch f.container.Spec.Mode {
 		case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeSmbw, weka.WekaContainerModeDataServices:
-			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
+			totalCores -= f.container.Spec.ExtraCores // basically reducing back what we over-allocated
 		}
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr
@@ -1284,7 +1282,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	if f.container.Spec.Mode == weka.WekaContainerModeS3 {
 		s3Memory := 16000
 		managementMemory := 2450
-		perFrontendMemory := 2850 //5.1.0.8-8.13
+		perFrontendMemory := 2850 // 5.1.0.8-8.13
 		perFrontendBuffer := 200
 		buffer := 450
 		total := buffer + managementMemory + s3Memory + (perFrontendMemory+perFrontendBuffer)*f.container.Spec.NumCores + f.container.Spec.AdditionalMemory
@@ -1294,7 +1292,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	if f.container.Spec.Mode == weka.WekaContainerModeNfs {
 		nfsMemory := 16000
 		managementMemory := 2450
-		perFrontendMemory := 2850 //5.1.0.8-8.13
+		perFrontendMemory := 2850 // 5.1.0.8-8.13
 		perFrontendBuffer := 200
 		buffer := 450
 		total := buffer + managementMemory + nfsMemory + (perFrontendMemory+perFrontendBuffer)*f.container.Spec.NumCores + f.container.Spec.AdditionalMemory
@@ -1566,15 +1564,6 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 	}
 
 	if f.container.Spec.NoAffinityConstraints {
-		// TODO: Keeping this as a reference, once there is a fix for 7-containers detection, might try using FD again
-		// preserving save machine identifier. Weka still might justifiably not allow to put different FDs on the same node
-		// but then it will be cleaner ask, to have a manual override that ignores specifically that
-
-		//// set failure domain to ID of wekaContainer
-		//pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-		//	Name:  "FAILURE_DOMAIN",
-		//	Value: util.GetLastGuidPart(f.container.GetUID()),
-		//})
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "MACHINE_IDENTIFIER",
 			Value: string(f.container.GetUID()),
@@ -1591,7 +1580,7 @@ func LabelsForWekaPod(container *weka.WekaContainer) map[string]string {
 		"app.kubernetes.io/created-by": "weka-operator",
 		"weka.io/mode":                 container.Spec.Mode,
 	}
-	for k, v := range container.ObjectMeta.Labels {
+	for k, v := range container.Labels {
 		labels[k] = v
 	}
 
@@ -1656,10 +1645,10 @@ func GetPodShutdownInstructionPathOnAgent(bootId string, pod *corev1.Pod) string
 }
 
 func GetWekaPodContainer(pod *corev1.Pod) (corev1.Container, error) {
-	for _, podContainer := range pod.Spec.Containers {
-		if podContainer.Name == "weka-container" {
-			return podContainer, nil
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name == "weka-container" {
+			return pod.Spec.Containers[i], nil
 		}
 	}
-	return corev1.Container{}, errors.New("Weka container not found in pod")
+	return corev1.Container{}, errors.New("weka container not found in pod")
 }

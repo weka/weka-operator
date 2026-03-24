@@ -27,10 +27,10 @@ type WekaClusterService interface {
 }
 
 func NewWekaClusterService(mgr ctrl.Manager, restClient rest.Interface, cluster *wekav1alpha1.WekaCluster) WekaClusterService {
-	client := mgr.GetClient()
+	k8sClient := mgr.GetClient()
 	config := mgr.GetConfig()
 	return &wekaClusterService{
-		Client:      client,
+		Client:      k8sClient,
 		ExecService: exec.NewExecService(restClient, config),
 		Cluster:     cluster,
 	}
@@ -106,7 +106,6 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		hostnamesList = append(hostnamesList, container.Status.GetManagementIps()[0])
 	}
 	hostIpsStr := strings.Join(hostIps, ",")
-	//cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr) // In general not supposed to pass join secret here, but it is broken on weka. Preserving this line for quick comment/uncomment cycles
 	leadershipSizeStr := ""
 	if r.Cluster.Spec.LeadershipSize != nil {
 		leadershipSizeStr = fmt.Sprintf("--leadership-size %d", *r.Cluster.Spec.LeadershipSize)
@@ -127,7 +126,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	logger.Info("Cluster created", "stdout", stdout.String(), "stderr", stderr.String())
 
 	// update cluster name
-	clusterName := r.Cluster.ObjectMeta.Name
+	clusterName := r.Cluster.Name
 	cmd = fmt.Sprintf("weka cluster update --cluster-name %s", clusterName)
 	logger.Debug("Updating cluster name")
 	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetName", []string{"bash", "-ce", cmd})

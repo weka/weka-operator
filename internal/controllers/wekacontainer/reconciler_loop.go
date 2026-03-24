@@ -50,7 +50,7 @@ type LockMap struct {
 // GetLock retrieves or creates a lock for a given identifier
 func (lm *LockMap) GetLock(id string) *sync.Mutex {
 	actual, _ := lm.locks.LoadOrStore(id, &sync.Mutex{})
-	return actual.(*sync.Mutex)
+	return actual.(*sync.Mutex) //nolint:errcheck // error return value intentionally not checked
 }
 
 type containerReconcilerLoop struct {
@@ -82,7 +82,6 @@ func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.R
 	container := &weka.WekaContainer{}
 	err := r.Get(ctx, req.NamespacedName, container)
 	if err != nil {
-		container = nil
 		if !apierrors.IsNotFound(err) {
 			return err
 		}

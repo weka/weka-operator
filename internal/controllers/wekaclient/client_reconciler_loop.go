@@ -244,7 +244,7 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	return nil
 }
 
-func (c *clientReconcilerLoop) RecordEvent(eventtype *string, reason string, message string) error {
+func (c *clientReconcilerLoop) RecordEvent(eventtype *string, reason, message string) error {
 	if c.wekaClient == nil {
 		return fmt.Errorf("current client is nil")
 	}
@@ -328,7 +328,8 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 	}
 
 	toUpdate := []*weka.WekaContainer{}
-	for _, node := range c.nodes {
+	for i := range c.nodes {
+		node := &c.nodes[i]
 		// skip nodes that do not tolerate client tolerations
 		if _, ok := c.toleratedNodes[node.Name]; !ok {
 			continue
@@ -354,7 +355,7 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 		found := &weka.WekaContainer{}
 		err = c.Get(ctx, client.ObjectKey{Namespace: wekaContainer.Namespace, Name: wekaContainer.Name}, found)
 		if err != nil && apierrors.IsNotFound(err) {
-			err := c.resolveJoinIps(ctx)
+			err = c.resolveJoinIps(ctx)
 			if err != nil {
 				return errors.Wrap(err, "failed to resolve join ips")
 			}
@@ -368,7 +369,7 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 		} else if err == nil {
 			// container already exists, but we did not have it in our nodeToContainer map
 			// try to update labels
-			err := c.updateClientLabels(ctx, wekaContainer, found)
+			err = c.updateClientLabels(ctx, wekaContainer, found)
 			if err != nil {
 				return err
 			}
@@ -501,7 +502,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 }
 
 func (c *clientReconcilerLoop) getClientContainerName(ctx context.Context, nodeName string) (string, error) {
-	clientName := fmt.Sprintf("%s-%s", c.wekaClient.ObjectMeta.Name, nodeName)
+	clientName := fmt.Sprintf("%s-%s", c.wekaClient.Name, nodeName)
 	if len(clientName) <= 63 {
 		return clientName, nil
 	}
@@ -514,9 +515,9 @@ func (c *clientReconcilerLoop) getClientContainerName(ctx context.Context, nodeN
 	if nodeObj.Name == "" {
 		return "", errors.New("node not found")
 	}
-	clientName = fmt.Sprintf("%s-%s", c.wekaClient.ObjectMeta.Name, nodeObj.UID)
+	clientName = fmt.Sprintf("%s-%s", c.wekaClient.Name, nodeObj.UID)
 	if len(clientName) > 63 {
-		name := c.wekaClient.ObjectMeta.Name[:62-len(nodeObj.UID)]
+		name := c.wekaClient.Name[:62-len(nodeObj.UID)]
 		clientName = fmt.Sprintf("%s-%s", name, nodeObj.UID)
 	}
 	return clientName, nil
@@ -556,7 +557,7 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 	if specHash != c.wekaClient.Status.LastAppliedSpec {
 		logger.Info("Client spec has changed, updating containers")
 		for _, container := range c.containers {
-			err := c.updateContainerIfChanged(ctx, container, updatableSpec)
+			err = c.updateContainerIfChanged(ctx, container, updatableSpec)
 			if err != nil {
 				return err
 			}
@@ -782,7 +783,7 @@ func (c *clientReconcilerLoop) getApplicableNodes(ctx context.Context) ([]v1.Nod
 }
 
 func (c *clientReconcilerLoop) setToleratedNodes(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "setToleratedNodes")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "setToleratedNodes")
 	defer end()
 
 	nodes := c.nodes
@@ -795,15 +796,16 @@ func (c *clientReconcilerLoop) setToleratedNodes(ctx context.Context) error {
 		logger.Debug("Skipping node taints and client tolerations check")
 
 		// all nodes are tolerated
-		for _, node := range nodes {
-			c.toleratedNodes[node.Name] = struct{}{}
+		for i := range nodes {
+			c.toleratedNodes[nodes[i].Name] = struct{}{}
 		}
 	} else {
 		clientTolerations := util.ExpandTolerations([]v1.Toleration{}, c.wekaClient.Spec.Tolerations, c.wekaClient.Spec.RawTolerations)
 		// account for "expanded" NoSchedule tolerations
 		clientTolerations = resources.ConditionalExpandNoScheduleTolerations(clientTolerations, !config.Config.SkipClientNoScheduleToleration)
 
-		for _, node := range nodes {
+		for i := range nodes {
+			node := &nodes[i]
 			if node.Spec.Unschedulable {
 				continue
 			}
@@ -824,7 +826,7 @@ func (c *clientReconcilerLoop) setToleratedNodes(ctx context.Context) error {
 func (c *clientReconcilerLoop) GetUpgradedCount() int {
 	count := 0
 	for _, container := range c.containers {
-		if container.Status.LastAppliedImage == c.wekaClient.Spec.Image && container.Status.LastAppliedImage == container.Spec.Image {
+		if container.Status.LastAppliedImage == c.wekaClient.Spec.Image && container.Spec.Image == c.wekaClient.Spec.Image {
 			count++
 		}
 	}
@@ -837,7 +839,13 @@ func (c *clientReconcilerLoop) emitClientUpgradeCustomEvent(ctx context.Context)
 
 	logger.Info("Emitting client custom event")
 
-	activeContainer := discovery.SelectActiveContainer(c.getClusterContainers(ctx))
+	clusterContainers, err := discovery.GetClusterContainers(ctx, c.Manager.GetClient(), c.targetCluster, "")
+	if err != nil {
+		logger.Error(err, "Failed to get cluster containers for emitting client upgrade event")
+		return
+	}
+
+	activeContainer := discovery.SelectActiveContainer(clusterContainers)
 	if activeContainer == nil {
 		logger.Debug("Active cluster container not found, skipping Weka client event emit")
 		return
@@ -857,7 +865,7 @@ func (c *clientReconcilerLoop) emitClientUpgradeCustomEvent(ctx context.Context)
 
 	msg := fmt.Sprintf("Upgrading clients progress: %d:%d", count, len(c.containers))
 	wekaService := services.NewWekaService(c.ExecService, activeContainer)
-	err := wekaService.EmitCustomEvent(ctx, msg, utils.GetKubernetesVersion(c.Manager))
+	err = wekaService.EmitCustomEvent(ctx, msg, utils.GetKubernetesVersion(c.Manager))
 	if err != nil {
 		logger.Warn("Failed to emit custom event", "event", msg)
 	}
@@ -874,7 +882,7 @@ func (c *clientReconcilerLoop) RecordEventThrottled(eventtype, reason, message s
 }
 
 func (c *clientReconcilerLoop) ValidateClientVersionCompatibility(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	if c.targetCluster == nil {
@@ -895,7 +903,7 @@ func (c *clientReconcilerLoop) ValidateClientVersionCompatibility(ctx context.Co
 			"clusterVersion", clusterVersion,
 		)
 
-		_ = c.RecordEventThrottled(v1.EventTypeWarning, "ClientVersionMismatch", msg, 30*time.Second)
+		_ = c.RecordEventThrottled(v1.EventTypeWarning, "ClientVersionMismatch", msg, 30*time.Second) //nolint:errcheck // error is intentionally ignored
 
 		return lifecycle.NewWaitErrorWithDuration(errors.New(msg), 30*time.Second)
 	}
@@ -1126,7 +1134,7 @@ func getDefaultedPortRange(port, agentPort int, portRange *weka.PortRange) *weka
 
 // getDefaultedWekaSecretRef applies default WekaSecretRef logic if empty.
 // Returns the target cluster's secret name if WekaSecretRef is empty and TargetCluster.Name is set.
-func getDefaultedWekaSecretRef(wekaSecretRef string, targetClusterName string) string {
+func getDefaultedWekaSecretRef(wekaSecretRef, targetClusterName string) string {
 	// if the user didn't set a secret ref, we need to set it to the target cluster's secret ref
 	// this is needed for the client to be able to connect to the target cluster
 	if wekaSecretRef == "" && targetClusterName != "" {
@@ -1167,10 +1175,10 @@ type UpdatableClientSpec struct {
 	DpdkBaseMemoryMb        int
 }
 
-func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
-	labels := util2.NewHashableMap(factory.BuildClientContainerLabels(client))
-	spec := client.Spec
-	meta := client.ObjectMeta
+func NewUpdatableClientSpec(wekaClient *weka.WekaClient) *UpdatableClientSpec {
+	labels := util2.NewHashableMap(factory.BuildClientContainerLabels(wekaClient))
+	spec := wekaClient.Spec
+	meta := wekaClient.ObjectMeta
 
 	return &UpdatableClientSpec{
 		DriversDistService:      spec.DriversDistService,
@@ -1216,25 +1224,21 @@ func (c *clientReconcilerLoop) FetchTargetCluster(ctx context.Context) error {
 	return nil
 }
 
-func (c *clientReconcilerLoop) getClusterContainers(ctx context.Context) []*weka.WekaContainer {
-	return discovery.GetClusterContainers(ctx, c.Manager.GetClient(), c.targetCluster, "")
-}
-
 func (c *clientReconcilerLoop) CheckCsiConfigChanged(ctx context.Context) error {
 	if !config.Config.Csi.Enabled {
 		// if we are here, installation was switched off
 		return c.UndeployCsiPlugin(ctx)
 	}
 
-	//TODO: check for csi config changes
-	//ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	//defer end()
-	//csiDriverName := c.getCsiDriverName()
-	//if len(c.containers) > 0 && c.containers[0].Spec.TypedConfigs != nil && csiDriverName != c.containers[0].Spec.TypedConfigs.TypedClientConfigs.CSIDriverName {
-	//	logger.Info("CSI driver name changed, undeploying CSI plugin")
-	//	// cleanup with old name
-	//	return c.UndeployCsiPlugin(ctx)
-	//}
+	// TODO: check for csi config changes
+	// ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	// defer end()
+	// csiDriverName := c.getCsiDriverName()
+	// if len(c.containers) > 0 && c.containers[0].Spec.TypedConfigs != nil && csiDriverName != c.containers[0].Spec.TypedConfigs.TypedClientConfigs.CSIDriverName {
+	// 	logger.Info("CSI driver name changed, undeploying CSI plugin")
+	// 	// cleanup with old name
+	// 	return c.UndeployCsiPlugin(ctx)
+	// }
 	return nil
 }
 
@@ -1311,15 +1315,15 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 		return err
 	}
 
-	currentHash, _ := deployment.Spec.Template.Annotations["weka.io/csi-controller-hash"]
-	targetHash, _ := targetDeployment.Spec.Template.Annotations["weka.io/csi-controller-hash"]
+	currentHash := deployment.Spec.Template.Annotations["weka.io/csi-controller-hash"]
+	targetHash := targetDeployment.Spec.Template.Annotations["weka.io/csi-controller-hash"]
 	if targetHash != currentHash {
 		logger.Info("CSI controller deployment spec changed, updating deployment",
 			"targetHash", targetHash, "currentHash", currentHash)
 
 		// Preserve the existing resource version and UID for proper updates
-		targetDeployment.ObjectMeta.ResourceVersion = deployment.ObjectMeta.ResourceVersion
-		targetDeployment.ObjectMeta.UID = deployment.ObjectMeta.UID
+		targetDeployment.ResourceVersion = deployment.ResourceVersion
+		targetDeployment.UID = deployment.UID
 
 		operatorDeployment, err := util2.GetOperatorDeployment(ctx, c.Client)
 		if err != nil {
@@ -1332,10 +1336,10 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 			return err
 		}
 
-		ctx, _, end := instrumentation.GetLogSpan(ctx, "doUpdateCsiController")
+		spanCtx, _, end := instrumentation.GetLogSpan(ctx, "doUpdateCsiController")
 		defer end()
 
-		return c.Client.Update(ctx, targetDeployment)
+		return c.Update(spanCtx, targetDeployment)
 	}
 
 	logger.Debug("CSI controller deployment is up to date", "targetHash", targetHash, "csiImage", config.Config.Csi.WekafsImage)
@@ -1402,8 +1406,8 @@ func (c *clientReconcilerLoop) isOwnedByDifferentWekaClient(ctx context.Context,
 			"ownerWekaClient", ownerWekaClientAnnotation, "currentWekaClient", string(c.wekaClient.GetUID()))
 
 		// check if the owner WekaClient still exists
-		ownerClientName, _ := deployment.Spec.Template.Annotations["weka.io/csi-controller-owner-name"]
-		ownerClientNamespace, _ := deployment.Spec.Template.Annotations["weka.io/csi-controller-owner-namespace"]
+		ownerClientName := deployment.Spec.Template.Annotations["weka.io/csi-controller-owner-name"]
+		ownerClientNamespace := deployment.Spec.Template.Annotations["weka.io/csi-controller-owner-namespace"]
 
 		// both annotations must be present, otherwise we want to proceed with update and take ownership
 		if ownerClientName == "" || ownerClientNamespace == "" {
@@ -1456,15 +1460,15 @@ func (c *clientReconcilerLoop) UpdateCsiNodeDaemonSet(ctx context.Context) error
 		return err
 	}
 
-	currentHash, _ := daemonSet.Spec.Template.Annotations["weka.io/csi-node-hash"]
-	targetHash, _ := targetDaemonSet.Spec.Template.Annotations["weka.io/csi-node-hash"]
+	currentHash := daemonSet.Spec.Template.Annotations["weka.io/csi-node-hash"]
+	targetHash := targetDaemonSet.Spec.Template.Annotations["weka.io/csi-node-hash"]
 	if targetHash != currentHash {
 		logger.Info("CSI node daemonset spec changed, updating daemonset",
 			"targetHash", targetHash, "currentHash", currentHash)
 
 		// Preserve the existing resource version and UID for proper updates
-		targetDaemonSet.ObjectMeta.ResourceVersion = daemonSet.ObjectMeta.ResourceVersion
-		targetDaemonSet.ObjectMeta.UID = daemonSet.ObjectMeta.UID
+		targetDaemonSet.ResourceVersion = daemonSet.ResourceVersion
+		targetDaemonSet.UID = daemonSet.UID
 
 		operatorDeployment, err := util2.GetOperatorDeployment(ctx, c.Client)
 		if err != nil {
@@ -1477,10 +1481,10 @@ func (c *clientReconcilerLoop) UpdateCsiNodeDaemonSet(ctx context.Context) error
 			return err
 		}
 
-		ctx, _, end := instrumentation.GetLogSpan(ctx, "doUpdateCsiNodeDaemonSet")
+		spanCtx, _, end := instrumentation.GetLogSpan(ctx, "doUpdateCsiNodeDaemonSet")
 		defer end()
 
-		return c.Client.Update(ctx, targetDaemonSet)
+		return c.Update(spanCtx, targetDaemonSet)
 	}
 
 	logger.Debug("CSI node daemonset is up to date", "targetHash", targetHash, "csiImage", config.Config.Csi.WekafsImage)
