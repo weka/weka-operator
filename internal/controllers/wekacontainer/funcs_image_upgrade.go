@@ -84,13 +84,14 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 		return err
 	}
 
-	if container.Spec.Image != container.Status.LastAppliedImage {
+	if container.Spec.Image != container.Status.LastAppliedImage || r.IsNotAlignedClusterConfig() {
 		if container.Spec.GetOverrides().UpgradeForceReplace {
 			if pod.GetDeletionTimestamp() != nil {
 				logger.Info("Pod is being deleted, waiting")
 				return errors.New("Pod is being deleted, waiting")
 			}
-			if wekaPodContainer.Image == container.Spec.Image {
+			podAligned := pod.Annotations[resources.ClusterSpecHashAnnotation] == container.Spec.TargetClusterSpecHash
+			if wekaPodContainer.Image == container.Spec.Image && (!r.IsNotAlignedClusterConfig() || podAligned) {
 				return nil
 			}
 			err := r.writeAllowForceStopInstruction(ctx, pod, false)
@@ -118,8 +119,10 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 			return err
 		}
 
-		if wekaPodContainer.Image != container.Spec.Image {
-			if container.HasFrontend() {
+		podConfigAligned := pod.Annotations[resources.ClusterSpecHashAnnotation] == container.Spec.TargetClusterSpecHash
+		needsPodRotation := wekaPodContainer.Image != container.Spec.Image || (r.IsNotAlignedClusterConfig() && !podConfigAligned)
+		if needsPodRotation {
+			if wekaPodContainer.Image != container.Spec.Image && container.HasFrontend() {
 				err = r.runFrontendUpgradePrepare(ctx)
 				if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 					logger.Info("No wekafs driver found, force terminating pod")
@@ -139,7 +142,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				return nil
 			}
 
-			logger.Info("Deleting pod to apply new image")
+			logger.Info("Deleting pod to apply update", "imageChanged", wekaPodContainer.Image != container.Spec.Image, "configChanged", r.IsNotAlignedClusterConfig())
 			// delete pod
 			err = r.deletePod(ctx, pod)
 			if err != nil {

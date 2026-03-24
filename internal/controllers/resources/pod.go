@@ -30,6 +30,8 @@ const (
 	inPodHostBinds = "/host-binds"
 	// appliedAnnotationsKey is used to store the annotations that were applied to the pod by the operator.
 	appliedAnnotationsKey = "weka.io/applied-annotations"
+	// ClusterSpecHashAnnotation is used to track the cluster spec hash that the pod was created with.
+	ClusterSpecHashAnnotation = "weka.io/cluster-spec-hash"
 )
 
 // if the container mode is not in the map, the default is 1 year
@@ -910,6 +912,10 @@ echo "=== OTEL Init Container Completed ==="`,
 	err = f.setAffinities(ctx, pod)
 	if err != nil {
 		return nil, err
+	}
+
+	if f.container.Spec.TargetClusterSpecHash != "" {
+		pod.Annotations[ClusterSpecHashAnnotation] = f.container.Spec.TargetClusterSpecHash
 	}
 
 	return pod, nil

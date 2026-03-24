@@ -2,7 +2,6 @@ package wekacluster
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"slices"
@@ -18,7 +17,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
@@ -442,6 +440,175 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 	}).AsError()
 }
 
+// ApplyUpdatableSpecToContainer applies all updatable spec fields from the cluster to a container in-memory.
+// This is a pure in-memory function - it modifies container fields but does not persist to K8s.
+func ApplyUpdatableSpecToContainer(container *weka.WekaContainer, updatableSpec *UpdatableClusterSpec, cluster *weka.WekaCluster) {
+	role := string(container.Spec.Mode)
+
+	container.Spec.AdditionalMemory = updatableSpec.AdditionalMemory.GetForMode(container.Spec.Mode)
+
+	container.Spec.Tolerations = k8sutil.ExpandTolerations([]v1.Toleration{}, updatableSpec.Tolerations, updatableSpec.RawTolerations)
+
+	container.Spec.DriversDistService = updatableSpec.DriversDistService
+
+	container.Spec.ImagePullSecret = updatableSpec.ImagePullSecret
+
+	currentOverrides := container.Spec.GetOverrides()
+	currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplace
+	container.Spec.Overrides = currentOverrides
+
+	if container.Spec.PVC == nil && updatableSpec.PvcConfig != nil {
+		container.Spec.PVC = updatableSpec.PvcConfig
+	}
+
+	container.Spec.TracesConfiguration = updatableSpec.TracesConfiguration
+
+	container.Spec.Network = cluster.GetNetworkForRole(role)
+
+	requiredLabels := factory.RequiredWekaContainerLabels(cluster.UID, cluster.Name, role)
+	container.Labels = util.MergeMaps(cluster.ObjectMeta.GetLabels(), requiredLabels)
+
+	container.Annotations = cluster.GetAnnotationsForRole(role)
+
+	if container.Spec.Mode != weka.WekaContainerModeEnvoy {
+		container.Spec.NodeSelector = cluster.GetNodeSelectorForRole(role)
+	}
+
+	container.Spec.CoreIds = cluster.GetCoreIdsForRole(role)
+
+	container.Spec.CpuPolicy = updatableSpec.CpuPolicy
+
+	switch container.Spec.Mode {
+	case weka.WekaContainerModeCompute:
+		container.Spec.ExtraCores = updatableSpec.ComputeExtraCores
+	case weka.WekaContainerModeDrive:
+		container.Spec.ExtraCores = updatableSpec.DriveExtraCores
+	case weka.WekaContainerModeS3:
+		container.Spec.ExtraCores = updatableSpec.S3ExtraCores
+	case weka.WekaContainerModeNfs:
+		container.Spec.ExtraCores = updatableSpec.NfsExtraCores
+	case weka.WekaContainerModeDataServices:
+		container.Spec.ExtraCores = updatableSpec.DataServicesExtraCores
+	}
+
+	var targetHp, targetHpOffset int
+	switch container.Spec.Mode {
+	case weka.WekaContainerModeCompute:
+		targetHp = updatableSpec.ComputeHugepages
+		targetHpOffset = updatableSpec.ComputeHugepagesOffset
+	case weka.WekaContainerModeDrive:
+		targetHp = updatableSpec.DriveHugepages
+		targetHpOffset = updatableSpec.DriveHugepagesOffset
+	case weka.WekaContainerModeS3:
+		targetHp = updatableSpec.S3Hugepages
+		targetHpOffset = updatableSpec.S3HugepagesOffset
+	case weka.WekaContainerModeNfs:
+		targetHp = updatableSpec.NfsHugepages
+		targetHpOffset = updatableSpec.NfsHugepagesOffset
+	case weka.WekaContainerModeDataServices:
+		targetHp = updatableSpec.DataServicesHugepages
+		targetHpOffset = updatableSpec.DataServicesHugepagesOffset
+	}
+	container.Spec.Hugepages = util.GetNonZeroOrDefault(targetHp, container.Spec.Hugepages)
+	container.Spec.HugepagesOffset = util.GetNonZeroOrDefault(targetHpOffset, container.Spec.HugepagesOffset)
+
+	container.Spec.DriversLoaderImage = updatableSpec.DriversLoaderImage
+	container.Spec.DriversBuildId = updatableSpec.DriversBuildId
+}
+
+// PropagateSpecToContainer fetches the container from K8s, applies all updatable spec fields,
+// sets image and targetClusterSpecHash, then patches.
+func PropagateSpecToContainer(ctx context.Context, k8sClient client.Client, container *weka.WekaContainer, updatableSpec *UpdatableClusterSpec, cluster *weka.WekaCluster) error {
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: container.Name}, container); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	patch := client.MergeFrom(container.DeepCopy())
+
+	ApplyUpdatableSpecToContainer(container, updatableSpec, cluster)
+	container.Spec.Image = cluster.Spec.Image
+	container.Spec.TargetClusterSpecHash = clusterConfigHash(&cluster.Spec)
+
+	return k8sClient.Patch(ctx, container, patch)
+}
+
+// propagateSchedulingFields propagates tolerations, nodeSelector, cpuPolicy, coreIds, labels,
+// and annotations to ALL containers concurrently. Compares fields before patching to skip unchanged containers.
+func (r *wekaClusterReconcilerLoop) propagateSchedulingFields(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "propagateSchedulingFields")
+	defer end()
+
+	cluster := r.cluster
+	containers := r.containers
+
+	updatableSpec := NewUpdatableClusterSpec(ctx, &cluster.Spec, &cluster.ObjectMeta, containers)
+
+	return workers.ProcessConcurrently(ctx, containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
+		role := string(container.Spec.Mode)
+
+		newTolerations := k8sutil.ExpandTolerations([]v1.Toleration{}, updatableSpec.Tolerations, updatableSpec.RawTolerations)
+		newNodeSelector := cluster.GetNodeSelectorForRole(role)
+		newCoreIds := cluster.GetCoreIdsForRole(role)
+		requiredLabels := factory.RequiredWekaContainerLabels(cluster.UID, cluster.Name, role)
+		newLabels := util.MergeMaps(cluster.ObjectMeta.GetLabels(), requiredLabels)
+		newAnnotations := cluster.GetAnnotationsForRole(role)
+
+		tolerationsChanged := !reflect.DeepEqual(newTolerations, k8sutil.NormalizeTolerations(container.Spec.Tolerations))
+		nodeSelectorChanged := container.Spec.Mode != weka.WekaContainerModeEnvoy && !util.NewHashableMap(newNodeSelector).Equals(util.NewHashableMap(container.Spec.NodeSelector))
+		cpuPolicyChanged := container.Spec.CpuPolicy != updatableSpec.CpuPolicy
+		coreIdsChanged := len(newCoreIds) != len(container.Spec.CoreIds)
+		if !coreIdsChanged {
+			for i, id := range newCoreIds {
+				if i >= len(container.Spec.CoreIds) || container.Spec.CoreIds[i] != id {
+					coreIdsChanged = true
+					break
+				}
+			}
+		}
+		labelsChanged := !util.NewHashableMap(newLabels).Equals(util.NewHashableMap(container.Labels))
+		annotationsChanged := !util.NewHashableMap(newAnnotations).Equals(util.NewHashableMap(container.Annotations))
+
+		if !tolerationsChanged && !nodeSelectorChanged && !cpuPolicyChanged && !coreIdsChanged && !labelsChanged && !annotationsChanged {
+			return nil
+		}
+
+		if err := r.getClient().Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: container.Name}, container); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+
+		patch := client.MergeFrom(container.DeepCopy())
+
+		logger.Debug("Propagating scheduling fields", "container", container.Name, "mode", container.Spec.Mode)
+
+		if tolerationsChanged {
+			container.Spec.Tolerations = newTolerations
+		}
+		if nodeSelectorChanged {
+			container.Spec.NodeSelector = newNodeSelector
+		}
+		if cpuPolicyChanged {
+			container.Spec.CpuPolicy = updatableSpec.CpuPolicy
+		}
+		if coreIdsChanged {
+			container.Spec.CoreIds = newCoreIds
+		}
+		if labelsChanged {
+			container.Labels = newLabels
+		}
+		if annotationsChanged {
+			container.Annotations = newAnnotations
+		}
+
+		return r.getClient().Patch(ctx, container, patch)
+	}).AsError()
+}
+
 func (r *wekaClusterReconcilerLoop) emitClusterUpgradeCustomEvent(ctx context.Context) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "emitClusterUpgradeCustomEvent")
 	defer end()
@@ -487,15 +654,21 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 	nums := allocator.GetWekaContainerNumbers(cluster.Spec.Dynamic)
 
-	if cluster.Spec.Image != cluster.Status.LastAppliedImage {
-		logger.Info("Image upgrade sequence")
-		targetVersion := utils.GetSoftwareVersion(cluster.Spec.Image)
+	targetHash := clusterConfigHash(&cluster.Spec)
+	updatableSpec := NewUpdatableClusterSpec(ctx, &cluster.Spec, &cluster.ObjectMeta, r.containers)
+
+	propagator := func(ctx context.Context, container *weka.WekaContainer) error {
+		return PropagateSpecToContainer(ctx, r.getClient(), container, updatableSpec, cluster)
+	}
+
+	if clusterConfigHash(&cluster.Spec) != cluster.Status.LastAppliedSpec {
+		logger.Info("Upgrade sequence (image or config changed)")
 
 		if cluster.Spec.GetOverrides().UpgradePaused {
 			return lifecycle.NewWaitError(errors.New("Upgrade is paused"))
 		}
 
-		if config.Config.Upgrade.ImagePrePullEnabled {
+		if r.isImageChanged() && config.Config.Upgrade.ImagePrePullEnabled {
 			err := r.handleImagePrePull(ctx)
 			if err != nil {
 				return err
@@ -503,43 +676,21 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		}
 
 		if cluster.Spec.GetOverrides().UpgradeAllAtOnce {
-			// containers will self-upgrade
+			// containers will self-upgrade via PropagateSpecToContainer
 			return workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
-				if container.Spec.Image != cluster.Spec.Image {
-					patch := map[string]interface{}{
-						"spec": map[string]interface{}{
-							"image": cluster.Spec.Image,
-						},
-					}
-
-					patchBytes, err := json.Marshal(patch)
-					if err != nil {
-						err = fmt.Errorf("failed to marshal patch for container %s: %w", container.Name, err)
-						return err
-					}
-
-					return errors.Wrap(
-						r.getClient().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)),
-						fmt.Sprintf("failed to update container image %s: %v", container.Name, err),
-					)
-				}
-				return nil
+				return PropagateSpecToContainer(ctx, r.getClient(), container, updatableSpec, cluster)
 			}).AsError()
 		}
+
+		targetVersion := utils.GetSoftwareVersion(cluster.Spec.Image)
 
 		driveContainers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeDrive)
 		if err != nil {
 			return err
 		}
-		// before upgrade, if if all drive nodes are still in old version - invoke upgrade prepare commands
-		prepareForUpgrade := true
-		for _, container := range driveContainers {
-			//i.e if any container already on new target version - we should not prepare for drive phase
-			if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
-				prepareForUpgrade = false
-			}
-		}
-		if prepareForUpgrade {
+
+		// before upgrade, if all drive nodes are still on old version - invoke upgrade prepare commands
+		if r.isImageChanged() && !anyContainerConfigApplied(driveContainers, targetHash) {
 			err := r.prepareForUpgradeDrives(ctx, driveContainers, targetVersion)
 			if err != nil {
 				return err
@@ -587,7 +738,8 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 		r.emitClusterUpgradeCustomEvent(ctx)
 
-		uController := upgrade.NewUpgradeController(r.getClient(), driveContainers, cluster.Spec.Image)
+		uController := upgrade.NewUpgradeController(r.getClient(), driveContainers, cluster.Spec.Image, targetHash)
+		uController.SpecPropagator = propagator
 		err = uController.RollingUpgrade(ctx)
 		if err != nil {
 			return err
@@ -598,24 +750,18 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			return err
 		}
 
-		prepareForUpgrade = true
 		if r.cluster.Spec.GetOverrides().UpgradePausePreCompute {
 			return lifecycle.NewWaitError(errors.New("Upgrade paused before compute phase"))
 		}
-		for _, container := range computeContainers {
-			if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
-				prepareForUpgrade = false
-			}
-		}
-		//
-		if prepareForUpgrade {
+		if r.isImageChanged() && !anyContainerConfigApplied(computeContainers, targetHash) {
 			err := r.prepareForUpgradeCompute(ctx, computeContainers, targetVersion)
 			if err != nil {
 				return err
 			}
 		}
 
-		uController = upgrade.NewUpgradeController(r.getClient(), computeContainers, cluster.Spec.Image)
+		uController = upgrade.NewUpgradeController(r.getClient(), computeContainers, cluster.Spec.Image, targetHash)
+		uController.SpecPropagator = propagator
 		err = uController.RollingUpgrade(ctx)
 		if err != nil {
 			return err
@@ -631,68 +777,61 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		}
 		feContainers := append(s3Containers, nfsContainres...)
 
-		prepareForUpgrade = true
 		// if any s3 container or any NFS container changed version - do not prepare for frontends
-		for _, container := range feContainers {
-			if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
-				prepareForUpgrade = false
-			}
-		}
-		if prepareForUpgrade {
+		if r.isImageChanged() && !anyContainerConfigApplied(feContainers, targetHash) {
 			err := r.prepareForUpgradeS3(ctx, feContainers, targetVersion)
 			if err != nil {
 				return err
 			}
 		}
 
-		uController = upgrade.NewUpgradeController(r.getClient(), feContainers, cluster.Spec.Image)
+		uController = upgrade.NewUpgradeController(r.getClient(), feContainers, cluster.Spec.Image, targetHash)
+		uController.SpecPropagator = propagator
 		err = uController.RollingUpgrade(ctx)
 		if err != nil {
 			return err
 		}
 
-	smbwContainers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeSmbw)
-	if err != nil {
-		return err
-	}
-
-	if len(smbwContainers) > 0 {
-		prepareForUpgrade = true
-		// if any smbw container changed version - do not prepare for smbw
-		for _, container := range smbwContainers {
-			if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
-				prepareForUpgrade = false
-			}
+		smbwContainers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeSmbw)
+		if err != nil {
+			return err
 		}
-		if prepareForUpgrade {
-			err := r.prepareForUpgradeS3(ctx, smbwContainers, targetVersion)
+		if len(smbwContainers) > 0 {
+			if r.isImageChanged() && !anyContainerConfigApplied(smbwContainers, targetHash) {
+				err := r.prepareForUpgradeS3(ctx, smbwContainers, targetVersion)
+				if err != nil {
+					return err
+				}
+			}
+
+			uController = upgrade.NewUpgradeController(r.getClient(), smbwContainers, cluster.Spec.Image, targetHash)
+			uController.SpecPropagator = propagator
+			err = uController.RollingUpgrade(ctx)
 			if err != nil {
 				return err
 			}
 		}
 
-		uController = upgrade.NewUpgradeController(r.getClient(), smbwContainers, cluster.Spec.Image)
-		err = uController.RollingUpgrade(ctx)
-		if err != nil {
-			return err
-		}
-	}
-
-		err = r.finalizeUpgrade(ctx, driveContainers)
-		if err != nil {
-			return err
+		if r.isImageChanged() {
+			err = r.finalizeUpgrade(ctx, driveContainers)
+			if err != nil {
+				return err
+			}
 		}
 
 		cluster.Status.LastAppliedImage = cluster.Spec.Image
+		cluster.Status.LastAppliedSpec = targetHash
 		if err := r.getClient().Status().Update(ctx, cluster); err != nil {
 			return err
 		}
 
 		// Clear pre-pull annotations after successful upgrade
-		err = r.clearAllPrePullAnnotations(ctx)
-		if err != nil {
-			logger.Warn("Failed to clear pre-pull annotations", "error", err)
-			// Don't fail upgrade on annotation cleanup failure
+		if r.isImageChanged() {
+			err = r.clearAllPrePullAnnotations(ctx)
+			if err != nil {
+				logger.Warn("Failed to clear pre-pull annotations", "error", err)
+				// Don't fail upgrade on annotation cleanup failure
+			}
 		}
 	}
 

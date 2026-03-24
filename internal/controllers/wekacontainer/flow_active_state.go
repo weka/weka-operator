@@ -205,7 +205,9 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				func() bool {
 					return r.container.Status.LastAppliedImage != ""
 				},
-				r.IsNotAlignedImage,
+				func() bool {
+					return r.IsNotAlignedImage() || r.IsNotAlignedClusterConfig()
+				},
 				lifecycle.IsNotFunc(r.PodNotSet),
 			},
 			SkipStepStateCheck: true,
@@ -460,7 +462,9 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.applyCurrentImage,
 			Predicates: lifecycle.Predicates{
-				r.IsNotAlignedImage,
+				func() bool {
+					return r.IsNotAlignedImage() || r.IsNotAlignedClusterConfig()
+				},
 			},
 		},
 		&lifecycle.SimpleStep{
@@ -838,6 +842,11 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 		return nil
 	}
 
+	if container.Spec.TargetClusterSpecHash != "" && pod.Annotations[resources.ClusterSpecHashAnnotation] != container.Spec.TargetClusterSpecHash {
+		logger.Info("Pod config hash does not match target", "pod_hash", pod.Annotations[resources.ClusterSpecHashAnnotation], "target_hash", container.Spec.TargetClusterSpecHash)
+		return nil
+	}
+
 	if pod.Status.Phase != v1.PodRunning {
 		logger.Info("Pod is not running yet")
 		return errors.New("Pod is not running yet")
@@ -854,5 +863,6 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 	logger.Info("Updating LastAppliedImage", "image", container.Spec.Image)
 
 	container.Status.LastAppliedImage = container.Spec.Image
+	container.Status.LastAppliedSpec = container.Spec.TargetClusterSpecHash
 	return r.Status().Update(ctx, container)
 }

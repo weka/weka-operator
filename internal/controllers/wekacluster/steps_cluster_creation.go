@@ -63,9 +63,6 @@ func GetClusterSetupSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			SkipStepStateCheck: true,
 		},
 		&lifecycle.SimpleStep{
-			Run: loop.HandleSpecUpdates,
-		},
-		&lifecycle.SimpleStep{
 			Run: loop.updateContainersOnNodeSelectorMismatch,
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(config.Config.CleanupBackendsOnNodeSelectorMismatch),
@@ -141,6 +138,7 @@ func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
 
 		wekaCluster.Status.InitStatus()
 		wekaCluster.Status.LastAppliedImage = wekaCluster.Spec.Image
+		wekaCluster.Status.LastAppliedSpec = clusterConfigHash(&wekaCluster.Spec)
 
 		err := r.getClient().Status().Update(ctx, wekaCluster)
 		if err != nil {
@@ -299,10 +297,15 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		}
 	}
 
+	// Apply initial spec fields and config hash to new containers
+	targetHash := clusterConfigHash(&cluster.Spec)
+	updatableSpec := NewUpdatableClusterSpec(ctx, &cluster.Spec, &cluster.ObjectMeta, r.containers)
 	for _, container := range missingContainers {
 		if len(joinIps) != 0 {
 			container.Spec.JoinIps = joinIps
 		}
+		container.Spec.TargetClusterSpecHash = targetHash
+		ApplyUpdatableSpecToContainer(container, updatableSpec, cluster)
 	}
 
 	results := workers.ProcessConcurrently(ctx, missingContainers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
