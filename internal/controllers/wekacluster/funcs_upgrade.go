@@ -32,6 +32,35 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
+// containerRoleSpec holds per-role values that are propagated from cluster spec to each container.
+type containerRoleSpec struct {
+	ExtraCores        int
+	NumCores          int
+	Hugepages         int
+	HugepagesOffset   int
+	DpdkBaseMemoryMb  int
+}
+
+// forRole returns the role-specific values for a given container mode, collapsing
+// all per-role switch dispatches into one place.
+func (s *UpdatableClusterSpec) forRole(role string) containerRoleSpec {
+	switch role {
+	case weka.WekaContainerModeCompute:
+		return containerRoleSpec{ExtraCores: s.ComputeExtraCores, NumCores: s.ComputeCores, Hugepages: s.ComputeHugepages, HugepagesOffset: s.ComputeHugepagesOffset, DpdkBaseMemoryMb: s.ComputeDpdkBaseMemoryMb}
+	case weka.WekaContainerModeDrive:
+		return containerRoleSpec{ExtraCores: s.DriveExtraCores, NumCores: s.DriveCores, Hugepages: s.DriveHugepages, HugepagesOffset: s.DriveHugepagesOffset, DpdkBaseMemoryMb: s.DriveDpdkBaseMemoryMb}
+	case weka.WekaContainerModeS3:
+		return containerRoleSpec{ExtraCores: s.S3ExtraCores, NumCores: s.S3Cores, Hugepages: s.S3Hugepages, HugepagesOffset: s.S3HugepagesOffset, DpdkBaseMemoryMb: s.S3DpdkBaseMemoryMb}
+	case weka.WekaContainerModeNfs:
+		return containerRoleSpec{ExtraCores: s.NfsExtraCores, NumCores: s.NfsCores, Hugepages: s.NfsHugepages, HugepagesOffset: s.NfsHugepagesOffset, DpdkBaseMemoryMb: s.NfsDpdkBaseMemoryMb}
+	case weka.WekaContainerModeDataServices:
+		return containerRoleSpec{ExtraCores: s.DataServicesExtraCores, NumCores: s.DataServicesCores, Hugepages: s.DataServicesHugepages, HugepagesOffset: s.DataServicesHugepagesOffset, DpdkBaseMemoryMb: s.DataServicesDpdkBaseMemoryMb}
+	case weka.WekaContainerModeSmbw:
+		return containerRoleSpec{ExtraCores: s.SmbwExtraCores, NumCores: s.SmbwCores, Hugepages: s.SmbwHugepages, HugepagesOffset: s.SmbwHugepagesOffset, DpdkBaseMemoryMb: s.SmbwDpdkBaseMemoryMb}
+	}
+	return containerRoleSpec{}
+}
+
 type UpdatableClusterSpec struct {
 	AdditionalMemory             weka.AdditionalMemory
 	Tolerations                  []string
@@ -64,6 +93,13 @@ type UpdatableClusterSpec struct {
 	S3ExtraCores                 int
 	NfsExtraCores                int
 	DataServicesExtraCores       int
+	SmbwExtraCores               int
+	ComputeCores                 int
+	DriveCores                   int
+	S3Cores                      int
+	NfsCores                     int
+	DataServicesCores            int
+	SmbwCores                    int
 	DriversLoaderImage           string
 	DriversBuildId               *string
 	ComputeHugepages             int
@@ -98,21 +134,6 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 		return util.NewHashableMap(*ptr)
 	}
 
-	// Get extra cores values from dynamic config if available
-	computeExtraCores := 0
-	driveExtraCores := 0
-	s3ExtraCores := 0
-	nfsExtraCores := 0
-	dataServicesExtraCores := 0
-	if spec.Dynamic != nil {
-		computeExtraCores = spec.Dynamic.ComputeExtraCores
-		driveExtraCores = spec.Dynamic.DriveExtraCores
-		s3ExtraCores = spec.Dynamic.S3ExtraCores
-		nfsExtraCores = spec.Dynamic.NfsExtraCores
-		dataServicesExtraCores = spec.Dynamic.DataServicesExtraCores
-	}
-
-	// Compute deterministic hugepages from template
 	tmpl := allocator.GetWekaClusterTemplate(spec.Dynamic)
 	dynamicTemplate := spec.Dynamic
 	if dynamicTemplate == nil {
@@ -200,11 +221,18 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 		TracesConfiguration:          spec.TracesConfiguration,
 		RoleCoreIds:                  spec.RoleCoreIds,
 		CpuPolicy:                    spec.CpuPolicy,
-		ComputeExtraCores:            computeExtraCores,
-		DriveExtraCores:              driveExtraCores,
-		S3ExtraCores:                 s3ExtraCores,
-		NfsExtraCores:                nfsExtraCores,
-		DataServicesExtraCores:       dataServicesExtraCores,
+		ComputeExtraCores:            dynamicTemplate.ComputeExtraCores,
+		DriveExtraCores:              dynamicTemplate.DriveExtraCores,
+		S3ExtraCores:                 dynamicTemplate.S3ExtraCores,
+		NfsExtraCores:                dynamicTemplate.NfsExtraCores,
+		DataServicesExtraCores:       dynamicTemplate.DataServicesExtraCores,
+		SmbwExtraCores:               dynamicTemplate.SmbwExtraCores,
+		ComputeCores:                 dynamicTemplate.ComputeCores,
+		DriveCores:                   dynamicTemplate.DriveCores,
+		S3Cores:                      dynamicTemplate.S3Cores,
+		NfsCores:                     dynamicTemplate.NfsCores,
+		DataServicesCores:            dynamicTemplate.DataServicesCores,
+		SmbwCores:                    dynamicTemplate.SmbwCores,
 		DriversLoaderImage:           spec.GetOverrides().DriversLoaderImage,
 		DriversBuildId:               spec.GetOverrides().DriversBuildId,
 		ComputeHugepages:             computeHp,
@@ -292,6 +320,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		patch := client.MergeFrom(container.DeepCopy())
 
 		role := container.Spec.Mode
+		overrides := container.Spec.GetOverrides()
 
 		additionalMemory := updatableSpec.AdditionalMemory.GetForMode(role)
 		if container.Spec.AdditionalMemory != additionalMemory {
@@ -312,11 +341,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Spec.ImagePullSecret = updatableSpec.ImagePullSecret
 		}
 
-		if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplace {
-			currentOverrides := container.Spec.GetOverrides()
-			currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplace
-			container.Spec.Overrides = currentOverrides
-		}
+		overrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplace
 
 		// Propagate PVC config only if the container doesn't have one set yet
 		if container.Spec.PVC == nil && updatableSpec.PvcConfig != nil {
@@ -329,11 +354,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		if container.IsDriveContainer() {
 			if updatableSpec.UpgradeForceReplaceDrives { // above check will reset to common flag, so we dont need to put reversal direction here
-				if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplaceDrives {
-					currentOverrides := container.Spec.GetOverrides()
-					currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplaceDrives
-					container.Spec.Overrides = currentOverrides
-				}
+				overrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplaceDrives
 			}
 		}
 
@@ -342,21 +363,14 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 				// if we are in this mode, we also want NOT to force replace computes, otherwise we would use the common flag
 				// and most surely we are with "evict container on pod deletion" mode, so we want to disable it so computes will weka local stop
 				if config.Config.EvictContainerOnDeletion {
-					if !container.Spec.GetOverrides().UpgradePreventEviction {
-						currentOverrides := container.Spec.GetOverrides()
-						currentOverrides.UpgradePreventEviction = true
-						container.Spec.Overrides = currentOverrides
-					}
-
+					overrides.UpgradePreventEviction = true
 				}
 			} else {
-				if container.Spec.GetOverrides().UpgradePreventEviction {
-					currentOverrides := container.Spec.GetOverrides()
-					currentOverrides.UpgradePreventEviction = false
-					container.Spec.Overrides = currentOverrides
-				}
+				overrides.UpgradePreventEviction = false
 			}
 		}
+
+		container.Spec.Overrides = overrides
 
 		targetNetwork := cluster.GetNetworkForRole(role)
 
@@ -403,76 +417,33 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Spec.CpuPolicy = updatableSpec.CpuPolicy
 		}
 
-		// Update extra cores based on container role
-		// Note: This updates only ExtraCores (pod resources), not NumCores (weka configuration)
-		var targetExtraCores int
-		switch role {
-		case weka.WekaContainerModeCompute:
-			targetExtraCores = updatableSpec.ComputeExtraCores
-		case weka.WekaContainerModeDrive:
-			targetExtraCores = updatableSpec.DriveExtraCores
-		case weka.WekaContainerModeS3:
-			targetExtraCores = updatableSpec.S3ExtraCores
-		case weka.WekaContainerModeNfs:
-			targetExtraCores = updatableSpec.NfsExtraCores
-		case weka.WekaContainerModeDataServices:
-			targetExtraCores = updatableSpec.DataServicesExtraCores
+		rv := updatableSpec.forRole(role)
+		// ExtraCores allows zero (explicit removal), so uses equality guard.
+		// NumCores and Hugepages treat zero as "not set" — only update when non-zero.
+		if container.Spec.ExtraCores != rv.ExtraCores {
+			container.Spec.ExtraCores = rv.ExtraCores
 		}
-		if container.Spec.ExtraCores != targetExtraCores {
-			container.Spec.ExtraCores = targetExtraCores
+		// NumCores can only be increased — decreasing requires manual intervention (container restart/reconfiguration).
+		if rv.NumCores > container.Spec.NumCores {
+			container.Spec.NumCores = rv.NumCores
 		}
 
-		// DpdkBaseMemoryMb propagation per role - must be done before calculating hugepages
-		var targetDpdkBaseMemoryMb int
-		switch role {
-		case weka.WekaContainerModeCompute:
-			targetDpdkBaseMemoryMb = updatableSpec.ComputeDpdkBaseMemoryMb
-		case weka.WekaContainerModeDrive:
-			targetDpdkBaseMemoryMb = updatableSpec.DriveDpdkBaseMemoryMb
-		case weka.WekaContainerModeS3:
-			targetDpdkBaseMemoryMb = updatableSpec.S3DpdkBaseMemoryMb
-		case weka.WekaContainerModeNfs:
-			targetDpdkBaseMemoryMb = updatableSpec.NfsDpdkBaseMemoryMb
-		case weka.WekaContainerModeDataServices:
-			targetDpdkBaseMemoryMb = updatableSpec.DataServicesDpdkBaseMemoryMb
-		case weka.WekaContainerModeSmbw:
-			targetDpdkBaseMemoryMb = updatableSpec.SmbwDpdkBaseMemoryMb
+		if rv.DpdkBaseMemoryMb > 0 && container.Spec.DpdkBaseMemoryMb != rv.DpdkBaseMemoryMb {
+			container.Spec.DpdkBaseMemoryMb = rv.DpdkBaseMemoryMb
 		}
 
-		if targetDpdkBaseMemoryMb > 0 && container.Spec.DpdkBaseMemoryMb != targetDpdkBaseMemoryMb {
-			container.Spec.DpdkBaseMemoryMb = targetDpdkBaseMemoryMb
-		}
-
-		// Apply hugepages from updatableSpec — already computed via GetContainerHugepages
-		// (includes DPDK base memory) in NewUpdatableClusterSpec.
-		var targetHugepages, targetHugepagesOffset int
-		switch role {
-		case weka.WekaContainerModeCompute:
-			targetHugepages, targetHugepagesOffset = updatableSpec.ComputeHugepages, updatableSpec.ComputeHugepagesOffset
-		case weka.WekaContainerModeDrive:
-			targetHugepages, targetHugepagesOffset = updatableSpec.DriveHugepages, updatableSpec.DriveHugepagesOffset
-		case weka.WekaContainerModeS3:
-			targetHugepages, targetHugepagesOffset = updatableSpec.S3Hugepages, updatableSpec.S3HugepagesOffset
-		case weka.WekaContainerModeNfs:
-			targetHugepages, targetHugepagesOffset = updatableSpec.NfsHugepages, updatableSpec.NfsHugepagesOffset
-		case weka.WekaContainerModeSmbw:
-			targetHugepages, targetHugepagesOffset = updatableSpec.SmbwHugepages, updatableSpec.SmbwHugepagesOffset
-		case weka.WekaContainerModeDataServices:
-			targetHugepages, targetHugepagesOffset = updatableSpec.DataServicesHugepages, updatableSpec.DataServicesHugepagesOffset
-		}
-		if targetHugepages > 0 {
-			container.Spec.Hugepages = targetHugepages
-			container.Spec.HugepagesOffset = targetHugepagesOffset
+		if rv.Hugepages > 0 {
+			container.Spec.Hugepages = rv.Hugepages
+			container.Spec.HugepagesOffset = rv.HugepagesOffset
 		}
 
 		if container.Spec.DriversLoaderImage != updatableSpec.DriversLoaderImage {
 			container.Spec.DriversLoaderImage = updatableSpec.DriversLoaderImage
 		}
 
-		if (container.Spec.DriversBuildId == nil && updatableSpec.DriversBuildId != nil) ||
-			(container.Spec.DriversBuildId != nil && updatableSpec.DriversBuildId == nil) ||
-			(container.Spec.DriversBuildId != nil && updatableSpec.DriversBuildId != nil && *container.Spec.DriversBuildId != *updatableSpec.DriversBuildId) {
-			container.Spec.DriversBuildId = updatableSpec.DriversBuildId
+		oldId, newId := container.Spec.DriversBuildId, updatableSpec.DriversBuildId
+		if (oldId == nil) != (newId == nil) || (oldId != nil && *oldId != *newId) {
+			container.Spec.DriversBuildId = newId
 		}
 
 		err = r.getClient().Patch(ctx, container, patch)
