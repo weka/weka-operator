@@ -465,3 +465,23 @@ func handleFailureDomainValue(fd string) string {
 	// replace all "/" with "-"
 	return strings.ReplaceAll(fd, "/", "-")
 }
+
+func (r *containerReconcilerLoop) podIsNotRunning() bool {
+	if r.pod == nil {
+		return false
+	}
+	if r.pod.Status.Phase != v1.PodRunning {
+		return true
+	}
+	// Pod phase can be Running while a container is waiting in CrashLoopBackOff
+	for i := range r.pod.Status.ContainerStatuses {
+		if r.pod.Status.ContainerStatuses[i].State.Waiting != nil && r.pod.Status.ContainerStatuses[i].State.Waiting.Reason == "CrashLoopBackOff" {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *containerReconcilerLoop) isCpuPolicyAuto() bool {
+	return r.container.Spec.CpuPolicy == weka.CpuPolicyAuto
+}

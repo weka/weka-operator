@@ -262,6 +262,19 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			OnFail: r.setErrorStatus,
 		},
 		&lifecycle.SimpleStep{
+			Run: r.deletePodIfHtCpuMismatch,
+			Predicates: lifecycle.Predicates{
+				r.PodIsSet,
+				r.isCpuPolicyAuto,
+				r.podIsNotRunning,
+				r.container.IsBackend,
+				func() bool {
+					// ensure the pod has been scheduled to a node so we can resolve HT topology
+					return r.pod.Spec.NodeName != "" || r.container.GetNodeAffinity() != ""
+				},
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.deletePodIfUnschedulable,
 			Predicates: lifecycle.Predicates{
 				func() bool {

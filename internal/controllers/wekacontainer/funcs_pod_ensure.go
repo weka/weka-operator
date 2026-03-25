@@ -9,14 +9,14 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/drivers"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/drivers"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -145,5 +145,45 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		return err
 	}
 
+	return nil
+}
+
+func (r *containerReconcilerLoop) deletePodIfHtCpuMismatch(ctx context.Context) error {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	// Prefer the container's explicit node affinity; fall back to the actual scheduled node
+	// so the check works even when nodeAffinity wasn't set on the spec at creation time.
+	nodeName := r.container.GetNodeAffinity()
+	if nodeName == "" {
+		nodeName = weka.NodeName(r.pod.Spec.NodeName)
+	}
+	if nodeName == "" {
+		return nil
+	}
+
+	// GetNodeInfo is only reached when predicates confirmed pod is unhealthy.
+	// Errors are intentionally ignored: discovery containers may fail here since
+	// GetNodeInfo triggers a discovery run which they themselves serve.
+	nodeInfo, err := r.GetNodeInfo(ctx, nodeName)
+	if err != nil || nodeInfo == nil || !nodeInfo.IsHt {
+		return nil
+	}
+
+	// HT: each main core needs 2 CPUs (sibling pair); ExtraCores count once; +1 for management.
+	// ExtraCores is only set on modes that use find_full_cores (Compute/Drive/S3/NFS/DataServices),
+	// which are also the only modes that can crash with "cannot find N full cores".
+	expectedCPU := int64(r.container.Spec.NumCores*2 + r.container.Spec.ExtraCores + 1)
+
+	actualCPU := r.pod.Spec.Containers[0].Resources.Requests.Cpu().Value()
+	if actualCPU < expectedCPU {
+		logger.Info("Pod CPU count below HT requirement, deleting for recreation",
+			"actual", actualCPU, "expected", expectedCPU,
+			"numCores", r.container.Spec.NumCores, "isHt", nodeInfo.IsHt)
+		if err := r.deletePod(ctx, r.pod); err != nil {
+			return err
+		}
+		return errors.New("pod deleted due to HT CPU mismatch, waiting for recreation")
+	}
 	return nil
 }
