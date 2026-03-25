@@ -76,6 +76,12 @@ type UpdatableClusterSpec struct {
 	NfsHugepagesOffset          int
 	DataServicesHugepages       int
 	DataServicesHugepagesOffset int
+	ComputeDpdkBaseMemoryMb     int
+	DriveDpdkBaseMemoryMb       int
+	S3DpdkBaseMemoryMb          int
+	NfsDpdkBaseMemoryMb         int
+	DataServicesDpdkBaseMemoryMb int
+	SmbwDpdkBaseMemoryMb        int
 }
 
 func NewUpdatableClusterSpec(ctx context.Context, spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta, containers []*weka.WekaContainer) *UpdatableClusterSpec {
@@ -151,6 +157,14 @@ func NewUpdatableClusterSpec(ctx context.Context, spec *weka.WekaClusterSpec, me
 		driveHpOffset = util.GetNonZeroOrDefault(dynamicTemplate.DriveHugepagesOffset, allocator.CalculateDriveHugepagesOffset(tmpl))
 	}
 
+	// Extract DpdkBaseMemoryMb values per role (returns default 64 if not overridden)
+	computeDpdkBaseMemoryMb := utils.GetDpdkBaseMemoryMbByRole(spec, "compute")
+	driveDpdkBaseMemoryMb := utils.GetDpdkBaseMemoryMbByRole(spec, "drive")
+	s3DpdkBaseMemoryMb := utils.GetDpdkBaseMemoryMbByRole(spec, "s3")
+	nfsDpdkBaseMemoryMb := utils.GetDpdkBaseMemoryMbByRole(spec, "nfs")
+	dataServicesDpdkBaseMemoryMb := utils.GetDpdkBaseMemoryMbByRole(spec, "data-services")
+	smbwDpdkBaseMemoryMb := utils.GetDpdkBaseMemoryMbByRole(spec, "smbw")
+
 	return &UpdatableClusterSpec{
 		AdditionalMemory:            spec.AdditionalMemory,
 		Tolerations:                 spec.Tolerations,
@@ -195,6 +209,12 @@ func NewUpdatableClusterSpec(ctx context.Context, spec *weka.WekaClusterSpec, me
 		NfsHugepagesOffset:          util.GetNonZeroOrDefault(dynamicTemplate.NfsFrontendHugepagesOffset, 200),
 		DataServicesHugepages:       util.GetNonZeroOrDefault(dynamicTemplate.DataServicesHugepages, 1536),
 		DataServicesHugepagesOffset: util.GetNonZeroOrDefault(dynamicTemplate.DataServicesHugepagesOffset, 200),
+		ComputeDpdkBaseMemoryMb:     computeDpdkBaseMemoryMb,
+		DriveDpdkBaseMemoryMb:       driveDpdkBaseMemoryMb,
+		S3DpdkBaseMemoryMb:          s3DpdkBaseMemoryMb,
+		NfsDpdkBaseMemoryMb:         nfsDpdkBaseMemoryMb,
+		DataServicesDpdkBaseMemoryMb: dataServicesDpdkBaseMemoryMb,
+		SmbwDpdkBaseMemoryMb:        smbwDpdkBaseMemoryMb,
 	}
 }
 
@@ -392,29 +412,37 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Spec.ExtraCores = targetExtraCores
 		}
 
-		// Hugepages propagation per role
-		var targetHp, targetHpOffset int
+		// DpdkBaseMemoryMb propagation per role - must be done before calculating hugepages
+		var targetDpdkBaseMemoryMb int
 		switch role {
 		case weka.WekaContainerModeCompute:
-			targetHp = updatableSpec.ComputeHugepages
-			targetHpOffset = updatableSpec.ComputeHugepagesOffset
+			targetDpdkBaseMemoryMb = updatableSpec.ComputeDpdkBaseMemoryMb
 		case weka.WekaContainerModeDrive:
-			targetHp = updatableSpec.DriveHugepages
-			targetHpOffset = updatableSpec.DriveHugepagesOffset
+			targetDpdkBaseMemoryMb = updatableSpec.DriveDpdkBaseMemoryMb
 		case weka.WekaContainerModeS3:
-			targetHp = updatableSpec.S3Hugepages
-			targetHpOffset = updatableSpec.S3HugepagesOffset
+			targetDpdkBaseMemoryMb = updatableSpec.S3DpdkBaseMemoryMb
 		case weka.WekaContainerModeNfs:
-			targetHp = updatableSpec.NfsHugepages
-			targetHpOffset = updatableSpec.NfsHugepagesOffset
+			targetDpdkBaseMemoryMb = updatableSpec.NfsDpdkBaseMemoryMb
 		case weka.WekaContainerModeDataServices:
-			targetHp = updatableSpec.DataServicesHugepages
-			targetHpOffset = updatableSpec.DataServicesHugepagesOffset
+			targetDpdkBaseMemoryMb = updatableSpec.DataServicesDpdkBaseMemoryMb
+		case weka.WekaContainerModeSmbw:
+			targetDpdkBaseMemoryMb = updatableSpec.SmbwDpdkBaseMemoryMb
 		}
 
-		// Only update hugepages if there is a change and the new value is not zero
-		container.Spec.Hugepages = util.GetNonZeroOrDefault(targetHp, container.Spec.Hugepages)
-		container.Spec.HugepagesOffset = util.GetNonZeroOrDefault(targetHpOffset, container.Spec.HugepagesOffset)
+		if targetDpdkBaseMemoryMb > 0 && container.Spec.DpdkBaseMemoryMb != targetDpdkBaseMemoryMb {
+			container.Spec.DpdkBaseMemoryMb = targetDpdkBaseMemoryMb
+		}
+
+		// Calculate hugepages dynamically based on current dpdkBaseMemoryMb
+		// This ensures hugepages always includes the current DPDK memory component
+		template := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
+		hp, err := allocator.GetContainerHugepages(ctx, r.getClient(), template, cluster, containers, role)
+		if err != nil {
+			logger.Warn("Failed to calculate hugepages", "error", err)
+		} else {
+			container.Spec.Hugepages = hp.Hugepages
+			container.Spec.HugepagesOffset = hp.HugepagesOffset
+		}
 
 		if container.Spec.DriversLoaderImage != updatableSpec.DriversLoaderImage {
 			container.Spec.DriversLoaderImage = updatableSpec.DriversLoaderImage

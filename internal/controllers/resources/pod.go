@@ -309,6 +309,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							Value: f.getHugePagesDetails().WekaMemoryString,
 						},
 						{
+							Name:  "DPDK_BASE_MEMORY_MB",
+							Value: strconv.Itoa(f.container.Spec.DpdkBaseMemoryMb),
+						},
+						{
 							Name:  "IS_IPV6",
 							Value: strconv.FormatBool(f.container.Spec.Ipv6),
 						},

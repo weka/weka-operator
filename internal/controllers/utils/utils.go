@@ -172,3 +172,35 @@ func GetSoftwareVersion(image string) string {
 	parts := strings.Split(tag, "-")
 	return parts[0]
 }
+
+// GetDpdkBaseMemoryMbByRole returns the DPDK base memory (in MiB) for a given role.
+// Returns the override value if set, otherwise returns the default value of 64 MiB.
+func GetDpdkBaseMemoryMbByRole(spec *weka.WekaClusterSpec, role string) int {
+	switch role {
+	case "compute":
+		if spec.GetOverrides().DpdkBaseMemoryMb.Compute != 0 {
+			return spec.GetOverrides().DpdkBaseMemoryMb.Compute
+		}
+	case "drive":
+		if spec.GetOverrides().DpdkBaseMemoryMb.Drive != 0 {
+			return spec.GetOverrides().DpdkBaseMemoryMb.Drive
+		}
+	case "s3":
+		if spec.GetOverrides().DpdkBaseMemoryMb.S3 != 0 {
+			return spec.GetOverrides().DpdkBaseMemoryMb.S3
+		}
+	case "nfs":
+		if spec.GetOverrides().DpdkBaseMemoryMb.Nfs != 0 {
+			return spec.GetOverrides().DpdkBaseMemoryMb.Nfs
+		}
+	case "smbw":
+		if spec.GetOverrides().DpdkBaseMemoryMb.Smbw != 0 {
+			return spec.GetOverrides().DpdkBaseMemoryMb.Smbw
+		}
+	case "data-services":
+		if spec.GetOverrides().DpdkBaseMemoryMb.DataServices != 0 {
+			return spec.GetOverrides().DpdkBaseMemoryMb.DataServices
+		}
+	}
+	return 64 // Default value in MiB
+}

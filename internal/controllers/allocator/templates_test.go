@@ -38,8 +38,8 @@ func TestGetContainerHugepages_Compute(t *testing.T) {
 			driveContainers:   6,
 			computeContainers: 6,
 			computeCores:      1,
-			// total=30000GiB, all TLC: 30000*1024/1000=30720MiB cluster, /6=5120 + 1700
-			expectedHugepages: 6820,
+			// total=30000GiB, all TLC: 30000*1024/1000=30720MiB cluster, /6=5120 + 1700 + 64*1 (DPDK)
+			expectedHugepages: 6884,
 		},
 		{
 			name:              "drive sharing small containerCapacity, clamped to minimum",
@@ -47,8 +47,8 @@ func TestGetContainerHugepages_Compute(t *testing.T) {
 			driveContainers:   6,
 			computeContainers: 6,
 			computeCores:      1,
-			// total=3000GiB, all TLC: 3000*1024/1000=3072MiB cluster, /6=512 + 1700=2212, min=3000
-			expectedHugepages: 3000,
+			// total=3000GiB, all TLC: 3000*1024/1000=3072MiB cluster, /6=512 + 1700=2212, min=3000 + 64*1 (DPDK)
+			expectedHugepages: 3064,
 		},
 		{
 			name:              "drive sharing (numDrives + driveCapacity)",
@@ -57,13 +57,13 @@ func TestGetContainerHugepages_Compute(t *testing.T) {
 			driveContainers:   6,
 			computeContainers: 6,
 			computeCores:      1,
-			// total=48000GiB, all TLC: 48000*1024/1000=49152MiB cluster, /6=8192 + 1700
-			expectedHugepages: 9892,
+			// total=48000GiB, all TLC: 48000*1024/1000=49152MiB cluster, /6=8192 + 1700 + 64*1 (DPDK)
+			expectedHugepages: 9956,
 		},
 		{
 			name:              "no capacity backward compatible",
 			computeCores:      1,
-			expectedHugepages: 3000, // no capacity → min = 3000*1
+			expectedHugepages: 3064, // no capacity → min = 3000*1 + 64*1 (DPDK)
 		},
 		{
 			name:              "multiple cores",
@@ -71,14 +71,14 @@ func TestGetContainerHugepages_Compute(t *testing.T) {
 			driveContainers:   6,
 			computeContainers: 6,
 			computeCores:      2,
-			// total=60000GiB, all TLC: 60000*1024/1000=61440MiB cluster, /6=10240 + 1700*2=3400
-			expectedHugepages: 13640,
+			// total=60000GiB, all TLC: 60000*1024/1000=61440MiB cluster, /6=10240 + 1700*2=3400 + 64*2 (DPDK)
+			expectedHugepages: 13768,
 		},
 		{
 			name:              "explicit override preserved",
 			computeCores:      1,
 			presetHugepages:   5000,
-			expectedHugepages: 5000,
+			expectedHugepages: 5064, // 5000 + 64*1 (DPDK)
 		},
 		{
 			name:              "mixed TLC/QLC ratio 1:1",
@@ -89,8 +89,8 @@ func TestGetContainerHugepages_Compute(t *testing.T) {
 			driveTypesRatio:   &weka.DriveTypesRatio{Tlc: 1, Qlc: 1},
 			// total=30000GiB, tlc=15000, qlc=15000
 			// tlcMiB=15000*1024/1000=15360, qlcMiB=15000*1024/6000=2560
-			// cluster=17920, /6=2986 + 1700=4686
-			expectedHugepages: 4686,
+			// cluster=17920, /6=2986 + 1700 + 64*1 (DPDK)
+			expectedHugepages: 4750,
 		},
 		{
 			name:              "QLC-heavy ratio 1:10",
@@ -101,8 +101,8 @@ func TestGetContainerHugepages_Compute(t *testing.T) {
 			driveTypesRatio:   &weka.DriveTypesRatio{Tlc: 1, Qlc: 10},
 			// total=60000GiB, tlc=60000/11=5454, qlc=54546
 			// tlcMiB=5454*1024/1000=5584, qlcMiB=54546*1024/6000=9309
-			// cluster=14893, /6=2482 + 1700=4182
-			expectedHugepages: 4182,
+			// cluster=14893, /6=2482 + 1700 + 64*1 (DPDK)
+			expectedHugepages: 4246,
 		},
 	}
 
@@ -193,9 +193,9 @@ func TestGetContainerHugepages_EnrichesFromNodeDrives(t *testing.T) {
 	}
 
 	// totalRawCapacity = driveContainers(6) * maxNodeCap(7000) = 42000GiB, all TLC
-	// tlcMiB = 42000*1024/1000 = 43008, /6 = 7168 + 1700 = 8868
-	if hp.Hugepages != 8868 {
-		t.Errorf("expected enriched ComputeHugepages=8868, got %d", hp.Hugepages)
+	// tlcMiB = 42000*1024/1000 = 43008, /6 = 7168 + 1700 + 64*1 (DPDK) = 8932
+	if hp.Hugepages != 8932 {
+		t.Errorf("expected enriched ComputeHugepages=8932, got %d", hp.Hugepages)
 	}
 }
 
@@ -230,9 +230,9 @@ func TestGetContainerHugepages_UsesContainerCapacity(t *testing.T) {
 	}
 
 	// With ContainerCapacity=2000, driveContainers=6, computeContainers=6, all TLC:
-	// totalRaw=12000GiB, tlcMiB=12000*1024/1000=12288, /6=2048 + 1700 = 3748
-	if hp.Hugepages != 3748 {
-		t.Errorf("expected ComputeHugepages=3748 (from spec capacity), got %d", hp.Hugepages)
+	// totalRaw=12000GiB, tlcMiB=12000*1024/1000=12288, /6=2048 + 1700 + 64*1 (DPDK) = 3812
+	if hp.Hugepages != 3812 {
+		t.Errorf("expected ComputeHugepages=3812 (from spec capacity), got %d", hp.Hugepages)
 	}
 }
 
@@ -267,8 +267,9 @@ func TestGetContainerHugepages_RespectsUserOverride(t *testing.T) {
 		t.Fatal("expected hugepages to be computed")
 	}
 
-	if hp.Hugepages != 9999 {
-		t.Errorf("expected user override ComputeHugepages=9999, got %d", hp.Hugepages)
+	// User override 9999 + 64*1 (DPDK) = 10063
+	if hp.Hugepages != 10063 {
+		t.Errorf("expected user override ComputeHugepages=10063, got %d", hp.Hugepages)
 	}
 }
 
@@ -296,8 +297,8 @@ func TestGetContainerHugepages_FallbackWhenNoNodes(t *testing.T) {
 		t.Fatal("expected hugepages to be computed")
 	}
 
-	// No nodes → no enrichment → default minimum
-	if hp.Hugepages != 3000 {
-		t.Errorf("expected fallback ComputeHugepages=3000, got %d", hp.Hugepages)
+	// No nodes → no enrichment → default minimum (3000) + 64*1 (DPDK) = 3064
+	if hp.Hugepages != 3064 {
+		t.Errorf("expected fallback ComputeHugepages=3064, got %d", hp.Hugepages)
 	}
 }
