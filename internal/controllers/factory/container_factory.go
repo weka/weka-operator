@@ -14,6 +14,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	util2 "github.com/weka/weka-operator/pkg/util"
 )
@@ -72,6 +73,8 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		// Telemetry container doesn't need weka cores or hugepages - resources are hardcoded in pod.go
 		numCores = 0
 	}
+
+	dpdkBaseMemoryMb := utils.GetDpdkBaseMemoryMbByRole(&cluster.Spec, role)
 
 	containerGroup := ""
 	if slices.Contains([]string{"s3", "envoy"}, role) {
@@ -144,6 +147,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			DriversLoaderImage:    cluster.Spec.GetOverrides().DriversLoaderImage,
 			DriversBuildId:        cluster.Spec.GetOverrides().DriversBuildId,
 			PVC:                   resources.GetPvcConfig(cluster.Spec.GlobalPVC),
+			DpdkBaseMemoryMb:      dpdkBaseMemoryMb,
 		},
 	}
 

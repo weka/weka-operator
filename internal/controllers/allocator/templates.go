@@ -8,6 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	globalconfig "github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -48,7 +49,7 @@ func GetWekaContainerNumbers(config *weka.WekaClusterTemplate) IntPerWekaRole {
 		Drive:        config.DriveContainers,
 		S3:           config.S3Containers,
 		Nfs:          config.NfsContainers,
-		Smbw:		  config.SmbwContainers,
+		Smbw:         config.SmbwContainers,
 		DataServices: config.DataServicesContainers,
 	}
 
@@ -73,7 +74,7 @@ func GetWekaContainerCores(config *weka.WekaClusterTemplate) IntPerWekaRole {
 		Drive:        util.GetNonZeroOrDefault(config.DriveCores, 1),
 		S3:           util.GetNonZeroOrDefault(config.S3Cores, 1),
 		Nfs:          util.GetNonZeroOrDefault(config.NfsCores, 1),
-		Smbw:		  util.GetNonZeroOrDefault(config.SmbwCores, 1),
+		Smbw:         util.GetNonZeroOrDefault(config.SmbwCores, 1),
 		DataServices: util.GetNonZeroOrDefault(config.DataServicesCores, 1),
 		Envoy:        util.GetNonZeroOrDefault(config.EnvoyCores, 1),
 	}
@@ -89,7 +90,7 @@ func GetWekaContainerExtraCores(config *weka.WekaClusterTemplate) IntPerWekaRole
 		Drive:        config.DriveExtraCores,
 		S3:           util.GetNonZeroOrDefault(config.S3ExtraCores, 1),
 		Nfs:          util.GetNonZeroOrDefault(config.NfsExtraCores, 1),
-		Smbw:		  util.GetNonZeroOrDefault(config.SmbwExtraCores, 1),
+		Smbw:         util.GetNonZeroOrDefault(config.SmbwExtraCores, 1),
 		DataServices: config.DataServicesExtraCores,
 	}
 }
@@ -139,7 +140,10 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 		dynamicTemplate = &weka.WekaClusterTemplate{}
 	}
 
+	var numCores int
 	switch role {
+	case "envoy", "telemetry":
+		return hp, nil // Envoy and telemetry containers don't require hugepages
 	case "drive":
 		hp.Hugepages = util.GetNonZeroOrDefault(
 			dynamicTemplate.DriveHugepages,
@@ -149,6 +153,7 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 			dynamicTemplate.DriveHugepagesOffset,
 			CalculateDriveHugepagesOffset(template),
 		)
+		numCores = template.Cores.Drive
 	case "compute":
 		if dynamicTemplate.ComputeHugepages == 0 {
 			hpComputed, err := calculateDynamicComputeHugepages(ctx, k8sClient, template, cluster, containers)
@@ -163,6 +168,7 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 			dynamicTemplate.ComputeHugepagesOffset,
 			200,
 		)
+		numCores = template.Cores.Compute
 	case "s3":
 		hp.Hugepages = util.GetNonZeroOrDefault(
 			dynamicTemplate.S3FrontendHugepages,
@@ -172,6 +178,7 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 			dynamicTemplate.S3FrontendHugepagesOffset,
 			200,
 		)
+		numCores = template.Cores.S3
 	case "nfs":
 		hp.Hugepages = util.GetNonZeroOrDefault(
 			dynamicTemplate.NfsFrontendHugepages,
@@ -181,6 +188,7 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 			dynamicTemplate.NfsFrontendHugepagesOffset,
 			200,
 		)
+		numCores = template.Cores.Nfs
 	case "smbw":
 		hp.Hugepages = util.GetNonZeroOrDefault(
 			dynamicTemplate.SmbwFrontendHugepages,
@@ -190,6 +198,7 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 			dynamicTemplate.SmbwFrontendHugepagesOffset,
 			200,
 		)
+		numCores = template.Cores.Smbw
 	case "data-services":
 		hp.Hugepages = util.GetNonZeroOrDefault(
 			dynamicTemplate.DataServicesHugepages,
@@ -199,7 +208,14 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 			dynamicTemplate.DataServicesHugepagesOffset,
 			200,
 		)
+		numCores = template.Cores.DataServices
 	}
+
+	// Add DPDK base memory to both hugepages and offset
+	dpdkBaseMemoryMb := utils.GetDpdkBaseMemoryMbByRole(&cluster.Spec, role)
+	dpdkTotalMemory := dpdkBaseMemoryMb * numCores
+	hp.Hugepages += dpdkTotalMemory
+	hp.HugepagesOffset += dpdkTotalMemory
 
 	return hp, nil
 }

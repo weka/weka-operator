@@ -449,7 +449,7 @@ async def find_disks() -> List[Disk]:
                 if has_mountpoint(child):
                     return True
         return False
-    
+
     async def get_capacity_gib(device_path: str) -> int:
         """Get the capacity of the device in GiB."""
         cmd = f"blockdev --getsize64 {device_path}"
@@ -2746,9 +2746,7 @@ async def ensure_weka_container():
     resources['memory'] = convert_to_bytes(MEMORY)
     resources['auto_discovery_enabled'] = False
     resources["ips"] = MANAGEMENT_IPS
-    # Set DPDK base memory for frontend containers
-    if MODE in ['client', 's3', 'nfs', 'smbw']:
-        resources['dpdk_base_memory_mb'] = 64
+    resources['dpdk_base_memory_mb'] = int(os.environ.get("DPDK_BASE_MEMORY_MB", "64"))
     # update join ips
     if JOIN_IPS:
         # update backend_endpoints

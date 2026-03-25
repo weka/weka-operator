@@ -432,6 +432,11 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 
 	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
 
+	dpdkBaseMemoryMb := 64
+	if wekaClient.Spec.GetOverrides().DpdkBaseMemoryMb != 0 {
+		dpdkBaseMemoryMb = wekaClient.Spec.GetOverrides().DpdkBaseMemoryMb
+	}
+
 	container := &weka.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -470,6 +475,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			UpgradePolicyType:   wekaClient.Spec.UpgradePolicy.Type,
 			AllowHotUpgrade:     wekaClient.Spec.AllowHotUpgrade,
 			DriversLoaderImage:  wekaClient.Spec.GetOverrides().DriversLoaderImage,
+			DpdkBaseMemoryMb:    dpdkBaseMemoryMb,
 			Overrides: &weka.WekaContainerSpecOverrides{
 				MachineIdentifierNodeRef: wekaClient.Spec.GetOverrides().MachineIdentifierNodeRef,
 				ForceDrain:               wekaClient.Spec.GetOverrides().ForceDrain,
@@ -682,6 +688,7 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		} else {
 			container.Spec.NumCores = c.getClientCores()
 			container.Spec.Hugepages = c.getClientHugePages()
+			container.Spec.HugepagesOffset = c.getHugepagesOffset()
 			changed = true
 		}
 	}
@@ -733,6 +740,19 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 
 	if container.Spec.NoAffinityConstraints != newClientSpec.DropAffinityConstraints {
 		container.Spec.NoAffinityConstraints = newClientSpec.DropAffinityConstraints
+		changed = true
+	}
+
+	dpdkBaseMemoryMb := 64
+	if newClientSpec.DpdkBaseMemoryMb != 0 {
+		dpdkBaseMemoryMb = newClientSpec.DpdkBaseMemoryMb
+	}
+	if container.Spec.DpdkBaseMemoryMb != dpdkBaseMemoryMb {
+		// When dpdkBaseMemoryMb changes, recalculate hugepages and hugepagesOffset
+		// because they include a DPDK memory component
+		container.Spec.DpdkBaseMemoryMb = dpdkBaseMemoryMb
+		container.Spec.Hugepages = c.getClientHugePages()
+		container.Spec.HugepagesOffset = c.getHugepagesOffset()
 		changed = true
 	}
 
@@ -1042,13 +1062,27 @@ func (c *clientReconcilerLoop) getClientHugePages() int {
 	if c.wekaClient.Spec.HugePages != 0 {
 		return c.wekaClient.Spec.HugePages
 	}
-	return c.getClientCores() * 1500
-}
-func (c *clientReconcilerLoop) getHugepagesOffset() int {
-	if c.wekaClient.Spec.HugePagesOffset != nil {
-		return *c.wekaClient.Spec.HugePagesOffset
+	dpdkBaseMemoryMb := 64
+	if c.wekaClient.Spec.GetOverrides().DpdkBaseMemoryMb != 0 {
+		dpdkBaseMemoryMb = c.wekaClient.Spec.GetOverrides().DpdkBaseMemoryMb
 	}
-	return 200 // back compat mode/unspecified default
+	return c.getClientCores() * (1500 + dpdkBaseMemoryMb)
+}
+
+func (c *clientReconcilerLoop) getHugepagesOffset() int {
+	baseOffset := 200 // back compat mode/unspecified default
+	if c.wekaClient.Spec.HugePagesOffset != nil {
+		baseOffset = *c.wekaClient.Spec.HugePagesOffset
+	}
+
+	// Add DPDK base memory offset
+	dpdkBaseMemoryMb := 64
+	if c.wekaClient.Spec.GetOverrides().DpdkBaseMemoryMb != 0 {
+		dpdkBaseMemoryMb = c.wekaClient.Spec.GetOverrides().DpdkBaseMemoryMb
+	}
+	dpdkTotalMemory := dpdkBaseMemoryMb * c.getClientCores()
+
+	return baseOffset + dpdkTotalMemory
 }
 
 func (c *clientReconcilerLoop) setStatusRunning(ctx context.Context) error {
@@ -1127,6 +1161,7 @@ type UpdatableClientSpec struct {
 	CpuPolicy               weka.CpuPolicy
 	Network                 weka.Network
 	DropAffinityConstraints bool
+	DpdkBaseMemoryMb        int
 }
 
 func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
@@ -1161,6 +1196,7 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 		CpuPolicy:               spec.CpuPolicy,
 		Network:                 spec.Network,
 		DropAffinityConstraints: spec.GetOverrides().DropAffinityConstraints,
+		DpdkBaseMemoryMb:        spec.GetOverrides().DpdkBaseMemoryMb,
 	}
 }
 
