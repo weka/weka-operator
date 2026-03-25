@@ -98,6 +98,7 @@ WEKA_CONTAINER_ID = os.environ.get("WEKA_CONTAINER_ID", "")
 WEKA_PERSISTENCE_DIR = "/host-binds/opt-weka"
 WEKA_PERSISTENCE_MODE = os.environ.get("WEKA_PERSISTENCE_MODE", "local")
 WEKA_PERSISTENCE_GLOBAL_DIR = "/opt/weka-global-persistence"
+DPDK_BASE_MEMORY_MB_PER_CORE = os.environ.get("DPDK_BASE_MEMORY_MB_PER_CORE", "64")
 if WEKA_PERSISTENCE_MODE == "global":
     WEKA_PERSISTENCE_DIR = os.path.join(WEKA_PERSISTENCE_GLOBAL_DIR, "containers", WEKA_CONTAINER_ID)
 
@@ -2723,7 +2724,8 @@ async def ensure_weka_container():
     resources["ips"] = MANAGEMENT_IPS
     # Set DPDK base memory for frontend containers
     if MODE in ['client', 's3', 'nfs']:
-        resources['dpdk_base_memory_mb'] = 64
+        if DPDK_BASE_MEMORY_MB_PER_CORE is not None:
+            resources['dpdk_base_memory_mb'] = int(DPDK_BASE_MEMORY_MB_PER_CORE) * NUM_CORES
     # update join ips
     if JOIN_IPS:
         # update backend_endpoints

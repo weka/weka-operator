@@ -1118,6 +1118,13 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		Value: strconv.Itoa(f.container.Spec.NumCores),
 	})
 
+	if f.container.Spec.GetOverrides().DpdkBaseMemoryMbPerCore != nil {
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "DPDK_BASE_MEMORY_MB_PER_CORE",
+			Value: strconv.Itoa(*f.container.Spec.GetOverrides().DpdkBaseMemoryMbPerCore),
+		})
+	}
+
 	var cpuRequestStr string
 	var cpuLimitStr string
 
