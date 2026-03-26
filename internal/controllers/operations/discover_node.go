@@ -90,6 +90,7 @@ func (o *DiscoverNodeOperation) GetSteps() []lifecycle.Step {
 func (o *DiscoverNodeOperation) GetNode(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
+
 	node, err := o.kubeService.GetNode(ctx, types.NodeName(o.nodeName))
 	if err != nil {
 		return err
@@ -113,6 +114,12 @@ func (o *DiscoverNodeOperation) GetNode(ctx context.Context) error {
 		}
 		if err != nil {
 			logger.Error(err, "Failed to unmarshal discovery.json data")
+		} else {
+			logger.Debug("Discovery cache miss — need to re-run discovery",
+				"cachedBootId", discoveryNodeInfo.BootID,
+				"currentBootId", node.Status.NodeInfo.BootID,
+				"cachedSchema", discoveryNodeInfo.Schema,
+				"targetSchema", discovery.DiscoveryTargetSchema)
 		}
 	}
 
@@ -132,6 +139,7 @@ func (o *DiscoverNodeOperation) GetProvider() discovery.Provider {
 func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {
 	o.result.NumCpus = int(o.node.Status.Allocatable.Cpu().Value())
 	o.result.Provider = o.GetProvider()
+	o.result.Arch = o.node.Status.NodeInfo.Architecture
 
 	if o.result.IsRhCos() {
 		if o.result.OsBuildId == "" {

@@ -9,14 +9,14 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/drivers"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/drivers"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -132,6 +132,19 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		return errors.Wrap(err, "Failed to create pod spec")
 	}
 
+	// Annotate with discovery snapshot so we can detect node-info mismatch on reconcile.
+	if !container.IsDiscoveryContainer() {
+		snapshotJSON, marshalErr := json.Marshal(nodeInfo.ToSnapshot())
+		if marshalErr != nil {
+			logger.Error(marshalErr, "Failed to marshal discovery snapshot, skipping annotation")
+		} else {
+			if desiredPod.Annotations == nil {
+				desiredPod.Annotations = make(map[string]string)
+			}
+			desiredPod.Annotations[discovery.PodDiscoverySnapshotAnnotation] = string(snapshotJSON)
+		}
+	}
+
 	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
 		return errors.Wrapf(err, "Error setting controller reference")
 	}
@@ -146,4 +159,49 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (r *containerReconcilerLoop) deletePodIfNodeInfoMismatch(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	if r.container.IsDiscoveryContainer() {
+		return nil
+	}
+
+	// HasStatusNodeAffinity predicate guarantees this is non-empty.
+	nodeName := r.container.GetNodeAffinity()
+
+	actualInfo, err := r.GetNodeInfo(ctx, nodeName)
+	if err != nil {
+		return err
+	}
+	if actualInfo == nil {
+		return lifecycle.NewWaitError(errors.New("node info not yet available for mismatch check"))
+	}
+
+	snapshotJSON := r.pod.Annotations[discovery.PodDiscoverySnapshotAnnotation]
+	var snapshot discovery.PodDiscoverySnapshot
+	if err := json.Unmarshal([]byte(snapshotJSON), &snapshot); err != nil {
+		// No snapshot or unparsable — skip; pod will be annotated correctly on next recreation.
+		return nil
+	}
+
+	actual := actualInfo.ToSnapshot()
+	if snapshot == *actual {
+		return nil
+	}
+
+	logger.Info("Pod discovery snapshot does not match actual node, deleting for recreation",
+		"snapshotIsHt", snapshot.IsHt, "actualIsHt", actual.IsHt,
+		"snapshotOs", snapshot.Os, "actualOs", actual.Os,
+		"snapshotProvider", snapshot.Provider, "actualProvider", actual.Provider,
+		"snapshotArch", snapshot.Arch, "actualArch", actual.Arch,
+		"node", nodeName)
+
+	if err := r.deletePod(ctx, r.pod); err != nil {
+		return err
+	}
+
+	return lifecycle.NewWaitError(errors.New("pod deleted due to node-info mismatch, waiting for recreation"))
 }

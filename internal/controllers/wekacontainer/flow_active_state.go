@@ -297,6 +297,16 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				lifecycle.IsNotFunc(r.HasStatusNodeAffinity),
 			},
 		},
+		&lifecycle.SimpleStep{
+			Run: r.deletePodIfNodeInfoMismatch,
+			Predicates: lifecycle.Predicates{
+				r.PodIsSet,
+				r.HasStatusNodeAffinity,
+				// Skip for Running containers to avoid disrupting live workloads;
+				// the check fires naturally on the next restart/reconcile cycle.
+				func() bool { return r.container.Status.Status != weka.Running },
+			},
+		},
 		// Ensure SSD proxy container exists before setting proxy UID (for drive sharing)
 		&lifecycle.SimpleStep{
 			Run: r.ensureProxyContainer,

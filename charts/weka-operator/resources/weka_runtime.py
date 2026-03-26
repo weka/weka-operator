@@ -1746,10 +1746,21 @@ def find_full_cores(n):
     if CORE_IDS != "auto":
         return list(CORE_IDS.split(","))
 
-    selected_siblings = []
-
     available_cores = parse_cpu_allowed_list()
     zero_siblings = [] if 0 not in available_cores else read_siblings_list(0)
+
+    # Non-HT dedicated mode: exclude only CPU 0 (management/sidecar), not its full sibling
+    # group. Unlike HT mode, no sibling pairing is required, so excluding zero_siblings would
+    # unnecessarily shrink the pool — on a tight cpuset (e.g., mismatch recovery) this would
+    # prevent finding enough cores even when sufficient CPUs are available.
+    if CPU_POLICY == "dedicated":
+        selected = [c for c in available_cores if c != 0]
+        if len(selected) < n:
+            logging.error(f"Error: cannot find {n} full cores")
+            sys.exit(1)
+        return selected[:n]
+
+    selected_siblings = []
 
     for cpu_index in available_cores:
         if cpu_index in zero_siblings:
@@ -1764,7 +1775,19 @@ def find_full_cores(n):
                 break
 
     if len(selected_siblings) < n:
-        logging.error(f"Error: cannot find {n} full cores")
+        # If cpuset is too small for n HT pairs, the pod was likely created with wrong
+        # (non-HT) CPU count — emit a clear diagnostic to identify the root cause.
+        min_needed = n * 2
+        if len(available_cores) < min_needed:
+            logging.error(
+                f"Error: cannot find {n} full cores — cpuset has only {len(available_cores)} "
+                f"CPUs but {min_needed} are required for {n} HT core pairs. "
+                f"Pod was likely created with incorrect (non-HT) CPU count. "
+                f"Operator should recreate the pod with enough CPUs for {n} HT sibling pairs "
+                f"plus management overhead (exact count depends on ExtraCores and container role)."
+            )
+        else:
+            logging.error(f"Error: cannot find {n} full cores")
         sys.exit(1)
     else:
         return selected_siblings
@@ -3099,8 +3122,19 @@ async def discovery():
     # TODO: We should move here everything else we need to discover per node
     # This might be a good place to discover drives as well, as long we have some selector to discover by
     host_info = get_host_info()
+
+    is_ht = False
+    try:
+        siblings = read_siblings_list(0)
+        logging.info(f"[discovery] cpu0 thread_siblings_list = {siblings}")
+        if len(siblings) > 1:
+            is_ht = True
+    except OSError as e:
+        logging.info(f"[discovery] cpu0 sibling read failed: {e}")
+    logging.info(f"[discovery] is_ht={is_ht}")
+
     data = dict(
-        is_ht=len(read_siblings_list(0)) > 1,
+        is_ht=is_ht,
         kubernetes_distro=host_info.kubernetes_distro,
         os=host_info.os,
         os_build_id=host_info.os_build_id,

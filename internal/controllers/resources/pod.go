@@ -1131,6 +1131,19 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		}
 	}
 
+	// If cpuPolicy was resolved from auto, update the CPU_POLICY env var to reflect
+	// the resolved policy so the runtime knows whether to use HT or non-HT core selection.
+	// CPU_POLICY is unconditionally added to the env list earlier in buildEnvVars(), so the
+	// loop will always find it; the search is kept explicit to avoid index fragility.
+	if f.container.Spec.CpuPolicy == weka.CpuPolicyAuto && len(pod.Spec.Containers) > 0 {
+		for i, env := range pod.Spec.Containers[0].Env {
+			if env.Name == "CPU_POLICY" {
+				pod.Spec.Containers[0].Env[i].Value = string(cpuPolicy)
+				break
+			}
+		}
+	}
+
 	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 		Name:  "CORES",
 		Value: strconv.Itoa(f.container.Spec.NumCores),

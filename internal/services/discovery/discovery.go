@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	DiscoveryAnnotation     = "weka.io/discovery.json"
-	DiscoveryTargetSchema   = 3
-	ocpDriverToolkitMapName = "ocp-driver-toolkit-images"
+	DiscoveryAnnotation            = "weka.io/discovery.json"
+	PodDiscoverySnapshotAnnotation = "weka.io/discovery-snapshot"
+	DiscoveryTargetSchema          = 3
+	ocpDriverToolkitMapName        = "ocp-driver-toolkit-images"
 )
 
 // Provider represents the cloud provider
@@ -45,8 +46,28 @@ type DiscoveryNodeInfo struct {
 	InitContainerImage string   `json:"init_container_image,omitempty"`
 	NumCpus            int      `json:"num_cpus,omitempty"`
 	Provider           Provider `json:"provider,omitempty"`
+	Arch               string   `json:"arch,omitempty"` // k8s-normalized, e.g. "amd64", "arm64"; set by Enrich()
 	// this field is for internal use only, is populayed by DiscoverNodeOperation.Enrich
 	//Node *corev1.Node `json:"-"` // this is not necesserally aligned with a node
+}
+
+// PodDiscoverySnapshot holds the DiscoveryNodeInfo fields that affect pod spec creation.
+// Stored as a pod annotation at creation time; compared against the actual scheduled
+// node's info on subsequent reconciles to detect node-info mismatch.
+type PodDiscoverySnapshot struct {
+	IsHt     bool     `json:"is_ht"`
+	Os       string   `json:"os,omitempty"`
+	Provider Provider `json:"provider,omitempty"`
+	Arch     string   `json:"arch,omitempty"`
+}
+
+func (n *DiscoveryNodeInfo) ToSnapshot() *PodDiscoverySnapshot {
+	return &PodDiscoverySnapshot{
+		IsHt:     n.IsHt,
+		Os:       n.Os,
+		Provider: n.Provider,
+		Arch:     n.Arch,
+	}
 }
 
 func (nodeInfo *DiscoveryNodeInfo) ShouldRequestNICs() bool {
