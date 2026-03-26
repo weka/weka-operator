@@ -645,6 +645,7 @@ func (r *wekaClusterReconcilerLoop) emitClusterUpgradeCustomEvent(ctx context.Co
 	}
 }
 
+
 func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()

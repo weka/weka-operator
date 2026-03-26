@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	v1 "k8s.io/api/core/v1"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
@@ -20,16 +19,11 @@ type clusterConfigData struct {
 	TrackedSpecFields  clusterConfigTrackedFields
 }
 
-// clusterConfigTrackedFields mirrors UpdatableClusterSpec — a curated list of properties
-// that should trigger upgrade when changed. Remove fields that should NOT trigger upgrade.
+// clusterConfigTrackedFields — fields that trigger pod rotation when changed.
+// Scheduling fields (Tolerations, NodeSelector, CpuPolicy) are NOT here — they're
+// propagated immediately via propagateSchedulingFields without pod rotation.
 type clusterConfigTrackedFields struct {
-	AdditionalMemory weka.AdditionalMemory
-	Tolerations      []string              // remove
-	RawTolerations   []v1.Toleration       // remove
-	NodeSelector     map[string]string     // remove
-	RoleNodeSelector weka.RoleNodeSelector // remove
-	CpuPolicy        weka.CpuPolicy        // remove - propagate all at once (before upgrade)
-
+	AdditionalMemory            weka.AdditionalMemory
 	Network                     weka.Network
 	TracesConfiguration         *weka.TracesConfiguration
 	RoleCoreIds                 weka.RoleCoreIds
@@ -52,17 +46,10 @@ type clusterConfigTrackedFields struct {
 
 func trackedFieldsFromSpec(spec *weka.WekaClusterSpec) clusterConfigTrackedFields {
 	fields := clusterConfigTrackedFields{
-		AdditionalMemory: spec.AdditionalMemory,
-		Tolerations:      spec.Tolerations,
-		RawTolerations:   spec.RawTolerations,
-
-		NodeSelector:     spec.NodeSelector,
-		RoleNodeSelector: spec.RoleNodeSelector,
-
+		AdditionalMemory:    spec.AdditionalMemory,
 		Network:             spec.Network,
 		TracesConfiguration: spec.TracesConfiguration,
 		RoleCoreIds:         spec.RoleCoreIds,
-		CpuPolicy:           spec.CpuPolicy,
 	}
 	if spec.Dynamic != nil {
 		fields.ComputeExtraCores = spec.Dynamic.ComputeExtraCores
