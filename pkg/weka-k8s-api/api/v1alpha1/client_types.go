@@ -76,6 +76,7 @@ type WekaClientSpecOverrides struct {
 	// override name used in weka local setup for the container
 	// this can be used for integration with external client on the host
 	WekaContainerName string `json:"wekaContainerName,omitempty"`
+	DpdkBaseMemoryMb  int    `json:"dpdkBaseMemoryMb,omitempty"`
 }
 
 type UpgradePolicy struct {

@@ -780,6 +780,18 @@ type PVCConfig struct {
 	Path string `json:"path,omitempty"`
 }
 
+// DpdkBaseMemoryMbOverride specifies DPDK base memory overrides (in MiB) per container mode.
+// Used for hugepages calculation and resources.json configuration. Default value is 64 MiB per core.
+// Only positive values are applied; zero or unset means use default.
+type DpdkBaseMemoryMbOverride struct {
+	Drive        int `json:"drive,omitempty"`
+	Compute      int `json:"compute,omitempty"`
+	S3           int `json:"s3,omitempty"`
+	Nfs          int `json:"nfs,omitempty"`
+	Smbw         int `json:"smbw,omitempty"`
+	DataServices int `json:"dataServices,omitempty"`
+}
+
 type WekaClusterSpecOverrides struct {
 	AllowS3ClusterDestroy   bool `json:"allowS3ClusterDestroy,omitempty"`
 	AllowSmbwClusterDestroy bool `json:"allowSmbwClusterDestroy,omitempty"`
@@ -817,7 +829,8 @@ type WekaClusterSpecOverrides struct {
 	// false: actively unpause containers that are in paused state.
 	Paused *bool `json:"paused,omitempty"`
 	// Cancel deletion of the cluster if it is in graceful destroy period, a disaster recovery mechanism
-	CancelDeletion bool `json:"cancelDeletion,omitempty"`
+	CancelDeletion   bool                     `json:"cancelDeletion,omitempty"`
+	DpdkBaseMemoryMb DpdkBaseMemoryMbOverride `json:"dpdkBaseMemoryMb,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {

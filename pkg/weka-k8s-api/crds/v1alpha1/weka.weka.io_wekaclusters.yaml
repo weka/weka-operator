@@ -658,6 +658,25 @@ spec:
                     description: disregard redundancy constraints, useful for testing,
                       should not be used in production as misaligns failure domains
                     type: boolean
+                  dpdkBaseMemoryMb:
+                    description: |-
+                      DpdkBaseMemoryMbOverride specifies DPDK base memory overrides (in MiB) per container mode.
+                      Used for hugepages calculation and resources.json configuration. Default value is 64 MiB per core.
+                      Only positive values are applied; zero or unset means use default.
+                    properties:
+                      compute:
+                        type: integer
+                      dataServices:
+                        type: integer
+                      drive:
+                        type: integer
+                      nfs:
+                        type: integer
+                      s3:
+                        type: integer
+                      smbw:
+                        type: integer
+                    type: object
                   driversBuildId:
                     description: can be used to specify a build_id for a driver in
                       the distributor service, keep empty for auto detection default
@@ -1626,6 +1645,12 @@ spec:
                       type: object
                     type: array
                 type: object
+              template:
+                default: dynamic
+                description: A template/strategy of how to build a cluster, right
+                  now only "dynamic" supported, explicitly specifying config of a
+                  cluster
+                type: string
               tolerations:
                 description: simplified tolerations, checked only by key existence,
                   expanding to NoExecute|NoSchedule tolerations

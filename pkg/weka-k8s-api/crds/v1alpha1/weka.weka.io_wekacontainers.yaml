@@ -1043,6 +1043,8 @@ spec:
                 - dedicated_ht
                 - manual
                 type: string
+              dpdkBaseMemoryMb:
+                type: integer
               driveCapacity:
                 description: |-
                   DriveCapacity specifies the capacity (in GiB) per virtual drive, indicates this container uses shared drives via SSD proxy.
@@ -1820,7 +1822,6 @@ spec:
                   - added_time
                   - device_path
                   - serial_number
-                  - size_bytes
                   - status
                   - uuid
                   type: object

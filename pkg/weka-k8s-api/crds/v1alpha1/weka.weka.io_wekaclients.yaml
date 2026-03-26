@@ -308,6 +308,8 @@ spec:
                 type: object
               overrides:
                 properties:
+                  dpdkBaseMemoryMb:
+                    type: integer
                   driversBuildId:
                     description: can be used to specify a build_id for a driver in
                       the distributor service, keep empty for auto detection default
