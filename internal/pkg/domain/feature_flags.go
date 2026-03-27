@@ -12,4 +12,6 @@ type FeatureFlags struct {
 	WekaGetCopyLocalDriverFiles       bool `json:"weka_get_copy_local_driver_files"`       // 5
 	DriverSupportsAutoDrain           bool `json:"driver_supports_auto_drain"`             // 6
 	SsdProxyIommuSupport              bool `json:"ssd_proxy_iommu_support"`                // 7
+	// flag 8 is not used by the operator
+	SsdProxyIncludesDpdkMemory bool `json:"ssd_proxy_includes_dpdk_memory"` // 9
 }

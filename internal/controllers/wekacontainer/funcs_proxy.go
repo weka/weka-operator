@@ -114,6 +114,8 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 		return nil, errors.Wrap(err, "failed to calculate hugepages for proxy container")
 	}
 
+	hugepagesOffset := config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB
+
 	proxyContainer := &weka.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      proxyName,
@@ -131,7 +133,8 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 			DriversLoaderImage: cluster.Spec.GetOverrides().DriversLoaderImage,
 			DriversBuildId:     cluster.Spec.GetOverrides().DriversBuildId,
 			Tolerations:        apiutil.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations),
-			Hugepages:          hugepagesMiB + config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB,
+			Hugepages:          hugepagesMiB + config.Consts.SsdProxyDpdkMemoryMiB + hugepagesOffset,
+			HugepagesOffset:    hugepagesOffset,
 			HugepagesSize:      "2Mi",
 		},
 	}

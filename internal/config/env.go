@@ -255,9 +255,9 @@ var Config struct {
 	HugepagesUpdate        HugepagesUpdateConfig
 	ComputeMaxHugepagesMiB int
 
-	PodConfigVersion                 string
-	EnablePodConfigCodeVersionRotation bool
-	AllowRotateNonAnnotatedPodConfigHash          bool
+	PodConfigVersion                     string
+	EnablePodConfigCodeVersionRotation   bool
+	AllowRotateNonAnnotatedPodConfigHash bool
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -322,6 +322,9 @@ var Consts struct {
 	ManagementServiceUpdateInterval time.Duration
 	// Interval for telemetry exports configuration updates
 	TelemetryUpdateInterval time.Duration
+	// DPDK memory reserved for SSD proxy containers (MiB).
+	// Excluded from weka's --memory without SsdProxyIncludesDpdkMemory FF; included with it.
+	SsdProxyDpdkMemoryMiB int
 }
 
 func init() {
@@ -346,6 +349,7 @@ func init() {
 	Consts.TolerationsMismatchCleanupInterval = 1 * time.Minute
 	Consts.ManagementServiceUpdateInterval = 1 * time.Minute
 	Consts.TelemetryUpdateInterval = 1 * time.Minute
+	Consts.SsdProxyDpdkMemoryMiB = 2048
 }
 
 func ConfigureEnv(ctx context.Context) {
@@ -484,7 +488,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DriveSharing.MaxVirtualDrivesPerCore = getIntEnvOrDefault("MAX_VIRTUAL_DRIVES_PER_CORE", 8)
 	Config.DriveSharing.EnforceMinDrivesPerTypePerCore = getBoolEnvOrDefault("ENFORCE_MIN_DRIVES_PER_TYPE_PER_CORE", true)
 	Config.DriveSharing.EnableDynamicDriveScaling = getBoolEnvOrDefault("ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES", false)
-	Config.DriveSharing.SsdProxyHugepagesOffsetMiB = getIntEnvOrDefault("SSD_PROXY_HUGEPAGES_OFFSET_MIB", 2048)
+	Config.DriveSharing.SsdProxyHugepagesOffsetMiB = getIntEnvOrDefault("SSD_PROXY_HUGEPAGES_OFFSET_MIB", 200)
 	Config.DriveSharing.HugepagesTlcRatio = getIntEnvOrDefault("HUGEPAGES_TLC_RATIO", 1000)
 	Config.DriveSharing.HugepagesQlcRatio = getIntEnvOrDefault("HUGEPAGES_QLC_RATIO", 6000)
 

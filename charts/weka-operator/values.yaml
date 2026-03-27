@@ -296,9 +296,9 @@ driveSharing:
 
   # SSD Proxy configuration (used in drive sharing mode)
   ssdProxy:
-    # Hugepages offset in MiB added to calculated hugepages for SSD proxy containers.
-    # Default: 2048 (2 GiB)
-    hugepagesOffsetMiB: 2048
+    # Hugepages offset in MiB kept as a buffer from weka's --memory for SSD proxy containers.
+    # When null, defaults to 200 MiB (defined in operator code).
+    hugepagesOffsetMiB: ~
 
 # Hugepages capacity ratios for compute containers.
 # These control how much hugepages memory is allocated based on raw drive capacity.

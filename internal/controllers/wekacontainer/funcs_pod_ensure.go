@@ -21,6 +21,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/drivers"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -133,7 +134,15 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 	}
 
-	desiredPod, err := resources.NewPodFactory(container, nodeInfo).Create(ctx, &image)
+	var ff *domain.FeatureFlags
+	if container.Spec.Mode == weka.WekaContainerModeSSDProxy {
+		ff, err = r.GetFeatureFlags(ctx)
+		if err != nil {
+			return errors.Wrap(err, "failed to get feature flags")
+		}
+	}
+
+	desiredPod, err := resources.NewPodFactory(container, nodeInfo, ff).Create(ctx, &image)
 	if err != nil {
 		return errors.Wrap(err, "Failed to create pod spec")
 	}
