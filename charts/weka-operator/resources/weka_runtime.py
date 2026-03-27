@@ -300,6 +300,8 @@ class FeaturesFlags:
     weka_get_copy_local_driver_files: Union[bool, int] = 5
     driver_supports_auto_drain: Union[bool, int] = 6
     ssd_proxy_iommu_support: Union[bool, int] = 7
+    # flag 8 is not used by the operator
+    ssd_proxy_includes_dpdk_memory: Union[bool, int] = 9
 
     def __init__(self, b64_flags: Optional[str]) -> None:
         active: Set[int] = set(parse_feature_bitmap(b64_flags or ""))

@@ -66,8 +66,9 @@ type WekaLocalContainerGetIdentityResponse struct {
 type WekaLocalStatusResponse map[string]WekaLocalStatusContainer
 
 type PodFactory struct {
-	container *weka.WekaContainer
-	nodeInfo  *discovery.DiscoveryNodeInfo
+	container    *weka.WekaContainer
+	nodeInfo     *discovery.DiscoveryNodeInfo
+	featureFlags *domain.FeatureFlags // nil → old behavior (e.g. ad-hoc container)
 }
 
 type WekaDriveResponse struct {
@@ -81,10 +82,11 @@ type ShutdownInstructions struct {
 
 const globalPersistenceMountPath = "/opt/weka-global-persistence"
 
-func NewPodFactory(container *weka.WekaContainer, nodeInfo *discovery.DiscoveryNodeInfo) *PodFactory {
+func NewPodFactory(container *weka.WekaContainer, nodeInfo *discovery.DiscoveryNodeInfo, ff *domain.FeatureFlags) *PodFactory {
 	return &PodFactory{
-		nodeInfo:  nodeInfo,
-		container: container,
+		nodeInfo:     nodeInfo,
+		container:    container,
+		featureFlags: ff,
 	}
 }
 
@@ -187,6 +189,8 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	} else {
 		priorityClassName = config.Config.PriorityClasses.Initial
 	}
+	hgDetails := GetHugePagesDetails(f.container, f.featureFlags)
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        f.container.Name,
@@ -302,7 +306,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						},
 						{
 							Name:  "MEMORY",
-							Value: f.getHugePagesDetails().WekaMemoryString,
+							Value: hgDetails.WekaMemoryString,
 						},
 						{
 							Name:  "DPDK_BASE_MEMORY_MB",
@@ -501,7 +505,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						Name: "hugepages",
 						VolumeSource: corev1.VolumeSource{
 							EmptyDir: &corev1.EmptyDirVolumeSource{
-								Medium: corev1.StorageMedium(fmt.Sprintf("HugePages-%s", f.getHugePagesDetails().HugePagesK8sSuffix)),
+								Medium: corev1.StorageMedium(fmt.Sprintf("HugePages-%s", hgDetails.HugePagesK8sSuffix)),
 							},
 						},
 					})
@@ -724,7 +728,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 	}
 
-	err := f.setResources(ctx, pod)
+	err := f.setResources(ctx, pod, hgDetails)
 	if err != nil {
 		return nil, err
 	}
@@ -1056,7 +1060,11 @@ func GetHugePagesOffset(container *weka.WekaContainer) int {
 				offset = 200 * container.Spec.NumDrives
 			}
 		case weka.WekaContainerModeSSDProxy:
-			offset = config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB
+			if config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB != 0 {
+				offset = config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB
+			} else {
+				offset = 200
+			}
 		default:
 			offset = 200
 		}
@@ -1075,8 +1083,15 @@ func AlignMemoryToHugepageBoundary(memoryMiB, numCores int) int {
 }
 
 // GetHugePagesDetails returns hugepages details for a container based on its spec.
-func GetHugePagesDetails(container *weka.WekaContainer) HugePagesDetails {
-	var hugePagesStr, hugePagesK8sSuffix, wekaMemoryString string
+// ff is optional; for SSD proxy containers it controls DPDK memory accounting:
+//   - without SsdProxyIncludesDpdkMemory: DPDK memory (config.Consts.SsdProxyDpdkMemoryMiB) is excluded
+//     from --memory (managed externally by ssdproxy)
+//   - with SsdProxyIncludesDpdkMemory: DPDK is accounted through weka, only the hugepages
+//     offset buffer (HugepagesOffset) is subtracted from --memory
+func GetHugePagesDetails(container *weka.WekaContainer, ff *domain.FeatureFlags) HugePagesDetails {
+	hugePagesStr := ""
+	hugePagesK8sSuffix := "2Mi"
+	wekaMemoryString := ""
 	if container.Spec.HugepagesSize == "1Gi" {
 		hugePagesK8sSuffix = container.Spec.HugepagesSize
 		hugePagesStr = fmt.Sprintf("%dGi", container.Spec.Hugepages/1000)
@@ -1085,6 +1100,15 @@ func GetHugePagesDetails(container *weka.WekaContainer) HugePagesDetails {
 		hugePagesStr = fmt.Sprintf("%dMi", container.Spec.Hugepages)
 		hugePagesK8sSuffix = "2Mi"
 		offset := GetHugePagesOffset(container)
+
+		if container.Spec.Mode == weka.WekaContainerModeSSDProxy {
+			if ff == nil || !ff.SsdProxyIncludesDpdkMemory {
+				// DPDK memory is managed externally; exclude it from weka's --memory
+				offset += config.Consts.SsdProxyDpdkMemoryMiB
+			}
+			// with SsdProxyIncludesDpdkMemory: ssdproxy accounts for DPDK through weka,
+			// subtract only the hugepages offset buffer
+		}
 		memoryMiB := AlignMemoryToHugepageBoundary(container.Spec.Hugepages-offset, container.Spec.NumCores)
 		wekaMemoryString = fmt.Sprintf("%dMiB", memoryMiB)
 	}
@@ -1100,11 +1124,7 @@ func GetHugePagesDetails(container *weka.WekaContainer) HugePagesDetails {
 	}
 }
 
-func (f *PodFactory) getHugePagesDetails() HugePagesDetails {
-	return GetHugePagesDetails(f.container)
-}
-
-func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
+func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetails HugePagesDetails) error {
 	totalNumCores := f.container.Spec.NumCores
 	switch f.container.Spec.Mode {
 	case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeSmbw, weka.WekaContainerModeDataServices:
@@ -1122,8 +1142,6 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	if !cpuPolicy.IsValid() {
 		return fmt.Errorf("invalid CPU policy: %s", cpuPolicy)
 	}
-
-	hgDetails := f.getHugePagesDetails()
 
 	if cpuPolicy == weka.CpuPolicyAuto {
 		if len(f.container.Spec.CoreIds) > 0 {

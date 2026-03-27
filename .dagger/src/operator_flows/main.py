@@ -380,6 +380,7 @@ class OperatorFlows:
             .with_secret_variable("GEMINI_API_KEY", gemini_api_key)
             .with_secret_variable("GITHUB_TOKEN", gh_token)
             .with_env_variable("KUBECONFIG", "/.kube/config")
+            .with_env_variable("LOG_FORMAT", "raw")
         )
         if gh_sha:
             upgrade_test_container = upgrade_test_container.with_env_variable("GITHUB_SHA", gh_sha)

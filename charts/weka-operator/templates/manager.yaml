@@ -403,8 +403,10 @@ spec:
               value: "{{ .Values.hugepagesTlcRatio }}"
             - name: HUGEPAGES_QLC_RATIO
               value: "{{ .Values.hugepagesQlcRatio }}"
+            {{- if not (kindIs "invalid" .Values.driveSharing.ssdProxy.hugepagesOffsetMiB) }}
             - name: SSD_PROXY_HUGEPAGES_OFFSET_MIB
               value: "{{ .Values.driveSharing.ssdProxy.hugepagesOffsetMiB }}"
+            {{- end }}
             - name: HUGEPAGES_UPDATE_COMPUTE
               value: "{{ .Values.hugepagesUpdate.compute }}"
             - name: HUGEPAGES_UPDATE_DRIVE
