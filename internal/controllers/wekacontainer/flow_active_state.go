@@ -211,6 +211,17 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			SkipStepStateCheck: true,
 		},
 		&lifecycle.SimpleStep{
+			Name: "DeletePodIfConfigHashMismatch",
+			Run:  r.deletePodIfConfigHashMismatch,
+			Predicates: lifecycle.Predicates{
+				r.PodIsSet,
+				// Defer to handleImageUpdate for image-only changes when it's active
+				func() bool {
+					return !(r.IsNotAlignedImage() && r.container.Status.LastAppliedImage != "")
+				},
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.EnsureDrivers,
 			Predicates: lifecycle.Predicates{
 				r.container.RequiresDrivers,

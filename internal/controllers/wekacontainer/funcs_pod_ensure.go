@@ -145,6 +145,17 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 	}
 
+	// Annotate with pod config hash so we can detect spec drift on reconcile.
+	configHash, hashErr := resources.ComputePodConfigHash(&container.Spec)
+	if hashErr != nil {
+		logger.Error(hashErr, "Failed to compute pod config hash, skipping annotation")
+	} else {
+		if desiredPod.Annotations == nil {
+			desiredPod.Annotations = make(map[string]string)
+		}
+		desiredPod.Annotations[resources.PodConfigHashAnnotation] = configHash
+	}
+
 	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
 		return errors.Wrapf(err, "Error setting controller reference")
 	}
@@ -204,4 +215,50 @@ func (r *containerReconcilerLoop) deletePodIfNodeInfoMismatch(ctx context.Contex
 	}
 
 	return lifecycle.NewWaitError(errors.New("pod deleted due to node-info mismatch, waiting for recreation"))
+}
+
+func (r *containerReconcilerLoop) deletePodIfConfigHashMismatch(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deletePodIfConfigHashMismatch")
+	defer end()
+
+	annotatedHash := r.pod.Annotations[resources.PodConfigHashAnnotation]
+	if annotatedHash == "" {
+		// Pod was created before this feature — backfill the annotation
+		// so it gets a baseline for future comparisons. Do NOT delete.
+		currentHash, err := resources.ComputePodConfigHash(&r.container.Spec)
+		if err != nil {
+			logger.Error(err, "Failed to compute pod config hash for backfill")
+			return nil
+		}
+		podCopy := r.pod.DeepCopy()
+		if podCopy.Annotations == nil {
+			podCopy.Annotations = make(map[string]string)
+		}
+		podCopy.Annotations[resources.PodConfigHashAnnotation] = currentHash
+		if err := r.Update(ctx, podCopy); err != nil {
+			logger.Error(err, "Failed to backfill pod config hash annotation")
+		}
+		return nil
+	}
+
+	currentHash, err := resources.ComputePodConfigHash(&r.container.Spec)
+	if err != nil {
+		return errors.Wrap(err, "failed to compute current pod config hash")
+	}
+
+	if annotatedHash == currentHash {
+		return nil
+	}
+
+	logger.Info("Pod config hash mismatch detected, deleting pod for recreation",
+		"annotatedHash", annotatedHash,
+		"currentHash", currentHash,
+		"container", r.container.Name,
+	)
+
+	if err := r.deletePod(ctx, r.pod); err != nil {
+		return err
+	}
+
+	return lifecycle.NewWaitError(errors.New("pod deleted due to config hash mismatch, waiting for recreation"))
 }
