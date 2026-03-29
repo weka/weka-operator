@@ -475,6 +475,12 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.applyCurrentConfig,
+			Predicates: lifecycle.Predicates{
+				r.PodIsSet,
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.setJoinIpsIfStuckInStemMode,
 			Predicates: lifecycle.Predicates{
 				r.container.ShouldJoinCluster,
@@ -865,5 +871,62 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 	logger.Info("Updating LastAppliedImage", "image", container.Spec.Image)
 
 	container.Status.LastAppliedImage = container.Spec.Image
+	return r.Status().Update(ctx, container)
+}
+
+func (r *containerReconcilerLoop) applyCurrentConfig(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	pod := r.pod
+	container := r.container
+
+	computedHash, err := resources.ComputePodConfigHash(&container.Spec)
+	if err != nil {
+		return err
+	}
+
+	podAnnotationHash := pod.Annotations[resources.PodConfigHashAnnotation]
+
+	// Migration backfill: if LastAppliedSpec is empty (existing container before this feature),
+	// set it as long as the pod is Running, without requiring annotation match.
+	if container.Status.LastAppliedSpec == "" {
+		if pod.Status.Phase != v1.PodRunning {
+			return nil
+		}
+		logger.Info("Backfilling LastAppliedSpec", "hash", computedHash)
+		container.Status.LastAppliedSpec = computedHash
+		return r.Status().Update(ctx, container)
+	}
+
+	// Pod was created before this feature (no annotation) — nothing to do.
+	if podAnnotationHash == "" {
+		return nil
+	}
+
+	// Only update if pod annotation matches computed hash and pod/container are Running.
+	if podAnnotationHash != computedHash {
+		return nil
+	}
+
+	if pod.Status.Phase != v1.PodRunning {
+		logger.Info("Pod is not running yet")
+		return nil
+	}
+
+	if !slices.Contains(
+		[]weka.ContainerStatus{weka.Running, weka.PodRunning},
+		container.Status.Status,
+	) {
+		logger.Info("Container is not running yet")
+		return nil
+	}
+
+	if container.Status.LastAppliedSpec == computedHash {
+		return nil
+	}
+
+	logger.Info("Updating LastAppliedSpec", "hash", computedHash)
+	container.Status.LastAppliedSpec = computedHash
 	return r.Status().Update(ctx, container)
 }

@@ -2,7 +2,6 @@ package upgrade
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -10,44 +9,35 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type UpgradeController struct {
-	Containers  []*v1alpha1.WekaContainer
-	TargetImage string
-	Client      client.Client
+	Containers       []*v1alpha1.WekaContainer
+	TargetImage      string
+	TargetConfigHash string
+	PatchFunc        func(container *v1alpha1.WekaContainer) // applies tracked spec fields per container
+	Client           client.Client
 }
 
-func NewUpgradeController(client client.Client, containers []*v1alpha1.WekaContainer, targetImage string) *UpgradeController {
+func NewUpgradeController(client client.Client, containers []*v1alpha1.WekaContainer, targetImage string, targetConfigHash string, patchFunc func(container *v1alpha1.WekaContainer)) *UpgradeController {
 	return &UpgradeController{
-		Containers:  containers,
-		TargetImage: targetImage,
-		Client:      client,
+		Containers:       containers,
+		TargetImage:      targetImage,
+		TargetConfigHash: targetConfigHash,
+		PatchFunc:        patchFunc,
+		Client:           client,
 	}
 }
 
 func (u *UpgradeController) UpdateContainer(ctx context.Context, container *v1alpha1.WekaContainer) error {
-	if container.Status.LastAppliedImage != u.TargetImage {
-		if container.Spec.Image != u.TargetImage {
-			patch := map[string]interface{}{
-				"spec": map[string]interface{}{
-					"image": u.TargetImage,
-				},
-			}
-
-			patchBytes, err := json.Marshal(patch)
-			if err != nil {
-				err = fmt.Errorf("failed to marshal patch for %s: %w", container.Name, err)
-				return err
-			}
-
-			if err := u.Client.Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)); err != nil {
-				err = fmt.Errorf("failed to patch container %s with new image %s: %w", container.Name, u.TargetImage, err)
-				return err
-			}
-		}
+	patch := client.MergeFrom(container.DeepCopy())
+	container.Spec.Image = u.TargetImage
+	if u.PatchFunc != nil {
+		u.PatchFunc(container)
+	}
+	if err := u.Client.Patch(ctx, container, patch); err != nil {
+		return fmt.Errorf("failed to patch container %s with new image %s: %w", container.Name, u.TargetImage, err)
 	}
 	return nil
 }
@@ -59,6 +49,9 @@ func (u *UpgradeController) AreUpgraded() bool {
 		}
 
 		if container.Status.LastAppliedImage != u.TargetImage {
+			return false
+		}
+		if u.TargetConfigHash != "" && container.Status.LastAppliedSpec != u.TargetConfigHash {
 			return false
 		}
 	}
@@ -99,7 +92,9 @@ func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 			logger.Info("container is a new container and does not need upgrade", "container_name", container.Name)
 			continue
 		}
-		if container.Spec.Image == u.TargetImage && container.Status.LastAppliedImage != container.Spec.Image {
+		if container.Spec.Image == u.TargetImage &&
+			(container.Status.LastAppliedImage != container.Spec.Image ||
+				(u.TargetConfigHash != "" && container.Status.LastAppliedSpec != u.TargetConfigHash)) {
 			if container.GetNodeAffinity() == "" {
 				logger.Debug("container does not have node affinity, skipping", "container", container.Name)
 				continue
@@ -110,7 +105,11 @@ func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 	}
 
 	for _, container := range u.Containers {
-		if container.Spec.Image != u.TargetImage {
+		needsUpdate := container.Spec.Image != u.TargetImage
+		if u.TargetConfigHash != "" && container.Status.LastAppliedSpec != u.TargetConfigHash {
+			needsUpdate = true
+		}
+		if needsUpdate {
 			err := u.UpdateContainer(ctx, container)
 			if err != nil {
 				return err
