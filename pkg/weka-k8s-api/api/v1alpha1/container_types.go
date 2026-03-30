@@ -207,12 +207,14 @@ type WekaContainerSpec struct {
 	// deprecated, use ExposedPorts instead
 	ExposePorts []int `json:"exposePorts,omitempty"`
 	// ports to be exposed on the container, proxied to pod
-	ExposedPorts      []v1.ContainerPort `json:"exposedPorts,omitempty"`
-	AgentPort         int                `json:"agentPort,omitempty"`
-	PortRange         *PortRange         `json:"portRange,omitempty"`
-	Image             string             `json:"image"`
-	ImagePullSecret   string             `json:"imagePullSecret,omitempty"`
-	WekaContainerName string             `json:"name"`
+	ExposedPorts []v1.ContainerPort `json:"exposedPorts,omitempty"`
+	AgentPort    int                `json:"agentPort,omitempty"`
+	PortRange    *PortRange         `json:"portRange,omitempty"`
+	Image        string             `json:"image"`
+	// a hash that represents the config state of a WekaContainer, will recreate the pod if stale
+	PodConfigHash     string `json:"podConfigHash"`
+	ImagePullSecret   string `json:"imagePullSecret,omitempty"`
+	WekaContainerName string `json:"name"`
 	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs;smbw;telemetry;ssdproxy;data-services;data-services-fe
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores

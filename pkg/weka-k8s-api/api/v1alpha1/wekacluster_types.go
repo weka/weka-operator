@@ -851,17 +851,18 @@ type ClusterPorts struct {
 
 // WekaClusterStatus defines the observed state of WekaCluster
 type WekaClusterStatus struct {
-	Status           WekaClusterStatusEnum  `json:"status"`
-	Conditions       []metav1.Condition     `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	ClusterID        string                 `json:"clusterID,omitempty"`
-	TraceId          string                 `json:"traceId,omitempty"`
-	SpanID           string                 `json:"spanId,omitempty"`
-	LastAppliedImage string                 `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
-	LastAppliedSpec  string                 `json:"lastAppliedSpec,omitempty"`
-	Ports            ClusterPorts           `json:"ports,omitempty"`
-	Stats            *ClusterMetrics        `json:"stats,omitempty"`
-	PrinterColumns   ClusterPrinterColumns  `json:"printer,omitempty"`
-	Timestamps       map[string]metav1.Time `json:"timestamps,omitempty"`
+	Status                   WekaClusterStatusEnum  `json:"status"`
+	Conditions               []metav1.Condition     `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	ClusterID                string                 `json:"clusterID,omitempty"`
+	TraceId                  string                 `json:"traceId,omitempty"`
+	SpanID                   string                 `json:"spanId,omitempty"`
+	LastAppliedImage         string                 `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	LastAppliedSpec          string                 `json:"lastAppliedSpec,omitempty"`
+	LastAppliedPodConfigHash string                 `json:"lastAppliedPodConfigHash,omitempty"`
+	Ports                    ClusterPorts           `json:"ports,omitempty"`
+	Stats                    *ClusterMetrics        `json:"stats,omitempty"`
+	PrinterColumns           ClusterPrinterColumns  `json:"printer,omitempty"`
+	Timestamps               map[string]metav1.Time `json:"timestamps,omitempty"`
 }
 
 // +kubebuilder:object:root=true
