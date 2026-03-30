@@ -287,6 +287,35 @@ var _ = Describe("Spec version drift detection", func() {
 				Expect(err.Error()).To(ContainSubstring("spec-version mismatch"))
 			})
 
+			It("deletes owned container pod without annotation when explicit SpecVersion is set, even with allowRotateNonAnnotated=false", func() {
+				config.Config.AllowRotateNonAnnotated = false
+				container := &weka.WekaContainer{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-c", Namespace: "default", UID: "c-uid",
+						OwnerReferences: []metav1.OwnerReference{
+							{UID: clusterUID, Name: "my-cluster", Kind: "WekaCluster", APIVersion: "weka.weka.io/v1alpha1"},
+						},
+					},
+					Spec: weka.WekaContainerSpec{
+						Image:       testImage,
+						SpecVersion: "cc315cdb",
+					},
+					Status: weka.WekaContainerStatus{LastAppliedImage: testImage},
+				}
+				pod := &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        "test-c",
+						Namespace:   "default",
+						Annotations: map[string]string{}, // pre-existing pod, no annotation
+					},
+				}
+
+				r := newReconciler(container, pod)
+				err := r.handleSpecVersionMismatch(ctx)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("spec-version mismatch"))
+			})
+
 			It("does NOT delete owned container pod without annotation even when allowRotateNonAnnotated=true if no SpecVersion set", func() {
 				config.Config.AllowRotateNonAnnotated = true
 				container := &weka.WekaContainer{

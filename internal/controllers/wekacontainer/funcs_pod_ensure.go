@@ -263,10 +263,13 @@ func (r *containerReconcilerLoop) handleSpecVersionMismatch(ctx context.Context)
 	podAnnotation := r.pod.Annotations[consts.PodSpecVersionAnnotation]
 
 	if podAnnotation == "" {
-		if !config.Config.AllowRotateNonAnnotated {
+		// If SpecVersion is explicitly set by a parent (cluster/client), always rotate.
+		// Only respect allowRotateNonAnnotated for ownerless containers with self-calculated versions.
+		if r.container.Spec.SpecVersion == "" && !config.Config.AllowRotateNonAnnotated {
 			return nil
 		}
-		logger.Info("Pod missing spec-version annotation, rotating due to allowRotateNonAnnotated")
+		logger.Info("Pod missing spec-version annotation, rotating",
+			"explicitSpecVersion", r.container.Spec.SpecVersion != "")
 	} else if podAnnotation == target {
 		// Spec version matches — record the applied version in status if not already set.
 		if r.container.Status.LastAppliedSpecVersion != target {
