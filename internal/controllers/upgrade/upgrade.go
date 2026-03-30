@@ -15,50 +15,74 @@ import (
 )
 
 type UpgradeController struct {
-	Containers  []*v1alpha1.WekaContainer
-	TargetImage string
-	Client      client.Client
+	Containers        []*v1alpha1.WekaContainer
+	TargetImage       string // non-empty only when the image itself changed
+	TargetSpecVersion string
+	Client            client.Client
 }
 
-func NewUpgradeController(client client.Client, containers []*v1alpha1.WekaContainer, targetImage string) *UpgradeController {
+func NewUpgradeController(client client.Client, containers []*v1alpha1.WekaContainer, targetImage, targetSpecVersion string) *UpgradeController {
 	return &UpgradeController{
-		Containers:  containers,
-		TargetImage: targetImage,
-		Client:      client,
+		Containers:        containers,
+		TargetImage:       targetImage,
+		TargetSpecVersion: targetSpecVersion,
+		Client:            client,
 	}
 }
 
+// isContainerAligned returns true if the container already has the target spec applied.
+func (u *UpgradeController) isContainerAligned(container *v1alpha1.WekaContainer) bool {
+	if u.TargetSpecVersion != "" {
+		return container.Spec.SpecVersion == u.TargetSpecVersion
+	}
+	return container.Spec.Image == u.TargetImage
+}
+
+// isContainerApplied returns true if the container's pod has successfully applied the target spec.
+func (u *UpgradeController) isContainerApplied(container *v1alpha1.WekaContainer) bool {
+	if u.TargetSpecVersion != "" {
+		return container.Status.LastAppliedSpecVersion == u.TargetSpecVersion
+	}
+	return container.Status.LastAppliedImage == u.TargetImage
+}
+
 func (u *UpgradeController) UpdateContainer(ctx context.Context, container *v1alpha1.WekaContainer) error {
-	if container.Status.LastAppliedImage != u.TargetImage {
-		if container.Spec.Image != u.TargetImage {
-			patch := map[string]interface{}{
-				"spec": map[string]interface{}{
-					"image": u.TargetImage,
-				},
-			}
+	if u.isContainerAligned(container) {
+		return nil // already patched
+	}
 
-			patchBytes, err := json.Marshal(patch)
-			if err != nil {
-				err = fmt.Errorf("failed to marshal patch for %s: %w", container.Name, err)
-				return err
-			}
+	specPatch := map[string]interface{}{}
+	if u.TargetSpecVersion != "" {
+		specPatch["specVersion"] = u.TargetSpecVersion
+	}
+	if u.TargetImage != "" && container.Spec.Image != u.TargetImage {
+		specPatch["image"] = u.TargetImage
+	}
+	if len(specPatch) == 0 {
+		return nil
+	}
+	patch := map[string]interface{}{
+		"spec": specPatch,
+	}
 
-			if err := u.Client.Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)); err != nil {
-				err = fmt.Errorf("failed to patch container %s with new image %s: %w", container.Name, u.TargetImage, err)
-				return err
-			}
-		}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patch for %s: %w", container.Name, err)
+	}
+
+	if err := u.Client.Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)); err != nil {
+		return fmt.Errorf("failed to patch container %s: %w", container.Name, err)
 	}
 	return nil
 }
 
 func (u *UpgradeController) AreUpgraded() bool {
 	for _, container := range u.Containers {
-		if container.Status.LastAppliedImage == "" && container.Status.ClusterContainerID == nil && container.Spec.Image == u.TargetImage {
+		if !u.isContainerApplied(container) && container.Status.ClusterContainerID == nil && u.isContainerAligned(container) {
 			continue // if pod is not schedulable, ignore it from "Upgrading" status calc
 		}
 
-		if container.Status.LastAppliedImage != u.TargetImage {
+		if !u.isContainerApplied(container) {
 			return false
 		}
 	}
@@ -95,11 +119,7 @@ func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 			logger.Info("container marked for deletion, skipping", "container", container.Name)
 			continue
 		}
-		if container.Spec.Image == u.TargetImage && container.Status.LastAppliedImage == "" {
-			logger.Info("container is a new container and does not need upgrade", "container_name", container.Name)
-			continue
-		}
-		if container.Spec.Image == u.TargetImage && container.Status.LastAppliedImage != container.Spec.Image {
+		if u.isContainerAligned(container) && !u.isContainerApplied(container) {
 			if container.GetNodeAffinity() == "" {
 				logger.Debug("container does not have node affinity, skipping", "container", container.Name)
 				continue
@@ -110,7 +130,7 @@ func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 	}
 
 	for _, container := range u.Containers {
-		if container.Spec.Image != u.TargetImage {
+		if !u.isContainerAligned(container) {
 			err := u.UpdateContainer(ctx, container)
 			if err != nil {
 				return err

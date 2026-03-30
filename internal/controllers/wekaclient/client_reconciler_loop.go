@@ -953,7 +953,8 @@ func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleUpgrade")
 	defer end()
 
-	uController := upgrade.NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image)
+	// Client upgrade uses image-based tracking (TargetSpecVersion="" triggers image fallback)
+	uController := upgrade.NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image, "")
 	if uController.AreUpgraded() {
 		// Clear pre-pull annotation after successful upgrade
 		err := c.clearPrePullAnnotationForClient(ctx)

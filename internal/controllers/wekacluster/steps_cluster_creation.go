@@ -300,8 +300,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		}
 	}
 
-	template := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
-	specVersion := CalcClusterSpecVersion(cluster.Spec.Image, template.Cores.Drive)
+	specVersion := CalcClusterSpecVersion(&cluster.Spec)
 
 	for _, container := range missingContainers {
 		if len(joinIps) != 0 {
