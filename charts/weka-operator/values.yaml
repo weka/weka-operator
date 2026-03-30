@@ -346,6 +346,13 @@ managementProxy:
 # - "syslog-ng": explicitly use syslog-ng
 syslogPackage: "auto"
 
+# Manual version bump to trigger pod rotation when pod config shape changes via helm
+podConfigVersion: "1"
+
+# If true, delete and recreate pods that lack the weka.io/spec-version annotation
+# (pods created before this feature). Default false to avoid mass restarts on upgrade.
+allowRotateNonAnnotated: false
+
 # Proxy configuration for drivers loader pod and weka home
 proxy: ""
 

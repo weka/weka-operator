@@ -17,6 +17,7 @@ import (
 	k8sTypes "k8s.io/apimachinery/pkg/types"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
@@ -200,12 +201,8 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				Name:   condition.CondContainerImageUpdated,
 				Reason: "ImageUpdate",
 			},
-			Run: r.handleImageUpdate,
+			Run: r.handleSpecVersionMismatch,
 			Predicates: lifecycle.Predicates{
-				func() bool {
-					return r.container.Status.LastAppliedImage != ""
-				},
-				r.IsNotAlignedImage,
 				lifecycle.IsNotFunc(r.PodNotSet),
 			},
 			SkipStepStateCheck: true,
@@ -888,5 +885,21 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 	logger.Info("Updating LastAppliedImage", "image", container.Spec.Image)
 
 	container.Status.LastAppliedImage = container.Spec.Image
+
+	// Update pod spec-version annotation to match the new image so the drift check
+	// does not immediately delete the pod after a successful image upgrade.
+	if specVer := targetSpecVersion(container); specVer != "" && r.pod != nil {
+		if r.pod.Annotations == nil {
+			r.pod.Annotations = make(map[string]string)
+		}
+		if r.pod.Annotations[consts.PodSpecVersionAnnotation] != specVer {
+			r.pod.Annotations[consts.PodSpecVersionAnnotation] = specVer
+			if err := r.Update(ctx, r.pod); err != nil {
+				return err
+			}
+		}
+		container.Status.LastAppliedSpecVersion = specVer
+	}
+
 	return r.Status().Update(ctx, container)
 }

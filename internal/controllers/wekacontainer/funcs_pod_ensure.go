@@ -2,7 +2,9 @@ package wekacontainer
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -14,6 +16,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/drivers"
@@ -145,6 +149,14 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 	}
 
+	// Annotate with spec version for drift detection.
+	if specVer := targetSpecVersion(container); specVer != "" {
+		if desiredPod.Annotations == nil {
+			desiredPod.Annotations = make(map[string]string)
+		}
+		desiredPod.Annotations[consts.PodSpecVersionAnnotation] = specVer
+	}
+
 	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
 		return errors.Wrapf(err, "Error setting controller reference")
 	}
@@ -204,4 +216,71 @@ func (r *containerReconcilerLoop) deletePodIfNodeInfoMismatch(ctx context.Contex
 	}
 
 	return lifecycle.NewWaitError(errors.New("pod deleted due to node-info mismatch, waiting for recreation"))
+}
+
+// selfCalcSpecVersion returns the spec version computed from the image, pod config version, and code constant.
+func selfCalcSpecVersion(image string) string {
+	raw := image + "|" + config.Config.PodConfigVersion + "|" + consts.WekaRuntimeVersion
+	hash := sha256.Sum256([]byte(raw))
+	return fmt.Sprintf("%x", hash)[:12]
+}
+
+// targetSpecVersion returns the spec version that should be applied to the pod.
+// If container.Spec.SpecVersion is non-empty it is used directly (allows explicit per-container control).
+// For ownerless containers with no explicit SpecVersion, the version is self-calculated from the image,
+// the global helm podConfigVersion and the in-code WekaRuntimeVersion.
+// For containers with owners and no explicit SpecVersion, an empty string is returned (no spec-version tracking).
+func targetSpecVersion(container *weka.WekaContainer) string {
+	if container.Spec.SpecVersion != "" {
+		return container.Spec.SpecVersion
+	}
+	if len(container.GetOwnerReferences()) == 0 {
+		return selfCalcSpecVersion(container.Spec.Image)
+	}
+	return ""
+}
+
+// handleSpecVersionMismatch combines image-upgrade handling with pod spec-version drift detection.
+// It runs image upgrade operations first (when the image is mismatched), then checks whether the
+// running pod's weka.io/spec-version annotation matches the expected value. If the spec version has
+// drifted the pod is deleted so it will be recreated with the correct spec.
+func (r *containerReconcilerLoop) handleSpecVersionMismatch(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	// Run image-upgrade operations first when the image is mismatched.
+	if r.container.Status.LastAppliedImage != "" && r.IsNotAlignedImage() {
+		if err := r.handleImageUpdate(ctx); err != nil {
+			return err
+		}
+	}
+
+	target := targetSpecVersion(r.container)
+	if target == "" {
+		return nil
+	}
+
+	podAnnotation := r.pod.Annotations[consts.PodSpecVersionAnnotation]
+
+	if podAnnotation == "" {
+		if !config.Config.AllowRotateNonAnnotated {
+			return nil
+		}
+		logger.Info("Pod missing spec-version annotation, rotating due to allowRotateNonAnnotated")
+	} else if podAnnotation == target {
+		// Spec version matches — record the applied version in status if not already set.
+		if r.container.Status.LastAppliedSpecVersion != target {
+			r.container.Status.LastAppliedSpecVersion = target
+			return r.Status().Update(ctx, r.container)
+		}
+		return nil
+	} else {
+		logger.Info("Pod spec-version mismatch, deleting for recreation",
+			"podSpecVersion", podAnnotation, "targetSpecVersion", target)
+	}
+
+	if err := r.deletePod(ctx, r.pod); err != nil {
+		return err
+	}
+	return lifecycle.NewWaitError(errors.New("pod deleted due to spec-version mismatch, waiting for recreation"))
 }
