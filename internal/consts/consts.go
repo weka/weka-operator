@@ -48,6 +48,14 @@ const (
 	AnnotationVirtualDriveClaims = "weka.io/virtual-drive-claims"
 )
 
+// PodSpecVersionAnnotation is the annotation key used to store the computed spec version on pods.
+// It is used to detect drift between the running pod spec and the desired spec.
+const PodSpecVersionAnnotation = "weka.io/spec-version"
+
+// WekaRuntimeVersion should be bumped when the pod spec shape changes in code
+// (new env vars, volume mounts, container args, etc.) to trigger pod rotation.
+const WekaRuntimeVersion = "1"
+
 // Kubernetes extended resource names
 const (
 	// ResourceDrives is the extended resource name for tracking available drives (non-proxy mode)

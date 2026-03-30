@@ -263,6 +263,10 @@ spec:
               value: "{{ .Values.removeFailedDrives }}"
             - name: ALLOW_MULTIPLE_PROTOCOLS_PER_NODE
               value: "{{ .Values.allowMultipleProtocolsPerNode }}"
+            - name: POD_CONFIG_VERSION
+              value: "{{ .Values.podConfigVersion }}"
+            - name: ALLOW_ROTATE_NON_ANNOTATED
+              value: "{{ .Values.allowRotateNonAnnotated }}"
             - name: MANAGEMENT_PROXY_HOST_NETWORK
               value: "{{ .Values.managementProxy.hostNetwork }}"
             - name: MANAGEMENT_PROXY_INGRESS_BASE_DOMAIN
