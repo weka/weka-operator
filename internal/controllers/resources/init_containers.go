@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 
 	v1 "k8s.io/api/core/v1"
+
+	"github.com/weka/weka-operator/internal/config"
 )
 
 func addUIOLoaderInitContainer(pod *v1.Pod) *v1.Pod {
@@ -25,7 +27,7 @@ echo "UIO module loaded successfully"
 
 	uioInitContainer := v1.Container{
 		Name:    "uio-loader-init",
-		Image:   "busybox:latest",
+		Image:   config.Config.MaintenanceImage,
 		Command: command,
 		SecurityContext: &v1.SecurityContext{
 			Privileged: &privileged,

@@ -195,6 +195,7 @@ var Config struct {
 	DebugSleep                     int
 	MaintenanceSaName              string
 	MaintenanceImage               string
+	EnvoyImage                     string
 	MaintenanceImagePullSecret     string
 	OcpCompatibility               OcpCompatibility
 	GkeCompatibility               GkeCompatibility
@@ -369,7 +370,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.WekaHome.CacertSecret = os.Getenv("WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET")
 	Config.WekaHome.EnableStats = getBoolEnvOrDefault("WEKA_OPERATOR_WEKA_HOME_ENABLE_STATS", true)
 	Config.DebugSleep = getIntEnvOrDefault("WEKA_OPERATOR_DEBUG_SLEEP", 3)
-	Config.MaintenanceImage = getEnvOrDefault("WEKA_MAINTENANCE_IMAGE", "quay.io/weka.io/busybox")
+	Config.MaintenanceImage = getEnvOrDefault("WEKA_MAINTENANCE_IMAGE", "quay.io/weka.io/busybox:1.37.0")
+	Config.EnvoyImage = getEnvOrDefault("ENVOY_IMAGE", "docker.io/envoyproxy/envoy:v1.31-latest")
 	Config.Upgrade.ComputeThresholdPercent = getIntEnvOrDefault("UPGRADE_COMPUTE_THRESHOLD_PERCENT", 90)
 	Config.Upgrade.DriveThresholdPercent = getIntEnvOrDefault("UPGRADE_DRIVE_THRESHOLD_PERCENT", 90)
 	Config.Upgrade.MaxDeactivatingContainersPercent = getIntEnvOrDefault("UPGRADE_MAX_DEACTIVATING_CONTAINERS_PERCENT", 10)
@@ -397,7 +399,7 @@ func ConfigureEnv(ctx context.Context) {
 
 	Config.Metrics.Clusters.Enabled = getBoolEnvOrDefault("METRICS_CLUSTERS_ENABLED", true)
 	Config.Metrics.Clusters.PollingRate = getDurationEnvOrDefault("METRICS_CLUSTERS_POLLING_RATE", time.Second*60)
-	Config.Metrics.Clusters.Image = env.GetString("METRICS_CLUSTERS_IMAGE", "nginx:1.27.3")
+	Config.Metrics.Clusters.Image = env.GetString("METRICS_CLUSTERS_IMAGE", "docker.io/library/nginx:1.27.3")
 	Config.Metrics.Clusters.NodeSelector = getMapEnvOrDefault("METRICS_CLUSTERS_NODE_SELECTOR", nil)
 	Config.Metrics.Containers.Enabled = getBoolEnvOrDefault("METRICS_CONTAINERS_ENABLED", true)
 	Config.Metrics.Containers.PollingRate = getDurationEnvOrDefault("METRICS_CONTAINERS_POLLING_RATE", time.Second*60)

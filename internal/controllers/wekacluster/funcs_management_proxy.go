@@ -25,8 +25,7 @@ const (
 	MaxManagementProxyEndpoints = 10
 	ManagementProxyName         = "management-proxy"
 	ManagementConfigMapName     = "management-proxy-config"
-	EnvoyImage                  = "envoyproxy/envoy:v1.31-latest"
-	EnvoyContainersAnnotation   = "weka.io/proxy-containers"
+	EnvoyContainersAnnotation = "weka.io/proxy-containers"
 )
 
 // EnsureManagementProxy creates or updates the Envoy proxy deployment and service
@@ -276,7 +275,7 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 					Containers: []corev1.Container{
 						{
 							Name:  "envoy",
-							Image: EnvoyImage,
+							Image: config.Config.EnvoyImage,
 							Ports: []corev1.ContainerPort{
 								{
 									Name:          "weka-api",

@@ -129,8 +129,10 @@ spec:
               value: "{{ .Values.debugSleep }}"
             - name: WEKA_OPERATOR_MAINTENANCE_SA_NAME
               value: "{{ .Values.prefix }}-maintenance"
+            - name: ENVOY_IMAGE
+              value: "{{ .Values.envoyImage | default "docker.io/envoyproxy/envoy:v1.31-latest" }}"
             - name: WEKA_MAINTENANCE_IMAGE
-              value: "{{ .Values.maintenanceImage | default "quay.io/weka.io/busybox" }}"
+              value: "{{ .Values.maintenanceImage | default "quay.io/weka.io/busybox:1.37.0" }}"
             - name: WEKA_MAINTENANCE_IMAGE_PULL_SECRET
               value: "{{ .Values.maintenanceImagePullSecret | default "" }}"
             {{- if .Values.otelPackagesInstallerImage }}
