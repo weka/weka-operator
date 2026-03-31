@@ -237,15 +237,8 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 	containers := r.containers
 
 	updatableSpec := NewUpdatableClusterSpec(ctx, &cluster.Spec, &cluster.ObjectMeta, containers)
-	specHash, err := util.HashStruct(updatableSpec)
-	if err != nil {
-		return errors.Wrap(err, "failed to hash struct")
-	}
-	// Preserving whole Spec for more generic approach on status, while being able to update only specific fields on containers
+	// Propagate cluster spec fields to all containers. Per-field diffs avoid unnecessary patches.
 	return workers.ProcessConcurrently(ctx, containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
-		if container.Status.LastAppliedSpec == specHash {
-			return nil
-		}
 
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleContainerSpecUpdate", "container", container.Name)
 		defer end()
@@ -258,7 +251,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			return err
 		}
 
-		logger.Debug("Cluster<>Container spec hash has changed", "container", container.Name, "mode", container.Spec.Mode, "lastAppliedSpec", container.Status.LastAppliedSpec, "newSpecHash", specHash)
+		logger.Debug("Propagating cluster spec to container", "container", container.Name, "mode", container.Spec.Mode)
 		patch := client.MergeFrom(container.DeepCopy())
 
 		role := container.Spec.Mode
@@ -426,19 +419,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Spec.DriversBuildId = updatableSpec.DriversBuildId
 		}
 
-		err = r.getClient().Patch(ctx, container, patch)
-		if err != nil {
-			return err
-		}
-		err = r.getClient().Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: container.Name}, container)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				return nil
-			}
-			return err
-		}
-		container.Status.LastAppliedSpec = specHash
-		return r.getClient().Status().Patch(ctx, container, patch)
+		return r.getClient().Patch(ctx, container, patch)
 	}).AsError()
 }
 
@@ -491,6 +472,13 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 	if targetSpecVersion == cluster.Status.LastAppliedSpec {
 		return nil
+	}
+
+	// First deploy of spec version tracking: adopt current state without rolling.
+	if cluster.Status.LastAppliedSpec == "" {
+		logger.Info("Adopting current spec version (first deploy)", "targetSpecVersion", targetSpecVersion)
+		cluster.Status.LastAppliedSpec = targetSpecVersion
+		return r.getClient().Status().Update(ctx, cluster)
 	}
 
 	logger.Info("Spec upgrade sequence", "imageChanged", imageChanged, "targetSpecVersion", targetSpecVersion)
@@ -555,7 +543,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		// before upgrade, if all drive nodes are still in old version - invoke upgrade prepare commands
 		prepareForUpgrade := true
 		for _, container := range driveContainers {
-			if container.Status.LastAppliedSpecVersion == targetSpecVersion && container.Status.ClusterContainerID != nil {
+			if container.Status.LastAppliedSpec == targetSpecVersion && container.Status.ClusterContainerID != nil {
 				prepareForUpgrade = false
 			}
 		}
@@ -625,7 +613,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		}
 		prepareForUpgrade := true
 		for _, container := range computeContainers {
-			if container.Status.LastAppliedSpecVersion == targetSpecVersion && container.Status.ClusterContainerID != nil {
+			if container.Status.LastAppliedSpec == targetSpecVersion && container.Status.ClusterContainerID != nil {
 				prepareForUpgrade = false
 			}
 		}
@@ -656,7 +644,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	if imageChanged {
 		prepareForUpgrade := true
 		for _, container := range feContainers {
-			if container.Status.LastAppliedSpecVersion == targetSpecVersion && container.Status.ClusterContainerID != nil {
+			if container.Status.LastAppliedSpec == targetSpecVersion && container.Status.ClusterContainerID != nil {
 				prepareForUpgrade = false
 			}
 		}
@@ -683,7 +671,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		if imageChanged {
 			prepareForUpgrade := true
 			for _, container := range smbwContainers {
-				if container.Status.LastAppliedSpecVersion == targetSpecVersion && container.Status.ClusterContainerID != nil {
+				if container.Status.LastAppliedSpec == targetSpecVersion && container.Status.ClusterContainerID != nil {
 					prepareForUpgrade = false
 				}
 			}

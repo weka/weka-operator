@@ -864,7 +864,7 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 				return err
 			}
 		}
-		container.Status.LastAppliedSpecVersion = specVer
+		container.Status.LastAppliedSpec = specVer
 	}
 
 	return r.Status().Update(ctx, container)

@@ -41,7 +41,7 @@ func (u *UpgradeController) isContainerAligned(container *v1alpha1.WekaContainer
 // isContainerApplied returns true if the container's pod has successfully applied the target spec.
 func (u *UpgradeController) isContainerApplied(container *v1alpha1.WekaContainer) bool {
 	if u.TargetSpecVersion != "" {
-		return container.Status.LastAppliedSpecVersion == u.TargetSpecVersion
+		return container.Status.LastAppliedSpec == u.TargetSpecVersion
 	}
 	return container.Status.LastAppliedImage == u.TargetImage
 }

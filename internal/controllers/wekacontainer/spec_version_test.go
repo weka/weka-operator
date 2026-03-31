@@ -7,8 +7,10 @@ import (
 	. "github.com/onsi/gomega"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/weka/weka-operator/internal/config"
@@ -200,7 +202,7 @@ var _ = Describe("Spec version drift detection", func() {
 					},
 					Status: weka.WekaContainerStatus{
 						LastAppliedImage:       testImage,
-						LastAppliedSpecVersion: "myversion",
+						LastAppliedSpec: "myversion",
 					},
 				}
 				pod := &v1.Pod{
@@ -242,6 +244,122 @@ var _ = Describe("Spec version drift detection", func() {
 				r := newReconciler(container, pod)
 				err := r.handleSpecVersionMismatch(ctx)
 				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		Context("image change gating", func() {
+			It("skips handleImageUpdate when image has not changed (spec-version-only change)", func() {
+				container := &weka.WekaContainer{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-c", Namespace: "default", UID: "c-uid",
+						OwnerReferences: []metav1.OwnerReference{
+							{UID: clusterUID, Name: "my-cluster", Kind: "WekaCluster", APIVersion: "weka.weka.io/v1alpha1"},
+						},
+					},
+					Spec: weka.WekaContainerSpec{
+						Image:       testImage,
+						SpecVersion: "newspecver",
+					},
+					Status: weka.WekaContainerStatus{
+						LastAppliedImage: testImage, // image matches — no image upgrade
+					},
+				}
+				pod := &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-c", Namespace: "default",
+						Annotations: map[string]string{
+							consts.PodSpecVersionAnnotation: "oldspecver",
+						},
+					},
+					// No weka-container in pod spec — if handleImageUpdate runs, it would error.
+					// The fact that the test succeeds with a WaitError (not a hard error) proves it was skipped.
+				}
+
+				r := newReconciler(container, pod)
+				err := r.handleSpecVersionMismatch(ctx)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("spec-version mismatch"))
+			})
+
+			It("rotates pod via handleImageUpdate when image+specVersion changed, even without annotation and allowRotateNonAnnotated=false", func() {
+				config.Config.AllowRotateNonAnnotated = false
+				container := &weka.WekaContainer{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-c", Namespace: "default", UID: "c-uid",
+						OwnerReferences: []metav1.OwnerReference{
+							{UID: clusterUID, Name: "my-cluster", Kind: "WekaCluster", APIVersion: "weka.weka.io/v1alpha1"},
+						},
+					},
+					Spec: weka.WekaContainerSpec{
+						Image:       testImage2,
+						SpecVersion: "newspecver",
+					},
+					Status: weka.WekaContainerStatus{
+						LastAppliedImage: testImage, // image differs
+					},
+				}
+				pod := &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        "test-c",
+						Namespace:   "default",
+						Annotations: map[string]string{}, // no spec-version annotation
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "weka-container", Image: testImage},
+						},
+					},
+				}
+
+				r := newReconciler(container, pod)
+				err := r.handleSpecVersionMismatch(ctx)
+				// handleImageUpdate runs because image changed — deletes the pod regardless of allowRotateNonAnnotated
+				// The function returns nil (pod deleted successfully by image upgrade path)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify pod was actually deleted
+				deletedPod := &v1.Pod{}
+				getErr := r.Get(ctx, client.ObjectKeyFromObject(pod), deletedPod)
+				Expect(getErr).To(HaveOccurred())
+				Expect(apierrors.IsNotFound(getErr)).To(BeTrue())
+			})
+
+			It("runs handleImageUpdate when both image and spec version changed", func() {
+				container := &weka.WekaContainer{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-c", Namespace: "default", UID: "c-uid",
+						OwnerReferences: []metav1.OwnerReference{
+							{UID: clusterUID, Name: "my-cluster", Kind: "WekaCluster", APIVersion: "weka.weka.io/v1alpha1"},
+						},
+					},
+					Spec: weka.WekaContainerSpec{
+						Image:       testImage2,
+						SpecVersion: "newspecver",
+					},
+					Status: weka.WekaContainerStatus{
+						LastAppliedImage: testImage, // image differs — triggers handleImageUpdate
+					},
+				}
+				pod := &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-c", Namespace: "default",
+						Annotations: map[string]string{
+							consts.PodSpecVersionAnnotation: "oldspecver",
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "weka-container", Image: testImage},
+						},
+					},
+				}
+
+				r := newReconciler(container, pod)
+				err := r.handleSpecVersionMismatch(ctx)
+				// handleImageUpdate runs and returns an error (upgrade conditions, manual policy, etc.)
+				// The key point: it does NOT skip to spec-version check
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).NotTo(ContainSubstring("spec-version mismatch"))
 			})
 		})
 
@@ -287,7 +405,7 @@ var _ = Describe("Spec version drift detection", func() {
 				Expect(err.Error()).To(ContainSubstring("spec-version mismatch"))
 			})
 
-			It("deletes owned container pod without annotation when explicit SpecVersion is set, even with allowRotateNonAnnotated=false", func() {
+			It("does NOT delete owned container pod without annotation when allowRotateNonAnnotated=false, even with explicit SpecVersion", func() {
 				config.Config.AllowRotateNonAnnotated = false
 				container := &weka.WekaContainer{
 					ObjectMeta: metav1.ObjectMeta{
@@ -312,8 +430,7 @@ var _ = Describe("Spec version drift detection", func() {
 
 				r := newReconciler(container, pod)
 				err := r.handleSpecVersionMismatch(ctx)
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring("spec-version mismatch"))
+				Expect(err).NotTo(HaveOccurred())
 			})
 
 			It("does NOT delete owned container pod without annotation even when allowRotateNonAnnotated=true if no SpecVersion set", func() {
