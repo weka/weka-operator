@@ -134,9 +134,10 @@ func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 			continue
 		}
 
-		//if data exists and not force - skip
+		// Skip nodes that already have the new full-drives annotation — those are up-to-date.
+		// Legacy-only annotation (weka-drives without weka-full-drives) still needs discovery.
 		if !o.force {
-			if node.Annotations[consts.AnnotationWekaDrives] != "" {
+			if node.Annotations[consts.AnnotationWekaFullDrives] != "" {
 				continue
 			}
 		}

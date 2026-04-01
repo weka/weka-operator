@@ -137,7 +137,7 @@ func (r *wekaClusterReconcilerLoop) HasPausedContainers() bool {
 	return false
 }
 
-func getClusterTotalCapacityGiB(containers []*weka.WekaContainer, template allocator.ClusterTemplate) (int, error) {
+func getClusterTotalCapacityGiB(ctx context.Context, k8sClient client.Client, containers []*weka.WekaContainer, template *allocator.ClusterTemplate) (int, error) {
 	var totalRawCapacityGiB int
 	var err error
 
@@ -148,16 +148,12 @@ func getClusterTotalCapacityGiB(containers []*weka.WekaContainer, template alloc
 		// Drive-sharing mode with explicit drive count and capacity
 		totalRawCapacityGiB = template.NumDrives * template.DriveCapacity * template.Containers.Drive
 	} else if template.Containers.Drive > 0 {
-		// Traditional mode without capacity in spec: read from node annotations
-		totalRawCapacityGiB, err = getFullDrivesClusterTotalCapacityGiB(containers, template)
+		// Full-drives mode without capacity in spec: derive from most recent drive container's allocations
+		totalRawCapacityGiB, err = allocator.ComputeCapacityFromMostRecentDriveContainerAllocation(ctx, k8sClient, containers, template.Containers.Drive, template.NumDrives)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get total drive capacity from nodes: %w", err)
 		}
 	}
 
 	return totalRawCapacityGiB, nil
-}
-
-func getFullDrivesClusterTotalCapacityGiB(containers []*weka.WekaContainer, template allocator.ClusterTemplate) (int, error) {
-	return allocator.ComputeTotalCapacityFromContainers(containers, template.Containers.Drive, template.NumDrives)
 }

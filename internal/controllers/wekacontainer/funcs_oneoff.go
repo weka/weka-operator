@@ -93,10 +93,8 @@ func (r *containerReconcilerLoop) isFeatureFlagsOperation() bool {
 
 func (r *containerReconcilerLoop) isSignOrDiscoverDrivesOperation(ctx context.Context) bool {
 	if r.container.Spec.Mode == weka.WekaContainerModeAdhocOp && r.container.Spec.Instructions != nil {
-		return r.container.Spec.Instructions.Type == "sign-drives"
-	}
-	if r.container.Spec.Mode == weka.WekaContainerModeAdhocOp && r.container.Spec.Instructions != nil {
-		return r.container.Spec.Instructions.Type == "discover-drives"
+		return r.container.Spec.Instructions.Type == "sign-drives" ||
+			r.container.Spec.Instructions.Type == "discover-drives"
 	}
 	return false
 }
@@ -148,24 +146,29 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	rawDriveCapacity := make(map[string]int)
 	for _, raw := range opResult.RawDrives {
 		if raw.SerialId != "" {
+			if raw.CapacityGiB == 0 {
+				return fmt.Errorf("drive %s in RawDrives has zero capacity", raw.SerialId)
+			}
 			rawDriveCapacity[raw.SerialId] = raw.CapacityGiB
 		}
 	}
 
-	// Parse existing annotation (prefers weka-full-drives, falls back to weka-drives)
+	// Seed from weka-full-drives only — preserves existing entries with real capacity.
+	// Legacy-only annotation entries are intentionally not carried forward here;
+	// they will be re-discovered with proper capacity by this discovery run.
 	seenDrives := make(map[string]domain.DriveEntry)
 	fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
-	legacyAnnotation := node.Annotations[consts.AnnotationWekaDrives]
-	existingEntries, err := domain.ReadDriveAnnotations(fullAnnotation, legacyAnnotation)
-	if err != nil {
-		return fmt.Errorf("error reading existing drive annotations: %w", err)
-	}
 
-	for _, entry := range existingEntries {
-		if entry.Serial == "" {
-			continue // clean bad records of empty serial ids
+	if fullAnnotation != "" {
+		existingEntries, readErr := domain.ReadDriveAnnotations(fullAnnotation)
+		if readErr != nil {
+			return fmt.Errorf("error reading existing drive annotations: %w", readErr)
 		}
-		seenDrives[entry.Serial] = entry
+		for _, entry := range existingEntries {
+			if entry.Serial != "" {
+				seenDrives[entry.Serial] = entry
+			}
+		}
 	}
 
 	complete := func() error {
@@ -177,10 +180,14 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		if drive.SerialId == "" { // skip drives without serial id if it was not set for whatever reason
 			continue
 		}
+		capacity, ok := rawDriveCapacity[drive.SerialId]
+		if !ok {
+			return fmt.Errorf("drive %s present in Drives but missing from RawDrives", drive.SerialId)
+		}
 		if _, ok := seenDrives[drive.SerialId]; !ok {
 			newDrivesFound++
 		}
-		capacity := rawDriveCapacity[drive.SerialId]
+		// capacity is guaranteed > 0 by the RawDrives validation above
 		seenDrives[drive.SerialId] = domain.DriveEntry{Serial: drive.SerialId, CapacityGiB: capacity}
 	}
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -15,6 +16,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
@@ -238,6 +240,158 @@ func (r *containerReconcilerLoop) UpdateWekaAddedDrives(ctx context.Context) err
 	}
 
 	logger.Info("Updated container status with added drives", "count", len(drivesAdded))
+
+	return nil
+}
+
+// UpdateFullDrivesAnnotationFromAddedDrives updates the weka-full-drives node annotation
+// based on the drive container's Status.AddedDrives field. This is the upgrade path for
+// existing Weka clusters where drives are already in Weka (not visible in kernel).
+// Only runs for exclusive-drive containers (not drive-sharing mode).
+func (r *containerReconcilerLoop) UpdateFullDrivesAnnotationFromAddedDrives(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	container := r.container
+
+	// Collect drives with known capacity from AddedDrives status
+	type driveCapacity struct {
+		serial      string
+		capacityGiB int
+	}
+	var drivesWithCapacity []driveCapacity
+	for _, d := range container.Status.AddedDrives {
+		if d.SerialNumber == "" || d.SizeBytes == 0 {
+			continue
+		}
+		drivesWithCapacity = append(drivesWithCapacity, driveCapacity{
+			serial:      d.SerialNumber,
+			capacityGiB: int(d.SizeBytes / (1024 * 1024 * 1024)),
+		})
+	}
+	if len(drivesWithCapacity) == 0 {
+		return nil // nothing to update
+	}
+
+	node := r.node
+
+	// Read existing full-drives annotation entries
+	existingEntries, err := domain.ReadDriveAnnotations(node.Annotations[consts.AnnotationWekaFullDrives])
+	if err != nil {
+		return fmt.Errorf("failed to read weka-full-drives annotation: %w", err)
+	}
+
+	// Build map of existing entries (serial → entry)
+	entryMap := make(map[string]domain.DriveEntry, len(existingEntries))
+	for _, e := range existingEntries {
+		entryMap[e.Serial] = e
+	}
+
+	// Merge: add or update entries from AddedDrives (only if not already present with capacity)
+	updated := false
+	for _, d := range drivesWithCapacity {
+		if existing, ok := entryMap[d.serial]; ok && existing.CapacityGiB > 0 {
+			continue // already have good capacity data
+		}
+		entryMap[d.serial] = domain.DriveEntry{Serial: d.serial, CapacityGiB: d.capacityGiB}
+		updated = true
+	}
+
+	if !updated {
+		return nil // annotation already has capacity for all AddedDrives
+	}
+
+	// Write back
+	updatedEntries := make([]domain.DriveEntry, 0, len(entryMap))
+	for _, e := range entryMap {
+		updatedEntries = append(updatedEntries, e)
+	}
+	// Sort entries by serial for stable annotation (not strictly necessary, but helps with readability and testing)
+	slices.SortFunc(updatedEntries, func(a, b domain.DriveEntry) int {
+		return strings.Compare(a.Serial, b.Serial)
+	})
+
+	annotationBytes, err := json.Marshal(updatedEntries)
+	if err != nil {
+		return fmt.Errorf("failed to marshal weka-full-drives annotation: %w", err)
+	}
+
+	if node.Annotations == nil {
+		node.Annotations = make(map[string]string)
+	}
+	node.Annotations[consts.AnnotationWekaFullDrives] = string(annotationBytes)
+	if err := r.Update(ctx, node); err != nil {
+		return fmt.Errorf("failed to update node annotation: %w", err)
+	}
+
+	logger.Info("Updated weka-full-drives annotation from AddedDrives", "node", node.Name, "count", len(drivesWithCapacity))
+	return nil
+}
+
+// EnsureNodeFullDrivesAnnotation ensures the weka-full-drives annotation is present on the
+// container's node before allowing drive or compute containers to proceed.
+// If the annotation is missing, it triggers NewDiscoverDrivesOperation (using the WekaCluster
+// as owner) to create adhoc discover-drives containers on the cluster's drive nodes.
+// The adhoc containers' wekacontainer reconciler will write the annotation upon completion.
+//
+// Note: for the upgrade path, UpdateFullDrivesAnnotationFromAddedDrives (run earlier in the
+// pipeline for drive containers) may already have populated the annotation from AddedDrives.
+func (r *containerReconcilerLoop) EnsureNodeFullDrivesAnnotation(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	nodeName := r.container.Status.NodeAffinity
+	if nodeName == "" {
+		return nil
+	}
+
+	node := &v1.Node{}
+	if err := r.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
+		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
+	}
+
+	if node.Annotations[consts.AnnotationWekaFullDrives] != "" {
+		return nil // annotation already present
+	}
+
+	logger.Info("Node missing weka-full-drives annotation, triggering discover-drives operation", "node", nodeName)
+
+	cluster, err := r.getCluster(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get owner cluster: %w", err)
+	}
+
+	nodeSelector := cluster.GetNodeSelectorForRole(weka.WekaContainerModeDrive)
+	// Scope discovery to the specific node that is missing the annotation.
+	// Each drive container's reconciler handles its own node independently.
+	nodeSelector["kubernetes.io/hostname"] = string(nodeName)
+	ownerDetails := cluster.ToOwnerObject()
+
+	discoverOp := operations.NewDiscoverDrivesOperation(
+		r.Manager,
+		&weka.DiscoverDrivesPayload{NodeSelector: nodeSelector},
+		cluster,
+		*ownerDetails,
+		"",
+		func(ctx context.Context) error { return nil }, // no-op: annotation written by adhoc container's own reconciler
+		false,
+	)
+
+	if err := operations.ExecuteOperation(ctx, discoverOp); err != nil {
+		// Operation is still in progress (WaitError) or failed — propagate
+		return err
+	}
+
+	// Operation completed — re-check annotation (adhoc container reconciler may not have written it yet)
+	if err := r.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
+		return fmt.Errorf("failed to re-read node %s after discovery: %w", nodeName, err)
+	}
+	if node.Annotations[consts.AnnotationWekaFullDrives] == "" {
+		return lifecycle.NewWaitErrorWithDuration(
+			fmt.Errorf("waiting for weka-full-drives annotation to be written on node %s", nodeName),
+			10*time.Second,
+		)
+	}
 
 	return nil
 }

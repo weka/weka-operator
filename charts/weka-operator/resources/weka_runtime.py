@@ -456,6 +456,10 @@ async def find_disks() -> List[Disk]:
         stdout, stderr, ec = await run_command(cmd, capture_stdout=True)
         if ec == 0:
             size_bytes = int(stdout.decode().strip())
+            if size_bytes == 0:
+                logging.warning(f"Device {device_path} reported zero capacity, skipping")
+                return None
+
             return size_bytes // (1024 ** 3)  # Convert to GiB
         else:
             raise Exception(f"Failed to get capacity for {device_path}: {stderr.decode()}")
@@ -463,9 +467,11 @@ async def find_disks() -> List[Disk]:
     for device in data.get("blockdevices", []):
         if device.get("type") == "disk":
             is_mounted = has_mountpoint(device)
-            serial_id = device.get("serial")
+            serial_id = (device.get("serial") or "").strip() or None
             device_path = device["name"]
             capacity_gib = await get_capacity_gib(device_path)
+            if capacity_gib is None:
+                continue
 
             if not serial_id:
                 logging.warning(f"lsblk did not return serial for {device_path}. Using fallback.")

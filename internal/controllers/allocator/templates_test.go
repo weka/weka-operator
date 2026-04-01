@@ -60,11 +60,8 @@ func TestGetContainerHugepages_Compute(t *testing.T) {
 			// total=48000GiB, all TLC: 48000*1024/1000=49152MiB cluster, /6=8192 + 1700 + 64*1 (DPDK)
 			expectedHugepages: 9956,
 		},
-		{
-			name:              "no capacity backward compatible",
-			computeCores:      1,
-			expectedHugepages: 3064, // no capacity → min = 3000*1 + 64*1 (DPDK)
-		},
+		// "no capacity backward compatible" case removed: full-drives mode now blocks until
+		// a drive container has allocated drives in the weka-full-drives annotation.
 		{
 			name:              "multiple cores",
 			containerCapacity: 10000,
@@ -177,14 +174,29 @@ func TestGetContainerHugepages_EnrichesFromNodeDrives(t *testing.T) {
 			NodeSelector: labels,
 			Dynamic: &weka.WekaClusterTemplate{
 				ComputeCores: 1,
-				NumDrives:    2, // takes top 2 drives per node → 3000+4000 = 7000 per drive container
-				// No ContainerCapacity/DriveCapacity → traditional mode
+				NumDrives:    2, // 2 drives per container → sn1+sn2 = 7000 GiB per container
+				// No ContainerCapacity/DriveCapacity → full-drives mode
+			},
+		},
+	}
+
+	// Provide a mock drive container with 2 drives allocated, pointing to node1.
+	// ComputeCapacityFromMostRecentDriveContainerAllocation will look up node1's annotation.
+	mockDriveContainer := &weka.WekaContainer{
+		Spec: weka.WekaContainerSpec{
+			Mode: weka.WekaContainerModeDrive,
+		},
+		Status: weka.WekaContainerStatus{
+			NodeAffinity: "node1",
+			Allocations: &weka.ContainerAllocations{
+				Drives: []string{"sn1", "sn2"},
 			},
 		},
 	}
 
 	template := GetWekaClusterTemplate(cluster.Spec.Dynamic)
-	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, nil, "compute")
+	containers := []*weka.WekaContainer{mockDriveContainer}
+	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, containers, "compute")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -192,7 +204,7 @@ func TestGetContainerHugepages_EnrichesFromNodeDrives(t *testing.T) {
 		t.Fatal("expected hugepages to be computed")
 	}
 
-	// totalRawCapacity = driveContainers(6) * maxNodeCap(7000) = 42000GiB, all TLC
+	// perContainerGiB = 3000+4000=7000, driveContainers=6 → totalRaw=42000GiB, all TLC
 	// tlcMiB = 42000*1024/1000 = 43008, /6 = 7168 + 1700 + 64*1 (DPDK) = 8932
 	if hp.Hugepages != 8932 {
 		t.Errorf("expected enriched ComputeHugepages=8932, got %d", hp.Hugepages)
@@ -273,10 +285,10 @@ func TestGetContainerHugepages_RespectsUserOverride(t *testing.T) {
 	}
 }
 
-func TestGetContainerHugepages_FallbackWhenNoNodes(t *testing.T) {
+func TestGetContainerHugepages_BlocksWhenNoDriveContainersAllocated(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1.AddToScheme(scheme)
-	k8sClient := fakeclient.NewClientBuilder().WithScheme(scheme).Build() // no nodes
+	k8sClient := fakeclient.NewClientBuilder().WithScheme(scheme).Build()
 
 	cluster := weka.WekaCluster{
 		Spec: weka.WekaClusterSpec{
@@ -289,16 +301,9 @@ func TestGetContainerHugepages_FallbackWhenNoNodes(t *testing.T) {
 	}
 
 	template := GetWekaClusterTemplate(cluster.Spec.Dynamic)
-	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, nil, "compute")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if hp == nil {
-		t.Fatal("expected hugepages to be computed")
-	}
-
-	// No nodes → no enrichment → default minimum (3000) + 64*1 (DPDK) = 3064
-	if hp.Hugepages != 3064 {
-		t.Errorf("expected fallback ComputeHugepages=3064, got %d", hp.Hugepages)
+	// No containers with allocated drives → should return an error (blocks compute container creation)
+	_, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, nil, "compute")
+	if err == nil {
+		t.Fatal("expected error when no drive containers have allocated drives, got nil")
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -101,6 +102,17 @@ func (r *containerReconcilerLoop) HasStatusNodeAffinity() bool {
 
 func (r *containerReconcilerLoop) HasNodeAffinity() bool {
 	return r.container.GetNodeAffinity() != ""
+}
+
+// NodeHasFullDrivesAnnotation returns true if the weka-full-drives annotation key is present
+// on the node, regardless of its value (including empty array "[]").
+// A present key means discovery has completed for this node.
+func (r *containerReconcilerLoop) NodeHasFullDrivesAnnotation() bool {
+	if r.node == nil {
+		return false
+	}
+	_, exists := r.node.Annotations[consts.AnnotationWekaFullDrives]
+	return exists
 }
 
 func (r *containerReconcilerLoop) ResultsAreSet() bool {

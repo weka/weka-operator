@@ -329,6 +329,24 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.WaitForPodRunning,
 		},
+		// For drive/compute containers in full-drives mode: ensure the weka-full-drives annotation
+		// is present on the node before proceeding. Triggers NewDiscoverDrivesOperation if absent.
+		// Gated on annotation absence (not Allocations == nil) so it also fires for already-allocated
+		// containers that lack the annotation (e.g. after upgrade from an older operator).
+		// Discovery writes [] if no kernel-visible drives are found — that empty-but-present annotation
+		// is the signal for UpdateFullDrivesAnnotationFromAddedDrives below to merge in-Weka drives.
+		&lifecycle.SimpleStep{
+			Run: r.EnsureNodeFullDrivesAnnotation,
+			Predicates: lifecycle.Predicates{
+				func() bool {
+					return (r.container.IsDriveContainer() && !r.container.UsesDriveSharing()) ||
+						r.container.IsComputeContainer()
+				},
+				r.HasNodeAffinity,
+				lifecycle.IsNotFunc(r.NodeNotSet),
+				lifecycle.IsNotFunc(r.NodeHasFullDrivesAnnotation),
+			},
+		},
 		// Backend containers allocate their own resources
 		&lifecycle.SimpleStep{
 			Run: r.AllocateResources,
@@ -519,6 +537,22 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 					return r.container.Status.InternalStatus == "READY"
 				},
 				r.NeedWekaDrivesListUpdate,
+			},
+		},
+		// After updating AddedDrives from Weka, merge in-Weka drives into the weka-full-drives
+		// annotation. Gated on annotation being present (not empty) — EnsureNodeFullDrivesAnnotation
+		// above always runs first and writes at least [] when no kernel-visible drives are found,
+		// so a present annotation means discovery has completed for this node.
+		&lifecycle.SimpleStep{
+			Run: r.UpdateFullDrivesAnnotationFromAddedDrives,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				lifecycle.IsNotFunc(r.container.UsesDriveSharing),
+				lifecycle.IsNotFunc(r.NodeNotSet),
+				r.NodeHasFullDrivesAnnotation,
+				func() bool {
+					return len(r.container.Status.AddedDrives) > 0
+				},
 			},
 		},
 		&lifecycle.SimpleStep{

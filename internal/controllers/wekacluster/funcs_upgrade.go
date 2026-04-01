@@ -84,7 +84,7 @@ type UpdatableClusterSpec struct {
 	SmbwDpdkBaseMemoryMb        int
 }
 
-func NewUpdatableClusterSpec(ctx context.Context, spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta, containers []*weka.WekaContainer) *UpdatableClusterSpec {
+func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta, containers []*weka.WekaContainer) *UpdatableClusterSpec {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "NewUpdatableClusterSpec")
 	defer end()
 
@@ -134,7 +134,7 @@ func NewUpdatableClusterSpec(ctx context.Context, spec *weka.WekaClusterSpec, me
 		}
 	} else if config.Config.HugepagesUpdate.Compute {
 		// Auto-calculate from capacity
-		totalRawCapacityGiB, err := getClusterTotalCapacityGiB(containers, tmpl)
+		totalRawCapacityGiB, err := getClusterTotalCapacityGiB(ctx, k8sClient, containers, &tmpl)
 		if err != nil {
 			logger.Info("Cannot compute capacity for hugepages, skipping compute hugepages propagation", "error", err)
 		} else if totalRawCapacityGiB > 0 {
@@ -256,7 +256,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 	cluster := r.cluster
 	containers := r.containers
 
-	updatableSpec := NewUpdatableClusterSpec(ctx, &cluster.Spec, &cluster.ObjectMeta, containers)
+	updatableSpec := NewUpdatableClusterSpec(ctx, r.getClient(), &cluster.Spec, &cluster.ObjectMeta, containers)
 	specHash, err := util.HashStruct(updatableSpec)
 	if err != nil {
 		return errors.Wrap(err, "failed to hash struct")

@@ -1,15 +1,20 @@
 package allocator
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	globalconfig "github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
 func CalculateDriveHugepages(template ClusterTemplate) int {
@@ -39,21 +44,14 @@ func calculateDynamicComputeHugepages(ctx context.Context, k8sClient client.Clie
 		// Drive-sharing mode with explicit drive count and capacity
 		totalRawCapacityGiB = template.NumDrives * template.DriveCapacity * template.Containers.Drive
 	} else if template.Containers.Drive > 0 {
-		// Traditional mode without capacity in spec: try ready-cluster path first, fall back to node annotations
-		readyClusterCap, readyErr := computeMaxNodeDriveCapacityForReadyCluster(containers, template.Containers.Drive, template.NumDrives)
-		if readyErr == nil {
-			// Ready-cluster path succeeded: result is already the total capacity
-			totalRawCapacityGiB = readyClusterCap
-		} else {
-			// Fall back to node-annotation sampling
-			driveNodeSelector := cluster.GetNodeSelectorForRole(weka.WekaContainerModeDrive)
-
-			maxNodeCap, err := computeMaxNodeDriveCapacityForInitCluster(ctx, k8sClient, driveNodeSelector, template.Containers.Drive, template.NumDrives)
-			if err != nil {
-				return 0, fmt.Errorf("failed to compute node drive capacity: %w", err)
-			}
-
-			totalRawCapacityGiB = template.Containers.Drive * maxNodeCap
+		// Full-drives mode: unified path for both new and ready clusters.
+		// Capacity is derived from the most recently created drive container's allocation
+		// looked up in the weka-full-drives node annotation.
+		totalRawCapacityGiB, err = ComputeCapacityFromMostRecentDriveContainerAllocation(
+			ctx, k8sClient, containers, template.Containers.Drive, template.NumDrives,
+		)
+		if err != nil {
+			return 0, err
 		}
 	} else {
 		return 0, errors.New("either containerCapacity or numDrives must be specified for dynamic template")
@@ -69,6 +67,99 @@ func calculateDynamicComputeHugepages(ctx context.Context, k8sClient client.Clie
 	}
 
 	return
+}
+
+// ComputeCapacityFromMostRecentDriveContainerAllocation determines the total cluster drive capacity
+// by finding the most recently created drive container that has all its drives allocated, reading the
+// capacity of those drives from the weka-full-drives node annotation, and extrapolating to all drive containers.
+//
+// containers is already provided by the caller — no additional list API call is made here.
+// The only additional API call is a single node GET for the reference container's annotation.
+func ComputeCapacityFromMostRecentDriveContainerAllocation(
+	ctx context.Context,
+	k8sClient client.Client,
+	containers []*weka.WekaContainer,
+	numDriveContainers int,
+	numDrives int,
+) (int, error) {
+	if numDrives <= 0 {
+		return 0, fmt.Errorf("numDrives must be > 0 for full-drives mode hugepages calculation, got %d", numDrives)
+	}
+
+	// Collect drive containers that have exactly numDrives allocated
+	var candidates []*weka.WekaContainer
+	for _, c := range containers {
+		if !c.IsDriveContainer() {
+			continue
+		}
+		// full-drives mode assumes numDrives > 0
+		if c.Status.Allocations == nil || len(c.Status.Allocations.Drives) != numDrives {
+			continue
+		}
+		candidates = append(candidates, c)
+	}
+
+	if len(candidates) == 0 {
+		return 0, fmt.Errorf("no drive containers with %d allocated drives found yet", numDrives)
+	}
+
+	// Sort by creation timestamp descending — most recently created first
+	slices.SortFunc(candidates, func(a, b *weka.WekaContainer) int {
+		return cmp.Compare(
+			b.CreationTimestamp.UnixNano(),
+			a.CreationTimestamp.UnixNano(),
+		)
+	})
+
+	// Use the most recently created candidate as the reference
+	ref := candidates[0]
+
+	// Fetch the node's weka-full-drives annotation (one GET)
+	nodeName := ref.Status.NodeAffinity
+	if nodeName == "" {
+		return 0, fmt.Errorf("reference drive container %s has no node affinity in status", ref.Name)
+	}
+	node := &v1.Node{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
+		return 0, fmt.Errorf("failed to get node %s for drive capacity lookup: %w", nodeName, err)
+	}
+
+	fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
+	if fullAnnotation == "" {
+		return 0, fmt.Errorf("node %s has no %s annotation yet", nodeName, consts.AnnotationWekaFullDrives)
+	}
+	entries, err := domain.ReadDriveAnnotations(fullAnnotation)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read %s annotation on node %s: %w", consts.AnnotationWekaFullDrives, nodeName, err)
+	}
+	if len(entries) == 0 {
+		return 0, fmt.Errorf("node %s has %s annotation but all entries have zero capacity", nodeName, consts.AnnotationWekaFullDrives)
+	}
+
+	// Build serial → capacity_gib lookup
+	capacityBySerial := make(map[string]int, len(entries))
+	for _, e := range entries {
+		capacityBySerial[e.Serial] = e.CapacityGiB
+	}
+
+	// Sum capacity for the reference container's allocated drives
+	perContainerGiB := 0
+	for _, serial := range ref.Status.Allocations.Drives {
+		capGiB, ok := capacityBySerial[serial]
+		if !ok {
+			return 0, fmt.Errorf("allocated drive %s on node %s not found in %s annotation", serial, nodeName, consts.AnnotationWekaFullDrives)
+		}
+		if capGiB == 0 {
+			return 0, fmt.Errorf("allocated drive %s on node %s has zero capacity in %s annotation", serial, nodeName, consts.AnnotationWekaFullDrives)
+		}
+		perContainerGiB += capGiB
+	}
+
+	// Extrapolate to all drive containers.
+	// Assumes homogeneous drive capacity across containers — a valid assumption for Weka
+	// clusters where all nodes must have identical drive configurations.
+	totalGiB := perContainerGiB * numDriveContainers
+	return totalGiB, nil
 }
 
 // ComputeCapacityBasedHugepages calculates compute hugepages using TLC/QLC-aware capacity ratios.
@@ -122,47 +213,4 @@ func ComputeCapacityBasedHugepages(ctx context.Context, totalRawCapacityGiB, com
 		"hugepages", hugepages)
 
 	return hugepages
-}
-
-func ComputeTotalCapacityFromContainers(containers []*weka.WekaContainer, numDriveContainers, numDrives int) (int, error) {
-	var goodContainersCapacitySumBytes int64
-	goodContainersCount := 0
-	for _, c := range containers {
-		if !c.IsDriveContainer() || len(c.Status.AddedDrives) == 0 {
-			continue
-		}
-		containerBytes := int64(0)
-		addedContainerDrives := 0
-		allHaveSize := true
-		for _, drive := range c.Status.AddedDrives {
-			if drive.SizeBytes == 0 || drive.Status != "ACTIVE" {
-				allHaveSize = false
-				break
-			}
-			containerBytes += drive.SizeBytes
-			addedContainerDrives++
-		}
-		if !allHaveSize {
-			continue
-		}
-		// make sure we only count containers that have the expected number of drives, to avoid underestimating capacity due to some containers not reporting drive sizes yet.
-		if addedContainerDrives != numDrives {
-			continue
-		}
-
-		goodContainersCapacitySumBytes += containerBytes
-		goodContainersCount++
-	}
-	if goodContainersCount < 5 {
-		return 0, fmt.Errorf("not enough drive containers with valid AddedDrives capacity (found %d, need at least 5)", goodContainersCount)
-	}
-	avgPerContainer := goodContainersCapacitySumBytes / int64(goodContainersCount)
-	totalRawBytes := avgPerContainer * int64(numDriveContainers)
-	return int(totalRawBytes / (1024 * 1024 * 1024)), nil
-}
-
-// if cluster is Ready, we don't need to fetch nodes using nodeSelector and compute capacity based
-// on node annotations, because we already have real capacity info from the running drive containers.
-func computeMaxNodeDriveCapacityForReadyCluster(containers []*weka.WekaContainer, numDriveContainers, numDrives int) (int, error) {
-	return ComputeTotalCapacityFromContainers(containers, numDriveContainers, numDrives)
 }

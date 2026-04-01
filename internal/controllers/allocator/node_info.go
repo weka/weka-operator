@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
 type NodeInfoGetter func(ctx context.Context, nodeName weka.NodeName) (*AllocatorNodeInfo, error)
@@ -36,8 +34,7 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 		// get from annotations, all serial ids minus blocked-drives serial ids
 		// Note: this is for exclusive drive allocation mode only
 		fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
-		legacyAnnotation := node.Annotations[consts.AnnotationWekaDrives]
-		if fullAnnotation != "" || legacyAnnotation != "" {
+		if fullAnnotation != "" {
 			blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]
 			if !ok {
 				blockedDrivesStr = "[]"
@@ -49,7 +46,7 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 				return
 			}
 
-			allEntries, readErr := domain.ReadDriveAnnotations(fullAnnotation, legacyAnnotation)
+			allEntries, readErr := domain.ReadDriveAnnotations(fullAnnotation)
 			if readErr != nil {
 				err = fmt.Errorf("failed to read drive annotations: %v", readErr)
 				return
@@ -95,55 +92,6 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 
 		return
 	}
-}
-
-// computeMaxNodeDriveCapacityForInitCluster samples up to maxNodeSample nodes matching the selector,
-// computes the top-numDrives capacity sum per node, and returns the maximum.
-// This represents the worst-case (most memory) capacity a single drive container could manage.
-func computeMaxNodeDriveCapacityForInitCluster(ctx context.Context, k8sClient client.Client, nodeSelector map[string]string, numDriveContainers, numDrives int) (int, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "computeMaxNodeDriveCapacityForInitCluster", "nodeSelector", nodeSelector, "numDrives", numDrives)
-	defer end()
-
-	kubeService := kubernetes.NewKubeService(k8sClient)
-	nodes, err := kubeService.GetNodes(ctx, nodeSelector)
-	if err != nil {
-		return 0, err
-	}
-
-	sampleSize := min(10, numDriveContainers, len(nodes))
-
-	maxCapacity := 0
-	for i := range sampleSize {
-		node := nodes[i]
-		fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
-		legacyAnnotation := node.Annotations[consts.AnnotationWekaDrives]
-		if fullAnnotation == "" && legacyAnnotation == "" {
-			continue
-		}
-		entries, err := domain.ReadDriveAnnotations(fullAnnotation, legacyAnnotation)
-		if err != nil {
-			continue
-		}
-
-		// Sort capacities descending, take top numDrives
-		capacities := make([]int, 0, len(entries))
-		for _, e := range entries {
-			if e.CapacityGiB > 0 {
-				capacities = append(capacities, e.CapacityGiB)
-			}
-		}
-		slices.SortFunc(capacities, func(a, b int) int { return b - a }) // descending
-
-		nodeSum := 0
-		for j := 0; j < min(numDrives, len(capacities)); j++ {
-			nodeSum += capacities[j]
-		}
-		maxCapacity = max(maxCapacity, nodeSum)
-	}
-
-	logger.Info("Computed max node drive capacity", "maxCapacityGiB", maxCapacity)
-
-	return maxCapacity, nil
 }
 
 // filterBlockedSharedDrives removes blocked drives from the list

@@ -402,13 +402,11 @@ func getAlreadySignedDrives(node *v1.Node) []string {
 		return alreadySignedDrives
 	}
 
-	// Regular drives (non-proxy mode) — prefers weka-full-drives, falls back to weka-drives
+	// Regular drives (non-proxy mode) — reads serials from both new and legacy annotations
 	fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
 	legacyAnnotation := node.Annotations[consts.AnnotationWekaDrives]
-	if fullAnnotation != "" || legacyAnnotation != "" {
-		if entries, err := domain.ReadDriveAnnotations(fullAnnotation, legacyAnnotation); err == nil {
-			alreadySignedDrives = append(alreadySignedDrives, domain.DriveEntrySerials(entries)...)
-		}
+	if serials, err := domain.ReadAnnotatedDriveSerials(fullAnnotation, legacyAnnotation); err == nil {
+		alreadySignedDrives = append(alreadySignedDrives, serials...)
 	}
 
 	// Shared drives (proxy/drive sharing mode)
