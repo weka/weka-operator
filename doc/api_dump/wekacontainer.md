@@ -93,6 +93,7 @@
 | hostPID | bool |  |
 | resources | *PodResourcesSpec | resources to be proxied as-is to the pod spec |
 | pvc | *PVCConfig |  |
+| dpdkBaseMemoryMb | int |  |
 
 ---
 

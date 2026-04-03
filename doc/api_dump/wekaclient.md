@@ -173,6 +173,7 @@
 | umountOnHost | bool | unsafe operation, runs nsenter in root namespace to umount all wekafs mounts visible on host |
 | dropAffinityConstraints | bool | unsafe parameter, disables anti-affinities on client pods, allowing to schedule more than one client pod per node.<br>Running multiple clients for multiple clusters on the same node is not fully supported yet, and this flag should not be used in production. |
 | wekaContainerName | string | override name used in weka local setup for the container<br>this can be used for integration with external client on the host |
+| dpdkBaseMemoryMb | int |  |
 
 ---
 

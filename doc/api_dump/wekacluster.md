@@ -34,6 +34,7 @@
 - [RoleAffinity](#roleaffinity)
 - [DriveTypesRatio](#drivetypesratio)
 - [NetworkSelector](#networkselector)
+- [DpdkBaseMemoryMbOverride](#dpdkbasememorymboverride)
 - [AdvancedCsiConfig](#advancedcsiconfig)
 - [VaultConfig](#vaultconfig)
 - [InternalEncryptionConfig](#internalencryptionconfig)
@@ -332,6 +333,7 @@
 | podTerminationDeactivationTimeout | *metav1.Duration | Timeout duration for deactivating pods that are terminating longer than this duration.<br>When nil (default), the default timeout of 5 minutes is used.<br>When set to 0, deactivation of terminating pods is disabled.<br>Otherwise, the specified duration is used. |
 | paused | *bool | Pause the cluster - all containers will be stopped forcefully.<br>nil (not set): no propagation, allows direct container-level state manipulation.<br>true: pause all containers.<br>false: actively unpause containers that are in paused state. |
 | cancelDeletion | bool | Cancel deletion of the cluster if it is in graceful destroy period, a disaster recovery mechanism |
+| dpdkBaseMemoryMb | DpdkBaseMemoryMbOverride |  |
 
 ---
 
@@ -505,6 +507,19 @@
 | deviceNames | []string |  |
 | rdmaOnly | bool |  |
 | disableRdma | bool |  |
+
+---
+
+## DpdkBaseMemoryMbOverride
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| drive | int |  |
+| compute | int |  |
+| s3 | int |  |
+| nfs | int |  |
+| smbw | int |  |
+| dataServices | int |  |
 
 ---
 
