@@ -394,14 +394,14 @@ type WekaService interface {
 
 func NewWekaService(ExecService exec.ExecService, container *weka.WekaContainer) WekaService {
 	return &CliWekaService{
-		ExecService: ExecService,
+		execService: ExecService,
 		Container:   container,
 	}
 }
 
 func NewWekaServiceWithTimeout(ExecService exec.ExecService, container *weka.WekaContainer, timeout *time.Duration) WekaService {
 	return &CliWekaService{
-		ExecService: ExecService,
+		execService: ExecService,
 		Container:   container,
 		timeout:     timeout,
 	}
@@ -428,7 +428,7 @@ type NfsInterfaceGroupExists struct {
 }
 
 type CliWekaService struct {
-	ExecService exec.ExecService
+	execService exec.ExecService
 	Container   *weka.WekaContainer
 	timeout     *time.Duration
 }
@@ -480,7 +480,7 @@ func (c *CliWekaService) SetWekaHome(ctx context.Context, wekaHomeConfig weka.We
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetWekaHome")
 	defer end()
 
-	executor, err := c.GetExecutor(ctx)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		logger.SetError(err, "Failed to get executor")
 		return err
@@ -538,7 +538,7 @@ func (c *CliWekaService) EmitCustomEvent(ctx context.Context, msg string, k8sVer
 
 	logger.Info("Emitting custom event", "msg", msg)
 
-	executor, err := c.GetExecutor(ctx)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		logger.SetError(err, "Failed to get executor")
 		return err
@@ -566,7 +566,7 @@ func (c *CliWekaService) EnsureNoUser(ctx context.Context, username string) erro
 
 	for _, user := range existingUsers {
 		if user.Username == username {
-			executor, err := c.GetExecutor(ctx)
+			executor, err := c.getExecutor(ctx)
 			if err != nil {
 				logger.SetError(err, "Failed to get executor")
 				return err
@@ -587,7 +587,7 @@ func (c *CliWekaService) EnsureNoUser(ctx context.Context, username string) erro
 func (c *CliWekaService) GetUsers(ctx context.Context) ([]WekaUserResponse, error) {
 	existingUsers := []WekaUserResponse{}
 	cmd := "wekaauthcli user -J"
-	executor, err := c.GetExecutor(ctx)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -603,8 +603,8 @@ func (c *CliWekaService) GetUsers(ctx context.Context) ([]WekaUserResponse, erro
 	return existingUsers, nil
 }
 
-func (c *CliWekaService) GetExecutor(ctx context.Context) (util.Exec, error) {
-	return c.ExecService.GetExecutor(ctx, c.Container)
+func (c *CliWekaService) getExecutor(ctx context.Context) (util.Exec, error) {
+	return c.execService.GetExecutorWithTimeout(ctx, c.Container, c.timeout)
 }
 
 func (c *CliWekaService) EnsureUser(ctx context.Context, username, password, role string) error {
@@ -619,7 +619,7 @@ func (c *CliWekaService) EnsureUser(ctx context.Context, username, password, rol
 		}
 	}
 
-	executor, err := c.GetExecutor(ctx)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -636,7 +636,7 @@ func (c *CliWekaService) GetInterfaceNameByIpAddress(ctx context.Context, ip str
 	if ip == "" {
 		return "", errors.New("ip address is empty")
 	}
-	executor, err := c.GetExecutor(ctx)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -664,7 +664,7 @@ func (c *CliWekaService) JoinS3Cluster(ctx context.Context, containerId int) err
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "JoinS3Cluster")
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		logger.SetError(err, "Failed to get executor")
 		return err
@@ -691,7 +691,7 @@ func (c *CliWekaService) RemoveFromS3Cluster(ctx context.Context, containerId in
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveFromS3Cluster")
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -743,7 +743,7 @@ func (c *CliWekaService) CreateSmbwCluster(ctx context.Context, params SmbwParam
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CreateSmbwCluster")
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -818,7 +818,7 @@ func (c *CliWekaService) UpdateSmbwCluster(ctx context.Context, params SmbwUpdat
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UpdateSmbwCluster")
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -882,7 +882,7 @@ func (c *CliWekaService) DeleteSmbwCluster(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeleteSmbwCluster")
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -903,7 +903,7 @@ func (c *CliWekaService) JoinSmbwCluster(ctx context.Context, containerId int) e
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "JoinSmbwCluster")
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		logger.SetError(err, "Failed to get executor")
 		return err
@@ -936,7 +936,7 @@ func (c *CliWekaService) RemoveFromSmbwCluster(ctx context.Context, containerId 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveFromSmbwCluster")
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -973,7 +973,7 @@ func (c *CliWekaService) EnsureNfsInterfaceGroupPorts(ctx context.Context, inter
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNfsInterfaceGroupPorts")
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1086,7 +1086,7 @@ func (c *CliWekaService) EnsureNfsInterfaceGroupPorts(ctx context.Context, inter
 func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CreateS3Cluster")
 	defer end()
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1148,7 +1148,7 @@ func (c *CliWekaService) DeleteS3Cluster(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeleteS3Cluster")
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1169,7 +1169,7 @@ func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams NFSParams) 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ConfigureNfs")
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1236,7 +1236,7 @@ func (c *CliWekaService) ConfigureDataServicesGlobalConfig(ctx context.Context) 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ConfigureDataServicesGlobalConfig")
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1260,7 +1260,7 @@ func (c *CliWekaService) EnsureNfsIpRanges(ctx context.Context, interfaceGroupNa
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNfsIpRanges")
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1383,7 +1383,7 @@ func diffStringSlices(a, b []string) []string {
 func (c *CliWekaService) CreateFilesystemGroup(ctx context.Context, name string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1403,7 +1403,7 @@ func (c *CliWekaService) CreateFilesystemGroup(ctx context.Context, name string)
 }
 
 func (c *CliWekaService) CreateFilesystem(ctx context.Context, name, group string, params FSParams) error {
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1444,7 +1444,7 @@ func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name stri
 	ctx, _, end := instrumentation.GetLogSpan(ctx, name)
 	defer end()
 
-	executor, err := c.ExecService.GetExecutorWithTimeout(ctx, c.Container, c.timeout)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1465,7 +1465,7 @@ func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name stri
 }
 
 func (c *CliWekaService) DeactivateContainer(ctx context.Context, containerId int) error {
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1493,7 +1493,7 @@ func (c *CliWekaService) SupportsFlag(ctx context.Context, command string, flagN
 		return false
 	}
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		logger.Debug("Failed to get executor for flag check", "error", err)
 		return false
@@ -1525,7 +1525,7 @@ func (c *CliWekaService) SupportsFlag(ctx context.Context, command string, flagN
 }
 
 func (c *CliWekaService) AddDrive(ctx context.Context, containerId int, devicePath string, pool *string) error {
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1550,7 +1550,7 @@ func (c *CliWekaService) AddDrive(ctx context.Context, containerId int, devicePa
 }
 
 func (c *CliWekaService) RemoveDrive(ctx context.Context, driveUuid string) error {
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1571,7 +1571,7 @@ func (c *CliWekaService) RemoveDrive(ctx context.Context, driveUuid string) erro
 }
 
 func (c *CliWekaService) RemoveContainer(ctx context.Context, containerId int, noUnimprint bool) error {
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
@@ -1635,7 +1635,7 @@ func (c *CliWekaService) GetClusterDrive(ctx context.Context, driveUuid string) 
 
 func (c *CliWekaService) DeactivateDrive(ctx context.Context, driveUuid string) error {
 	// weka cluster drive deactivate 44ac08c1-8b5e-4b64-a900-08da0d4dcd35 -f
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
 	}
