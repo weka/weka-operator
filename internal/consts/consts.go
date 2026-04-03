@@ -1,5 +1,9 @@
 package consts
 
+const (
+	WekaRuntimeVersion = 1
+)
+
 // Kubernetes finalizer
 const (
 	// WekaFinalizer is the finalizer added to Weka resources to ensure proper cleanup

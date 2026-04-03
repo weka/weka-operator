@@ -181,6 +181,8 @@ spec:
               value: "{{ .Values.healthProbeBindAddress }}"
             - name: OPERATOR_METRICS_BIND_ADDRESS
               value: "{{ .Values.operatorMetricsBindAddress }}"
+            - name: POD_CONFIG_VERSION
+              value: "{{ .Values.podConfigVersion }}"
             - name: ENABLE_LEADER_ELECTION
               value: "{{ .Values.enableLeaderElection }}"
             - name: ENABLE_CLUSTER_API

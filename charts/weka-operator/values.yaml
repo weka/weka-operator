@@ -12,6 +12,7 @@ image:
   tag: ""
 kubeProxyImage: "quay.io/brancz/kube-rbac-proxy:v0.21.0"
 
+podConfigVersion: 1
 builderImages:
   default: "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22-v1"
   ubuntu24: "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24-v1"
