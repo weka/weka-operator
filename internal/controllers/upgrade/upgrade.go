@@ -17,31 +17,31 @@ import (
 type UpgradeController struct {
 	Containers        []*v1alpha1.WekaContainer
 	TargetImage       string // non-empty only when the image itself changed
-	TargetSpecVersion string
+	TargetPodConfigHash string
 	Client            client.Client
 }
 
-func NewUpgradeController(client client.Client, containers []*v1alpha1.WekaContainer, targetImage, targetSpecVersion string) *UpgradeController {
+func NewUpgradeController(client client.Client, containers []*v1alpha1.WekaContainer, targetImage, targetPodConfigHash string) *UpgradeController {
 	return &UpgradeController{
 		Containers:        containers,
 		TargetImage:       targetImage,
-		TargetSpecVersion: targetSpecVersion,
+		TargetPodConfigHash: targetPodConfigHash,
 		Client:            client,
 	}
 }
 
 // isContainerAligned returns true if the container already has the target spec applied.
 func (u *UpgradeController) isContainerAligned(container *v1alpha1.WekaContainer) bool {
-	if u.TargetSpecVersion != "" {
-		return container.Spec.SpecVersion == u.TargetSpecVersion
+	if u.TargetPodConfigHash != "" {
+		return container.Spec.PodConfigHash == u.TargetPodConfigHash
 	}
 	return container.Spec.Image == u.TargetImage
 }
 
 // isContainerApplied returns true if the container's pod has successfully applied the target spec.
 func (u *UpgradeController) isContainerApplied(container *v1alpha1.WekaContainer) bool {
-	if u.TargetSpecVersion != "" {
-		return container.Status.LastAppliedSpecVersion == u.TargetSpecVersion
+	if u.TargetPodConfigHash != "" {
+		return container.Status.LastAppliedPodConfigHash == u.TargetPodConfigHash
 	}
 	return container.Status.LastAppliedImage == u.TargetImage
 }
@@ -52,8 +52,8 @@ func (u *UpgradeController) UpdateContainer(ctx context.Context, container *v1al
 	}
 
 	specPatch := map[string]interface{}{}
-	if u.TargetSpecVersion != "" {
-		specPatch["specVersion"] = u.TargetSpecVersion
+	if u.TargetPodConfigHash != "" {
+		specPatch["podConfigHash"] = u.TargetPodConfigHash
 	}
 	if u.TargetImage != "" && container.Spec.Image != u.TargetImage {
 		specPatch["image"] = u.TargetImage

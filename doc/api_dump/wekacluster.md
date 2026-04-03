@@ -120,6 +120,7 @@
 | spanId | string |  |
 | lastAppliedImage | string | Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later |
 | lastAppliedSpec | string |  |
+| lastAppliedPodConfigHash | string |  |
 | ports | ClusterPorts |  |
 | stats | *ClusterMetrics |  |
 | printer | ClusterPrinterColumns |  |

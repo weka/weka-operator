@@ -886,19 +886,21 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 
 	container.Status.LastAppliedImage = container.Spec.Image
 
-	// Update pod spec-version annotation to match the new image so the drift check
-	// does not immediately delete the pod after a successful image upgrade.
-	if specVer := targetSpecVersion(container); specVer != "" && r.pod != nil {
-		if r.pod.Annotations == nil {
-			r.pod.Annotations = make(map[string]string)
-		}
-		if r.pod.Annotations[consts.PodSpecVersionAnnotation] != specVer {
-			r.pod.Annotations[consts.PodSpecVersionAnnotation] = specVer
-			if err := r.Update(ctx, r.pod); err != nil {
-				return err
+	// Update pod annotation and status with the current pod config version
+	// so the drift check does not immediately delete the pod after a successful image upgrade.
+	if podConfigVer := targetPodConfigHash(container); podConfigVer != "" {
+		if r.pod != nil {
+			if r.pod.Annotations == nil {
+				r.pod.Annotations = make(map[string]string)
+			}
+			if r.pod.Annotations[consts.PodConfigVersionAnnotation] != podConfigVer {
+				r.pod.Annotations[consts.PodConfigVersionAnnotation] = podConfigVer
+				if err := r.Update(ctx, r.pod); err != nil {
+					return err
+				}
 			}
 		}
-		container.Status.LastAppliedSpecVersion = specVer
+		container.Status.LastAppliedPodConfigHash = podConfigVer
 	}
 
 	return r.Status().Update(ctx, container)

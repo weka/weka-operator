@@ -349,8 +349,13 @@ syslogPackage: "auto"
 # Manual version bump to trigger pod rotation when pod config shape changes via helm
 podConfigVersion: "1"
 
-# If true, delete and recreate pods that lack the weka.io/spec-version annotation
-# (pods created before this feature). Default false to avoid mass restarts on upgrade.
+# If true, include WekaRuntimeVersion in the pod config hash calculation.
+# When enabled, bumping WekaRuntimeVersion triggers coordinated rolling pod rotation.
+# Default false to avoid unexpected rotations on operator upgrade.
+enableWekaRuntimeVersionRotation: false
+
+# If true, rotate pods for containers that have no pod-config-version annotation yet
+# (pre-existing containers from before this feature). Default false to avoid mass restarts on upgrade.
 allowRotateNonAnnotated: false
 
 # Proxy configuration for drivers loader pod and weka home

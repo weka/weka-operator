@@ -253,8 +253,9 @@ var Config struct {
 	HugepagesUpdate        HugepagesUpdateConfig
 	ComputeMaxHugepagesMiB int
 
-	PodConfigVersion        string
-	AllowRotateNonAnnotated bool
+	PodConfigVersion                 string
+	EnableWekaRuntimeVersionRotation bool
+	AllowRotateNonAnnotated          bool
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -433,6 +434,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.RemoveFailedDrivesFromWeka = getBoolEnvOrDefault("REMOVE_FAILED_DRIVES_FROM_WEKA", false)
 	Config.AllowMultipleProtocolsPerNode = getBoolEnvOrDefault("ALLOW_MULTIPLE_PROTOCOLS_PER_NODE", false)
 	Config.PodConfigVersion = env.GetString("POD_CONFIG_VERSION", "1")
+	Config.EnableWekaRuntimeVersionRotation = getBoolEnvOrDefault("ENABLE_WEKA_RUNTIME_VERSION_ROTATION", false)
 	Config.AllowRotateNonAnnotated = getBoolEnvOrDefault("ALLOW_ROTATE_NON_ANNOTATED", false)
 	Config.ManagementProxyHostNetwork = getBoolEnvOrDefault("MANAGEMENT_PROXY_HOST_NETWORK", false)
 	Config.ManagementProxyIngressBaseDomain = env.GetString("MANAGEMENT_PROXY_INGRESS_BASE_DOMAIN", "")

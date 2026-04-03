@@ -514,14 +514,22 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	clusterService := r.clusterService
 
 	nums := allocator.GetWekaContainerNumbers(cluster.Spec.Dynamic)
-	targetSpecVersion := CalcClusterSpecVersion(&cluster.Spec)
+	targetPodConfigHash := CalcClusterPodConfigVersion(&cluster.Spec)
 	imageChanged := cluster.Spec.Image != cluster.Status.LastAppliedImage
 
-	if targetSpecVersion == cluster.Status.LastAppliedSpec {
+	if targetPodConfigHash == cluster.Status.LastAppliedPodConfigHash {
 		return nil
 	}
 
-	logger.Info("Spec upgrade sequence", "imageChanged", imageChanged, "targetSpecVersion", targetSpecVersion)
+	// First deploy of pod config version tracking: adopt current state without rolling,
+	// unless allowRotateNonAnnotated is set (user wants to rotate pre-existing pods).
+	if cluster.Status.LastAppliedPodConfigHash == "" && !config.Config.AllowRotateNonAnnotated {
+		logger.Info("Adopting current pod config version (first deploy)", "targetPodConfigHash", targetPodConfigHash)
+		cluster.Status.LastAppliedPodConfigHash = targetPodConfigHash
+		return r.getClient().Status().Update(ctx, cluster)
+	}
+
+	logger.Info("Spec upgrade sequence", "imageChanged", imageChanged, "targetPodConfigHash", targetPodConfigHash)
 
 	// Image to pass to upgrade controller — empty if only non-image spec changed
 	targetImage := ""
@@ -543,11 +551,11 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 	if cluster.Spec.GetOverrides().UpgradeAllAtOnce {
 		return workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
-			if container.Spec.SpecVersion == targetSpecVersion {
+			if container.Spec.PodConfigHash == targetPodConfigHash {
 				return nil
 			}
 			specPatch := map[string]interface{}{
-				"specVersion": targetSpecVersion,
+				"podConfigHash": targetPodConfigHash,
 			}
 			if imageChanged && container.Spec.Image != cluster.Spec.Image {
 				specPatch["image"] = cluster.Spec.Image
@@ -583,7 +591,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		// before upgrade, if all drive nodes are still in old version - invoke upgrade prepare commands
 		prepareForUpgrade := true
 		for _, container := range driveContainers {
-			if container.Status.LastAppliedSpecVersion == targetSpecVersion && container.Status.ClusterContainerID != nil {
+			if container.Status.LastAppliedPodConfigHash == targetPodConfigHash && container.Status.ClusterContainerID != nil {
 				prepareForUpgrade = false
 			}
 		}
@@ -636,7 +644,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		r.emitClusterUpgradeCustomEvent(ctx)
 	}
 
-	uController := upgrade.NewUpgradeController(r.getClient(), driveContainers, targetImage, targetSpecVersion)
+	uController := upgrade.NewUpgradeController(r.getClient(), driveContainers, targetImage, targetPodConfigHash)
 	err = uController.RollingUpgrade(ctx)
 	if err != nil {
 		return err
@@ -653,7 +661,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		}
 		prepareForUpgrade := true
 		for _, container := range computeContainers {
-			if container.Status.LastAppliedSpecVersion == targetSpecVersion && container.Status.ClusterContainerID != nil {
+			if container.Status.LastAppliedPodConfigHash == targetPodConfigHash && container.Status.ClusterContainerID != nil {
 				prepareForUpgrade = false
 			}
 		}
@@ -665,7 +673,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		}
 	}
 
-	uController = upgrade.NewUpgradeController(r.getClient(), computeContainers, targetImage, targetSpecVersion)
+	uController = upgrade.NewUpgradeController(r.getClient(), computeContainers, targetImage, targetPodConfigHash)
 	err = uController.RollingUpgrade(ctx)
 	if err != nil {
 		return err
@@ -684,7 +692,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	if imageChanged {
 		prepareForUpgrade := true
 		for _, container := range feContainers {
-			if container.Status.LastAppliedSpecVersion == targetSpecVersion && container.Status.ClusterContainerID != nil {
+			if container.Status.LastAppliedPodConfigHash == targetPodConfigHash && container.Status.ClusterContainerID != nil {
 				prepareForUpgrade = false
 			}
 		}
@@ -696,7 +704,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		}
 	}
 
-	uController = upgrade.NewUpgradeController(r.getClient(), feContainers, targetImage, targetSpecVersion)
+	uController = upgrade.NewUpgradeController(r.getClient(), feContainers, targetImage, targetPodConfigHash)
 	err = uController.RollingUpgrade(ctx)
 	if err != nil {
 		return err
@@ -711,7 +719,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		if imageChanged {
 			prepareForUpgrade := true
 			for _, container := range smbwContainers {
-				if container.Status.LastAppliedSpecVersion == targetSpecVersion && container.Status.ClusterContainerID != nil {
+				if container.Status.LastAppliedPodConfigHash == targetPodConfigHash && container.Status.ClusterContainerID != nil {
 					prepareForUpgrade = false
 				}
 			}
@@ -723,7 +731,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 
-		uController = upgrade.NewUpgradeController(r.getClient(), smbwContainers, targetImage, targetSpecVersion)
+		uController = upgrade.NewUpgradeController(r.getClient(), smbwContainers, targetImage, targetPodConfigHash)
 		err = uController.RollingUpgrade(ctx)
 		if err != nil {
 			return err
@@ -745,7 +753,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		}
 	}
 
-	cluster.Status.LastAppliedSpec = targetSpecVersion
+	cluster.Status.LastAppliedPodConfigHash = targetPodConfigHash
 	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
 		return err
 	}
