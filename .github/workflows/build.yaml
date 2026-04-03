@@ -264,6 +264,17 @@ jobs:
           make manifests
           git diff --exit-code
 
+  commitlint:
+    name: Commitlint
+    runs-on: ubuntu-latest
+    needs: optimize_ci
+    if: needs.optimize_ci.outputs.skip == 'false'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Commitlint
+        uses: wagoid/commitlint-github-action@v6
+
   secret-scan:
     name: Secret Scan (gitleaks)
     runs-on: ubuntu-latest
