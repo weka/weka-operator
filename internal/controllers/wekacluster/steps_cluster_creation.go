@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -329,6 +330,7 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 	nums := allocator.GetWekaContainerNumbers(cluster.Spec.Dynamic)
 
 	containers := make([]*weka.WekaContainer, 0)
+	var skippedReasons []string
 
 	clusterReady := meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated)
 
@@ -391,7 +393,9 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 
 		hp, err := allocator.GetContainerHugepages(ctx, r.getClient(), template, cluster, r.containers, role)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get container hugepages for role %s: %w", role, err)
+			logger.Info("Skipping role — hugepages not available yet", "role", role, "reason", err)
+			skippedReasons = append(skippedReasons, fmt.Sprintf("role %s hugepages: %s", role, err))
+			continue
 		}
 
 		for i := currentCount; i < numContainers; i++ {
@@ -400,11 +404,17 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 
 			container, err := factory.NewWekaContainerForWekaCluster(cluster, template, *hp, role, name)
 			if err != nil {
-				logger.Error(err, "Failed to build container", "role", role, "name", name)
-				return nil, err
+				logger.Info("Skipping container — failed to build", "role", role, "name", name, "reason", err)
+				skippedReasons = append(skippedReasons, fmt.Sprintf("role %s container %s: %s", role, name, err))
+				continue
 			}
 			containers = append(containers, container)
 		}
+	}
+
+	if len(skippedReasons) > 0 {
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ContainersBuildPending", //nolint:errcheck // event is best effort, if recording fails, we don't want to log the reason
+			strings.Join(skippedReasons, "; "), time.Minute)
 	}
 
 	return containers, nil
