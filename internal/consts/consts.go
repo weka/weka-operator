@@ -52,9 +52,9 @@ const (
 // to record which pod config version the pod was created with.
 const PodConfigVersionAnnotation = "weka.io/pod-config-version"
 
-// WekaRuntimeVersion should be bumped when the pod spec shape changes in code
+// PodConfigCodeVersion should be bumped when the pod spec shape changes in code
 // (new env vars, volume mounts, container args, etc.) to trigger pod rotation.
-const WekaRuntimeVersion = "1"
+const PodConfigCodeVersion = "1"
 
 // Kubernetes extended resource names
 const (

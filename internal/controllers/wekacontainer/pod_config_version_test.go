@@ -83,21 +83,21 @@ var _ = Describe("Pod config version drift detection", func() {
 			Expect(v1).NotTo(Equal(v2))
 		})
 
-		It("changes when EnableWekaRuntimeVersionRotation is toggled", func() {
+		It("changes when EnablePodConfigCodeVersionRotation is toggled", func() {
 			config.Config.PodConfigVersion = "1"
 
-			config.Config.EnableWekaRuntimeVersionRotation = false
+			config.Config.EnablePodConfigCodeVersionRotation = false
 			hashWithout := selfCalcSpecVersion(testImage)
 
-			config.Config.EnableWekaRuntimeVersionRotation = true
+			config.Config.EnablePodConfigCodeVersionRotation = true
 			hashWith := selfCalcSpecVersion(testImage)
 
 			Expect(hashWithout).NotTo(Equal(hashWith))
 		})
 
-		It("is stable when EnableWekaRuntimeVersionRotation is false", func() {
+		It("is stable when EnablePodConfigCodeVersionRotation is false", func() {
 			config.Config.PodConfigVersion = "1"
-			config.Config.EnableWekaRuntimeVersionRotation = false
+			config.Config.EnablePodConfigCodeVersionRotation = false
 
 			h1 := selfCalcSpecVersion(testImage)
 			h2 := selfCalcSpecVersion(testImage)
@@ -170,7 +170,7 @@ var _ = Describe("Pod config version drift detection", func() {
 			})
 
 			It("does NOT delete pod when LastAppliedPodConfigHash is empty and allowRotateEmptyPodConfigHash=false", func() {
-				config.Config.AllowRotateNonAnnotated = false
+				config.Config.AllowRotateNonAnnotatedPodConfigHash = false
 				container := &weka.WekaContainer{
 					ObjectMeta: metav1.ObjectMeta{Name: "test-c", Namespace: "default", UID: "c-uid"},
 					Spec:       weka.WekaContainerSpec{Image: testImage},
@@ -186,7 +186,7 @@ var _ = Describe("Pod config version drift detection", func() {
 			})
 
 			It("deletes pod when LastAppliedPodConfigHash is empty and allowRotateEmptyPodConfigHash=true", func() {
-				config.Config.AllowRotateNonAnnotated = true
+				config.Config.AllowRotateNonAnnotatedPodConfigHash = true
 				container := &weka.WekaContainer{
 					ObjectMeta: metav1.ObjectMeta{Name: "test-c", Namespace: "default", UID: "c-uid"},
 					Spec:       weka.WekaContainerSpec{Image: testImage},

@@ -267,10 +267,10 @@ spec:
               value: "{{ .Values.allowMultipleProtocolsPerNode }}"
             - name: POD_CONFIG_VERSION
               value: "{{ .Values.podConfigVersion }}"
-            - name: ENABLE_WEKA_RUNTIME_VERSION_ROTATION
-              value: "{{ .Values.enableWekaRuntimeVersionRotation }}"
-            - name: ALLOW_ROTATE_NON_ANNOTATED
-              value: "{{ .Values.allowRotateNonAnnotated }}"
+            - name: ENABLE_POD_CONFIG_CODE_VERSION_ROTATION
+              value: "{{ .Values.enablePodConfigCodeVersionRotation }}"
+            - name: ALLOW_ROTATE_NON_ANNOTATED_POD_CONFIG_HASH
+              value: "{{ .Values.allowRotateNonAnnotatedPodConfigHash }}"
             - name: MANAGEMENT_PROXY_HOST_NETWORK
               value: "{{ .Values.managementProxy.hostNetwork }}"
             - name: MANAGEMENT_PROXY_INGRESS_BASE_DOMAIN

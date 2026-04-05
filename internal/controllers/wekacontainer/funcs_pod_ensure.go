@@ -221,8 +221,8 @@ func (r *containerReconcilerLoop) deletePodIfNodeInfoMismatch(ctx context.Contex
 // selfCalcSpecVersion returns the spec version computed from the image, pod config version, and optionally the code constant.
 func selfCalcSpecVersion(image string) string {
 	raw := image + "|" + config.Config.PodConfigVersion
-	if config.Config.EnableWekaRuntimeVersionRotation {
-		raw += "|" + consts.WekaRuntimeVersion
+	if config.Config.EnablePodConfigCodeVersionRotation {
+		raw += "|" + consts.PodConfigCodeVersion
 	}
 	hash := sha256.Sum256([]byte(raw))
 	return fmt.Sprintf("%x", hash)[:12]
@@ -279,7 +279,7 @@ func (r *containerReconcilerLoop) handleSpecVersionMismatch(ctx context.Context)
 	}
 
 	// If both annotation and status are empty (pre-existing container), respect the allowRotateEmptyPodConfigHash flag.
-	if podAnnotation == "" && r.container.Status.LastAppliedPodConfigHash == "" && !config.Config.AllowRotateNonAnnotated {
+	if podAnnotation == "" && r.container.Status.LastAppliedPodConfigHash == "" && !config.Config.AllowRotateNonAnnotatedPodConfigHash {
 		return nil
 	}
 

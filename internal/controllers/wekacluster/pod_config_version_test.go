@@ -12,20 +12,20 @@ func TestCalcClusterPodConfigVersion_ToggleWekaRuntimeVersionRotation(t *testing
 	config.Config.PodConfigVersion = "1"
 	spec := &weka.WekaClusterSpec{Image: "quay.io/weka.io/weka-in-container:4.5.0"}
 
-	config.Config.EnableWekaRuntimeVersionRotation = false
+	config.Config.EnablePodConfigCodeVersionRotation = false
 	hashWithout := CalcClusterPodConfigVersion(spec)
 
-	config.Config.EnableWekaRuntimeVersionRotation = true
+	config.Config.EnablePodConfigCodeVersionRotation = true
 	hashWith := CalcClusterPodConfigVersion(spec)
 
 	if hashWithout == hashWith {
-		t.Errorf("enabling EnableWekaRuntimeVersionRotation should change the hash, got %s == %s", hashWithout, hashWith)
+		t.Errorf("enabling EnablePodConfigCodeVersionRotation should change the hash, got %s == %s", hashWithout, hashWith)
 	}
 }
 
 func TestCalcClusterPodConfigVersion_StableWhenDisabled(t *testing.T) {
 	config.Config.PodConfigVersion = "1"
-	config.Config.EnableWekaRuntimeVersionRotation = false
+	config.Config.EnablePodConfigCodeVersionRotation = false
 	spec := &weka.WekaClusterSpec{Image: "quay.io/weka.io/weka-in-container:4.5.0"}
 
 	hash1 := CalcClusterPodConfigVersion(spec)
@@ -38,7 +38,7 @@ func TestCalcClusterPodConfigVersion_StableWhenDisabled(t *testing.T) {
 
 func TestCalcClusterPodConfigVersion_ChangesWhenImageChanges(t *testing.T) {
 	config.Config.PodConfigVersion = "1"
-	config.Config.EnableWekaRuntimeVersionRotation = false
+	config.Config.EnablePodConfigCodeVersionRotation = false
 
 	spec1 := &weka.WekaClusterSpec{Image: "quay.io/weka.io/weka-in-container:4.5.0"}
 	spec2 := &weka.WekaClusterSpec{Image: "quay.io/weka.io/weka-in-container:4.6.0"}
@@ -49,7 +49,7 @@ func TestCalcClusterPodConfigVersion_ChangesWhenImageChanges(t *testing.T) {
 }
 
 func TestCalcClusterPodConfigVersion_ChangesWhenPodConfigVersionChanges(t *testing.T) {
-	config.Config.EnableWekaRuntimeVersionRotation = false
+	config.Config.EnablePodConfigCodeVersionRotation = false
 	spec := &weka.WekaClusterSpec{Image: "quay.io/weka.io/weka-in-container:4.5.0"}
 
 	config.Config.PodConfigVersion = "1"

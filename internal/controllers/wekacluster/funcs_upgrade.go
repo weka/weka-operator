@@ -523,7 +523,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 	// First deploy of pod config version tracking: adopt current state without rolling,
 	// unless allowRotateNonAnnotated is set (user wants to rotate pre-existing pods).
-	if cluster.Status.LastAppliedPodConfigHash == "" && !config.Config.AllowRotateNonAnnotated {
+	if cluster.Status.LastAppliedPodConfigHash == "" && !config.Config.AllowRotateNonAnnotatedPodConfigHash {
 		logger.Info("Adopting current pod config version (first deploy)", "targetPodConfigHash", targetPodConfigHash)
 		cluster.Status.LastAppliedPodConfigHash = targetPodConfigHash
 		return r.getClient().Status().Update(ctx, cluster)

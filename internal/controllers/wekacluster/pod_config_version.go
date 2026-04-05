@@ -28,8 +28,8 @@ func CalcClusterPodConfigVersion(spec *weka.WekaClusterSpec) string {
 		PodConfigVersion: config.Config.PodConfigVersion,
 		Image:            spec.Image,
 	}
-	if config.Config.EnableWekaRuntimeVersionRotation {
-		inputs.WekaRuntimeVersion = consts.WekaRuntimeVersion
+	if config.Config.EnablePodConfigCodeVersionRotation {
+		inputs.WekaRuntimeVersion = consts.PodConfigCodeVersion
 	}
 	raw, _ := json.Marshal(inputs)
 	hash := sha256.Sum256(raw)
