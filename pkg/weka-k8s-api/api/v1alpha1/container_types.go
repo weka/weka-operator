@@ -212,7 +212,7 @@ type WekaContainerSpec struct {
 	PortRange    *PortRange         `json:"portRange,omitempty"`
 	Image        string             `json:"image"`
 	// a hash that represents the config state of a WekaContainer, will recreate the pod if stale
-	PodConfigHash     string `json:"podConfigHash"`
+	PodConfigHash     string `json:"podConfigHash,omitempty"`
 	ImagePullSecret   string `json:"imagePullSecret,omitempty"`
 	WekaContainerName string `json:"name"`
 	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs;smbw;telemetry;ssdproxy;data-services;data-services-fe
@@ -420,9 +420,10 @@ type WekaContainerStatus struct {
 	ClusterContainerID       *int                     `json:"containerID,omitempty"`
 	ClusterID                string                   `json:"clusterID,omitempty"`
 	Conditions               []metav1.Condition       `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	LastAppliedImage         string                   `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
-	LastAppliedSpec          string                   `json:"lastAppliedSpec,omitempty"`  // set by weka cluster or client or other higher level controller, to track if higher level spec was propagated
-	NodeAffinity             NodeName                 `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
+	LastAppliedImage         string                   `json:"lastAppliedImage,omitempty"`         // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	LastAppliedSpec          string                   `json:"lastAppliedSpec,omitempty"`          // set by weka cluster or client or other higher level controller, to track if higher level spec was propagated
+	LastAppliedPodConfigHash string                   `json:"lastAppliedPodConfigHash,omitempty"` // to signal to a higher controller WekaContainer's pod status
+	NodeAffinity             NodeName                 `json:"nodeAffinity,omitempty"`             // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
 	ExecutionResult          *string                  `json:"result,omitempty"`
 	Allocations              *ContainerAllocations    `json:"allocations,omitempty"`
 	AddedDrives              []Drive                  `json:"addedDrives,omitempty"` // drives that were added to the weka cluster
