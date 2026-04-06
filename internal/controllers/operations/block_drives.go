@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strconv"
 
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -183,12 +182,7 @@ func (o *BlockDrivesOperation) UnblockDrives(ctx context.Context) error {
 	}
 	node.Annotations[consts.AnnotationBlockedDrives] = string(newBlockedDrivesStr)
 
-	availableDrives := len(allDrives) - len(updatedBlockedDrives)
-	newQuantity := resource.MustParse(strconv.Itoa(availableDrives))
-
-	// Update weka.io/drives extended resource
-	node.Status.Capacity[consts.ResourceDrives] = newQuantity
-	node.Status.Allocatable[consts.ResourceDrives] = newQuantity
+	domain.SetNodeDriveAllocatable(node, allDrives, updatedBlockedDrives)
 
 	if err := o.client.Status().Update(ctx, node); err != nil {
 		err = fmt.Errorf("error updating node status: %w", err)
@@ -271,12 +265,7 @@ func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
 	}
 	node.Annotations[consts.AnnotationBlockedDrives] = string(newBlockedDrivesStr)
 
-	availableDrives := len(allDrives) - len(blockedDrives)
-	newQuantity := resource.MustParse(strconv.Itoa(availableDrives))
-
-	// Update weka.io/drives extended resource
-	node.Status.Capacity[consts.ResourceDrives] = newQuantity
-	node.Status.Allocatable[consts.ResourceDrives] = newQuantity
+	domain.SetNodeDriveAllocatable(node, allDrives, blockedDrives)
 
 	if err := o.client.Status().Update(ctx, node); err != nil {
 		err = fmt.Errorf("error updating node status: %w", err)

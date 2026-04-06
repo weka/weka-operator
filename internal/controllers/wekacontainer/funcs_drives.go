@@ -301,7 +301,6 @@ func (r *containerReconcilerLoop) UpdateFullDrivesAnnotationFromAddedDrives(ctx 
 		return nil // annotation already has capacity for all AddedDrives
 	}
 
-	// Write back
 	updatedEntries := make([]domain.DriveEntry, 0, len(entryMap))
 	for _, e := range entryMap {
 		updatedEntries = append(updatedEntries, e)
@@ -310,21 +309,32 @@ func (r *containerReconcilerLoop) UpdateFullDrivesAnnotationFromAddedDrives(ctx 
 	slices.SortFunc(updatedEntries, func(a, b domain.DriveEntry) int {
 		return strings.Compare(a.Serial, b.Serial)
 	})
-
 	annotationBytes, err := json.Marshal(updatedEntries)
 	if err != nil {
 		return fmt.Errorf("failed to marshal weka-full-drives annotation: %w", err)
 	}
-
 	if node.Annotations == nil {
 		node.Annotations = make(map[string]string)
 	}
 	node.Annotations[consts.AnnotationWekaFullDrives] = string(annotationBytes)
+
+	var blockedDrives []string
+	if blockedStr, ok := node.Annotations[consts.AnnotationBlockedDrives]; ok && blockedStr != "" {
+		if err := json.Unmarshal([]byte(blockedStr), &blockedDrives); err != nil {
+			return fmt.Errorf("failed to unmarshal blocked-drives annotation on node %s: %w", node.Name, err)
+		}
+	}
+	totalSerials := domain.DriveEntrySerials(updatedEntries)
+	domain.SetNodeDriveAllocatable(node, totalSerials, blockedDrives)
+
+	if err := r.Status().Update(ctx, node); err != nil {
+		return fmt.Errorf("failed to update node status: %w", err)
+	}
 	if err := r.Update(ctx, node); err != nil {
-		return fmt.Errorf("failed to update node annotation: %w", err)
+		return fmt.Errorf("failed to update node annotations: %w", err)
 	}
 
-	logger.Info("Updated weka-full-drives annotation from AddedDrives", "node", node.Name, "count", len(drivesWithCapacity))
+	logger.Info("Updated weka-full-drives annotation from AddedDrives", "node", node.Name, "count", len(drivesWithCapacity), "total", len(totalSerials))
 	return nil
 }
 
