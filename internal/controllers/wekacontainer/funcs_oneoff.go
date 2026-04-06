@@ -158,6 +158,7 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	// they will be re-discovered with proper capacity by this discovery run.
 	seenDrives := make(map[string]domain.DriveEntry)
 	fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
+	wasFullDrivesAbsent := fullAnnotation == ""
 
 	if fullAnnotation != "" {
 		existingEntries, readErr := domain.ReadDriveAnnotations(fullAnnotation)
@@ -208,14 +209,6 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	// Write new annotation with full drive metadata
 	node.Annotations[consts.AnnotationWekaFullDrives] = string(newDrivesStr)
 
-	// Write legacy annotation with serials only (backward compat)
-	legacySerials := domain.DriveEntrySerials(updatedDrivesList)
-	legacySerialsStr, err := json.Marshal(legacySerials)
-	if err != nil {
-		return fmt.Errorf("error marshalling legacy drives list: %w", err)
-	}
-	node.Annotations[consts.AnnotationWekaDrives] = string(legacySerialsStr)
-
 	// calculate hash, based on o.node.Status.NodeInfo.BootID
 	node.Annotations[consts.AnnotationSignDrivesHash] = domain.CalculateNodeDriveSignHash(node)
 
@@ -242,16 +235,6 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		}
 	}
 
-	availableDrives := 0
-	for _, entry := range updatedDrivesList {
-		if !slices.Contains(blockedDrives, entry.Serial) {
-			availableDrives++
-		}
-	}
-
-	// Update weka.io/drives extended resource
-	node.Status.Capacity[consts.ResourceDrives] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
-	node.Status.Allocatable[consts.ResourceDrives] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
 	//marshal blocked drives back and update annotation
 	blockedDrivesStr, err := json.Marshal(blockedDrives)
 	if err != nil {
@@ -259,6 +242,13 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		return err
 	}
 	node.Annotations[consts.AnnotationBlockedDrives] = string(blockedDrivesStr)
+
+	// Skip allocatable update when weka-full-drives was absent AND no kernel drives found —
+	// the result is provably incomplete (in-Weka drives not visible to kernel).
+	// UpdateFullDrivesAnnotationFromAddedDrives will set allocatable once it has the full picture.
+	if !wasFullDrivesAbsent || len(updatedDrivesList) > 0 {
+		domain.SetNodeDriveAllocatable(node, domain.DriveEntrySerials(updatedDrivesList), blockedDrives)
+	}
 
 	if err := r.Status().Update(ctx, node); err != nil {
 		err = fmt.Errorf("error updating node status: %w", err)
