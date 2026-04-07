@@ -124,8 +124,15 @@ func (r *wekaClusterReconcilerLoop) ClusterIsNotActivelyDeleting() bool {
 	return !r.cluster.IsMarkedForDeletion() || r.ClusterDeletionCancelled()
 }
 
-func (r *wekaClusterReconcilerLoop) ClusterStatusIsPaused() bool {
-	return r.cluster.Status.Status == weka.WekaClusterStatusPaused
+// ClusterStatusIsSuspended returns true when the cluster is in a suspended state
+// that should be cleared once recovery is complete:
+// - "Paused" (manual pause flow)
+// - "GracePeriod" when deletion was cancelled (rescue flow)
+func (r *wekaClusterReconcilerLoop) ClusterStatusIsSuspended() bool {
+	if r.cluster.Status.Status == weka.WekaClusterStatusPaused {
+		return true
+	}
+	return r.cluster.Status.Status == weka.WekaClusterStatusGracePeriod && r.ClusterDeletionCancelled()
 }
 
 func (r *wekaClusterReconcilerLoop) HasPausedContainers() bool {
