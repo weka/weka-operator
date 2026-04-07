@@ -425,7 +425,7 @@ async def sign_drives_by_pci_info(vendor_id: str, device_id: str, options: dict)
         return
 
     pci_devices = stdout.decode().strip().split()
-    devices = [f"/dev/disk/by-path/pci-0000:{pci_device}-nvme-1" for pci_device in pci_devices]
+    devices = [f"/dev/disk/by-path/pci-{pci_device}-nvme-1" for pci_device in pci_devices]
     return await sign_device_paths_batch(devices, options)
 
 
@@ -828,7 +828,7 @@ async def sign_drives_for_proxy_by_pci_info(vendor_id: str, device_id: str, opti
         return []
 
     pci_devices = stdout.decode().strip().split()
-    devices = [f"/dev/disk/by-path/pci-0000:{pci_device}-nvme-1" for pci_device in pci_devices]
+    devices = [f"/dev/disk/by-path/pci-{pci_device}-nvme-1" for pci_device in pci_devices]
     return await sign_device_paths_for_proxy_batch(devices, options)
 
 
