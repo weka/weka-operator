@@ -75,7 +75,7 @@ func TestGetContainerHugepages_Compute(t *testing.T) {
 			name:              "explicit override preserved",
 			computeCores:      1,
 			presetHugepages:   5000,
-			expectedHugepages: 5064, // 5000 + 64*1 (DPDK)
+			expectedHugepages: 5000, // user-set: DPDK not added on top
 		},
 		{
 			name:              "mixed TLC/QLC ratio 1:1",
@@ -279,9 +279,9 @@ func TestGetContainerHugepages_RespectsUserOverride(t *testing.T) {
 		t.Fatal("expected hugepages to be computed")
 	}
 
-	// User override 9999 + 64*1 (DPDK) = 10063
-	if hp.Hugepages != 10063 {
-		t.Errorf("expected user override ComputeHugepages=10063, got %d", hp.Hugepages)
+	// User override 9999: DPDK not added on top of user-set values
+	if hp.Hugepages != 9999 {
+		t.Errorf("expected user override ComputeHugepages=9999, got %d", hp.Hugepages)
 	}
 }
 
