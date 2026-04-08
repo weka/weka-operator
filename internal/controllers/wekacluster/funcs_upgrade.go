@@ -33,55 +33,57 @@ import (
 )
 
 type UpdatableClusterSpec struct {
-	AdditionalMemory            weka.AdditionalMemory
-	Tolerations                 []string
-	RawTolerations              []v1.Toleration
-	DriversDistService          string
-	ImagePullSecret             string
-	Labels                      *util.HashableMap
-	Annotations                 *util.HashableMap
-	NodeSelector                *util.HashableMap
-	S3NodeSelector              *util.HashableMap
-	NfsNodeSelector             *util.HashableMap
-	ComputeNodeSelector         *util.HashableMap
-	DriveNodeSelector           *util.HashableMap
-	DataServicesNodeSelector    *util.HashableMap
-	S3Annotations               *util.HashableMap
-	NfsAnnotations              *util.HashableMap
-	ComputeAnnotations          *util.HashableMap
-	DriveAnnotations            *util.HashableMap
-	DataServicesAnnotations     *util.HashableMap
-	UpgradeForceReplace         bool
-	UpgradeForceReplaceDrives   bool
-	Network                     weka.Network
-	RoleNetworkSelector         weka.RoleNetworkSelector
-	PvcConfig                   *weka.PVCConfig
-	TracesConfiguration         *weka.TracesConfiguration
-	RoleCoreIds                 weka.RoleCoreIds
-	CpuPolicy                   weka.CpuPolicy
-	ComputeExtraCores           int
-	DriveExtraCores             int
-	S3ExtraCores                int
-	NfsExtraCores               int
-	DataServicesExtraCores      int
-	DriversLoaderImage          string
-	DriversBuildId              *string
-	ComputeHugepages            int
-	ComputeHugepagesOffset      int
-	DriveHugepages              int
-	DriveHugepagesOffset        int
-	S3Hugepages                 int
-	S3HugepagesOffset           int
-	NfsHugepages                int
-	NfsHugepagesOffset          int
-	DataServicesHugepages       int
-	DataServicesHugepagesOffset int
-	ComputeDpdkBaseMemoryMb     int
-	DriveDpdkBaseMemoryMb       int
-	S3DpdkBaseMemoryMb          int
-	NfsDpdkBaseMemoryMb         int
+	AdditionalMemory             weka.AdditionalMemory
+	Tolerations                  []string
+	RawTolerations               []v1.Toleration
+	DriversDistService           string
+	ImagePullSecret              string
+	Labels                       *util.HashableMap
+	Annotations                  *util.HashableMap
+	NodeSelector                 *util.HashableMap
+	S3NodeSelector               *util.HashableMap
+	NfsNodeSelector              *util.HashableMap
+	ComputeNodeSelector          *util.HashableMap
+	DriveNodeSelector            *util.HashableMap
+	DataServicesNodeSelector     *util.HashableMap
+	S3Annotations                *util.HashableMap
+	NfsAnnotations               *util.HashableMap
+	ComputeAnnotations           *util.HashableMap
+	DriveAnnotations             *util.HashableMap
+	DataServicesAnnotations      *util.HashableMap
+	UpgradeForceReplace          bool
+	UpgradeForceReplaceDrives    bool
+	Network                      weka.Network
+	RoleNetworkSelector          weka.RoleNetworkSelector
+	PvcConfig                    *weka.PVCConfig
+	TracesConfiguration          *weka.TracesConfiguration
+	RoleCoreIds                  weka.RoleCoreIds
+	CpuPolicy                    weka.CpuPolicy
+	ComputeExtraCores            int
+	DriveExtraCores              int
+	S3ExtraCores                 int
+	NfsExtraCores                int
+	DataServicesExtraCores       int
+	DriversLoaderImage           string
+	DriversBuildId               *string
+	ComputeHugepages             int
+	ComputeHugepagesOffset       int
+	DriveHugepages               int
+	DriveHugepagesOffset         int
+	S3Hugepages                  int
+	S3HugepagesOffset            int
+	NfsHugepages                 int
+	NfsHugepagesOffset           int
+	SmbwHugepages                int
+	SmbwHugepagesOffset          int
+	DataServicesHugepages        int
+	DataServicesHugepagesOffset  int
+	ComputeDpdkBaseMemoryMb      int
+	DriveDpdkBaseMemoryMb        int
+	S3DpdkBaseMemoryMb           int
+	NfsDpdkBaseMemoryMb          int
 	DataServicesDpdkBaseMemoryMb int
-	SmbwDpdkBaseMemoryMb        int
+	SmbwDpdkBaseMemoryMb         int
 }
 
 func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta, containers []*weka.WekaContainer) *UpdatableClusterSpec {
@@ -120,41 +122,47 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 	// Compute desired compute/drive hugepages (0 = skip propagation).
 	// User-set values are always propagated; auto-calculated values only when
 	// hugepagesUpdate.compute/drive is enabled in config.
-	// Offsets are only set when the corresponding hugepages value is non-zero.
 	var computeHp, computeHpOffset int
 	var driveHp, driveHpOffset int
 
-	if dynamicTemplate.ComputeHugepages > 0 {
-		// User override
-		computeHp = dynamicTemplate.ComputeHugepages
+	clusterForHp := &weka.WekaCluster{Spec: *spec}
 
-		maxMiB := config.Config.ComputeMaxHugepagesMiB
-		if maxMiB > 0 && computeHp > maxMiB {
-			computeHp = maxMiB
-		}
-	} else if config.Config.HugepagesUpdate.Compute {
-		// Auto-calculate from capacity
-		totalRawCapacityGiB, err := getClusterTotalCapacityGiB(ctx, k8sClient, containers, &tmpl)
+	if dynamicTemplate.ComputeHugepages > 0 || config.Config.HugepagesUpdate.Compute {
+		hp, err := allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "compute")
 		if err != nil {
-			logger.Info("Cannot compute capacity for hugepages, skipping compute hugepages propagation", "error", err)
-		} else if totalRawCapacityGiB > 0 {
-			computeHp = allocator.ComputeCapacityBasedHugepages(
-				ctx, totalRawCapacityGiB, tmpl.Containers.Compute, tmpl.Cores.Compute, tmpl.DriveTypesRatio)
+			logger.Info("Cannot compute hugepages for compute containers, skipping propagation", "error", err)
+		} else {
+			computeHp = hp.Hugepages
+			computeHpOffset = hp.HugepagesOffset
 		}
 	}
-	if computeHp > 0 {
-		computeHpOffset = util.GetNonZeroOrDefault(dynamicTemplate.ComputeHugepagesOffset, 200)
+
+	if dynamicTemplate.DriveHugepages > 0 || config.Config.HugepagesUpdate.Drive {
+		hp, err := allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "drive")
+		if err != nil {
+			logger.Info("Cannot compute hugepages for drive containers, skipping propagation", "error", err)
+		} else {
+			driveHp = hp.Hugepages
+			driveHpOffset = hp.HugepagesOffset
+		}
 	}
 
-	if dynamicTemplate.DriveHugepages > 0 {
-		// User override
-		driveHp = dynamicTemplate.DriveHugepages
-	} else if config.Config.HugepagesUpdate.Drive {
-		// Auto-calculate
-		driveHp = allocator.CalculateDriveHugepages(tmpl)
+	// Frontend roles: always compute hugepages via GetContainerHugepages (includes DPDK)
+	var s3Hp, s3HpOffset int
+	if hp, err := allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "s3"); err == nil {
+		s3Hp, s3HpOffset = hp.Hugepages, hp.HugepagesOffset
 	}
-	if driveHp > 0 {
-		driveHpOffset = util.GetNonZeroOrDefault(dynamicTemplate.DriveHugepagesOffset, allocator.CalculateDriveHugepagesOffset(tmpl))
+	var nfsHp, nfsHpOffset int
+	if hp, err := allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "nfs"); err == nil {
+		nfsHp, nfsHpOffset = hp.Hugepages, hp.HugepagesOffset
+	}
+	var smbwHp, smbwHpOffset int
+	if hp, err := allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "smbw"); err == nil {
+		smbwHp, smbwHpOffset = hp.Hugepages, hp.HugepagesOffset
+	}
+	var dataServicesHp, dataServicesHpOffset int
+	if hp, err := allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "data-services"); err == nil {
+		dataServicesHp, dataServicesHpOffset = hp.Hugepages, hp.HugepagesOffset
 	}
 
 	// Extract DpdkBaseMemoryMb values per role (returns default 64 if not overridden)
@@ -166,55 +174,57 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 	smbwDpdkBaseMemoryMb := utils.GetDpdkBaseMemoryMbByRole(spec, "smbw")
 
 	return &UpdatableClusterSpec{
-		AdditionalMemory:            spec.AdditionalMemory,
-		Tolerations:                 spec.Tolerations,
-		RawTolerations:              spec.RawTolerations,
-		DriversDistService:          spec.DriversDistService,
-		ImagePullSecret:             spec.ImagePullSecret,
-		Labels:                      util.NewHashableMap(meta.Labels),
-		Annotations:                 util.NewHashableMap(util.RemoveKeysStartingWithPrefix(meta.Annotations, "weka.io/prepull-")),
-		NodeSelector:                util.NewHashableMap(spec.NodeSelector),
-		S3NodeSelector:              safeHashableMap(spec.RoleNodeSelector.S3),
-		NfsNodeSelector:             safeHashableMap(spec.RoleNodeSelector.Nfs),
-		ComputeNodeSelector:         safeHashableMap(spec.RoleNodeSelector.Compute),
-		DriveNodeSelector:           safeHashableMap(spec.RoleNodeSelector.Drive),
-		DataServicesNodeSelector:    safeHashableMap(spec.RoleNodeSelector.DataServices),
-		S3Annotations:               safeHashableMap(spec.RoleAnnotations.S3),
-		NfsAnnotations:              safeHashableMap(spec.RoleAnnotations.Nfs),
-		ComputeAnnotations:          safeHashableMap(spec.RoleAnnotations.Compute),
-		DriveAnnotations:            safeHashableMap(spec.RoleAnnotations.Drive),
-		DataServicesAnnotations:     safeHashableMap(spec.RoleAnnotations.DataServices),
-		UpgradeForceReplace:         spec.GetOverrides().UpgradeForceReplace,
-		UpgradeForceReplaceDrives:   spec.GetOverrides().UpgradeForceReplaceDrives,
-		Network:                     spec.Network,
-		RoleNetworkSelector:         spec.RoleNetworkSelector,
-		PvcConfig:                   resources.GetPvcConfig(spec.GlobalPVC),
-		TracesConfiguration:         spec.TracesConfiguration,
-		RoleCoreIds:                 spec.RoleCoreIds,
-		CpuPolicy:                   spec.CpuPolicy,
-		ComputeExtraCores:           computeExtraCores,
-		DriveExtraCores:             driveExtraCores,
-		S3ExtraCores:                s3ExtraCores,
-		NfsExtraCores:               nfsExtraCores,
-		DataServicesExtraCores:      dataServicesExtraCores,
-		DriversLoaderImage:          spec.GetOverrides().DriversLoaderImage,
-		DriversBuildId:              spec.GetOverrides().DriversBuildId,
-		ComputeHugepages:            computeHp,
-		ComputeHugepagesOffset:      computeHpOffset,
-		DriveHugepages:              driveHp,
-		DriveHugepagesOffset:        driveHpOffset,
-		S3Hugepages:                 util.GetNonZeroOrDefault(dynamicTemplate.S3FrontendHugepages, 1400*tmpl.Cores.S3),
-		S3HugepagesOffset:           util.GetNonZeroOrDefault(dynamicTemplate.S3FrontendHugepagesOffset, 200),
-		NfsHugepages:                util.GetNonZeroOrDefault(dynamicTemplate.NfsFrontendHugepages, 1400*tmpl.Cores.Nfs),
-		NfsHugepagesOffset:          util.GetNonZeroOrDefault(dynamicTemplate.NfsFrontendHugepagesOffset, 200),
-		DataServicesHugepages:       util.GetNonZeroOrDefault(dynamicTemplate.DataServicesHugepages, 1536),
-		DataServicesHugepagesOffset: util.GetNonZeroOrDefault(dynamicTemplate.DataServicesHugepagesOffset, 200),
-		ComputeDpdkBaseMemoryMb:     computeDpdkBaseMemoryMb,
-		DriveDpdkBaseMemoryMb:       driveDpdkBaseMemoryMb,
-		S3DpdkBaseMemoryMb:          s3DpdkBaseMemoryMb,
-		NfsDpdkBaseMemoryMb:         nfsDpdkBaseMemoryMb,
+		AdditionalMemory:             spec.AdditionalMemory,
+		Tolerations:                  spec.Tolerations,
+		RawTolerations:               spec.RawTolerations,
+		DriversDistService:           spec.DriversDistService,
+		ImagePullSecret:              spec.ImagePullSecret,
+		Labels:                       util.NewHashableMap(meta.Labels),
+		Annotations:                  util.NewHashableMap(util.RemoveKeysStartingWithPrefix(meta.Annotations, "weka.io/prepull-")),
+		NodeSelector:                 util.NewHashableMap(spec.NodeSelector),
+		S3NodeSelector:               safeHashableMap(spec.RoleNodeSelector.S3),
+		NfsNodeSelector:              safeHashableMap(spec.RoleNodeSelector.Nfs),
+		ComputeNodeSelector:          safeHashableMap(spec.RoleNodeSelector.Compute),
+		DriveNodeSelector:            safeHashableMap(spec.RoleNodeSelector.Drive),
+		DataServicesNodeSelector:     safeHashableMap(spec.RoleNodeSelector.DataServices),
+		S3Annotations:                safeHashableMap(spec.RoleAnnotations.S3),
+		NfsAnnotations:               safeHashableMap(spec.RoleAnnotations.Nfs),
+		ComputeAnnotations:           safeHashableMap(spec.RoleAnnotations.Compute),
+		DriveAnnotations:             safeHashableMap(spec.RoleAnnotations.Drive),
+		DataServicesAnnotations:      safeHashableMap(spec.RoleAnnotations.DataServices),
+		UpgradeForceReplace:          spec.GetOverrides().UpgradeForceReplace,
+		UpgradeForceReplaceDrives:    spec.GetOverrides().UpgradeForceReplaceDrives,
+		Network:                      spec.Network,
+		RoleNetworkSelector:          spec.RoleNetworkSelector,
+		PvcConfig:                    resources.GetPvcConfig(spec.GlobalPVC),
+		TracesConfiguration:          spec.TracesConfiguration,
+		RoleCoreIds:                  spec.RoleCoreIds,
+		CpuPolicy:                    spec.CpuPolicy,
+		ComputeExtraCores:            computeExtraCores,
+		DriveExtraCores:              driveExtraCores,
+		S3ExtraCores:                 s3ExtraCores,
+		NfsExtraCores:                nfsExtraCores,
+		DataServicesExtraCores:       dataServicesExtraCores,
+		DriversLoaderImage:           spec.GetOverrides().DriversLoaderImage,
+		DriversBuildId:               spec.GetOverrides().DriversBuildId,
+		ComputeHugepages:             computeHp,
+		ComputeHugepagesOffset:       computeHpOffset,
+		DriveHugepages:               driveHp,
+		DriveHugepagesOffset:         driveHpOffset,
+		S3Hugepages:                  s3Hp,
+		S3HugepagesOffset:            s3HpOffset,
+		NfsHugepages:                 nfsHp,
+		NfsHugepagesOffset:           nfsHpOffset,
+		SmbwHugepages:                smbwHp,
+		SmbwHugepagesOffset:          smbwHpOffset,
+		DataServicesHugepages:        dataServicesHp,
+		DataServicesHugepagesOffset:  dataServicesHpOffset,
+		ComputeDpdkBaseMemoryMb:      computeDpdkBaseMemoryMb,
+		DriveDpdkBaseMemoryMb:        driveDpdkBaseMemoryMb,
+		S3DpdkBaseMemoryMb:           s3DpdkBaseMemoryMb,
+		NfsDpdkBaseMemoryMb:          nfsDpdkBaseMemoryMb,
 		DataServicesDpdkBaseMemoryMb: dataServicesDpdkBaseMemoryMb,
-		SmbwDpdkBaseMemoryMb:        smbwDpdkBaseMemoryMb,
+		SmbwDpdkBaseMemoryMb:         smbwDpdkBaseMemoryMb,
 	}
 }
 
@@ -433,15 +443,26 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Spec.DpdkBaseMemoryMb = targetDpdkBaseMemoryMb
 		}
 
-		// Calculate hugepages dynamically based on current dpdkBaseMemoryMb
-		// This ensures hugepages always includes the current DPDK memory component
-		template := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
-		hp, err := allocator.GetContainerHugepages(ctx, r.getClient(), template, cluster, containers, role)
-		if err != nil {
-			logger.Warn("Failed to calculate hugepages", "error", err)
-		} else {
-			container.Spec.Hugepages = hp.Hugepages
-			container.Spec.HugepagesOffset = hp.HugepagesOffset
+		// Apply hugepages from updatableSpec — already computed via GetContainerHugepages
+		// (includes DPDK base memory) in NewUpdatableClusterSpec.
+		var targetHugepages, targetHugepagesOffset int
+		switch role {
+		case weka.WekaContainerModeCompute:
+			targetHugepages, targetHugepagesOffset = updatableSpec.ComputeHugepages, updatableSpec.ComputeHugepagesOffset
+		case weka.WekaContainerModeDrive:
+			targetHugepages, targetHugepagesOffset = updatableSpec.DriveHugepages, updatableSpec.DriveHugepagesOffset
+		case weka.WekaContainerModeS3:
+			targetHugepages, targetHugepagesOffset = updatableSpec.S3Hugepages, updatableSpec.S3HugepagesOffset
+		case weka.WekaContainerModeNfs:
+			targetHugepages, targetHugepagesOffset = updatableSpec.NfsHugepages, updatableSpec.NfsHugepagesOffset
+		case weka.WekaContainerModeSmbw:
+			targetHugepages, targetHugepagesOffset = updatableSpec.SmbwHugepages, updatableSpec.SmbwHugepagesOffset
+		case weka.WekaContainerModeDataServices:
+			targetHugepages, targetHugepagesOffset = updatableSpec.DataServicesHugepages, updatableSpec.DataServicesHugepagesOffset
+		}
+		if targetHugepages > 0 {
+			container.Spec.Hugepages = targetHugepages
+			container.Spec.HugepagesOffset = targetHugepagesOffset
 		}
 
 		if container.Spec.DriversLoaderImage != updatableSpec.DriversLoaderImage {
