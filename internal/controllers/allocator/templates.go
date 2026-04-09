@@ -119,6 +119,11 @@ func GetWekaClusterTemplate(config *weka.WekaClusterTemplate) ClusterTemplate {
 		config = &weka.WekaClusterTemplate{}
 	}
 
+	// if we don't set numDrives or containerCapacity, default to 1 drive (full-drives mode with 1 drive per container)
+	if config.NumDrives == 0 && config.ContainerCapacity == 0 {
+		config.NumDrives = 1
+	}
+
 	return ClusterTemplate{
 		Containers:        GetWekaContainerNumbers(config),
 		Cores:             GetWekaContainerCores(config),
