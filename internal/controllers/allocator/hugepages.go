@@ -103,12 +103,18 @@ func ComputeCapacityFromMostRecentDriveContainerAllocation(
 		return 0, fmt.Errorf("no drive containers with %d allocated drives found yet", numDrives)
 	}
 
-	// Sort by creation timestamp descending — most recently created first
+	// Sort by creation timestamp descending — most recently created first.
+	// Name is a secondary key to break ties deterministically (all containers
+	// created in the same second would otherwise produce a non-deterministic
+	// reference container and cause a perpetual spec-hash flip-flop).
 	slices.SortFunc(candidates, func(a, b *weka.WekaContainer) int {
-		return cmp.Compare(
+		if ts := cmp.Compare(
 			b.CreationTimestamp.UnixNano(),
 			a.CreationTimestamp.UnixNano(),
-		)
+		); ts != 0 {
+			return ts
+		}
+		return cmp.Compare(a.Name, b.Name)
 	})
 
 	// Use the most recently created candidate as the reference
