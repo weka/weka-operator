@@ -28,8 +28,8 @@ type CsiControllerHashableSpec struct {
 	CsiAttacherImage      string
 	CsiProvisionerImage   string
 	CsiResizerImage       string
-	CsiSnapshotterImage string
-	Labels              *util2.HashableMap
+	CsiSnapshotterImage   string
+	Labels                *util2.HashableMap
 	Tolerations           []corev1.Toleration
 	NodeSelector          *util2.HashableMap
 	EnforceTrustedHttps   bool
@@ -37,6 +37,7 @@ type CsiControllerHashableSpec struct {
 	LogLevel              int
 	PriorityClassName     string
 	WekaContainerName     string
+	SelinuxSupport        string
 }
 
 // GetCsiControllerDeploymentHash generates a hash for the CSI Controller Deployment
@@ -72,8 +73,8 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		CsiAttacherImage:      config.Config.Csi.AttacherImage,
 		CsiProvisionerImage:   config.Config.Csi.ProvisionerImage,
 		CsiResizerImage:       config.Config.Csi.ResizerImage,
-		CsiSnapshotterImage: config.Config.Csi.SnapshotterImage,
-		Labels:              labelsHashable,
+		CsiSnapshotterImage:   config.Config.Csi.SnapshotterImage,
+		Labels:                labelsHashable,
 		Tolerations:           tolerations,
 		NodeSelector:          nodeSelectorHashable,
 		EnforceTrustedHttps:   enforceTrustedHttps,
@@ -81,6 +82,7 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		LogLevel:              config.Config.Csi.LogLevel,
 		PriorityClassName:     config.Config.PriorityClasses.Targeted,
 		WekaContainerName:     resources.GetWekaClientContainerName(wekaClient),
+		SelinuxSupport:        config.Config.Csi.SelinuxSupport,
 	}
 
 	return util2.HashStruct(spec)
@@ -160,6 +162,10 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 	}
 	if skipGarbageCollection {
 		args = append(args, "--skipgarbagecollection")
+	}
+
+	if config.Config.Csi.SelinuxSupport == "enforced" {
+		args = append(args, "--selinux-support")
 	}
 
 	tracingFlag := GetTracingFlag()
