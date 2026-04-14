@@ -96,8 +96,6 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 		return nil
 	}
 
-	runPrivileged := false
-
 	var persistencePath string
 	if r.container.Spec.PVC == nil {
 		// if r.node != nil && NodeIsUnschedulable(r.node) {
@@ -127,11 +125,6 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 		}
 
 		persistencePath = nodeInfo.GetHostsideContainerPersistence()
-
-		// in OpenShift/COS we need to run cleanup in privileged mode to have permissions to delete data in /root/k8s-weka
-		if nodeInfo.IsRhCos() {
-			runPrivileged = true
-		}
 	} else {
 		persistencePath = weka.PersistencePathBase + "/containers"
 	}
@@ -140,7 +133,8 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 		NodeName:        container.GetNodeAffinity(),
 		ContainerId:     string(container.UID),
 		PersistencePath: persistencePath,
-		RunPrivileged:   runPrivileged,
+		// Always run privileged to ensure access to host files under SELinux enforcement.
+		RunPrivileged: true,
 	}
 
 	op := operations.NewCleanupPersistentDirOperation(
