@@ -31,6 +31,7 @@ type CsiNodeHashableSpec struct {
 	EnforceTrustedHttps   bool
 	LogLevel              int
 	PriorityClassName     string
+	SelinuxSupport        string
 }
 
 // GetCsiNodeDaemonSetHash generates a hash for the CSI Node DaemonSet
@@ -74,6 +75,7 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient) (
 		EnforceTrustedHttps:   enforceTrustedHttps,
 		LogLevel:              config.Config.Csi.LogLevel,
 		PriorityClassName:     config.Config.PriorityClasses.Targeted,
+		SelinuxSupport:        config.Config.Csi.SelinuxSupport,
 	}
 
 	return util2.HashStruct(spec)
@@ -144,12 +146,55 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		args = append(args, "--allowinsecurehttps")
 	}
 
+	if config.Config.Csi.SelinuxSupport == "enforced" {
+		args = append(args, "--selinux-support")
+	}
+
 	tracingFlag := GetTracingFlag()
 	if tracingFlag != "" {
 		args = append(args, tracingFlag)
 	}
 
 	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
+
+	selinuxEnabled := config.Config.Csi.SelinuxSupport != "off"
+
+	wekafsVolumeMounts := []corev1.VolumeMount{
+		{MountPath: "/csi", Name: "socket-dir"},
+		{MountPath: "/var/lib/kubelet/pods", MountPropagation: (*corev1.MountPropagationMode)(ptr(string(corev1.MountPropagationBidirectional))), Name: "mountpoint-dir"},
+		{MountPath: "/var/lib/kubelet/plugins", MountPropagation: (*corev1.MountPropagationMode)(ptr(string(corev1.MountPropagationBidirectional))), Name: "plugins-dir"},
+		{MountPath: "/var/lib/csi-wekafs-data", Name: "csi-data-dir"},
+		{MountPath: "/dev", Name: "dev-dir"},
+		{MountPath: "/etc/nodeinfo", Name: "nodeinfo", ReadOnly: true},
+	}
+	if selinuxEnabled {
+		wekafsVolumeMounts = append(wekafsVolumeMounts, corev1.VolumeMount{
+			Name:      "selinux-config",
+			MountPath: "/etc/selinux/config",
+			ReadOnly:  true,
+		})
+	}
+
+	volumes := []corev1.Volume{
+		{Name: "mountpoint-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/pods", Type: typePtr(corev1.HostPathDirectoryOrCreate)}}},
+		{Name: "registration-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/plugins_registry", Type: typePtr(corev1.HostPathDirectory)}}},
+		{Name: "plugins-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/plugins", Type: typePtr(corev1.HostPathDirectory)}}},
+		{Name: "socket-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/plugins/" + name, Type: typePtr(corev1.HostPathDirectoryOrCreate)}}},
+		{Name: "csi-data-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/csi-wekafs-data/", Type: typePtr(corev1.HostPathDirectoryOrCreate)}}},
+		{Name: "dev-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev", Type: typePtr(corev1.HostPathDirectory)}}},
+		{Name: "nodeinfo", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+	}
+	if selinuxEnabled {
+		volumes = append(volumes, corev1.Volume{
+			Name: "selinux-config",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/etc/selinux/config",
+					Type: typePtr(corev1.HostPathFileOrCreate),
+				},
+			},
+		})
+	}
 
 	return &appsv1.DaemonSet{
 		TypeMeta: metav1.TypeMeta{
@@ -266,35 +311,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 									Value: wekaContainerName,
 								},
 							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									MountPath: "/csi",
-									Name:      "socket-dir",
-								},
-								{
-									MountPath:        "/var/lib/kubelet/pods",
-									MountPropagation: (*corev1.MountPropagationMode)(ptr(string(corev1.MountPropagationBidirectional))),
-									Name:             "mountpoint-dir",
-								},
-								{
-									MountPath:        "/var/lib/kubelet/plugins",
-									MountPropagation: (*corev1.MountPropagationMode)(ptr(string(corev1.MountPropagationBidirectional))),
-									Name:             "plugins-dir",
-								},
-								{
-									MountPath: "/var/lib/csi-wekafs-data",
-									Name:      "csi-data-dir",
-								},
-								{
-									MountPath: "/dev",
-									Name:      "dev-dir",
-								},
-								{
-									MountPath: "/etc/nodeinfo",
-									Name:      "nodeinfo",
-									ReadOnly:  true,
-								},
-							},
+							VolumeMounts: wekafsVolumeMounts,
 						},
 						{
 							Name:      "liveness-probe",
@@ -387,68 +404,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 						},
 					},
 					Tolerations: tolerations,
-					Volumes: []corev1.Volume{
-						{
-							Name: "mountpoint-dir",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/var/lib/kubelet/pods",
-									Type: typePtr(corev1.HostPathDirectoryOrCreate),
-								},
-							},
-						},
-						{
-							Name: "registration-dir",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/var/lib/kubelet/plugins_registry",
-									Type: typePtr(corev1.HostPathDirectory),
-								},
-							},
-						},
-						{
-							Name: "plugins-dir",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/var/lib/kubelet/plugins",
-									Type: typePtr(corev1.HostPathDirectory),
-								},
-							},
-						},
-						{
-							Name: "socket-dir",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/var/lib/kubelet/plugins/" + name,
-									Type: typePtr(corev1.HostPathDirectoryOrCreate),
-								},
-							},
-						},
-						{
-							Name: "csi-data-dir",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/var/lib/csi-wekafs-data/",
-									Type: typePtr(corev1.HostPathDirectoryOrCreate),
-								},
-							},
-						},
-						{
-							Name: "dev-dir",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/dev",
-									Type: typePtr(corev1.HostPathDirectory),
-								},
-							},
-						},
-						{
-							Name: "nodeinfo",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
-							},
-						},
-					},
+					Volumes:     volumes,
 				},
 			},
 		},
