@@ -416,7 +416,7 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 			name := allocator.NewContainerName(role)
 			logger.Info("Building missing container", "role", role, "name", name)
 
-			container, err := factory.NewWekaContainerForWekaCluster(cluster, template, *hp, role, name)
+			container, err := factory.NewWekaContainerForWekaCluster(cluster, template, hp, role, name)
 			if err != nil {
 				logger.Info("Skipping container — failed to build", "role", role, "name", name, "reason", err)
 				skippedReasons = append(skippedReasons, fmt.Sprintf("role %s container %s: %s", role, name, err))
