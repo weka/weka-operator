@@ -131,9 +131,6 @@ func TestGetContainerHugepages_Compute(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if hp == nil {
-				t.Fatal("expected hugepages to be computed")
-			}
 
 			if hp.Hugepages != tt.expectedHugepages {
 				t.Errorf("expected ComputeHugepages=%d, got %d", tt.expectedHugepages, hp.Hugepages)
@@ -200,9 +197,6 @@ func TestGetContainerHugepages_EnrichesFromNodeDrives(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if hp == nil {
-		t.Fatal("expected hugepages to be computed")
-	}
 
 	// perContainerGiB = 3000+4000=7000, driveContainers=6 → totalRaw=42000GiB, all TLC
 	// tlcMiB = 42000*1024/1000 = 43008, /6 = 7168 + 1700 + 64*1 (DPDK) = 8932
@@ -236,9 +230,6 @@ func TestGetContainerHugepages_UsesContainerCapacity(t *testing.T) {
 	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, nil, "compute")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if hp == nil {
-		t.Fatal("expected hugepages to be computed")
 	}
 
 	// With ContainerCapacity=2000, driveContainers=6, computeContainers=6, all TLC:
@@ -274,9 +265,6 @@ func TestGetContainerHugepages_RespectsUserOverride(t *testing.T) {
 	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, nil, "compute")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if hp == nil {
-		t.Fatal("expected hugepages to be computed")
 	}
 
 	// User override 9999: DPDK not added on top of user-set values

@@ -3,6 +3,7 @@ package allocator
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,9 +35,47 @@ type ClusterTemplate struct {
 }
 
 type ContainerHugepages struct {
+	Mode            weka.WekaContainerMode
 	Hugepages       int
 	HugepagesOffset int
 	HugePageSize    string
+	// Flags to indicate whether hugepages values were explicitly set by the user (vs auto-calculated by the operator).
+	HugepagesUserSet       bool
+	HugepagesOffsetUserSet bool
+	// For reference, the DPDK base memory is tracked here but not added to hugepages when user-set values are provided.
+	DpdkBaseMemoryMb int
+}
+
+func (c *ContainerHugepages) ShouldPropagateHugepages() bool {
+	if c.HugepagesUserSet {
+		return true
+	}
+	if globalconfig.Config.HugepagesUpdate.Compute && c.Mode == weka.WekaContainerModeCompute {
+		return true
+	}
+	if globalconfig.Config.HugepagesUpdate.Drive && c.Mode == weka.WekaContainerModeDrive {
+		return true
+	}
+	if slices.Contains([]weka.WekaContainerMode{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute}, c.Mode) {
+		return false
+	}
+	return true
+}
+
+func (c *ContainerHugepages) ShouldPropagateHugepagesOffset() bool {
+	if c.HugepagesOffsetUserSet {
+		return true
+	}
+	if globalconfig.Config.HugepagesUpdate.Compute && c.Mode == weka.WekaContainerModeCompute {
+		return true
+	}
+	if globalconfig.Config.HugepagesUpdate.Drive && c.Mode == weka.WekaContainerModeDrive {
+		return true
+	}
+	if slices.Contains([]weka.WekaContainerMode{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute}, c.Mode) {
+		return false
+	}
+	return true
 }
 
 func GetWekaContainerNumbers(config *weka.WekaClusterTemplate) IntPerWekaRole {
@@ -135,9 +174,10 @@ func GetWekaClusterTemplate(config *weka.WekaClusterTemplate) ClusterTemplate {
 	}
 }
 
-func GetContainerHugepages(ctx context.Context, k8sClient client.Client, template ClusterTemplate, cluster *weka.WekaCluster, containers []*weka.WekaContainer, role string) (*ContainerHugepages, error) {
-	hp := &ContainerHugepages{
+func GetContainerHugepages(ctx context.Context, k8sClient client.Client, template ClusterTemplate, cluster *weka.WekaCluster, containers []*weka.WekaContainer, role string) (ContainerHugepages, error) { //nolint:gocritic // hugeParam: ClusterTemplate is passed by value intentionally
+	hp := ContainerHugepages{
 		HugePageSize: "2Mi",
+		Mode:         weka.WekaContainerMode(role),
 	}
 
 	dynamicTemplate := cluster.Spec.Dynamic
@@ -149,7 +189,6 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 	// When user-set, the value already represents the total (weka + DPDK), so
 	// dpdkTotalMemory must NOT be added. When auto-calculated, it covers only
 	// weka-process memory and DPDK must be added to reach the total.
-	var hugepagesIsUserSet, hugepagesOffsetIsUserSet bool
 
 	var numCores int
 	switch role {
@@ -158,13 +197,13 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 	case "drive":
 		if dynamicTemplate.DriveHugepages > 0 {
 			hp.Hugepages = dynamicTemplate.DriveHugepages
-			hugepagesIsUserSet = true
+			hp.HugepagesUserSet = true
 		} else {
 			hp.Hugepages = CalculateDriveHugepages(template)
 		}
 		if dynamicTemplate.DriveHugepagesOffset > 0 {
 			hp.HugepagesOffset = dynamicTemplate.DriveHugepagesOffset
-			hugepagesOffsetIsUserSet = true
+			hp.HugepagesOffsetUserSet = true
 		} else {
 			hp.HugepagesOffset = CalculateDriveHugepagesOffset(template)
 		}
@@ -173,16 +212,16 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 		if dynamicTemplate.ComputeHugepages == 0 {
 			hpComputed, err := calculateDynamicComputeHugepages(ctx, k8sClient, template, cluster, containers)
 			if err != nil {
-				return nil, fmt.Errorf("failed to calculate dynamic compute hugepages: %w", err)
+				return hp, fmt.Errorf("failed to calculate dynamic compute hugepages: %w", err)
 			}
 			hp.Hugepages = hpComputed
 		} else {
 			hp.Hugepages = dynamicTemplate.ComputeHugepages
-			hugepagesIsUserSet = true
+			hp.HugepagesUserSet = true
 		}
 		if dynamicTemplate.ComputeHugepagesOffset > 0 {
 			hp.HugepagesOffset = dynamicTemplate.ComputeHugepagesOffset
-			hugepagesOffsetIsUserSet = true
+			hp.HugepagesOffsetUserSet = true
 		} else {
 			hp.HugepagesOffset = 200
 		}
@@ -190,13 +229,13 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 	case "s3":
 		if dynamicTemplate.S3FrontendHugepages > 0 {
 			hp.Hugepages = dynamicTemplate.S3FrontendHugepages
-			hugepagesIsUserSet = true
+			hp.HugepagesUserSet = true
 		} else {
 			hp.Hugepages = 1400 * template.Cores.S3
 		}
 		if dynamicTemplate.S3FrontendHugepagesOffset > 0 {
 			hp.HugepagesOffset = dynamicTemplate.S3FrontendHugepagesOffset
-			hugepagesOffsetIsUserSet = true
+			hp.HugepagesOffsetUserSet = true
 		} else {
 			hp.HugepagesOffset = 200
 		}
@@ -204,13 +243,13 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 	case "nfs":
 		if dynamicTemplate.NfsFrontendHugepages > 0 {
 			hp.Hugepages = dynamicTemplate.NfsFrontendHugepages
-			hugepagesIsUserSet = true
+			hp.HugepagesUserSet = true
 		} else {
 			hp.Hugepages = 1400 * template.Cores.Nfs
 		}
 		if dynamicTemplate.NfsFrontendHugepagesOffset > 0 {
 			hp.HugepagesOffset = dynamicTemplate.NfsFrontendHugepagesOffset
-			hugepagesOffsetIsUserSet = true
+			hp.HugepagesOffsetUserSet = true
 		} else {
 			hp.HugepagesOffset = 200
 		}
@@ -218,13 +257,13 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 	case "smbw":
 		if dynamicTemplate.SmbwFrontendHugepages > 0 {
 			hp.Hugepages = dynamicTemplate.SmbwFrontendHugepages
-			hugepagesIsUserSet = true
+			hp.HugepagesUserSet = true
 		} else {
 			hp.Hugepages = 1400 * template.Cores.Smbw
 		}
 		if dynamicTemplate.SmbwFrontendHugepagesOffset > 0 {
 			hp.HugepagesOffset = dynamicTemplate.SmbwFrontendHugepagesOffset
-			hugepagesOffsetIsUserSet = true
+			hp.HugepagesOffsetUserSet = true
 		} else {
 			hp.HugepagesOffset = 200
 		}
@@ -232,13 +271,13 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 	case "data-services":
 		if dynamicTemplate.DataServicesHugepages > 0 {
 			hp.Hugepages = dynamicTemplate.DataServicesHugepages
-			hugepagesIsUserSet = true
+			hp.HugepagesUserSet = true
 		} else {
 			hp.Hugepages = 1536 // 1.5GB default
 		}
 		if dynamicTemplate.DataServicesHugepagesOffset > 0 {
 			hp.HugepagesOffset = dynamicTemplate.DataServicesHugepagesOffset
-			hugepagesOffsetIsUserSet = true
+			hp.HugepagesOffsetUserSet = true
 		} else {
 			hp.HugepagesOffset = 200
 		}
@@ -249,12 +288,14 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 	// already represent the total hugepages allocation (weka + DPDK).
 	dpdkBaseMemoryMb := utils.GetDpdkBaseMemoryMbByRole(&cluster.Spec, role)
 	dpdkTotalMemory := dpdkBaseMemoryMb * numCores
-	if !hugepagesIsUserSet {
+	if !hp.HugepagesUserSet {
 		hp.Hugepages += dpdkTotalMemory
 	}
-	if !hugepagesOffsetIsUserSet {
+	if !hp.HugepagesOffsetUserSet {
 		hp.HugepagesOffset += dpdkTotalMemory
 	}
+
+	hp.DpdkBaseMemoryMb = dpdkBaseMemoryMb
 
 	return hp, nil
 }
