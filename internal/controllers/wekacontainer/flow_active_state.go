@@ -279,6 +279,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.ensurePodNotRunningState,
 			Predicates: lifecycle.Predicates{
 				r.PodNotRunning,
+				func() bool { return r.pod.DeletionTimestamp == nil },
 			},
 		},
 		&lifecycle.SimpleStep{
@@ -302,6 +303,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				// Skip for Running containers to avoid disrupting live workloads;
 				// the check fires naturally on the next restart/reconcile cycle.
 				func() bool { return r.container.Status.Status != weka.Running },
+				func() bool { return r.pod.DeletionTimestamp == nil },
 			},
 		},
 		// Ensure SSD proxy container exists before setting proxy UID (for drive sharing)
