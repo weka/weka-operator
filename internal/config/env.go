@@ -132,6 +132,7 @@ type EmbeddedCsiSettings struct {
 	ControllerResources                           CsiControllerResources
 	NodeResources                                 CsiNodeResources
 	SelinuxSupport                                string // "auto", "enforced", or "off"
+	KubeletPath                                   string
 }
 
 type PriorityClasses struct {
@@ -448,6 +449,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Csi.Enabled = getBoolEnvOrDefault("CSI_INSTALLATION_ENABLED", false)
 	Config.Csi.StorageClassCreationDisabled = getBoolEnvOrDefault("CSI_STORAGE_CLASS_CREATION_DISABLED", false)
 	Config.Csi.SelinuxSupport = getEnvOrDefault("CSI_SELINUX_SUPPORT", "auto")
+	Config.Csi.KubeletPath = strings.TrimRight(getEnvOrDefault("CSI_KUBELET_PATH", "/var/lib/kubelet"), "/")
 	Config.Csi.WekafsImage = env.GetString("CSI_IMAGE", "")
 	Config.Csi.ProvisionerImage = env.GetString("CSI_PROVISIONER_IMAGE", "")
 	Config.Csi.AttacherImage = env.GetString("CSI_ATTACHER_IMAGE", "")
