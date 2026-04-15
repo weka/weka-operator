@@ -32,6 +32,7 @@ type CsiNodeHashableSpec struct {
 	LogLevel              int
 	PriorityClassName     string
 	SelinuxSupport        string
+	KubeletPath           string
 }
 
 // GetCsiNodeDaemonSetHash generates a hash for the CSI Node DaemonSet
@@ -76,6 +77,7 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient) (
 		LogLevel:              config.Config.Csi.LogLevel,
 		PriorityClassName:     config.Config.PriorityClasses.Targeted,
 		SelinuxSupport:        config.Config.Csi.SelinuxSupport,
+		KubeletPath:           config.Config.Csi.KubeletPath,
 	}
 
 	return util2.HashStruct(spec)
@@ -158,11 +160,12 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
 
 	selinuxEnabled := config.Config.Csi.SelinuxSupport != "off"
+	kubeletPath := config.Config.Csi.KubeletPath
 
 	wekafsVolumeMounts := []corev1.VolumeMount{
 		{MountPath: "/csi", Name: "socket-dir"},
-		{MountPath: "/var/lib/kubelet/pods", MountPropagation: (*corev1.MountPropagationMode)(ptr(string(corev1.MountPropagationBidirectional))), Name: "mountpoint-dir"},
-		{MountPath: "/var/lib/kubelet/plugins", MountPropagation: (*corev1.MountPropagationMode)(ptr(string(corev1.MountPropagationBidirectional))), Name: "plugins-dir"},
+		{MountPath: kubeletPath + "/pods", MountPropagation: (*corev1.MountPropagationMode)(ptr(string(corev1.MountPropagationBidirectional))), Name: "mountpoint-dir"},
+		{MountPath: kubeletPath + "/plugins", MountPropagation: (*corev1.MountPropagationMode)(ptr(string(corev1.MountPropagationBidirectional))), Name: "plugins-dir"},
 		{MountPath: "/var/lib/csi-wekafs-data", Name: "csi-data-dir"},
 		{MountPath: "/dev", Name: "dev-dir"},
 		{MountPath: "/etc/nodeinfo", Name: "nodeinfo", ReadOnly: true},
@@ -176,10 +179,10 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 	}
 
 	volumes := []corev1.Volume{
-		{Name: "mountpoint-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/pods", Type: typePtr(corev1.HostPathDirectoryOrCreate)}}},
-		{Name: "registration-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/plugins_registry", Type: typePtr(corev1.HostPathDirectory)}}},
-		{Name: "plugins-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/plugins", Type: typePtr(corev1.HostPathDirectory)}}},
-		{Name: "socket-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/plugins/" + name, Type: typePtr(corev1.HostPathDirectoryOrCreate)}}},
+		{Name: "mountpoint-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: kubeletPath + "/pods", Type: typePtr(corev1.HostPathDirectoryOrCreate)}}},
+		{Name: "registration-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: kubeletPath + "/plugins_registry", Type: typePtr(corev1.HostPathDirectory)}}},
+		{Name: "plugins-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: kubeletPath + "/plugins", Type: typePtr(corev1.HostPathDirectory)}}},
+		{Name: "socket-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: kubeletPath + "/plugins/" + name, Type: typePtr(corev1.HostPathDirectoryOrCreate)}}},
 		{Name: "csi-data-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/csi-wekafs-data/", Type: typePtr(corev1.HostPathDirectoryOrCreate)}}},
 		{Name: "dev-dir", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev", Type: typePtr(corev1.HostPathDirectory)}}},
 		{Name: "nodeinfo", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
@@ -380,7 +383,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 								},
 								{
 									Name:  "KUBELET_REGISTRATION_PATH",
-									Value: fmt.Sprintf("/var/lib/kubelet/plugins/%s/csi.sock", name),
+									Value: fmt.Sprintf("%s/plugins/%s/csi.sock", kubeletPath, name),
 								},
 								{
 									Name:  "LOG_LEVEL",
