@@ -295,6 +295,7 @@ driveSharing:
     # Hugepages offset in MiB kept as a buffer from weka's --memory for SSD proxy containers.
     # When null, defaults to 200 MiB (defined in operator code).
     hugepagesOffsetMiB: ~
+    imageOverride: ""  # If set, use this image for ssdProxy containers instead of the cluster image
 
 # Hugepages capacity ratios for compute containers.
 # These control how much hugepages memory is allocated based on raw drive capacity.
