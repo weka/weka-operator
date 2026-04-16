@@ -116,6 +116,11 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 
 	hugepagesOffset := config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB
 
+	image := cluster.Spec.Image
+	if override := config.Config.DriveSharing.SsdProxyImageOverride; override != "" {
+		image = override
+	}
+
 	proxyContainer := &weka.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      proxyName,
@@ -126,7 +131,7 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 			Mode:               weka.WekaContainerModeSSDProxy,
 			NodeAffinity:       nodeName,
 			WekaContainerName:  weka.WekaContainerModeSSDProxy,
-			Image:              cluster.Spec.Image,
+			Image:              image,
 			ImagePullSecret:    cluster.Spec.ImagePullSecret,
 			ServiceAccountName: cluster.Spec.ServiceAccountName,
 			DriversDistService: cluster.Spec.DriversDistService,

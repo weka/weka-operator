@@ -409,6 +409,8 @@ spec:
             - name: SSD_PROXY_HUGEPAGES_OFFSET_MIB
               value: "{{ .Values.driveSharing.ssdProxy.hugepagesOffsetMiB }}"
             {{- end }}
+            - name: SSD_PROXY_IMAGE_OVERRIDE
+              value: "{{ .Values.driveSharing.ssdProxy.imageOverride | default "" }}"
             - name: HUGEPAGES_UPDATE_COMPUTE
               value: "{{ .Values.hugepagesUpdate.compute }}"
             - name: HUGEPAGES_UPDATE_DRIVE
