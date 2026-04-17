@@ -166,6 +166,30 @@ type PortAllocationConfig struct {
 	StartingPort int
 }
 
+// WebhookConfig holds deployment-level webhook settings (cert paths, VWC
+// naming). Policy semantics live in AdmissionControl / AdmissionPolicies.
+type WebhookConfig struct {
+	CertDir     string
+	SecretName  string
+	ServiceName string
+	WebhookName string
+}
+
+// AdmissionControlConfig is the master switch. Enabled=false deletes the
+// VWC at startup and skips webhook setup entirely.
+type AdmissionControlConfig struct {
+	Enabled bool
+}
+
+// AdmissionPoliciesConfig carries the per-request policy posture. Mode
+// picks the strict/relaxed column from each policy's defaults; Overrides
+// pin individual policies regardless of Mode. Override values are
+// lowercased at load and must be "default", "warn", or "error".
+type AdmissionPoliciesConfig struct {
+	Mode      string
+	Overrides map[string]string
+}
+
 type BuilderImagesConfig struct {
 	Default  string
 	Ubuntu24 string
@@ -254,6 +278,10 @@ var Config struct {
 	PodConfigVersion                     string
 	EnablePodConfigCodeVersionRotation   bool
 	AllowRotateNonAnnotatedPodConfigHash bool
+
+	Webhook           WebhookConfig
+	AdmissionControl  AdmissionControlConfig
+	AdmissionPolicies AdmissionPoliciesConfig
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -502,6 +530,43 @@ func ConfigureEnv(ctx context.Context) {
 	// Evicted pod cleanup configuration
 	Config.EvictedPodCleanupEnabled = getBoolEnvOrDefault("EVICTED_POD_CLEANUP_ENABLED", true)
 	Config.EvictedPodCleanupInterval = getDurationEnvOrDefault("EVICTED_POD_CLEANUP_INTERVAL", 2*time.Minute)
+
+	// Webhook deployment configuration
+	Config.Webhook.CertDir = getEnvOrDefault("WEBHOOK_CERT_DIR", "/tmp/k8s-webhook-server/serving-certs")
+	Config.Webhook.SecretName = getEnvOrDefault("WEBHOOK_SECRET_NAME", "weka-operator-webhook-server-cert")
+	Config.Webhook.ServiceName = getEnvOrDefault("WEBHOOK_SERVICE_NAME", "weka-operator-webhook-service")
+	Config.Webhook.WebhookName = getEnvOrDefault("WEBHOOK_NAME", "weka-operator-validating-webhook-configuration")
+
+	// Admission control: master switch. When false the operator removes
+	// the ValidatingWebhookConfiguration on startup and skips the webhook
+	// server entirely.
+	Config.AdmissionControl.Enabled = getBoolEnvOrDefault("ADMISSION_CONTROL_ENABLED", true)
+
+	// Admission policies: global posture + per-policy overrides.
+	Config.AdmissionPolicies.Mode = strings.ToLower(getEnvOrDefault("ADMISSION_POLICIES_MODE", "relaxed"))
+	if Config.AdmissionPolicies.Mode != "strict" && Config.AdmissionPolicies.Mode != "relaxed" {
+		klog.Fatalf("invalid ADMISSION_POLICIES_MODE %q: must be 'strict' or 'relaxed'", Config.AdmissionPolicies.Mode)
+	}
+	Config.AdmissionPolicies.Overrides = loadAdmissionPolicyOverrides(
+		getEnvOrDefault("ADMISSION_POLICIES_OVERRIDES", ""),
+	)
+}
+
+// loadAdmissionPolicyOverrides parses ADMISSION_POLICIES_OVERRIDES (a JSON
+// object keyed by policy ID, e.g. `{"cluster_min_drives_feasibility":"warn"}`).
+// Unknown keys / invalid values are caught later by ValidateRegistry().
+func loadAdmissionPolicyOverrides(raw string) map[string]string {
+	out := map[string]string{}
+	if strings.TrimSpace(raw) == "" {
+		return out
+	}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		klog.Fatalf("invalid ADMISSION_POLICIES_OVERRIDES: %v", err)
+	}
+	for k, v := range out {
+		out[k] = strings.ToLower(v)
+	}
+	return out
 }
 
 func getEnvOrFail(envKey string) string {

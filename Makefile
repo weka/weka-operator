@@ -110,12 +110,12 @@ crd: ## Generate CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) crd paths="./pkg/weka-k8s-api/..." output:crd:artifacts:config=charts/weka-operator/crds
 
 RBAC = charts/weka-operator/templates/role.yaml
-$(RBAC): internal/controllers/*.go internal/controllers/*/*.go
+$(RBAC): internal/controllers/*.go internal/controllers/*/*.go internal/admission/*.go
 
 .PHONY: rbac
 rbac: $(RBAC) ## Generate RBAC objects.
 	mkdir -p charts/weka-operator/templates
-	$(CONTROLLER_GEN) rbac:roleName=weka-operator-manager-role paths="./internal/controllers/..." output:rbac:artifacts:config=charts/weka-operator/templates
+	$(CONTROLLER_GEN) rbac:roleName=weka-operator-manager-role paths="./internal/controllers/..." paths="./internal/admission/..." output:rbac:artifacts:config=charts/weka-operator/templates
 
 .PHONY: manifests
 manifests: crd rbac api-docs## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
