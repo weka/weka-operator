@@ -478,15 +478,23 @@ async def find_disks() -> List[Disk]:
     for device in data.get("blockdevices", []):
         if device.get("type") == "disk":
             is_mounted = has_mountpoint(device)
-            serial_id = (device.get("serial") or "").strip() or None
             device_path = device["name"]
             capacity_gib = await get_capacity_gib(device_path)
             if capacity_gib is None:
                 continue
 
+            # Use the same serial source as find_weka_drives() so RawDrives and Drives
+            # agree. For NVMe this reads sysfs /sys/.../nvme0/serial; for SCSI/SATA it
+            # reads udev ID_SERIAL (which includes the NAA prefix on SCSI).
+            # Fall back through udev-only helper, then to lsblk serial as last resort.
+            serial_id = await get_device_serial_id(device_path)
             if not serial_id:
-                logging.warning(f"lsblk did not return serial for {device_path}. Using fallback.")
+                logging.warning(f"get_device_serial_id returned empty for {device_path}, trying udev fallback")
                 serial_id = await get_serial_id_fallback(device_path)
+            if not serial_id:
+                logging.warning(f"udev fallback returned empty for {device_path}, falling back to lsblk serial")
+                serial_id = (device.get("serial") or "").strip() or None
+
             if is_google_cos():
                 logging.info(f"Using COS-specific method for {device_path}")
                 device_name = os.path.basename(device_path)
@@ -691,8 +699,17 @@ async def get_device_serial_id(device_path: str) -> str:
 
             return serial_id
         else:
-            # SCSI/SATA device: get from udev data
-            device_base_name = pci_device_path.split("/")[-2]
+            # SCSI/SATA device: get from udev data.
+            # Resolve the disk name from the sysfs path, which looks like
+            # /sys/devices/.../block/<disk>            when input is a disk
+            # /sys/devices/.../block/<disk>/<partition> when input is a partition
+            # The disk name is always the component directly after "block".
+            parts = pci_device_path.split("/")
+            try:
+                block_idx = parts.index("block")
+                device_base_name = parts[block_idx + 1]
+            except (ValueError, IndexError):
+                device_base_name = parts[-2]
             dev_index = subprocess.check_output(
                 f"cat /sys/block/{device_base_name}/dev",
                 shell=True,

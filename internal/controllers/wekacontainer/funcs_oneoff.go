@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -183,7 +184,21 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		}
 		capacity, ok := rawDriveCapacity[drive.SerialId]
 		if !ok {
-			return fmt.Errorf("drive %s present in Drives but missing from RawDrives", drive.SerialId)
+			// Drives may carry a SCSI NAA prefix that RawDrives lacks — try suffix match.
+			// Fail loud on ambiguity rather than letting random map iteration pick a winner.
+			for rawSerial, capVal := range rawDriveCapacity {
+				if !strings.HasSuffix(drive.SerialId, rawSerial) {
+					continue
+				}
+				if ok {
+					return fmt.Errorf("drive %s matches multiple RawDrives serials ambiguously", drive.SerialId)
+				}
+				capacity = capVal
+				ok = true
+			}
+			if !ok {
+				return fmt.Errorf("drive %s present in Drives but missing from RawDrives", drive.SerialId)
+			}
 		}
 		if _, ok := seenDrives[drive.SerialId]; !ok {
 			newDrivesFound++
