@@ -1065,6 +1065,16 @@ func GetHugePagesOffset(container *weka.WekaContainer) int {
 	return offset
 }
 
+// AlignMemoryToHugepageBoundary rounds memoryMiB down to the nearest per-core 2MiB hugepage boundary.
+// If numCores is 0, memoryMiB is returned unchanged.
+func AlignMemoryToHugepageBoundary(memoryMiB, numCores int) int {
+	if numCores <= 0 {
+		return memoryMiB
+	}
+	alignmentMiB := numCores * 2 // 2 MiB per core
+	return (memoryMiB / alignmentMiB) * alignmentMiB
+}
+
 // GetHugePagesDetails returns hugepages details for a container based on its spec.
 func GetHugePagesDetails(container *weka.WekaContainer) HugePagesDetails {
 	hugePagesStr := ""
@@ -1078,7 +1088,8 @@ func GetHugePagesDetails(container *weka.WekaContainer) HugePagesDetails {
 		hugePagesStr = fmt.Sprintf("%dMi", container.Spec.Hugepages)
 		hugePagesK8sSuffix = "2Mi"
 		offset := GetHugePagesOffset(container)
-		wekaMemoryString = fmt.Sprintf("%dMiB", container.Spec.Hugepages-offset)
+		memoryMiB := AlignMemoryToHugepageBoundary(container.Spec.Hugepages-offset, container.Spec.NumCores)
+		wekaMemoryString = fmt.Sprintf("%dMiB", memoryMiB)
 	}
 
 	hugePagesName := corev1.ResourceName(
@@ -1097,10 +1108,6 @@ func GetHugePagesDetails(container *weka.WekaContainer) HugePagesDetails {
 
 func (f *PodFactory) getHugePagesDetails() HugePagesDetails {
 	return GetHugePagesDetails(f.container)
-}
-
-func (f *PodFactory) getHugePagesOffset() int {
-	return GetHugePagesOffset(f.container)
 }
 
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {

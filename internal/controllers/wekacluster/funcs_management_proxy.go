@@ -7,6 +7,7 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	k8sutil "github.com/weka/weka-k8s-api/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -25,7 +26,7 @@ const (
 	MaxManagementProxyEndpoints = 10
 	ManagementProxyName         = "management-proxy"
 	ManagementConfigMapName     = "management-proxy-config"
-	EnvoyContainersAnnotation = "weka.io/proxy-containers"
+	EnvoyContainersAnnotation   = "weka.io/proxy-containers"
 )
 
 // EnsureManagementProxy creates or updates the Envoy proxy deployment and service
@@ -335,7 +336,9 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 						},
 					},
 					// Set hostNetwork based on configuration
-					HostNetwork: config.Config.ManagementProxyHostNetwork,
+					HostNetwork:  config.Config.ManagementProxyHostNetwork,
+					NodeSelector: r.cluster.Spec.NodeSelector,
+					Tolerations:  k8sutil.ExpandTolerations([]corev1.Toleration{}, r.cluster.Spec.Tolerations, r.cluster.Spec.RawTolerations),
 				},
 			},
 		}

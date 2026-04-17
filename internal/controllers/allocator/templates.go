@@ -3,6 +3,7 @@ package allocator
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,9 +35,47 @@ type ClusterTemplate struct {
 }
 
 type ContainerHugepages struct {
+	Mode            weka.WekaContainerMode
 	Hugepages       int
 	HugepagesOffset int
 	HugePageSize    string
+	// Flags to indicate whether hugepages values were explicitly set by the user (vs auto-calculated by the operator).
+	HugepagesUserSet       bool
+	HugepagesOffsetUserSet bool
+	// For reference, the DPDK base memory is tracked here but not added to hugepages when user-set values are provided.
+	DpdkBaseMemoryMb int
+}
+
+func (c *ContainerHugepages) ShouldPropagateHugepages() bool {
+	if c.HugepagesUserSet {
+		return true
+	}
+	if globalconfig.Config.HugepagesUpdate.Compute && c.Mode == weka.WekaContainerModeCompute {
+		return true
+	}
+	if globalconfig.Config.HugepagesUpdate.Drive && c.Mode == weka.WekaContainerModeDrive {
+		return true
+	}
+	if slices.Contains([]weka.WekaContainerMode{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute}, c.Mode) {
+		return false
+	}
+	return true
+}
+
+func (c *ContainerHugepages) ShouldPropagateHugepagesOffset() bool {
+	if c.HugepagesOffsetUserSet {
+		return true
+	}
+	if globalconfig.Config.HugepagesUpdate.Compute && c.Mode == weka.WekaContainerModeCompute {
+		return true
+	}
+	if globalconfig.Config.HugepagesUpdate.Drive && c.Mode == weka.WekaContainerModeDrive {
+		return true
+	}
+	if slices.Contains([]weka.WekaContainerMode{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute}, c.Mode) {
+		return false
+	}
+	return true
 }
 
 func GetWekaContainerNumbers(config *weka.WekaClusterTemplate) IntPerWekaRole {
@@ -119,6 +158,11 @@ func GetWekaClusterTemplate(config *weka.WekaClusterTemplate) ClusterTemplate {
 		config = &weka.WekaClusterTemplate{}
 	}
 
+	// if we don't set numDrives or containerCapacity, default to 1 drive (full-drives mode with 1 drive per container)
+	if config.NumDrives == 0 && config.ContainerCapacity == 0 {
+		config.NumDrives = 1
+	}
+
 	return ClusterTemplate{
 		Containers:        GetWekaContainerNumbers(config),
 		Cores:             GetWekaContainerCores(config),
@@ -130,9 +174,10 @@ func GetWekaClusterTemplate(config *weka.WekaClusterTemplate) ClusterTemplate {
 	}
 }
 
-func GetContainerHugepages(ctx context.Context, k8sClient client.Client, template ClusterTemplate, cluster *weka.WekaCluster, containers []*weka.WekaContainer, role string) (*ContainerHugepages, error) {
-	hp := &ContainerHugepages{
+func GetContainerHugepages(ctx context.Context, k8sClient client.Client, template ClusterTemplate, cluster *weka.WekaCluster, containers []*weka.WekaContainer, role string) (ContainerHugepages, error) { //nolint:gocritic // hugeParam: ClusterTemplate is passed by value intentionally
+	hp := ContainerHugepages{
 		HugePageSize: "2Mi",
+		Mode:         weka.WekaContainerMode(role),
 	}
 
 	dynamicTemplate := cluster.Spec.Dynamic
@@ -140,82 +185,117 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 		dynamicTemplate = &weka.WekaClusterTemplate{}
 	}
 
+	// Track whether the user explicitly set hugepages/offset for this role.
+	// When user-set, the value already represents the total (weka + DPDK), so
+	// dpdkTotalMemory must NOT be added. When auto-calculated, it covers only
+	// weka-process memory and DPDK must be added to reach the total.
+
 	var numCores int
 	switch role {
 	case "envoy", "telemetry":
 		return hp, nil // Envoy and telemetry containers don't require hugepages
 	case "drive":
-		hp.Hugepages = util.GetNonZeroOrDefault(
-			dynamicTemplate.DriveHugepages,
-			CalculateDriveHugepages(template),
-		)
-		hp.HugepagesOffset = util.GetNonZeroOrDefault(
-			dynamicTemplate.DriveHugepagesOffset,
-			CalculateDriveHugepagesOffset(template),
-		)
+		if dynamicTemplate.DriveHugepages > 0 {
+			hp.Hugepages = dynamicTemplate.DriveHugepages
+			hp.HugepagesUserSet = true
+		} else {
+			hp.Hugepages = CalculateDriveHugepages(template)
+		}
+		if dynamicTemplate.DriveHugepagesOffset > 0 {
+			hp.HugepagesOffset = dynamicTemplate.DriveHugepagesOffset
+			hp.HugepagesOffsetUserSet = true
+		} else {
+			hp.HugepagesOffset = CalculateDriveHugepagesOffset(template)
+		}
 		numCores = template.Cores.Drive
 	case "compute":
 		if dynamicTemplate.ComputeHugepages == 0 {
 			hpComputed, err := calculateDynamicComputeHugepages(ctx, k8sClient, template, cluster, containers)
 			if err != nil {
-				return nil, fmt.Errorf("failed to calculate dynamic compute hugepages: %w", err)
+				return hp, fmt.Errorf("failed to calculate dynamic compute hugepages: %w", err)
 			}
 			hp.Hugepages = hpComputed
 		} else {
 			hp.Hugepages = dynamicTemplate.ComputeHugepages
+			hp.HugepagesUserSet = true
 		}
-		hp.HugepagesOffset = util.GetNonZeroOrDefault(
-			dynamicTemplate.ComputeHugepagesOffset,
-			200,
-		)
+		if dynamicTemplate.ComputeHugepagesOffset > 0 {
+			hp.HugepagesOffset = dynamicTemplate.ComputeHugepagesOffset
+			hp.HugepagesOffsetUserSet = true
+		} else {
+			hp.HugepagesOffset = 200
+		}
 		numCores = template.Cores.Compute
 	case "s3":
-		hp.Hugepages = util.GetNonZeroOrDefault(
-			dynamicTemplate.S3FrontendHugepages,
-			1400*template.Cores.S3,
-		)
-		hp.HugepagesOffset = util.GetNonZeroOrDefault(
-			dynamicTemplate.S3FrontendHugepagesOffset,
-			200,
-		)
+		if dynamicTemplate.S3FrontendHugepages > 0 {
+			hp.Hugepages = dynamicTemplate.S3FrontendHugepages
+			hp.HugepagesUserSet = true
+		} else {
+			hp.Hugepages = 1400 * template.Cores.S3
+		}
+		if dynamicTemplate.S3FrontendHugepagesOffset > 0 {
+			hp.HugepagesOffset = dynamicTemplate.S3FrontendHugepagesOffset
+			hp.HugepagesOffsetUserSet = true
+		} else {
+			hp.HugepagesOffset = 200
+		}
 		numCores = template.Cores.S3
 	case "nfs":
-		hp.Hugepages = util.GetNonZeroOrDefault(
-			dynamicTemplate.NfsFrontendHugepages,
-			1400*template.Cores.Nfs,
-		)
-		hp.HugepagesOffset = util.GetNonZeroOrDefault(
-			dynamicTemplate.NfsFrontendHugepagesOffset,
-			200,
-		)
+		if dynamicTemplate.NfsFrontendHugepages > 0 {
+			hp.Hugepages = dynamicTemplate.NfsFrontendHugepages
+			hp.HugepagesUserSet = true
+		} else {
+			hp.Hugepages = 1400 * template.Cores.Nfs
+		}
+		if dynamicTemplate.NfsFrontendHugepagesOffset > 0 {
+			hp.HugepagesOffset = dynamicTemplate.NfsFrontendHugepagesOffset
+			hp.HugepagesOffsetUserSet = true
+		} else {
+			hp.HugepagesOffset = 200
+		}
 		numCores = template.Cores.Nfs
 	case "smbw":
-		hp.Hugepages = util.GetNonZeroOrDefault(
-			dynamicTemplate.SmbwFrontendHugepages,
-			1400*template.Cores.Smbw,
-		)
-		hp.HugepagesOffset = util.GetNonZeroOrDefault(
-			dynamicTemplate.SmbwFrontendHugepagesOffset,
-			200,
-		)
+		if dynamicTemplate.SmbwFrontendHugepages > 0 {
+			hp.Hugepages = dynamicTemplate.SmbwFrontendHugepages
+			hp.HugepagesUserSet = true
+		} else {
+			hp.Hugepages = 1400 * template.Cores.Smbw
+		}
+		if dynamicTemplate.SmbwFrontendHugepagesOffset > 0 {
+			hp.HugepagesOffset = dynamicTemplate.SmbwFrontendHugepagesOffset
+			hp.HugepagesOffsetUserSet = true
+		} else {
+			hp.HugepagesOffset = 200
+		}
 		numCores = template.Cores.Smbw
 	case "data-services":
-		hp.Hugepages = util.GetNonZeroOrDefault(
-			dynamicTemplate.DataServicesHugepages,
-			1536, // 1.5GB default
-		)
-		hp.HugepagesOffset = util.GetNonZeroOrDefault(
-			dynamicTemplate.DataServicesHugepagesOffset,
-			200,
-		)
+		if dynamicTemplate.DataServicesHugepages > 0 {
+			hp.Hugepages = dynamicTemplate.DataServicesHugepages
+			hp.HugepagesUserSet = true
+		} else {
+			hp.Hugepages = 1536 // 1.5GB default
+		}
+		if dynamicTemplate.DataServicesHugepagesOffset > 0 {
+			hp.HugepagesOffset = dynamicTemplate.DataServicesHugepagesOffset
+			hp.HugepagesOffsetUserSet = true
+		} else {
+			hp.HugepagesOffset = 200
+		}
 		numCores = template.Cores.DataServices
 	}
 
-	// Add DPDK base memory to both hugepages and offset
+	// Add DPDK base memory only to auto-calculated values. User-set values
+	// already represent the total hugepages allocation (weka + DPDK).
 	dpdkBaseMemoryMb := utils.GetDpdkBaseMemoryMbByRole(&cluster.Spec, role)
 	dpdkTotalMemory := dpdkBaseMemoryMb * numCores
-	hp.Hugepages += dpdkTotalMemory
-	hp.HugepagesOffset += dpdkTotalMemory
+	if !hp.HugepagesUserSet {
+		hp.Hugepages += dpdkTotalMemory
+	}
+	if !hp.HugepagesOffsetUserSet {
+		hp.HugepagesOffset += dpdkTotalMemory
+	}
+
+	hp.DpdkBaseMemoryMb = dpdkBaseMemoryMb
 
 	return hp, nil
 }

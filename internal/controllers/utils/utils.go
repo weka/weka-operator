@@ -13,6 +13,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func getAWSGatewayIP(cidr string) (string, error) {
@@ -160,6 +161,48 @@ func CompareVersions(v1, v2 string) int {
 		}
 	}
 	return 0
+}
+
+// DriverDistSource indicates how the driversDistService endpoint was resolved.
+type DriverDistSource int
+
+const (
+	DriverDistExplicit  DriverDistSource = iota // explicitly set by user
+	DriverDistPolicy                            // resolved from a single WekaPolicy
+	DriverDistDefault                           // no policy found, using default
+	DriverDistAmbiguous                         // multiple policies found, falling back to default
+)
+
+// ResolveDriversDistService determines the effective driversDistService endpoint.
+// Priority: explicit value > WekaPolicy dist service > default global endpoint.
+func ResolveDriversDistService(ctx context.Context, c client.Client, namespace, explicit string) (url string, source DriverDistSource) {
+	if explicit != "" {
+		return explicit, DriverDistExplicit
+	}
+
+	// Collect all matching policies with type "enable-local-drivers-distribution" that have valid dist service URL
+	var matches []string
+	policyList := &weka.WekaPolicyList{}
+	if err := c.List(ctx, policyList, &client.ListOptions{Namespace: namespace}); err == nil {
+		for i := range policyList.Items {
+			policy := &policyList.Items[i]
+			if policy.Spec.Type == "enable-local-drivers-distribution" &&
+				policy.Status.TypedStatus != nil &&
+				policy.Status.TypedStatus.DistService != nil &&
+				policy.Status.TypedStatus.DistService.ServiceUrl != "" {
+				matches = append(matches, policy.Status.TypedStatus.DistService.ServiceUrl)
+			}
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return "https://drivers.weka.io", DriverDistDefault
+	case 1:
+		return matches[0], DriverDistPolicy
+	default:
+		return "https://drivers.weka.io", DriverDistAmbiguous
+	}
 }
 
 // GetSoftwareVersion extracts the software version of weka

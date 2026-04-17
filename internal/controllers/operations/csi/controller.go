@@ -28,8 +28,8 @@ type CsiControllerHashableSpec struct {
 	CsiAttacherImage      string
 	CsiProvisionerImage   string
 	CsiResizerImage       string
-	CsiSnapshotterImage string
-	Labels              *util2.HashableMap
+	CsiSnapshotterImage   string
+	Labels                *util2.HashableMap
 	Tolerations           []corev1.Toleration
 	NodeSelector          *util2.HashableMap
 	EnforceTrustedHttps   bool
@@ -37,6 +37,8 @@ type CsiControllerHashableSpec struct {
 	LogLevel              int
 	PriorityClassName     string
 	WekaContainerName     string
+	SelinuxSupport        string
+	KubeletPath           string
 }
 
 // GetCsiControllerDeploymentHash generates a hash for the CSI Controller Deployment
@@ -72,8 +74,8 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		CsiAttacherImage:      config.Config.Csi.AttacherImage,
 		CsiProvisionerImage:   config.Config.Csi.ProvisionerImage,
 		CsiResizerImage:       config.Config.Csi.ResizerImage,
-		CsiSnapshotterImage: config.Config.Csi.SnapshotterImage,
-		Labels:              labelsHashable,
+		CsiSnapshotterImage:   config.Config.Csi.SnapshotterImage,
+		Labels:                labelsHashable,
 		Tolerations:           tolerations,
 		NodeSelector:          nodeSelectorHashable,
 		EnforceTrustedHttps:   enforceTrustedHttps,
@@ -81,6 +83,8 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		LogLevel:              config.Config.Csi.LogLevel,
 		PriorityClassName:     config.Config.PriorityClasses.Targeted,
 		WekaContainerName:     resources.GetWekaClientContainerName(wekaClient),
+		SelinuxSupport:        config.Config.Csi.SelinuxSupport,
+		KubeletPath:           config.Config.Csi.KubeletPath,
 	}
 
 	return util2.HashStruct(spec)
@@ -161,6 +165,12 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 	if skipGarbageCollection {
 		args = append(args, "--skipgarbagecollection")
 	}
+
+	if config.Config.Csi.SelinuxSupport == "enforced" {
+		args = append(args, "--selinux-support")
+	}
+
+	kubeletPath := config.Config.Csi.KubeletPath
 
 	tracingFlag := GetTracingFlag()
 	if tracingFlag != "" {
@@ -318,12 +328,12 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Name:      "socket-dir",
 								},
 								{
-									MountPath:        "/var/lib/kubelet/pods",
+									MountPath:        kubeletPath + "/pods",
 									MountPropagation: (*corev1.MountPropagationMode)(ptr(string(corev1.MountPropagationBidirectional))),
 									Name:             "mountpoint-dir",
 								},
 								{
-									MountPath:        "/var/lib/kubelet/plugins",
+									MountPath:        kubeletPath + "/plugins",
 									MountPropagation: (*corev1.MountPropagationMode)(ptr(string(corev1.MountPropagationBidirectional))),
 									Name:             "plugins-dir",
 								},
@@ -541,7 +551,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							Name: "socket-dir",
 							VolumeSource: corev1.VolumeSource{
 								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/var/lib/kubelet/plugins/" + name,
+									Path: kubeletPath + "/plugins/" + name,
 									Type: typePtr(corev1.HostPathDirectoryOrCreate),
 								},
 							},
@@ -550,7 +560,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							Name: "mountpoint-dir",
 							VolumeSource: corev1.VolumeSource{
 								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/var/lib/kubelet/pods",
+									Path: kubeletPath + "/pods",
 									Type: typePtr(corev1.HostPathDirectoryOrCreate),
 								},
 							},
@@ -559,7 +569,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							Name: "registration-dir",
 							VolumeSource: corev1.VolumeSource{
 								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/var/lib/kubelet/plugins_registry",
+									Path: kubeletPath + "/plugins_registry",
 									Type: typePtr(corev1.HostPathDirectory),
 								},
 							},
@@ -568,7 +578,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							Name: "plugins-dir",
 							VolumeSource: corev1.VolumeSource{
 								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/var/lib/kubelet/plugins",
+									Path: kubeletPath + "/plugins",
 									Type: typePtr(corev1.HostPathDirectory),
 								},
 							},

@@ -118,14 +118,14 @@ func (loop *wekaClusterReconcilerLoop) GetAllSteps() []lifecycle.Step {
 		ContinueOnError: true,
 	})
 
-	// Reset cluster status from Paused once recovery is complete
+	// Reset cluster status to Ready once suspended state is resolved
 	steps = append(steps, &lifecycle.SimpleStep{
 		Predicates: lifecycle.Predicates{
-			loop.ClusterStatusIsPaused,
+			loop.ClusterStatusIsSuspended,
 			lifecycle.IsNotFunc(loop.ClusterIsPaused),
 			lifecycle.IsNotFunc(loop.HasPausedContainers),
 		},
-		Run: loop.ClearPausedStatus,
+		Run: loop.SetReadyStatus,
 	})
 
 	clusterSetupSteps := GetClusterSetupSteps(loop)
@@ -192,7 +192,7 @@ func (r *wekaClusterReconcilerLoop) RecoverPausedContainers(ctx context.Context)
 	return r.ensureContainersNotPaused(ctx, "")
 }
 
-func (r *wekaClusterReconcilerLoop) ClearPausedStatus(ctx context.Context) error {
+func (r *wekaClusterReconcilerLoop) SetReadyStatus(ctx context.Context) error {
 	return r.updateClusterStatusIfNotEquals(ctx, weka.WekaClusterStatusReady)
 }
 

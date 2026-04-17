@@ -41,6 +41,17 @@ assert MODE != ""
 NUM_CORES = int(os.environ.get("CORES", 0))
 CORE_IDS = os.environ.get("CORE_IDS", "auto")
 CPU_POLICY = os.environ.get("CPU_POLICY", "auto")
+# Flags for `weka local resources cores`.
+MODE_CORES_FLAG = {
+    "compute": "--only-compute-cores",
+    "drive": "--only-drives-cores",
+    "client": "--only-frontend-cores",
+    "s3": "--only-frontend-cores",
+    "nfs": "--only-frontend-cores",
+    "smbw": "--only-frontend-cores",
+    "data-services": "--only-dataserv-cores",
+}
+
 NAME = os.environ["NAME"]
 NETWORK_DEVICE = os.environ.get("NETWORK_DEVICE", "")
 SUBNETS = os.environ.get("SUBNETS", "")
@@ -2349,21 +2360,7 @@ async def create_container():
         raise NotImplementedError(f"Unsupported mode: {MODE}")
 
     full_cores = find_full_cores(NUM_CORES)
-    mode_part = ""
-    if MODE == "compute":
-        mode_part = "--only-compute-cores"
-    elif MODE == "drive":
-        mode_part = "--only-drives-cores"
-    elif MODE == "client":
-        mode_part = "--only-frontend-cores"
-    elif MODE == "s3":
-        mode_part = "--only-frontend-cores"
-    elif MODE == "nfs":
-        mode_part = "--only-frontend-cores"
-    elif MODE == "data-services":
-        mode_part = "--only-dataserv-cores"
-    elif MODE == "smbw":
-        mode_part = "--only-frontend-cores"
+    mode_part = MODE_CORES_FLAG.get(MODE, "")
 
     core_str = ",".join(map(str, full_cores))
     logging.info(f"Creating container with cores: {core_str}")
@@ -2735,12 +2732,12 @@ async def ensure_weka_container():
         await create_container()
         resources = await get_weka_local_resources()
 
-    # TODO: Normalize to have common logic between setup and reconfigure, including between clients and backends
-    if MODE == "client" and len(resources['nodes']) != (NUM_CORES + 1):
+    if MODE in MODE_CORES_FLAG and len(resources['nodes']) != (NUM_CORES + 1):
+        cores_flag = MODE_CORES_FLAG[MODE]
         stdout, stderr, ec = await run_command(
-            f"weka local resources cores -C {NAME} --only-frontend-cores {NUM_CORES} --core-ids {','.join(map(str, full_cores[:NUM_CORES]))}")
+            f"weka local resources cores {NUM_CORES} -C {NAME} {cores_flag} --core-ids {','.join(map(str, full_cores[:NUM_CORES]))}")
         if ec != 0:
-            raise Exception(f"Failed to get frontend cores: {stderr}")
+            raise Exception(f"Failed to reconfigure cores: {stderr}")
 
     # TODO: unite with above block as single getter
     resources = await get_weka_local_resources()
