@@ -455,3 +455,76 @@ csi:
         requests:
           cpu: 8m
           memory: 52Mi
+
+# -- Admission control master switch. When true, installs the VWC with
+# failurePolicy=Fail; every operator restart briefly blocks WekaCluster/
+# WekaClient writes. Per-object bypass: set the
+# `weka.io/skip-admission` label on the CR. Emergency recovery:
+# `kubectl delete validatingwebhookconfiguration weka-operator-validating-webhook-configuration`.
+enableAdmissionControl: true
+
+# -- Admission policies: default mode plus per-policy overrides.
+admissionPolicies:
+  # -- Default mode applied to all policies. Two options:
+  #   relaxed → use the "relaxed" column from the per-policy mapping below
+  #   strict  → use the "strict" column from the per-policy mapping below
+  # Per-policy overrides win over this default.
+  mode: relaxed
+
+  # -- Per-policy overrides. Values: default | warn | error.
+  # Uncomment any policy you want to pin regardless of `mode`.
+  #
+  # policies:
+  #   # CPU cores requested by Weka containers must fit on the
+  #   # matched nodes' allocatable CPU. Fires when the spec
+  #   # over-commits CPU and pods would be unschedulable.
+  #   cluster_cores_available:              default  # strict: warn   | relaxed: warn
+  #
+  #   # drive:compute core ratio is recommended to stay at or below
+  #   # 1:2 — compute does more CPU-bound work per I/O than drive,
+  #   # so an over-weighted drive side saturates the front end under
+  #   # load. Pure advisory (warn in both modes); cores=0 is treated
+  #   # as 1 (operator's reconcile-time default).
+  #   cluster_drive_compute_core_ratio:     default  # strict: warn   | relaxed: warn
+  #
+  #   # driveContainers × numDrives must not exceed the signed
+  #   # (non-blocked) drives across matched drive-role nodes.
+  #   cluster_signed_drives:                default  # strict: error  | relaxed: warn
+  #
+  #   # For each role, container count must not exceed the number of
+  #   # nodes matching that role's selector — a role hosts at most
+  #   # one container per node.
+  #   cluster_selected_nodes_count:         default  # strict: error  | relaxed: warn
+  #
+  #   # When driversDistService is an in-cluster Service URL, that
+  #   # Service must exist. External URLs (e.g. drivers.weka.io)
+  #   # are not validated.
+  #   cluster_drivers_dist_service_exists:  default  # strict: error  | relaxed: warn
+  #
+  #   # Hugepages requested by Weka containers must fit the matched
+  #   # nodes' hugepages-2Mi allocatable. Skipped when *Hugepages=0
+  #   # (the operator auto-derives the value).
+  #   cluster_hugepages_available:          default  # strict: warn   | relaxed: warn
+  #
+  #   # NIC count requested per node must not exceed the node's
+  #   # weka.io/nics allocatable.
+  #   cluster_network_ethdevice:            default  # strict: warn   | relaxed: warn
+  #
+  #   # startIoConditions.minNumDrives must not exceed
+  #   # driveContainers × numDrives — otherwise the cluster can
+  #   # never satisfy its IO-start condition.
+  #   cluster_min_drives_feasibility:       default  # strict: error  | relaxed: error
+  #
+  #   # On large clusters (driveContainers > 10 AND numDrives > 2),
+  #   # minNumDrives should be ≥ 90% of total drive capacity so IO
+  #   # cannot resume after significant drive loss.
+  #   cluster_min_drives_large_floor:       default  # strict: warn   | relaxed: warn
+  #
+  #   # On small clusters (driveContainers ≤ 10 OR numDrives ≤ 2),
+  #   # setting minNumDrives is usually unnecessary and may cause
+  #   # unexpected behavior — recommended to omit the field.
+  #   cluster_min_drives_small_advisory:    default  # strict: warn   | relaxed: warn
+  #
+  #   # WekaClient.spec.targetCluster must reference an existing
+  #   # WekaCluster.
+  #   client_target_cluster_exists:         default  # strict: error  | relaxed: warn

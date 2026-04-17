@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers"
@@ -55,6 +56,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/wekacluster"
 	"github.com/weka/weka-operator/internal/controllers/wekacontainer"
 	"github.com/weka/weka-operator/internal/node_agent"
+	"github.com/weka/weka-operator/internal/admission"
 )
 
 var scheme = runtime.NewScheme()
@@ -161,10 +163,27 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 	probeAddr := config.Config.BindAddress.HealthProbe
 	enableLeaderElection := config.Config.EnableLeaderElection
 	enableClusterApi := config.Config.EnableClusterApi
-	logger.Info("flags", "metricsAddr", metricsAddr, "probeAddr", probeAddr, "enableLeaderElection", enableLeaderElection, "enableClusterApi", enableClusterApi)
+	admissionEnabled := config.Config.AdmissionControl.Enabled
+	logger.Info("flags", "metricsAddr", metricsAddr, "probeAddr", probeAddr, "enableLeaderElection", enableLeaderElection, "enableClusterApi", enableClusterApi, "admissionEnabled", admissionEnabled)
+
+	// Fail fast on registry/override misconfig rather than silently no-op.
+	if err := admission.ValidateRegistry(config.Config.AdmissionPolicies); err != nil {
+		logger.Error(err, "admission registry validation failed")
+		os.Exit(1)
+	}
+
+	// Configure webhook server conditionally before creating the manager
+	var webhookServer webhook.Server
+	if admissionEnabled {
+		webhookServer = webhook.NewServer(webhook.Options{
+			Port:    9443,
+			CertDir: config.Config.Webhook.CertDir,
+		})
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme: scheme,
+		Scheme:        scheme,
+		WebhookServer: webhookServer,
 		Metrics: metricsserver.Options{
 			BindAddress:    metricsAddr,
 			ExtraHandlers:  nil,
@@ -269,6 +288,8 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 	}
 
 	//+kubebuilder:scaffold:builder
+
+	setupWebhook(ctx, mgr, admissionEnabled, logger)
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		logger.Error(err, "unable to set up health check")
@@ -407,4 +428,48 @@ func cleanupEvictedPods(ctx context.Context, k8sClient client.Client) {
 	}
 
 	logger.Info("Evicted pod cleanup completed", "deletedCount", deletedCount)
+}
+
+// setupWebhook wires the admission webhook into the manager.
+// Uses a direct (non-cached) client because mgr.GetClient() is only
+// usable after mgr.Start(). When disabled, deletes any leftover VWC —
+// startup-only to avoid wiping validation during rolling updates.
+func setupWebhook(ctx context.Context, mgr ctrl.Manager, admissionEnabled bool, logger logr.Logger) {
+	directClient, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme()})
+	if err != nil {
+		logger.Error(err, "Failed to create direct client for webhook setup")
+		os.Exit(1)
+	}
+	webhookMgr := admission.NewWebhookManager(directClient, config.Config.Webhook, config.Config.OperatorPodNamespace, logger)
+
+	if !admissionEnabled {
+		// Explicit cancel rather than defer: the rest of the function calls
+		// os.Exit on errors, which would skip a deferred cancel().
+		cleanupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		webhookMgr.CleanupIfExists(cleanupCtx)
+		cancel()
+		return
+	}
+
+	// Bound startup so a slow API server can't extend the failurePolicy=Fail
+	// write-block window on every restart.
+	setupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	if err := webhookMgr.EnsureCertificates(setupCtx); err != nil {
+		cancel()
+		logger.Error(err, "Failed to ensure webhook certificates")
+		os.Exit(1)
+	}
+	cancel()
+
+	if err := admission.RegisterWekaClusterWebhookWithManager(mgr); err != nil {
+		logger.Error(err, "unable to create webhook", "webhook", "WekaCluster")
+		os.Exit(1)
+	}
+
+	if err := admission.RegisterWekaClientWebhookWithManager(mgr); err != nil {
+		logger.Error(err, "unable to create webhook", "webhook", "WekaClient")
+		os.Exit(1)
+	}
+
+	logger.Info("Admission validating webhooks enabled", "webhooks", []string{"WekaCluster", "WekaClient"})
 }

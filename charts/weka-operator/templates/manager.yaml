@@ -94,6 +94,11 @@ spec:
             - containerPort: 8080
               name: metrics
               protocol: TCP
+            {{- if .Values.enableAdmissionControl }}
+            - containerPort: 9443
+              name: webhook-server
+              protocol: TCP
+            {{- end }}
           env:
             - name: POD_NAME
               valueFrom:
@@ -421,6 +426,16 @@ spec:
               value: "{{ .Values.manager.loggerSettings.format }}"
             - name: LOG_CALLER_DIR_LVL
               value: "{{ .Values.manager.loggerSettings.callerDirLvl }}"
+            - name: ADMISSION_CONTROL_ENABLED
+              value: "{{ .Values.enableAdmissionControl | default false }}"
+            - name: ADMISSION_POLICIES_MODE
+              value: "{{ .Values.admissionPolicies.mode | default "relaxed" }}"
+            - name: ADMISSION_POLICIES_OVERRIDES
+              value: {{ .Values.admissionPolicies.policies | default dict | toJson | quote }}
+            - name: WEBHOOK_SERVICE_NAME
+              value: "{{ .Values.prefix }}-webhook-service"
+            - name: WEBHOOK_NAME
+              value: "{{ .Values.prefix }}-validating-webhook-configuration"
 
           image: "{{ .Values.image.repository }}:{{if not (empty .Values.image.tag)}}{{ .Values.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"
           imagePullPolicy: Always
