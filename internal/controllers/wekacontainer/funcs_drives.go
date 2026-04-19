@@ -372,6 +372,9 @@ func (r *containerReconcilerLoop) EnsureNodeFullDrivesAnnotation(ctx context.Con
 	}
 
 	nodeSelector := cluster.GetNodeSelectorForRole(weka.WekaContainerModeDrive)
+	if nodeSelector == nil {
+		nodeSelector = make(map[string]string)
+	}
 	// Scope discovery to the specific node that is missing the annotation.
 	// Each drive container's reconciler handles its own node independently.
 	nodeSelector["kubernetes.io/hostname"] = string(nodeName)
