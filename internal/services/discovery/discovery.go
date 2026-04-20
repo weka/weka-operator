@@ -122,18 +122,6 @@ type Discoverer interface {
 	DiscoverNode(ctx context.Context, nodeName weka.NodeName) (*DiscoveryNodeInfo, error)
 }
 
-func GetCluster(ctx context.Context, c client.Client, name weka.ObjectReference) (*weka.WekaCluster, error) {
-	cluster := &weka.WekaCluster{}
-	err := c.Get(ctx, types.NamespacedName{
-		Namespace: name.Namespace,
-		Name:      name.Name,
-	}, cluster)
-	if err != nil {
-		return nil, errors.Wrap(err, "Failed to get cluster")
-	}
-	return cluster, nil
-}
-
 // IsContainerOperational checks if a container is operational and ready for operations
 func IsContainerOperational(container *weka.WekaContainer) bool {
 	// Container must have a cluster container ID assigned
@@ -319,16 +307,6 @@ func WrapIpv6Brackets(ip string) string {
 	return ip
 }
 
-func GetAllClusters(ctx context.Context, c client.Client) ([]weka.WekaCluster, error) {
-	clustersList := weka.WekaClusterList{}
-	err := c.List(ctx, &clustersList)
-	if err != nil {
-		err = errors.Wrap(err, "Failed to list clusters")
-		return nil, err
-	}
-	return clustersList.Items, nil
-}
-
 func GetClusterByUID(ctx context.Context, c client.Client, uid types.UID) (*weka.WekaCluster, error) {
 	clustersList := weka.WekaClusterList{}
 	err := c.List(ctx, &clustersList)
@@ -341,19 +319,6 @@ func GetClusterByUID(ctx context.Context, c client.Client, uid types.UID) (*weka
 		}
 	}
 	return nil, errors.New("Cluster not found")
-}
-
-func GetAllContainers(ctx context.Context, c client.Client) []weka.WekaContainer {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetAllContainers")
-	defer end()
-
-	containersList := weka.WekaContainerList{}
-	err := c.List(ctx, &containersList)
-	if err != nil {
-		logger.SetError(err, "Failed to list containers")
-		return nil
-	}
-	return containersList.Items
 }
 
 func GetClusterContainers(ctx context.Context, c client.Client, cluster *weka.WekaCluster, mode string) ([]*weka.WekaContainer, error) {

@@ -362,7 +362,7 @@ type WekaService interface {
 	JoinS3Cluster(ctx context.Context, containerId int) error
 	RemoveFromS3Cluster(ctx context.Context, containerId int) error
 	GetSmbwCluster(ctx context.Context) (*SmbwCluster, error)
-	CreateSmbwCluster(ctx context.Context, params SmbwParams) error
+	CreateSmbwCluster(ctx context.Context, params *SmbwParams) error
 	UpdateSmbwCluster(ctx context.Context, params SmbwUpdateParams) error
 	ListSmbwClusterContainers(ctx context.Context) ([]int, error)
 	DeleteSmbwCluster(ctx context.Context) error
@@ -737,7 +737,7 @@ func (c *CliWekaService) GetSmbwCluster(ctx context.Context) (*SmbwCluster, erro
 	return &smbwCluster, nil
 }
 
-func (c *CliWekaService) CreateSmbwCluster(ctx context.Context, params SmbwParams) error {
+func (c *CliWekaService) CreateSmbwCluster(ctx context.Context, params *SmbwParams) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CreateSmbwCluster")
 	defer end()
 

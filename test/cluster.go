@@ -199,13 +199,6 @@ func (c *Cluster) PodsReadyCondition(ctx context.Context, cluster *wekav1alpha1.
 	}
 }
 
-func (c *Cluster) SecretsAppliedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
-	return func(t *testing.T) {
-		if err := c.waitForCondition(ctx, cluster, condition.CondClusterSecretsApplied); err != nil {
-			t.Fatalf("failed to wait for Secrets Applied condition: %v", err)
-		}
-	}
-}
 
 func (c *Cluster) ClusterCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {

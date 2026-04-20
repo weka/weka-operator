@@ -88,10 +88,6 @@ func (r *containerReconcilerLoop) ShouldDeactivate() bool {
 
 }
 
-func (r *containerReconcilerLoop) CanSkipDeactivate() bool {
-	return r.container.Spec.Overrides.SkipDeactivate
-}
-
 func (r *containerReconcilerLoop) CanSkipDrivesForceResign() bool {
 	return r.container.Spec.GetOverrides().SkipDrivesForceResign
 }
@@ -113,10 +109,6 @@ func (r *containerReconcilerLoop) NodeHasFullDrivesAnnotation() bool {
 	}
 	_, exists := r.node.Annotations[consts.AnnotationWekaFullDrives]
 	return exists
-}
-
-func (r *containerReconcilerLoop) ResultsAreSet() bool {
-	return r.container.Status.ExecutionResult != nil
 }
 
 func (r *containerReconcilerLoop) ResultsAreProcessed() bool {

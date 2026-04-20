@@ -78,46 +78,45 @@ func (loop *wekaClusterReconcilerLoop) GetAllSteps() []lifecycle.Step {
 	// Manual pause path - when paused=true and cluster is not actively being deleted
 	// (either not marked for deletion, or deletion was cancelled via cancelDeletion)
 	// Deletion/creation paths are mutually exclusive
-	steps = append(steps, &lifecycle.GroupedSteps{
-		Name: "DeletionPath",
-		Predicates: lifecycle.Predicates{
-			loop.cluster.IsMarkedForDeletion,
-			lifecycle.IsNotFunc(loop.ClusterDeletionCancelled),
+	steps = append(steps,
+		&lifecycle.GroupedSteps{
+			Name: "DeletionPath",
+			Predicates: lifecycle.Predicates{
+				loop.cluster.IsMarkedForDeletion,
+				lifecycle.IsNotFunc(loop.ClusterDeletionCancelled),
+			},
+			Steps:           GetDeletionSteps(loop),
+			FinishOnSuccess: true,
 		},
-		Steps:           GetDeletionSteps(loop),
-		FinishOnSuccess: true,
-	})
-
-	// Recovery of paused containers when deletion is cancelled and cluster is NOT manually paused
-	steps = append(steps, &lifecycle.SimpleStep{
-		Predicates: lifecycle.Predicates{
-			loop.ClusterDeletionCancelled,
-			lifecycle.IsNotFunc(loop.ClusterIsPaused),
+		// Recovery of paused containers when deletion is cancelled and cluster is NOT manually paused
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.ClusterDeletionCancelled,
+				lifecycle.IsNotFunc(loop.ClusterIsPaused),
+			},
+			Run:             loop.RecoverPausedContainers,
+			ContinueOnError: true,
 		},
-		Run:             loop.RecoverPausedContainers,
-		ContinueOnError: true,
-	})
-
-	// Recovery of paused containers when paused is explicitly set to false
-	steps = append(steps, &lifecycle.SimpleStep{
-		Predicates: lifecycle.Predicates{
-			loop.ClusterIsExplicitlyUnpaused,
-			lifecycle.IsNotFunc(loop.cluster.IsMarkedForDeletion),
-			loop.HasPausedContainers,
+		// Recovery of paused containers when paused is explicitly set to false
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.ClusterIsExplicitlyUnpaused,
+				lifecycle.IsNotFunc(loop.cluster.IsMarkedForDeletion),
+				loop.HasPausedContainers,
+			},
+			Run:             loop.RecoverPausedContainers,
+			ContinueOnError: true,
 		},
-		Run:             loop.RecoverPausedContainers,
-		ContinueOnError: true,
-	})
-
-	// Reset cluster status to Ready once suspended state is resolved
-	steps = append(steps, &lifecycle.SimpleStep{
-		Predicates: lifecycle.Predicates{
-			loop.ClusterStatusIsSuspended,
-			lifecycle.IsNotFunc(loop.ClusterIsPaused),
-			lifecycle.IsNotFunc(loop.HasPausedContainers),
+		// Reset cluster status to Ready once suspended state is resolved
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.ClusterStatusIsSuspended,
+				lifecycle.IsNotFunc(loop.ClusterIsPaused),
+				lifecycle.IsNotFunc(loop.HasPausedContainers),
+			},
+			Run: loop.SetReadyStatus,
 		},
-		Run: loop.SetReadyStatus,
-	})
+	)
 
 	steps = append(steps, GetClusterSetupSteps(loop)...)
 	steps = append(steps, GetClusterCreationSteps(loop)...)
@@ -180,30 +179,3 @@ func (r *wekaClusterReconcilerLoop) SetReadyStatus(ctx context.Context) error {
 	return r.updateClusterStatusIfNotEquals(ctx, weka.WekaClusterStatusReady)
 }
 
-func (r *wekaClusterReconcilerLoop) HandleManualPause(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
-	err := r.updateClusterStatusIfNotEquals(ctx, weka.WekaClusterStatusPaused)
-	if err != nil {
-		return err
-	}
-
-	err = r.ensureContainersPaused(ctx, weka.WekaContainerModeS3)
-	if err != nil {
-		return err
-	}
-
-	err = r.ensureContainersPaused(ctx, weka.WekaContainerModeNfs)
-	if err != nil {
-		return err
-	}
-
-	err = r.ensureContainersPaused(ctx, "")
-	if err != nil {
-		return err
-	}
-
-	logger.Info("Cluster is manually paused (overrides.paused=true)")
-	return nil
-}

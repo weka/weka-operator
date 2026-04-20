@@ -25,13 +25,6 @@ type PromMetric struct {
 	Type         string
 }
 
-func NewTaggedValue(tags map[string]string, value float64) TaggedValue {
-	return TaggedValue{
-		Tags:  tags,
-		Value: value,
-	}
-}
-
 func (m PromMetric) AsPrometheusString(defaultTags map[string]string) *string { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	//TODO: non optimal implementation, but this is also not a data path
 	tags := []string{}

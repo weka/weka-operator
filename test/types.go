@@ -42,14 +42,6 @@ func (st *ClusterTest) Get(ctx context.Context, key client.ObjectKey, obj client
 	return client.Get(ctx, key, obj)
 }
 
-func (st *ClusterTest) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
-	client, err := st.k8sClient(ctx)
-	if err != nil {
-		return err
-	}
-	return client.Create(ctx, obj, opts...)
-}
-
 func (st *ClusterTest) List(ctx context.Context, obj client.ObjectList, opts ...client.ListOption) error {
 	client, err := st.k8sClient(ctx)
 	if err != nil {

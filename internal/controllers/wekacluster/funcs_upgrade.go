@@ -39,26 +39,6 @@ type containerRoleSpec struct {
 	HugepagesInfo allocator.ContainerHugepages
 }
 
-// forRole returns the role-specific values for a given container mode, collapsing
-// all per-role switch dispatches into one place.
-func (s *UpdatableClusterSpec) forRole(role string) containerRoleSpec {
-	switch role {
-	case weka.WekaContainerModeCompute:
-		return containerRoleSpec{ExtraCores: s.ComputeExtraCores, NumCores: s.ComputeCores, HugepagesInfo: s.ComputeHugepages}
-	case weka.WekaContainerModeDrive:
-		return containerRoleSpec{ExtraCores: s.DriveExtraCores, NumCores: s.DriveCores, HugepagesInfo: s.DriveHugepages}
-	case weka.WekaContainerModeS3:
-		return containerRoleSpec{ExtraCores: s.S3ExtraCores, NumCores: s.S3Cores, HugepagesInfo: s.S3Hugepages}
-	case weka.WekaContainerModeNfs:
-		return containerRoleSpec{ExtraCores: s.NfsExtraCores, NumCores: s.NfsCores, HugepagesInfo: s.NfsHugepages}
-	case weka.WekaContainerModeDataServices:
-		return containerRoleSpec{ExtraCores: s.DataServicesExtraCores, NumCores: s.DataServicesCores, HugepagesInfo: s.DataServicesHugepages}
-	case weka.WekaContainerModeSmbw:
-		return containerRoleSpec{ExtraCores: s.SmbwExtraCores, NumCores: s.SmbwCores, HugepagesInfo: s.SmbwHugepages}
-	}
-	return containerRoleSpec{}
-}
-
 type UpdatableClusterSpec struct {
 	AdditionalMemory          weka.AdditionalMemory
 	Tolerations               []string
@@ -106,6 +86,26 @@ type UpdatableClusterSpec struct {
 	NfsHugepages              allocator.ContainerHugepages
 	DataServicesHugepages     allocator.ContainerHugepages
 	SmbwHugepages             allocator.ContainerHugepages
+}
+
+// forRole returns the role-specific values for a given container mode, collapsing
+// all per-role switch dispatches into one place.
+func (s *UpdatableClusterSpec) forRole(role string) containerRoleSpec {
+	switch role {
+	case weka.WekaContainerModeCompute:
+		return containerRoleSpec{ExtraCores: s.ComputeExtraCores, NumCores: s.ComputeCores, HugepagesInfo: s.ComputeHugepages}
+	case weka.WekaContainerModeDrive:
+		return containerRoleSpec{ExtraCores: s.DriveExtraCores, NumCores: s.DriveCores, HugepagesInfo: s.DriveHugepages}
+	case weka.WekaContainerModeS3:
+		return containerRoleSpec{ExtraCores: s.S3ExtraCores, NumCores: s.S3Cores, HugepagesInfo: s.S3Hugepages}
+	case weka.WekaContainerModeNfs:
+		return containerRoleSpec{ExtraCores: s.NfsExtraCores, NumCores: s.NfsCores, HugepagesInfo: s.NfsHugepages}
+	case weka.WekaContainerModeDataServices:
+		return containerRoleSpec{ExtraCores: s.DataServicesExtraCores, NumCores: s.DataServicesCores, HugepagesInfo: s.DataServicesHugepages}
+	case weka.WekaContainerModeSmbw:
+		return containerRoleSpec{ExtraCores: s.SmbwExtraCores, NumCores: s.SmbwCores, HugepagesInfo: s.SmbwHugepages}
+	}
+	return containerRoleSpec{}
 }
 
 func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta, containers []*weka.WekaContainer) (*UpdatableClusterSpec, error) {
@@ -562,7 +562,8 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 		timeout := time.Second * 30
 		wekaService := services.NewWekaServiceWithTimeout(r.ExecService, execInContainer, &timeout)
-		status, err := wekaService.GetWekaStatus(ctx)
+		var status services.WekaStatusResponse
+		status, err = wekaService.GetWekaStatus(ctx)
 		if err != nil {
 			return err
 		}
@@ -679,7 +680,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 				}
 			}
 			if prepareForUpgrade {
-				err := r.prepareForUpgradeS3(ctx, smbwContainers, targetVersion)
+				err = r.prepareForUpgradeS3(ctx, smbwContainers, targetVersion)
 				if err != nil {
 					return err
 				}

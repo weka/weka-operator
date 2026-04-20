@@ -81,10 +81,6 @@ type ShutdownInstructions struct {
 
 const globalPersistenceMountPath = "/opt/weka-global-persistence"
 
-func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
-	return HostIdToContainerId(driveResponse.HostId)
-}
-
 func NewPodFactory(container *weka.WekaContainer, nodeInfo *discovery.DiscoveryNodeInfo) *PodFactory {
 	return &PodFactory{
 		nodeInfo:  nodeInfo,
@@ -1302,7 +1298,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	if f.container.Spec.Mode == weka.WekaContainerModeSmbw {
 		smbwMemory := 28000 //  for smbw service we should have minimum of 32GiB total
 		managementMemory := 2450
-		perFrontendMemory := 2850 //5.1.0.8-8.13
+		perFrontendMemory := 2850 // 5.1.0.8-8.13
 		perFrontendBuffer := 200
 		buffer := 450
 		total := buffer + managementMemory + smbwMemory + (perFrontendMemory+perFrontendBuffer)*f.container.Spec.NumCores + f.container.Spec.AdditionalMemory
