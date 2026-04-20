@@ -1202,6 +1202,8 @@ spec:
                 type: string
               network:
                 properties:
+                  allocateVfPerIoNode:
+                    type: boolean
                   bindManagementAll:
                     description: |-
                       BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
@@ -1361,6 +1363,10 @@ spec:
                   upgradePreventEviction:
                     type: boolean
                 type: object
+              podConfigHash:
+                description: a hash that represents the config state of a WekaContainer,
+                  will recreate the pod if stale
+                type: string
               port:
                 type: integer
               portRange:
@@ -1942,6 +1948,8 @@ spec:
               internalStatus:
                 type: string
               lastAppliedImage:
+                type: string
+              lastAppliedPodConfigHash:
                 type: string
               lastAppliedSpec:
                 type: string

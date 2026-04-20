@@ -536,6 +536,8 @@ spec:
               network:
                 description: weka cluster network configuration
                 properties:
+                  allocateVfPerIoNode:
+                    type: boolean
                   bindManagementAll:
                     description: |-
                       BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
@@ -921,6 +923,8 @@ spec:
                   compute:
                     description: network selector for compute weka containers
                     properties:
+                      allocateVfPerIoNode:
+                        type: boolean
                       bindManagementAll:
                         description: |-
                           BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
@@ -1009,6 +1013,8 @@ spec:
                   dataServices:
                     description: network selector for data services weka containers
                     properties:
+                      allocateVfPerIoNode:
+                        type: boolean
                       bindManagementAll:
                         description: |-
                           BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
@@ -1097,6 +1103,8 @@ spec:
                   drive:
                     description: network selector for drive weka containers
                     properties:
+                      allocateVfPerIoNode:
+                        type: boolean
                       bindManagementAll:
                         description: |-
                           BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
@@ -1185,6 +1193,8 @@ spec:
                   nfs:
                     description: network selector for nfs weka containers
                     properties:
+                      allocateVfPerIoNode:
+                        type: boolean
                       bindManagementAll:
                         description: |-
                           BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
@@ -1273,6 +1283,8 @@ spec:
                   s3:
                     description: network selector for s3 weka containers
                     properties:
+                      allocateVfPerIoNode:
+                        type: boolean
                       bindManagementAll:
                         description: |-
                           BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
@@ -1361,6 +1373,8 @@ spec:
                   smbw:
                     description: network selector for smbw weka containers
                     properties:
+                      allocateVfPerIoNode:
+                        type: boolean
                       bindManagementAll:
                         description: |-
                           BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
@@ -1752,6 +1766,8 @@ spec:
                   type: object
                 type: array
               lastAppliedImage:
+                type: string
+              lastAppliedPodConfigHash:
                 type: string
               lastAppliedSpec:
                 type: string

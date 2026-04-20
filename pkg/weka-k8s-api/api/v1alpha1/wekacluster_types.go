@@ -107,7 +107,8 @@ type Network struct {
 	BindManagementAll bool `json:"bindManagementAll,omitempty"`
 	// NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF
 	// When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
-	NvidiaVfSingleIp *bool `json:"nvidiaVfSingleIp,omitempty"`
+	NvidiaVfSingleIp    *bool `json:"nvidiaVfSingleIp,omitempty"`
+	AllocateVfPerIoNode *bool `json:"allocateVfPerIoNode,omitempty"`
 }
 
 func (n *Network) Equal(o *Network) bool {
