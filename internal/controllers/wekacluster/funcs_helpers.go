@@ -122,12 +122,6 @@ func (r *wekaClusterReconcilerLoop) ClusterIsExplicitlyUnpaused() bool {
 	return p != nil && !*p
 }
 
-// ClusterIsNotActivelyDeleting returns true when the cluster is either not marked for deletion,
-// or marked for deletion but with cancelDeletion set (i.e. deletion was rescued).
-func (r *wekaClusterReconcilerLoop) ClusterIsNotActivelyDeleting() bool {
-	return !r.cluster.IsMarkedForDeletion() || r.ClusterDeletionCancelled()
-}
-
 // ClusterStatusIsSuspended returns true when the cluster is in a suspended state
 // that should be cleared once recovery is complete:
 // - "Paused" (manual pause flow)
@@ -146,26 +140,4 @@ func (r *wekaClusterReconcilerLoop) HasPausedContainers() bool {
 		}
 	}
 	return false
-}
-
-func getClusterTotalCapacityGiB(ctx context.Context, k8sClient client.Client, containers []*weka.WekaContainer, template *allocator.ClusterTemplate) (int, error) {
-	var totalRawCapacityGiB int
-
-	switch {
-	case template.ContainerCapacity > 0:
-		// Drive-sharing mode - full capacity per drive container is known
-		totalRawCapacityGiB = template.ContainerCapacity * template.Containers.Drive
-	case template.NumDrives > 0 && template.DriveCapacity > 0:
-		// Drive-sharing mode with explicit drive count and capacity
-		totalRawCapacityGiB = template.NumDrives * template.DriveCapacity * template.Containers.Drive
-	case template.Containers.Drive > 0:
-		// Full-drives mode without capacity in spec: derive from most recent drive container's allocations
-		var err error
-		totalRawCapacityGiB, err = allocator.ComputeCapacityFromMostRecentDriveContainerAllocation(ctx, k8sClient, containers, template.Containers.Drive, template.NumDrives)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get total drive capacity from nodes: %w", err)
-		}
-	}
-
-	return totalRawCapacityGiB, nil
 }

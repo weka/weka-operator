@@ -1,14 +1,12 @@
 package wekacontainer
 
 import (
-	"context"
 	"sync"
 
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-steps-engine/throttling"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
@@ -78,19 +76,6 @@ type containerReconcilerLoop struct {
 	_cluster *weka.WekaCluster
 }
 
-func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.Request) error {
-	container := &weka.WekaContainer{}
-	err := r.Get(ctx, req.NamespacedName, container)
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-		return nil
-	}
-
-	r.container = container
-	return nil
-}
 
 func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContainer) lifecycle.StepsEngine {
 	restClient := r.RestClient

@@ -1,8 +1,5 @@
 package allocator
 
-import (
-	"k8s.io/apimachinery/pkg/types"
-)
 
 const MaxPort = 65535
 
@@ -26,9 +23,3 @@ type Owner struct {
 // Used for finding free port ranges when allocating new clusters.
 type ClusterRanges map[OwnerCluster]Range
 
-func (o Owner) ToNamespacedName() types.NamespacedName {
-	return types.NamespacedName{
-		Namespace: o.Namespace,
-		Name:      o.Container,
-	}
-}

@@ -34,11 +34,6 @@ func SetFeatureFlags(ctx context.Context, image string, flags *domain.FeatureFla
 	return featureFlagsCache.SetFeatureFlags(ctx, image, flags)
 }
 
-// HasFeatureFlags checks if feature flags for the given image are cached.
-func HasFeatureFlags(ctx context.Context, image string) bool {
-	return featureFlagsCache.Has(ctx, image)
-}
-
 // FeatureFlagsCache is exposed for backwards compatibility but prefer using
 // the package-level functions GetFeatureFlags, SetFeatureFlags, HasFeatureFlags.
 //
@@ -66,12 +61,6 @@ type featureFlagsCacheService struct {
 	// map of <image> to feature flags
 	cache map[string]*domain.FeatureFlags
 	lock  sync.RWMutex
-}
-
-func NewFeatureFlagsCacheService() FeatureFlagsCacheService {
-	return &featureFlagsCacheService{
-		cache: make(map[string]*domain.FeatureFlags),
-	}
 }
 
 // ErrFeatureFlagsNotCached is returned when feature flags are not in cache

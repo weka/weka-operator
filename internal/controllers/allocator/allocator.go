@@ -3,7 +3,6 @@ package allocator
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
@@ -324,125 +323,14 @@ type AllocationFailure struct {
 
 type FailedAllocations []AllocationFailure
 
-func (f *FailedAllocations) Error() string {
-	// build new-line separated string of container:original error
-	strBuilder := strings.Builder{}
-	for _, failed := range *f {
-		fmt.Fprintf(&strBuilder, "%s: %s\n", failed.Container.Name, failed.Err.Error())
-	}
-	return strBuilder.String()
-}
-
 func NewContainerName(role string) string {
 	guid := string(uuid.NewUUID())
 	return fmt.Sprintf("%s-%s", role, guid)
 }
 
-// MarshalYAML implements the yaml.Marshaler interface for CustomType.
-func (c Owner) MarshalYAML() (interface{}, error) {
-	return fmt.Sprintf("%s;%s;%s;%s", c.ClusterName, c.Namespace, c.Container, c.Role), nil
-}
-
-// UnmarshalYAML implements the yaml.Unmarshaler interface for CustomType.
-func (c *Owner) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	// Temporary variable to hold the combined value during unmarshalling.
-	var combined string
-	if err := unmarshal(&combined); err != nil {
-		return err
-	}
-
-	// Custom unmarshalling logic to split the combined string back into FieldA and FieldB.
-	parts := strings.Split(combined, ";")
-	if len(parts) != 4 {
-		return fmt.Errorf("invalid Owner format: %s", combined)
-	}
-	c.ClusterName = parts[0]
-	c.Namespace = parts[1]
-	c.Container = parts[2]
-	c.Role = parts[3]
-	return nil
-}
-
-func (o Owner) IsSameClusterAndRole(owner Owner) bool {
-	if owner.Namespace != o.Namespace {
-		return false
-	}
-	if owner.ClusterName != o.ClusterName {
-		return false
-	}
-	if owner.Role != o.Role {
-		return false
-	}
-	return true
-}
-
-func (o Owner) IsSameOwner(owner Owner) bool {
-	if owner.Namespace != o.Namespace {
-		return false
-	}
-	if owner.ClusterName != o.ClusterName {
-		return false
-	}
-	return true
-}
-
-func (c Owner) ToOwnerRole() OwnerRole {
-	return OwnerRole{
-		OwnerCluster: c.OwnerCluster,
-		Role:         c.Role,
-	}
-}
-
 type OwnerRole struct {
 	OwnerCluster
 	Role string
-}
-
-// MarshalYAML implements the yaml.Marshaler interface for CustomType.
-func (c OwnerRole) MarshalYAML() (interface{}, error) {
-	return fmt.Sprintf("%s;%s;%s", c.ClusterName, c.Namespace, c.Role), nil
-}
-
-// UnmarshalYAML implements the yaml.Unmarshaler interface for CustomType.
-func (c *OwnerRole) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	// Temporary variable to hold the combined value during unmarshalling.
-	var combined string
-	if err := unmarshal(&combined); err != nil {
-		return err
-	}
-
-	// Custom unmarshalling logic to split the combined string back into FieldA and FieldB.
-	parts := strings.Split(combined, ";")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid OwnerRole format: %s", combined)
-	}
-	c.ClusterName = parts[0]
-	c.Namespace = parts[1]
-	c.Role = parts[2]
-	return nil
-}
-
-// MarshalYAML implements the yaml.Marshaler interface for CustomType.
-func (c OwnerCluster) MarshalYAML() (interface{}, error) {
-	return fmt.Sprintf("%s;%s", c.ClusterName, c.Namespace), nil
-}
-
-// UnmarshalYAML implements the yaml.Unmarshaler interface for CustomType.
-func (c *OwnerCluster) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	// Temporary variable to hold the combined value during unmarshalling.
-	var combined string
-	if err := unmarshal(&combined); err != nil {
-		return err
-	}
-
-	// Custom unmarshalling logic to split the combined string back into FieldA and FieldB.
-	parts := strings.Split(combined, ";")
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid OwnerCluster format: %s", combined)
-	}
-	c.ClusterName = parts[0]
-	c.Namespace = parts[1]
-	return nil
 }
 
 // GetAllocator creates and returns a new ResourcesAllocator instance.

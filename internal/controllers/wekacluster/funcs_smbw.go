@@ -68,10 +68,10 @@ func (r *wekaClusterReconcilerLoop) EnsureSmbwCluster(ctx context.Context) error
 	}
 
 	if len(containerIds) < config.Consts.FormSmbwClusterMinContainerCount {
-		err := fmt.Errorf("not enough ready SMB-W containers: have %d, need at least %d",
+		waitErr := fmt.Errorf("not enough ready SMB-W containers: have %d, need at least %d",
 			len(containerIds), config.Consts.FormSmbwClusterMinContainerCount)
-		logger.Debug(err.Error())
-		return lifecycle.NewWaitError(err)
+		logger.Debug(waitErr.Error())
+		return lifecycle.NewWaitError(waitErr)
 	}
 
 	logger.Debug("Creating SMB-W cluster", "containers", containerIds)
@@ -81,7 +81,7 @@ func (r *wekaClusterReconcilerLoop) EnsureSmbwCluster(ctx context.Context) error
 		clusterName = "default"
 	}
 
-	err = wekaService.CreateSmbwCluster(ctx, services.SmbwParams{
+	err = wekaService.CreateSmbwCluster(ctx, &services.SmbwParams{
 		ClusterName:                clusterName,
 		DomainName:                 cluster.Spec.SmbwConfig.DomainName,
 		ContainerIds:               containerIds,
@@ -151,8 +151,7 @@ func (r *wekaClusterReconcilerLoop) DestroySmbwCluster(ctx context.Context) erro
 	logger.Info("SMB-W cluster containers", "containers", smbwContainerIds)
 
 	if len(smbwContainerIds) > 1 {
-		err := fmt.Errorf("more than one container in SMB-W cluster: %v", smbwContainerIds)
-		return lifecycle.NewWaitError(err)
+		return lifecycle.NewWaitError(fmt.Errorf("more than one container in SMB-W cluster: %v", smbwContainerIds))
 	}
 
 	logger.Info("Destroying SMB-W cluster")
@@ -229,9 +228,9 @@ func (r *wekaClusterReconcilerLoop) JoinSmbwDomain(ctx context.Context) error {
 
 	execInContainer := discovery.SelectActiveContainer(r.containers)
 	if execInContainer == nil {
-		err := errors.New("No active container found for SMB-W domain join")
-		r.Recorder.Event(r.cluster, "Warning", "SmbwDomainJoinFailed", err.Error())
-		return err
+		joinErr := errors.New("No active container found for SMB-W domain join")
+		r.Recorder.Event(r.cluster, "Warning", "SmbwDomainJoinFailed", joinErr.Error())
+		return joinErr
 	}
 
 	executor, err := r.ExecService.GetExecutor(ctx, execInContainer)
@@ -273,7 +272,7 @@ func containsAlreadyJoined(stderr string) bool {
 
 // contains is a helper function for case-insensitive string matching
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsIgnoreCase(s, substr))
+	return len(s) >= len(substr) && (s == substr || s != "" && containsIgnoreCase(s, substr))
 }
 
 func containsIgnoreCase(s, substr string) bool {
@@ -351,11 +350,6 @@ func (r *wekaClusterReconcilerLoop) EnsureSmbwClusterUpdated(ctx context.Context
 
 	if r.cluster.Spec.SmbwConfig == nil {
 		return fmt.Errorf("smbwConfig is nil")
-	}
-
-	clusterName := r.cluster.Spec.SmbwConfig.ClusterName
-	if clusterName == "" {
-		clusterName = "default"
 	}
 
 	execInContainer := discovery.SelectActiveContainer(r.containers)

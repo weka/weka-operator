@@ -134,22 +134,6 @@ func GetWekaContainerExtraCores(config *weka.WekaClusterTemplate) IntPerWekaRole
 	}
 }
 
-func GetDriveTypesRatio(config *weka.WekaClusterTemplate) *weka.DriveTypesRatio {
-	// Apply global default driveTypesRatio when using drive sharing
-	// Drive sharing is enabled when containerCapacity > 0
-	if config != nil && config.DriveTypesRatio == nil && config.ContainerCapacity > 0 {
-		ratio := globalconfig.Config.DriveSharing.DriveTypesRatio
-		// Only apply if non-zero ratio is configured
-		if ratio.Tlc > 0 || ratio.Qlc > 0 {
-			return &weka.DriveTypesRatio{
-				Tlc: ratio.Tlc,
-				Qlc: ratio.Qlc,
-			}
-		}
-	}
-
-	return nil
-}
 
 // GetWekaClusterTemplate builds cluster ClusterTemplate from config, setting defaults for container
 // counts and cores. Does not include hugepages, which are computed separately.

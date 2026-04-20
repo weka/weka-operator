@@ -5,7 +5,6 @@ import (
 	"iter"
 	"slices"
 	"strings"
-	"sync"
 
 	"golang.org/x/exp/maps"
 )
@@ -44,31 +43,6 @@ func MapMissingItems(originalMap, newMap map[string]string) map[string]string {
 		}
 	}
 	return retMap
-}
-
-type TypedSyncMap[K comparable, V any] struct {
-	m sync.Map
-}
-
-func (tsm *TypedSyncMap[K, V]) Store(key K, value V) {
-	tsm.m.Store(key, value)
-}
-
-func (tsm *TypedSyncMap[K, V]) Load(key K) (V, bool) {
-	value, ok := tsm.m.Load(key)
-	if !ok {
-		var zero V
-		return zero, false
-	}
-	return value.(V), true //nolint:errcheck // error return value intentionally not checked
-}
-
-func (tsm *TypedSyncMap[K, V]) LoadOrStore(key K, value V) (V, bool) {
-	actual, loaded := tsm.m.LoadOrStore(key, value)
-	if loaded {
-		return actual.(V), true //nolint:errcheck // error return value intentionally not checked
-	}
-	return value, false
 }
 
 func AreMapsEqual[K comparable, V comparable](a, b map[K]V) bool {

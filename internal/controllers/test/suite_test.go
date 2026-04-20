@@ -27,7 +27,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zerologr"
-	"github.com/kr/pretty"
 	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -177,22 +176,3 @@ func teardownTestEnv(testEnv *TestEnvironment) error {
 	return nil
 }
 
-// waitFor waits for the given condition to be true, or times out.
-func waitFor(ctx context.Context, fn func(context.Context) bool) error {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			if fn(ctx) {
-				return
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}()
-	select {
-	case <-done:
-	case <-ctx.Done():
-		return pretty.Errorf("timed out waiting for condition")
-	}
-	return nil
-}

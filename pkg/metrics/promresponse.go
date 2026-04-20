@@ -26,13 +26,6 @@ func (p *PromResponse) AddMetric(metric PromMetric, taggedValues []TaggedValue) 
 	p.Metrics[metric.Metric].ValuesByTags = append(p.Metrics[metric.Metric].ValuesByTags, taggedValues...)
 }
 
-func (p *PromResponse) AddPromString(promString string) {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-
-	p.RawMetrics = append(p.RawMetrics, promString)
-}
-
 func (p *PromResponse) AddBytes(bytes []byte) {
 	p.lock.Lock()
 	defer p.lock.Unlock()

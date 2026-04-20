@@ -21,10 +21,6 @@ type ClusterContainer struct {
 	HostId         string   `json:"host_id"`
 }
 
-func (c ClusterContainer) ContainerId() (int, error) { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
-	return HostIdToContainerId(c.HostId)
-}
-
 type ClusterContainersResponse []ClusterContainer
 
 type ClusterContainersMap map[string]ClusterContainer

@@ -31,7 +31,7 @@ func CalcClusterPodConfigVersion(spec *weka.WekaClusterSpec) string {
 	if config.Config.EnablePodConfigCodeVersionRotation {
 		inputs.WekaRuntimeVersion = consts.PodConfigCodeVersion
 	}
-	raw, _ := json.Marshal(inputs)
+	raw, _ := json.Marshal(inputs) //nolint:errcheck // json.Marshal cannot fail on a plain struct
 	hash := sha256.Sum256(raw)
 	return fmt.Sprintf("%x", hash)[:8]
 }

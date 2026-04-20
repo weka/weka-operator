@@ -2,13 +2,9 @@ package test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/controllers/wekacontainer"
 )
@@ -40,63 +36,6 @@ type ContainerTestCase struct {
 //			t.Run(fmt.Sprintf("mode=%s,cpupolicy=%s", test.mode, test.cpuPolicy), CanCreateContainer(testEnv, test))
 //		}
 //	}
-func CanCreateContainer(testEnv *TestEnvironment, test ContainerTestCase) func(t *testing.T) {
-	ctx := testEnv.Ctx
-	return func(t *testing.T) {
-		name := test.mode + "-" + string(test.cpuPolicy)
-		key := client.ObjectKey{
-			Namespace: "default",
-			Name:      fmt.Sprintf("test-container-%s", name),
-		}
-
-		container := &wekav1alpha1.WekaContainer{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: key.Namespace,
-				Name:      fmt.Sprintf("test-container-%s", name),
-			},
-			Spec: wekav1alpha1.WekaContainerSpec{
-				Mode:      test.mode,
-				CpuPolicy: test.cpuPolicy,
-			},
-		}
-		err := testEnv.Client.Create(ctx, container)
-		if err == nil && test.expectedError {
-			t.Fatalf("error creating container - expected: %v, got: %v", test.expectedError, err)
-		}
-		container = &wekav1alpha1.WekaContainer{}
-		waitFor(ctx, func(ctx context.Context) bool {
-			err := testEnv.Client.Get(ctx, key, container)
-			if test.expectedError {
-				return err != nil
-			} else {
-				return err == nil
-			}
-		})
-
-		t.Run("ValidateConditions", ValidateConditions(container))
-
-		if err := testEnv.Client.Delete(ctx, container); err != nil {
-			if !test.expectedError {
-				t.Fatalf("failed to delete container: %v", err)
-			}
-		}
-		waitFor(ctx, func(ctx context.Context) bool {
-			container := &wekav1alpha1.WekaContainer{}
-			err := testEnv.Client.Get(ctx, key, container)
-			return apierrors.IsNotFound(err)
-		})
-	}
-}
-
-func ValidateConditions(container *wekav1alpha1.WekaContainer) func(t *testing.T) {
-	return func(t *testing.T) {
-		conditions := container.Status.Conditions
-		if len(conditions) != 0 {
-			t.Errorf("expected 1 condition, got %d", len(conditions))
-		}
-	}
-}
-
 func TestNewContainerController(t *testing.T) {
 	if true {
 		return

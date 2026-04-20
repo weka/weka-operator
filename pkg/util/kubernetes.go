@@ -200,41 +200,6 @@ func GetPodNamespace() (string, error) {
 	return string(namespace), nil
 }
 
-func GetOperatorPodName() (string, error) {
-	if config.Config.OperatorPodName != "" {
-		return config.Config.OperatorPodName, nil
-	}
-
-	name := os.Getenv("HOSTNAME")
-	if name == "" {
-		return "", errors.New("environment variable HOSTNAME is not set")
-	}
-	return name, nil
-}
-
-func GetOperatorPod(ctx context.Context, k8sClient crclient.Client) (*v1.Pod, error) {
-	namespace, err := GetPodNamespace()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get operator namespace")
-	}
-
-	name, err := GetOperatorPodName()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get operator pod name")
-	}
-
-	pod := &v1.Pod{}
-	err = k8sClient.Get(ctx, types.NamespacedName{
-		Namespace: namespace,
-		Name:      name,
-	}, pod)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get operator pod")
-	}
-
-	return pod, nil
-}
-
 func IsEqualConfigMapData(cm1, cm2 *v1.ConfigMap) bool {
 	return reflect.DeepEqual(cm1.Data, cm2.Data)
 }

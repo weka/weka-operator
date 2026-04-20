@@ -50,16 +50,3 @@ func UpdateContainerState(ctx context.Context, container *weka.WekaContainer, c 
 	return nil
 }
 
-func FilterContainersForDeletion(containers []*weka.WekaContainer, shouldDelete func(container *weka.WekaContainer) bool) []*weka.WekaContainer {
-	var toDelete []*weka.WekaContainer
-	for _, container := range containers {
-		if container.IsMarkedForDeletion() || container.IsDeletingState() || container.IsDestroyingState() {
-			continue
-		}
-
-		if shouldDelete(container) {
-			toDelete = append(toDelete, container)
-		}
-	}
-	return toDelete
-}
