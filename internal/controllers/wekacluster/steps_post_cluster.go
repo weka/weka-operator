@@ -163,6 +163,7 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Predicates: lifecycle.Predicates{
 				loop.HasSmbwContainers,
+				func() bool { return loop.cluster.Spec.SmbwConfig != nil },
 			},
 			State: &lifecycle.State{
 				Name: condition.CondSmbwClusterCreated,

@@ -30,12 +30,6 @@ func (r *wekaClusterReconcilerLoop) EnsureSmbwCluster(ctx context.Context) error
 
 	cluster := r.cluster
 
-	// Check if SMB-W config is defined
-	if cluster.Spec.SmbwConfig == nil {
-		logger.Info("SMB-W config not defined, skipping cluster creation")
-		return nil
-	}
-
 	execInContainer := discovery.SelectActiveContainer(r.containers)
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)
 
@@ -198,12 +192,6 @@ func (r *wekaClusterReconcilerLoop) JoinSmbwDomain(ctx context.Context) error {
 	defer end()
 
 	cluster := r.cluster
-
-	// Check if SMB-W config is defined
-	if cluster.Spec.SmbwConfig == nil {
-		logger.Info("SMB-W config not defined, skipping domain join")
-		return nil
-	}
 
 	// Get username from spec
 	username := cluster.Spec.SmbwConfig.UserName
