@@ -10,8 +10,8 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services/discovery"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -52,17 +52,14 @@ func GetNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaConta
 		return
 	}
 
-	nicPrefix := ""
-	if strings.HasPrefix(node.Spec.ProviderID, "aws://") {
-		nicPrefix = "aws_"
+	allocateVfPerIoNode := false
+	if container.Spec.Network.AllocateVfPerIoNode != nil {
+		allocateVfPerIoNode = *container.Spec.Network.AllocateVfPerIoNode
+	} else if discovery.IsSupportedCloudProvider(node.Spec.ProviderID) {
+		allocateVfPerIoNode = true
 	}
 
-	// Check OKE only if configuration is enabled
-	if strings.HasPrefix(node.Spec.ProviderID, "ocid1.") && config.Config.OkeCompatibility.EnableNicsAllocation {
-		nicPrefix = "oci_"
-	}
-
-	if nicPrefix != "" && !container.Spec.Network.UdpMode {
+	if allocateVfPerIoNode && !container.Spec.Network.UdpMode {
 		var allocations domain.Allocations
 		var allNICs []domain.NIC
 
@@ -88,7 +85,7 @@ func GetNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaConta
 			return
 		}
 
-		logger.Info("Creating AWS pod in DPDK mode", "allocations", allocations)
+		logger.Info("Fetching pod nics allocations", "allocations", allocations)
 		allocationIdentifier := domain.GetAllocationIdentifier(container.Namespace, container.Name)
 		for key, alloc := range allocations {
 			if key == allocationIdentifier {
@@ -118,7 +115,7 @@ func GetNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaConta
 					}
 					netDevices = append(
 						netDevices,
-						fmt.Sprintf("%s%s/%s/%s/%s", nicPrefix, nic.MacAddress, nic.PrimaryIP, mask, gw),
+						fmt.Sprintf("vf_%s/%s/%s/%s", nic.MacAddress, nic.PrimaryIP, mask, gw),
 					)
 				}
 			}

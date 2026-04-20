@@ -19,10 +19,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -47,12 +47,16 @@ func (r *containerReconcilerLoop) ShouldAllocateNICs() bool {
 		return false
 	}
 
-	// Check EKS (always enabled)
-	isEKS := strings.HasPrefix(r.node.Spec.ProviderID, "aws://")
-	// Check OKE only if configuration is enabled
-	isOKE := strings.HasPrefix(r.node.Spec.ProviderID, "ocid1.") && config.Config.OkeCompatibility.EnableNicsAllocation
+	if !discovery.IsSupportedCloudProvider(r.node.Spec.ProviderID) {
+		return false
+	}
 
-	if !isEKS && !isOKE {
+	if r.container.Spec.Network.AllocateVfPerIoNode != nil && !*r.container.Spec.Network.AllocateVfPerIoNode {
+		return false
+	}
+
+	// If the node doesn't have weka-nics annotation, NIC allocation is not possible
+	if _, ok := r.node.Annotations[domain.WEKANICs]; !ok {
 		return false
 	}
 
@@ -148,6 +152,43 @@ func (r *containerReconcilerLoop) AllocateNICs(ctx context.Context) error {
 
 	r.node.Annotations[domain.WEKAAllocations] = string(allocationsBytes)
 	return r.Update(ctx, r.node)
+}
+
+func (r *containerReconcilerLoop) DeallocateNICs(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deallocateNICs")
+	defer end()
+
+	if r.node == nil {
+		logger.Info("Node is nil, skipping NIC deallocation")
+		return nil
+	}
+
+	allocationIdentifier := domain.GetAllocationIdentifier(r.container.Namespace, r.container.Name)
+
+	allocationsStr, ok := r.node.Annotations[domain.WEKAAllocations]
+	if !ok {
+		return nil
+	}
+
+	annotationAllocations := make(domain.Allocations)
+	if err := json.Unmarshal([]byte(allocationsStr), &annotationAllocations); err != nil {
+		return fmt.Errorf("failed to unmarshal weka-allocations: %v", err)
+	}
+
+	if _, ok := annotationAllocations[allocationIdentifier]; !ok {
+		return nil
+	}
+
+	logger.Info("Deallocating NICs", "container", r.container.Name, "nics", annotationAllocations[allocationIdentifier].NICs)
+	delete(annotationAllocations, allocationIdentifier)
+
+	allocationsBytes, err := json.Marshal(annotationAllocations)
+	if err != nil {
+		return fmt.Errorf("failed to marshal weka-allocations: %v", err)
+	}
+
+	r.node.Annotations[domain.WEKAAllocations] = string(allocationsBytes)
+	return r.Client.Update(ctx, r.node)
 }
 
 func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {

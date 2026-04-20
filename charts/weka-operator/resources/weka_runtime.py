@@ -2304,11 +2304,11 @@ async def resolve_dhcp_net(device):
     return f"'{mac_address}/{ip_address}/{cidr}'"
 
 
-def is_managed_k8s(network_device=None):
+def should_allocate_vf_per_ionode(network_device=None):
     if network_device is None:
         network_device = NETWORK_DEVICE
 
-    return "aws_" in network_device or "oci_" in network_device
+    return "vf_" in network_device
 
 
 async def create_container():
@@ -2340,8 +2340,8 @@ async def create_container():
         devices = await get_devices_by_subnets(SUBNETS)
         NETWORK_DEVICE = ",".join(devices)
 
-    if is_managed_k8s():
-        devices = [dev.replace("aws_", "").replace("oci_", "") for dev in NETWORK_DEVICE.split(",")]
+    if should_allocate_vf_per_ionode():
+        devices = [dev.replace("vf_", "") for dev in NETWORK_DEVICE.split(",")]
         net_str = " ".join([f"--net {d}" for d in devices]) + " --management-ips " + ",".join(MANAGEMENT_IPS)
     elif is_udp():
         net_str = "--net udp"
@@ -2374,7 +2374,7 @@ async def create_container():
         raise Exception(f"Failed to create container: {stderr}")
     logging.info("Container created successfully")
 
-    if not is_managed_k8s() and not is_udp():
+    if not should_allocate_vf_per_ionode() and not is_udp():
         await reconcile_net_devices()
 
 
@@ -2595,7 +2595,7 @@ async def link_resources_file(file_name, resources_dir: str):
 
 async def reconcile_net_devices() -> bool:
     """Reconcile network devices to match desired state. Used for both initial setup and reconfiguration."""
-    if is_managed_k8s() or is_udp():
+    if should_allocate_vf_per_ionode() or is_udp():
         return False
 
     target_devices = set(NETWORK_DEVICE.split(","))
@@ -3624,7 +3624,7 @@ async def wait_for_resources():
 
     logging.info("found resources.json: %s", data)
     net_devices = ",".join(data.get("netDevices", []))
-    if net_devices and is_managed_k8s(net_devices):
+    if net_devices and should_allocate_vf_per_ionode(net_devices):
         NETWORK_DEVICE = net_devices
 
     if data.get("machineIdentifier"):
@@ -3803,7 +3803,7 @@ async def write_management_ips():
 
     ipAddresses = []
 
-    if os.environ.get("MANAGEMENT_IP") and is_managed_k8s():
+    if os.environ.get("MANAGEMENT_IP") and should_allocate_vf_per_ionode():
         ipAddresses.append(os.environ.get("MANAGEMENT_IP"))
     elif MANAGEMENT_IPS_SELECTORS:
         devices_info = await get_devices_by_selectors(MANAGEMENT_IPS_SELECTORS)

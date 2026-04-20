@@ -63,6 +63,14 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 		return err
 	}
 
+	// deallocate NICs from node annotation
+	if r.node != nil {
+		err = r.DeallocateNICs(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
 	// remove csi node topology labels
 	// NOTE: wekaClient is needed for getCsiDriverName
 	if r.wekaClient != nil && r.node != nil && r.WekaContainerManagesCsi() {

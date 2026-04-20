@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
@@ -127,13 +126,7 @@ func (o *DiscoverNodeOperation) GetNode(ctx context.Context) error {
 }
 
 func (o *DiscoverNodeOperation) GetProvider() discovery.Provider {
-	if strings.HasPrefix(o.node.Spec.ProviderID, "aws://") {
-		return discovery.ProviderAWS
-	}
-	if strings.HasPrefix(o.node.Spec.ProviderID, "ocid1.") {
-		return discovery.ProviderOCI
-	}
-	return discovery.ProviderUnknown
+	return discovery.ProviderFromID(o.node.Spec.ProviderID)
 }
 
 func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {

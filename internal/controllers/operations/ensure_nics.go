@@ -224,8 +224,8 @@ func (o *EnsureNICsOperation) ProcessResult(ctx context.Context) error {
 			return lifecycle.NewWaitError(err)
 		}
 
-		node.Status.Capacity["weka.io/nics"] = *resource.NewQuantity(int64(len(opResult.NICs)), resource.DecimalSI)
-		node.Status.Allocatable["weka.io/nics"] = *resource.NewQuantity(int64(len(opResult.NICs)), resource.DecimalSI)
+		node.Status.Capacity[domain.WEKANICs] = *resource.NewQuantity(int64(len(opResult.NICs)), resource.DecimalSI)
+		node.Status.Allocatable[domain.WEKANICs] = *resource.NewQuantity(int64(len(opResult.NICs)), resource.DecimalSI)
 		err = o.client.Status().Update(ctx, node)
 		if err != nil {
 			err = fmt.Errorf("error updating node status: %w", err)

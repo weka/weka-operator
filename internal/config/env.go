@@ -55,10 +55,6 @@ type GkeCompatibility struct {
 	ServiceAccountSecret string
 }
 
-type OkeCompatibility struct {
-	EnableNicsAllocation bool
-}
-
 type Logging struct {
 	Level    int
 	TimeOnly bool
@@ -201,7 +197,6 @@ var Config struct {
 	MaintenanceImagePullSecret     string
 	OcpCompatibility               OcpCompatibility
 	GkeCompatibility               GkeCompatibility
-	OkeCompatibility               OkeCompatibility
 	WekaAllocZombieDeleteAfter     time.Duration
 	DevMode                        bool
 	Logging                        Logging
@@ -467,8 +462,6 @@ func ConfigureEnv(ctx context.Context) {
 	// Priority classes configuration
 	Config.PriorityClasses.Initial = getEnvOrDefault("PRIORITY_CLASS_INITIAL", "weka-initial-no-evict")
 	Config.PriorityClasses.Targeted = getEnvOrDefault("PRIORITY_CLASS_TARGETED", "weka-targeted-no-evict")
-
-	Config.OkeCompatibility.EnableNicsAllocation = getBoolEnvOrDefault("OKE_ENABLE_NICS_ALLOCATION", false)
 
 	// NFS configuration
 	Config.Nfs.MountdPort = getIntEnvOrDefault("NFS_MOUNTD_PORT", 0)

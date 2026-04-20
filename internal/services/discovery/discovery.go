@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -34,6 +35,22 @@ const (
 	ProviderOCI     Provider = "oci"
 	ProviderUnknown Provider = ""
 )
+
+// ProviderFromID returns the cloud provider based on a node's ProviderID string.
+func ProviderFromID(providerID string) Provider {
+	if strings.HasPrefix(providerID, "aws://") {
+		return ProviderAWS
+	}
+	if strings.HasPrefix(providerID, "ocid1.") {
+		return ProviderOCI
+	}
+	return ProviderUnknown
+}
+
+// IsSupportedCloudProvider returns true if the node's ProviderID indicates a supported managed Kubernetes provider.
+func IsSupportedCloudProvider(providerID string) bool {
+	return ProviderFromID(providerID) != ProviderUnknown
+}
 
 type DiscoveryNodeInfo struct {
 	IsHt               bool     `json:"is_ht"`
@@ -69,15 +86,8 @@ func (n *DiscoveryNodeInfo) ToSnapshot() *PodDiscoverySnapshot {
 	}
 }
 
-func (nodeInfo *DiscoveryNodeInfo) ShouldRequestNICs() bool {
-	if nodeInfo.Provider == ProviderAWS {
-		return true
-	}
-	if nodeInfo.Provider == ProviderOCI {
-		// OKE/OCI only allocates NICs if configuration is enabled
-		return config.Config.OkeCompatibility.EnableNicsAllocation
-	}
-	return false
+func (nodeInfo *DiscoveryNodeInfo) HasSupportedCloudProvider() bool {
+	return nodeInfo.Provider != ProviderUnknown
 }
 
 func (nodeInfo *DiscoveryNodeInfo) IsRhCos() bool {

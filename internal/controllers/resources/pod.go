@@ -1414,9 +1414,16 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		}
 	}
 
-	if f.nodeInfo.ShouldRequestNICs() && !f.container.Spec.Network.UdpMode && !f.container.IsDriversContainer() {
-		pod.Spec.Containers[0].Resources.Requests["weka.io/nics"] = resource.MustParse(strconv.Itoa(f.container.Spec.NumCores))
-		pod.Spec.Containers[0].Resources.Limits["weka.io/nics"] = resource.MustParse(strconv.Itoa(f.container.Spec.NumCores))
+	shouldRequestNICs := false
+	if f.container.Spec.Network.AllocateVfPerIoNode != nil {
+		shouldRequestNICs = *f.container.Spec.Network.AllocateVfPerIoNode
+	} else {
+		shouldRequestNICs = f.nodeInfo.HasSupportedCloudProvider()
+	}
+
+	if shouldRequestNICs && !f.container.Spec.Network.UdpMode && !f.container.IsDriversContainer() {
+		pod.Spec.Containers[0].Resources.Requests[domain.WEKANICs] = resource.MustParse(strconv.Itoa(f.container.Spec.NumCores))
+		pod.Spec.Containers[0].Resources.Limits[domain.WEKANICs] = resource.MustParse(strconv.Itoa(f.container.Spec.NumCores))
 	}
 
 	return nil
