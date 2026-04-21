@@ -187,14 +187,14 @@ func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 func (o *DiscoverDrivesOperation) PollResults(ctx context.Context) error {
 	allReady := true
 	for _, container := range o.containers {
-		if container.Status.ExecutionResult == nil {
+		if !isResultsProcessed(container) {
 			allReady = false
 			break
 		}
 	}
 
 	if !allReady {
-		return lifecycle.NewWaitError(fmt.Errorf("not all container execution results are ready"))
+		return lifecycle.NewWaitError(fmt.Errorf("not all container results are processed yet"))
 	}
 
 	return nil
@@ -264,6 +264,9 @@ func (o *DiscoverDrivesOperation) GetJsonResult() string {
 func (o *DiscoverDrivesOperation) DeleteContainers(ctx context.Context) error {
 	for _, container := range o.containers {
 		if container == nil {
+			continue
+		}
+		if !isResultsProcessed(container) && !o.force {
 			continue
 		}
 		err := o.client.Delete(ctx, container)

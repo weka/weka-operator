@@ -12,6 +12,7 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -269,12 +270,24 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 	}
 }
 
+// isResultsProcessed returns true when the WekaContainer reconciliation has run
+// processResults (i.e. updateNodeAnnotations). Deleting before this condition is set
+// causes node annotations to never be written.
+func isResultsProcessed(container *weka.WekaContainer) bool {
+	for _, c := range container.Status.Conditions {
+		if c.Type == condition.CondResultsProcessed && c.Status == metav1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
 func (o *SignDrivesOperation) PollResults(ctx context.Context) error {
-	// if force is not set, do not wait for all results, and return as many as are completed instead
+	// if force is not set, do not wait for all results, and return as many are fully processed
 	if !o.force {
-		// wait for at least one result to be ready
+		// wait for at least one result to have node annotations updated
 		for _, container := range o.containers {
-			if container.Status.ExecutionResult != nil {
+			if isResultsProcessed(container) {
 				return nil
 			}
 		}
@@ -282,14 +295,14 @@ func (o *SignDrivesOperation) PollResults(ctx context.Context) error {
 
 	allReady := true
 	for _, container := range o.containers {
-		if container.Status.ExecutionResult == nil {
+		if !isResultsProcessed(container) {
 			allReady = false
 			break
 		}
 	}
 
 	if !allReady {
-		return lifecycle.NewWaitError(fmt.Errorf("not all container execution results are ready"))
+		return lifecycle.NewWaitError(fmt.Errorf("not all container results are processed yet"))
 	}
 
 	return nil
@@ -351,7 +364,7 @@ func (o *SignDrivesOperation) DeleteContainers(ctx context.Context) error {
 	updatedContainers := []*weka.WekaContainer{}
 
 	for _, container := range o.containers {
-		if container.Status.ExecutionResult != nil || o.force {
+		if isResultsProcessed(container) || o.force {
 			err := o.client.Delete(ctx, container)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return err
