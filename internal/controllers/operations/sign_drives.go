@@ -283,7 +283,7 @@ func isResultsProcessed(container *weka.WekaContainer) bool {
 }
 
 func (o *SignDrivesOperation) PollResults(ctx context.Context) error {
-	// if force is not set, do not wait for all results, and return as many are fully processed
+	// if force is not set, do not wait for all results, and return as many as are fully processed
 	if !o.force {
 		// wait for at least one result to have node annotations updated
 		for _, container := range o.containers {

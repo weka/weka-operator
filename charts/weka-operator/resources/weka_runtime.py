@@ -383,35 +383,6 @@ async def get_serial_id_cos_specific(device_path: str) -> Optional[str]:
     logging.warning(f"COS-specific fallback failed: could not find serial id for {device_name}")
     return None
 
-async def get_serial_id_fallback(device_path: str) -> Optional[str]:
-    """
-    Fallback method to get serial ID for a device using udev data.
-    This is useful for non-nvme devices where lsblk might not report a serial.
-    """
-    device_name = os.path.basename(device_path)
-    logging.info(f"Attempting fallback to get serial for {device_name}")
-    try:
-        # Get major:minor device number
-        dev_index_out, _, ec = await run_command(f"cat /sys/block/{device_name}/dev")
-        if ec != 0:
-            logging.warning(f"Fallback failed: could not get dev index for {device_name}")
-            return None
-        dev_index = dev_index_out.decode().strip()
-
-        # Get serial from udev data
-        serial_id_cmd = f"cat /host/run/udev/data/b{dev_index} | grep ID_SERIAL="
-        serial_id_out, _, ec = await run_command(serial_id_cmd)
-        if ec != 0:
-            logging.warning(f"Fallback failed: could not get ID_SERIAL from udev for {device_name}")
-            return None
-
-        serial_id = serial_id_out.decode().strip().split("=")[-1]
-        logging.info(f"Fallback successful for {device_name}, found serial: {serial_id}")
-        return serial_id
-    except Exception as e:
-        logging.error(f"Exception during serial ID fallback for {device_name}: {e}")
-        return None
-
 
 async def sign_drives_by_pci_info(vendor_id: str, device_id: str, options: dict) -> List[str]:
     logging.info("Signing drives. Vendor ID: %s, Device ID: %s", vendor_id, device_id)
@@ -484,13 +455,13 @@ async def find_disks() -> List[Disk]:
             if capacity_gib is None:
                 continue
 
-            if not serial_id:
-                logging.warning(f"lsblk did not return serial for {device_path}. Using fallback.")
-                serial_id = await get_serial_id_fallback(device_path)
-            if is_google_cos():
-                logging.info(f"Using COS-specific method for {device_path}")
-                device_name = os.path.basename(device_path)
-                serial_id = await get_serial_id_cos_specific(device_name)
+            # On GCP COS, lsblk reports "nvme_card" for all NVMe drives — a placeholder,
+            # not a unique identifier. Always use get_device_serial_id for NVMe on COS.
+            nvme_on_cos = is_google_cos() and "nvme" in device_path.lower()
+            if not serial_id or nvme_on_cos:
+                if not serial_id:
+                    logging.warning(f"lsblk did not return serial for {device_path}. Using fallback.")
+                serial_id = await get_device_serial_id(device_path)
 
             logging.info(f"Found drive: {device_path}, mounted: {is_mounted}, serial: {serial_id}")
             disks.append(Disk(path=device_path, is_mounted=is_mounted, serial_id=serial_id, capacity_gib=capacity_gib))
@@ -686,20 +657,19 @@ async def get_device_serial_id(device_path: str) -> str:
 
             # Google COS specific handling if needed
             if is_google_cos():
-                base_device = pci_device_path.split("/")[-2]  # e.g., nvme0
-                serial_id = await get_serial_id_cos_specific(base_device)
+                serial_id = await get_serial_id_cos_specific(device_name)
 
             return serial_id
         else:
             # SCSI/SATA device: get from udev data
-            device_base_name = pci_device_path.split("/")[-2]
             dev_index = subprocess.check_output(
-                f"cat /sys/block/{device_base_name}/dev",
+                f"cat /sys/block/{device_name}/dev",
                 shell=True,
                 timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC,
             ).decode().strip()
 
-            serial_id_cmd = f"cat /host/run/udev/data/b{dev_index} | grep ID_SERIAL="
+            # Use SCSI_IDENT_SERIAL (matches lsblk/sysfs device/serial)
+            serial_id_cmd = f"grep -m1 'SCSI_IDENT_SERIAL=' /host/run/udev/data/b{dev_index} 2>/dev/null || grep -m1 'ID_SCSI_SERIAL=' /host/run/udev/data/b{dev_index} 2>/dev/null || grep -m1 'ID_SERIAL_SHORT=' /host/run/udev/data/b{dev_index} 2>/dev/null"
             serial_id = subprocess.check_output(serial_id_cmd, shell=True,
                                                 timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip().split("=")[-1]
             return serial_id
@@ -1179,22 +1149,8 @@ async def find_weka_drives():
             pci_device_path = subprocess.check_output(f"readlink -f /sys/class/block/{part_name}",
                                                       shell=True,
                                                       timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip()
-            if "nvme" in part_name:
-                # 3 directories up is the serial id
-                serial_id_path = "/".join(pci_device_path.split("/")[:-2]) + "/serial"
-                serial_id = subprocess.check_output(f"cat {serial_id_path}", shell=True,
-                                                    timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip()
-                device_path = "/dev/" + pci_device_path.split("/")[-2]
-                if is_google_cos():
-                    serial_id = await get_serial_id_cos_specific(os.path.basename(device_path))
-            else:
-                device_name = pci_device_path.split("/")[-2]
-                device_path = "/dev/" + device_name
-                dev_index = subprocess.check_output(f"cat /sys/block/{device_name}/dev", shell=True,
-                                                    timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip()
-                serial_id_cmd = f"cat /host/run/udev/data/b{dev_index} | grep ID_SERIAL="
-                serial_id = subprocess.check_output(serial_id_cmd, shell=True,
-                                                    timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip().split("=")[-1]
+            device_path = "/dev/" + pci_device_path.split("/")[-2]
+            serial_id = await get_device_serial_id(device_path)
 
             drives.append({
                 "partition": "/dev/" + part_name,
