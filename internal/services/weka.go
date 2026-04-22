@@ -475,8 +475,8 @@ func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOp
 }
 
 func (c *CliWekaService) SetWekaHome(ctx context.Context, wekaHomeConfig weka.WekaHomeConfig) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetWekaHome")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "SetWekaHome")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -531,8 +531,8 @@ fi
 }
 
 func (c *CliWekaService) EmitCustomEvent(ctx context.Context, msg, k8sVersion string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EmitCustomEvent")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EmitCustomEvent")
+	defer logger.End()
 
 	logger.Info("Emitting custom event", "msg", msg)
 
@@ -553,8 +553,8 @@ func (c *CliWekaService) EmitCustomEvent(ctx context.Context, msg, k8sVersion st
 }
 
 func (c *CliWekaService) EnsureNoUser(ctx context.Context, username string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNoUser")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureNoUser")
+	defer logger.End()
 
 	existingUsers, err := c.GetUsers(ctx)
 	if err != nil {
@@ -659,8 +659,8 @@ func (c *CliWekaService) GenerateJoinSecret(ctx context.Context) (string, error)
 }
 
 func (c *CliWekaService) JoinS3Cluster(ctx context.Context, containerId int) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "JoinS3Cluster")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "JoinS3Cluster")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -686,8 +686,8 @@ func (c *CliWekaService) JoinS3Cluster(ctx context.Context, containerId int) err
 }
 
 func (c *CliWekaService) RemoveFromS3Cluster(ctx context.Context, containerId int) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveFromS3Cluster")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "RemoveFromS3Cluster")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -738,8 +738,8 @@ func (c *CliWekaService) GetSmbwCluster(ctx context.Context) (*SmbwCluster, erro
 }
 
 func (c *CliWekaService) CreateSmbwCluster(ctx context.Context, params *SmbwParams) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CreateSmbwCluster")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "CreateSmbwCluster")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -813,8 +813,8 @@ func (c *CliWekaService) CreateSmbwCluster(ctx context.Context, params *SmbwPara
 }
 
 func (c *CliWekaService) UpdateSmbwCluster(ctx context.Context, params SmbwUpdateParams) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UpdateSmbwCluster")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "UpdateSmbwCluster")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -877,8 +877,8 @@ func (c *CliWekaService) ListSmbwClusterContainers(ctx context.Context) ([]int, 
 }
 
 func (c *CliWekaService) DeleteSmbwCluster(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeleteSmbwCluster")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "DeleteSmbwCluster")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -898,8 +898,8 @@ func (c *CliWekaService) DeleteSmbwCluster(ctx context.Context) error {
 }
 
 func (c *CliWekaService) JoinSmbwCluster(ctx context.Context, containerId int) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "JoinSmbwCluster")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "JoinSmbwCluster")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -931,8 +931,8 @@ func (c *CliWekaService) JoinSmbwCluster(ctx context.Context, containerId int) e
 }
 
 func (c *CliWekaService) RemoveFromSmbwCluster(ctx context.Context, containerId int) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveFromSmbwCluster")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "RemoveFromSmbwCluster")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -968,8 +968,8 @@ func (c *CliWekaService) RemoveFromSmbwCluster(ctx context.Context, containerId 
 // EnsureNfsInterfaceGroupPorts ensures the NFS interface group has the specified ports for a container.
 // It fetches current state and reconciles to desired state by adding missing ports and removing extra ones.
 func (c *CliWekaService) EnsureNfsInterfaceGroupPorts(ctx context.Context, interfaceGroupName string, containerId int, targetInterfaces []string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNfsInterfaceGroupPorts")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureNfsInterfaceGroupPorts")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -1082,8 +1082,8 @@ func (c *CliWekaService) EnsureNfsInterfaceGroupPorts(ctx context.Context, inter
 }
 
 func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CreateS3Cluster")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "CreateS3Cluster")
+	defer logger.End()
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
@@ -1143,8 +1143,8 @@ func (c *CliWekaService) ListS3ClusterContainers(ctx context.Context) ([]int, er
 }
 
 func (c *CliWekaService) DeleteS3Cluster(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeleteS3Cluster")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "DeleteS3Cluster")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -1164,8 +1164,8 @@ func (c *CliWekaService) DeleteS3Cluster(ctx context.Context) error {
 }
 
 func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams *NFSParams) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ConfigureNfs")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ConfigureNfs")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -1231,8 +1231,8 @@ func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams *NFSParams)
 }
 
 func (c *CliWekaService) ConfigureDataServicesGlobalConfig(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ConfigureDataServicesGlobalConfig")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ConfigureDataServicesGlobalConfig")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -1255,8 +1255,8 @@ func (c *CliWekaService) ConfigureDataServicesGlobalConfig(ctx context.Context) 
 // EnsureNfsIpRanges ensures the NFS interface group has the exact set of IP ranges specified.
 // It fetches the current IPs, compares with target, and adds/removes as needed to reach desired state.
 func (c *CliWekaService) EnsureNfsIpRanges(ctx context.Context, interfaceGroupName string, targetIpRanges []string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNfsIpRanges")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureNfsIpRanges")
+	defer logger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -1379,8 +1379,7 @@ func diffStringSlices(a, b []string) []string {
 }
 
 func (c *CliWekaService) CreateFilesystemGroup(ctx context.Context, name string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
 		return err
@@ -1438,8 +1437,8 @@ func (c *CliWekaService) GetWekaStatus(ctx context.Context) (response WekaStatus
 }
 
 func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name string, data any) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, name)
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, name)
+	defer spanLogger.End()
 
 	executor, err := c.getExecutor(ctx)
 	if err != nil {
@@ -1481,8 +1480,8 @@ func (c *CliWekaService) DeactivateContainer(ctx context.Context, containerId in
 }
 
 func (c *CliWekaService) SupportsFlag(ctx context.Context, command, flagName string) bool {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SupportsFlag", "command", command, "flag", flagName)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "SupportsFlag", "command", command, "flag", flagName)
+	defer logger.End()
 
 	// Validate inputs
 	if command == "" || flagName == "" {
@@ -1695,8 +1694,8 @@ func (c *CliWekaService) GetWekaContainer(ctx context.Context, containerId int) 
 
 // GetCapacity returns information about the total provisioned capacity for all filesystems
 func (c *CliWekaService) GetCapacity(ctx context.Context) (WekaCapacityInfo, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetCapacity")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetCapacity")
+	defer logger.End()
 
 	var filesystems []WekaFilesystem
 	err := c.RunJsonCmd(ctx, []string{

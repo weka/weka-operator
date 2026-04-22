@@ -153,8 +153,8 @@ func (o *DeployCsiOperation) GetJsonResult() string {
 }
 
 func (o *DeployCsiOperation) deployCsiDriver(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deployCsiDriver")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "deployCsiDriver")
+	defer logger.End()
 
 	err := o.client.Create(ctx, csi.NewCsiDriver(o.csiDriverName))
 	if err != nil {
@@ -178,8 +178,8 @@ func (o *DeployCsiOperation) undeployCsiDriver(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deployStorageClasses")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "deployStorageClasses")
+	defer logger.End()
 
 	fileSystemName := config.Consts.CsiFileSystemName
 	storageClassName := csi.GenerateStorageClassName(o.csiGroupName, fileSystemName)
@@ -242,8 +242,8 @@ func (o *DeployCsiOperation) undeployStorageClasses(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deployCsiController")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "deployCsiController")
+	defer logger.End()
 
 	deploymentSpec, err := csi.NewCsiControllerDeployment(ctx, o.csiGroupName, o.wekaClient)
 	if err != nil {
@@ -286,8 +286,8 @@ func (o *DeployCsiOperation) undeployCsiController(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) getExistingCsiResources(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getExistingCsiResources")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "getExistingCsiResources")
+	defer logger.End()
 
 	// Get existing CSIDriver
 	listOpts := []client.ListOption{
@@ -466,8 +466,8 @@ func (s *CsiTopologyLabelsService) nodeIsCsiAccessible() bool {
 }
 
 func (o *DeployCsiOperation) deployCsiNodeDaemonSet(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deployCsiNodeDaemonSet")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "deployCsiNodeDaemonSet")
+	defer logger.End()
 
 	daemonSetSpec, err := csi.NewCsiNodeDaemonSet(ctx, o.csiGroupName, o.wekaClient)
 	if err != nil {
@@ -512,8 +512,8 @@ func (o *DeployCsiOperation) undeployCsiNodeDaemonSet(ctx context.Context) error
 // cleanupLegacyCsiNodePods removes old CSI node pods that were created before
 // migrating to DaemonSet. This is needed for upgrade scenarios.
 func (o *DeployCsiOperation) cleanupLegacyCsiNodePods(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "cleanupLegacyCsiNodePods")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "cleanupLegacyCsiNodePods")
+	defer logger.End()
 
 	// List all pods with CSI node labels for this driver
 	podList := &corev1.PodList{}

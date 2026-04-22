@@ -30,8 +30,8 @@ import (
 //  4. Update this container's Status
 //  5. Release lease (automatic)
 func (r *containerReconcilerLoop) AllocateResources(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocateResources")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "AllocateResources")
+	defer logger.End()
 
 	logger.Info("Allocating resources for container", "container", r.container.Name)
 
@@ -62,8 +62,8 @@ func (r *containerReconcilerLoop) AllocateResources(ctx context.Context) error {
 // doAllocateResourcesWithLease performs the actual allocation while holding the node lease
 // This is called by RunWithLease after successfully acquiring the lease
 func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Context, nodeName weka.NodeName) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "doAllocateResourcesWithLease")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "doAllocateResourcesWithLease")
+	defer logger.End()
 
 	// Get the node
 	node := &v1.Node{}

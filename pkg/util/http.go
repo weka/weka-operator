@@ -22,8 +22,8 @@ var defaultHTTPClient = &http.Client{
 }
 
 func SendJsonRequest(ctx context.Context, url string, jsonData []byte, options RequestOptions) (*http.Response, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SendJsonRequest", "url", url)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "SendJsonRequest", "url", url)
+	defer logger.End()
 
 	// Create a new HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
@@ -52,8 +52,8 @@ func SendJsonRequest(ctx context.Context, url string, jsonData []byte, options R
 }
 
 func SendGetRequest(ctx context.Context, url string, options RequestOptions) (*http.Response, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SendGetRequest", "url", url)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "SendGetRequest", "url", url)
+	defer logger.End()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {

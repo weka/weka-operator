@@ -23,8 +23,7 @@ import (
 )
 
 func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	if r.node == nil {
 		return errors.New("node not found")
@@ -70,8 +69,8 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "driversLoaded")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "driversLoaded")
+	defer logger.End()
 
 	if !r.container.RequiresDrivers() {
 		return true, nil
@@ -246,8 +245,7 @@ func (r *containerReconcilerLoop) updateDriversBuilderStatus(ctx context.Context
 // check if we actually can load drivers from dist service
 // trigger re-build + re-upload if not
 func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	if !r.container.IsDriversBuilder() {
 		return nil

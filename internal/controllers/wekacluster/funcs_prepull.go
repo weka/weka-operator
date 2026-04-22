@@ -24,8 +24,8 @@ func getAnnotationPrePull(mode string) string {
 }
 
 func (r *wekaClusterReconcilerLoop) handleImagePrePull(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleImagePrePull")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "handleImagePrePull")
+	defer logger.End()
 
 	roles := []string{"all", "drive", "compute", "s3", "nfs"}
 
@@ -75,8 +75,8 @@ func (r *wekaClusterReconcilerLoop) handleImagePrePull(ctx context.Context) erro
 }
 
 func (r *wekaClusterReconcilerLoop) handleImagePrePullForRole(ctx context.Context, role string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleImagePrePullForRole", "role", role)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "handleImagePrePullForRole", "role", role)
+	defer logger.End()
 
 	cluster := r.cluster
 

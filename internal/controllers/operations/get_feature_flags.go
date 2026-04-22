@@ -105,8 +105,7 @@ func (o *GetFeatureFlagsOperation) AdhocIsDone() bool {
 }
 
 func (o *GetFeatureFlagsOperation) ExecCurrentContainer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	flags, err := o.readFeatureFlagsFromContainer(ctx, o.currentContainer)
 	if err != nil {
@@ -120,8 +119,7 @@ func (o *GetFeatureFlagsOperation) ExecCurrentContainer(ctx context.Context) err
 }
 
 func (o *GetFeatureFlagsOperation) ExecActiveContainer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	// Get all containers with the same lastAppliedImage
 	containerList := &weka.WekaContainerList{}
@@ -168,8 +166,8 @@ func (o *GetFeatureFlagsOperation) ExecActiveContainer(ctx context.Context) erro
 
 // readFeatureFlagsFromContainer reads feature flags from a container by exec-ing into it
 func (o *GetFeatureFlagsOperation) readFeatureFlagsFromContainer(ctx context.Context, container *weka.WekaContainer) (*domain.FeatureFlags, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "readFeatureFlagsFromContainer", "container", container.Name)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "readFeatureFlagsFromContainer", "container", container.Name)
+	defer logger.End()
 
 	timeout := time.Second * 10
 
@@ -198,8 +196,8 @@ func (o *GetFeatureFlagsOperation) readFeatureFlagsFromContainer(ctx context.Con
 
 // GetAdhocContainer gets existing ad-hoc container if any
 func (o *GetFeatureFlagsOperation) GetAdhocContainer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetAdhocContainer")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetAdhocContainer")
+	defer logger.End()
 
 	operatorNamespace, err := util.GetPodNamespace()
 	if err != nil {
@@ -234,8 +232,8 @@ func (o *GetFeatureFlagsOperation) getAdhocContainerName() string {
 
 // EnsureAdhocContainer creates an ad-hoc container to read feature flags
 func (o *GetFeatureFlagsOperation) EnsureAdhocContainer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureAdhocContainer")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureAdhocContainer")
+	defer logger.End()
 
 	instructions := &weka.Instructions{
 		Type: "feature-flags-update",
@@ -312,8 +310,8 @@ func (o *GetFeatureFlagsOperation) PollAdhocResult(ctx context.Context) error {
 
 // ProcessAdhocResult processes the result from the ad-hoc container
 func (o *GetFeatureFlagsOperation) ProcessAdhocResult(ctx context.Context) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "ProcessAdhocResult")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "ProcessAdhocResult")
+	defer logger.End()
 
 	if o.adhocContainer == nil || o.adhocContainer.Status.ExecutionResult == nil {
 		return errors.New("no ad-hoc container result to process")
@@ -332,8 +330,8 @@ func (o *GetFeatureFlagsOperation) ProcessAdhocResult(ctx context.Context) error
 
 // CacheFeatureFlags caches the feature flags
 func (o *GetFeatureFlagsOperation) CacheFeatureFlags(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CacheFeatureFlags")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "CacheFeatureFlags")
+	defer logger.End()
 
 	if o.featureFlags == nil {
 		return errors.New("no feature flags to cache")
@@ -354,8 +352,8 @@ func (o *GetFeatureFlagsOperation) DeleteAdhocContainer(ctx context.Context) err
 		return nil
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeleteAdhocContainer")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "DeleteAdhocContainer")
+	defer logger.End()
 
 	err := o.client.Delete(ctx, o.adhocContainer)
 	if err != nil {

@@ -81,8 +81,8 @@ func (r *containerReconcilerLoop) ShouldAllocateNICs() bool {
 }
 
 func (r *containerReconcilerLoop) AllocateNICs(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocateNICs")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "allocateNICs")
+	defer logger.End()
 
 	logger.Debug("Allocating container NICS", "name", r.container.Name)
 
@@ -155,8 +155,8 @@ func (r *containerReconcilerLoop) AllocateNICs(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) DeallocateNICs(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deallocateNICs")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "deallocateNICs")
+	defer logger.End()
 
 	if r.node == nil {
 		logger.Info("Node is nil, skipping NIC deallocation")
@@ -192,8 +192,8 @@ func (r *containerReconcilerLoop) DeallocateNICs(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WriteResources")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "WriteResources")
+	defer logger.End()
 
 	container := r.container
 
@@ -251,8 +251,8 @@ mv /opt/weka/k8s-runtime/tmp/resources.json /opt/weka/k8s-runtime/resources.json
 }
 
 func (r *containerReconcilerLoop) getExpectedAllocations(ctx context.Context) (*weka.ContainerAllocations, error) {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "getExpectedAllocations")
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "getExpectedAllocations")
+	defer spanLogger.End()
 
 	var allocations *weka.ContainerAllocations
 	if r.container.Status.Allocations != nil {
@@ -291,8 +291,8 @@ func (r *containerReconcilerLoop) getExpectedAllocations(ctx context.Context) (*
 }
 
 func (r *containerReconcilerLoop) verifyResourcesJson(ctx context.Context, executor util.Exec, expectedAllocations *weka.ContainerAllocations) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "verifyResourcesJson")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "verifyResourcesJson")
+	defer logger.End()
 
 	// Verify the file was written correctly by reading it back and validating JSON
 	stdout, stderr, err := executor.ExecNamed(ctx, "VerifyResources", []string{"bash", "-ce", "cat /opt/weka/k8s-runtime/resources.json"})
@@ -324,8 +324,7 @@ func (r *containerReconcilerLoop) verifyResourcesJson(ctx context.Context, execu
 }
 
 func (r *containerReconcilerLoop) checkUnhealyPodResources(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := r.container
 
@@ -363,8 +362,8 @@ func (r *containerReconcilerLoop) checkUnhealyPodResources(ctx context.Context) 
 }
 
 func (r *containerReconcilerLoop) FormReallocationRequest(ctx context.Context) (*allocator.DriveReallocationRequest, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "FormReallocationRequest")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "FormReallocationRequest")
+	defer logger.End()
 
 	container := r.container
 
@@ -437,8 +436,7 @@ func (r *containerReconcilerLoop) FormReallocationRequest(ctx context.Context) (
 }
 
 func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := r.container
 
@@ -495,8 +493,8 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 }
 
 func (r *containerReconcilerLoop) deallocateDrivesByPhysicalUuids(ctx context.Context, blockedDrivePhysicalUuids []string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deallocateDrivesByPhysicalUuids")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "deallocateDrivesByPhysicalUuids")
+	defer logger.End()
 
 	container := r.container
 
@@ -530,8 +528,8 @@ func (r *containerReconcilerLoop) deallocateDrivesByPhysicalUuids(ctx context.Co
 
 	logger.Debug("Updated virtual drive allocations", "virtualDrives", updatedVirtualDrives, "count", len(updatedVirtualDrives))
 
-	ctx, logger, end = instrumentation.GetLogSpan(ctx, "doDriveAllocationsUpdate")
-	defer end()
+	ctx, logger = instrumentation.CreateLogSpan(ctx, "doDriveAllocationsUpdate")
+	defer logger.End()
 
 	err := r.Status().Update(ctx, container)
 	if err != nil {
@@ -546,8 +544,8 @@ func (r *containerReconcilerLoop) deallocateDrivesByPhysicalUuids(ctx context.Co
 
 // deallocateDrivesBySerials removes drive allocations for blocked drives by their serial IDs (for both regular and virtual drives)
 func (r *containerReconcilerLoop) deallocateDrivesBySerials(ctx context.Context, blockedDriveSerials []string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deallocateRemovedDrives")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "deallocateRemovedDrives")
+	defer logger.End()
 
 	container := r.container
 
@@ -612,8 +610,8 @@ func (r *containerReconcilerLoop) deallocateDrivesBySerials(ctx context.Context,
 		logger.Debug("Updated virtual drive allocations", "virtualDrives", updatedVirtualDrives, "count", len(updatedVirtualDrives))
 	}
 
-	ctx, logger, end = instrumentation.GetLogSpan(ctx, "doDriveAllocationsUpdate")
-	defer end()
+	ctx, logger = instrumentation.CreateLogSpan(ctx, "doDriveAllocationsUpdate")
+	defer logger.End()
 
 	err := r.Status().Update(ctx, container)
 	if err != nil {

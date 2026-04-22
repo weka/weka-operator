@@ -26,8 +26,7 @@ const (
 // If envoy process doesn't exist AND pod has been running for at least 3 minutes,
 // it deletes the WekaContainer to trigger recreation.
 func (r *containerReconcilerLoop) deleteEnvoyIfProcessNotExists(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := r.container
 	pod := r.pod

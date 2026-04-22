@@ -1131,12 +1131,12 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
-	_, logger, end := instrumentation.GetLogSpan(ctx, "setResources",
+	_, logger := instrumentation.CreateLogSpan(ctx, "setResources",
 		"cores", totalNumCores,
 		"mode", f.container.Spec.Mode,
 		"cpuPolicy", f.container.Spec.CpuPolicy,
 	)
-	defer end()
+	defer logger.End()
 
 	cpuPolicy := f.container.Spec.CpuPolicy
 	if !cpuPolicy.IsValid() {

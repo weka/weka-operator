@@ -42,8 +42,8 @@ func (r *containerReconcilerLoop) migrateEnsurePorts(ctx context.Context) error 
 }
 
 func (r *containerReconcilerLoop) MigratePVC(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "MigratePVC")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "MigratePVC")
+	defer logger.End()
 
 	logger.Info("Starting PVC migration operation")
 

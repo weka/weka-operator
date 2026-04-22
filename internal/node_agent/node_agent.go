@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/hlog"
 	"github.com/weka/go-weka-observability/instrumentation"
+	obslogger "github.com/weka/go-weka-observability/logger"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/exp/rand"
@@ -160,8 +161,8 @@ func NewNodeAgent(logger logr.Logger) *NodeAgent {
 // and counts IO operations with an age greater than 1 minute.
 // The wekaContainerName is expected to be the directory name in /proc/wekafs/
 func getPendingIOsFromProcfs(ctx context.Context, wekaContainerName string) (int, error) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "getPendingIOsFromProcfs", "wekaContainerName", wekaContainerName)
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "getPendingIOsFromProcfs", "wekaContainerName", wekaContainerName)
+	defer logger.End()
 
 	filePath := fmt.Sprintf("/proc/wekafs/%s/queue", wekaContainerName)
 	file, err := os.Open(filePath)
@@ -245,7 +246,7 @@ func (a *NodeAgent) PanicRecovery(next http.Handler) http.Handler {
 func (a *NodeAgent) LoggingMiddleware(next http.Handler) http.Handler {
 	return hlog.AccessHandler(func(r *http.Request, status, size int, duration time.Duration) {
 		name := fmt.Sprintf("%s %s", r.Method, r.URL.Path)
-		_, logger := instrumentation.GetLoggerForContext(r.Context(), nil, name) //nolint:staticcheck // using deprecated API, will be updated separately
+		logger := obslogger.LogrFromContextOrDefault(r.Context()).WithName(name)
 
 		logger.V(0).Info("", "status", status, "size", size, "duration", duration)
 	})(next)
@@ -254,10 +255,10 @@ func (a *NodeAgent) LoggingMiddleware(next http.Handler) http.Handler {
 func (a *NodeAgent) LoggerInjectionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Create logger context and inject it into the request
-		ctx, _ := instrumentation.GetLoggerForContext(r.Context(), &a.logger, "") //nolint:staticcheck // using deprecated API, will be updated separately
+		ctx := obslogger.ContextWithLogr(r.Context(), a.logger)
 
-		ctx, _, end := instrumentation.GetLogSpan(ctx, "http", "method", r.Method, "path", r.URL.Path, "node", config.Config.MetricsServerEnv.NodeName)
-		defer end()
+		ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "http", "method", r.Method, "path", r.URL.Path, "node", config.Config.MetricsServerEnv.NodeName)
+		defer spanLogger.End()
 
 		// Put the enhanced logger context into the request for use in handlers
 		r = r.WithContext(ctx)
@@ -317,8 +318,8 @@ func (a *NodeAgent) RemoveContainer(containerId string) {
 }
 
 func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Request) {
-	_, logger, end := instrumentation.GetLogSpan(request.Context(), "metrics.handler")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(request.Context(), "metrics.handler")
+	defer logger.End()
 
 	body, err := a.getOrRefreshMetrics(request.Context())
 	if err != nil {
@@ -360,11 +361,11 @@ func (a *NodeAgent) getOrRefreshMetrics(ctx context.Context) ([]byte, error) {
 }
 
 func (a *NodeAgent) generateMetricsResponse(ctx context.Context) ([]byte, error) {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "metrics.generate")
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "metrics.generate")
+	defer spanLogger.End()
 
 	// Create a span for the metrics collection phase
-	collectCtx, collectLogger, endCollect := instrumentation.GetLogSpan(ctx, "metrics.collect_container_data")
+	collectCtx, collectLogger := instrumentation.CreateLogSpan(ctx, "metrics.collect_container_data")
 
 	a.containersData.lock.RLock()
 	wg := sync.WaitGroup{}
@@ -385,11 +386,11 @@ func (a *NodeAgent) generateMetricsResponse(ctx context.Context) ([]byte, error)
 	}
 	a.containersData.lock.RUnlock()
 	wg.Wait()
-	endCollect()
+	collectLogger.End()
 
 	// Create a span for the metrics processing/response generation phase
-	_, processLogger, endProcess := instrumentation.GetLogSpan(ctx, "metrics.process_response")
-	defer endProcess()
+	_, processLogger := instrumentation.CreateLogSpan(ctx, "metrics.process_response")
+	defer processLogger.End()
 
 	promResponse := metrics2.NewPromResponse()
 
@@ -537,8 +538,8 @@ func (a *NodeAgent) getCurrentToken() string {
 
 func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 	//TODO: Add secret-based token auth, i.e secret created by operator and shared with node agent
-	_, logger, end := instrumentation.GetLogSpan(r.Context(), "register.container")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(r.Context(), "register.container")
+	defer logger.End()
 
 	if a.validateAuth(w, r, logger) {
 		return
@@ -602,8 +603,8 @@ type DeregisterContainerPayload struct {
 }
 
 func (a *NodeAgent) deregisterHandler(w http.ResponseWriter, r *http.Request) {
-	_, logger, end := instrumentation.GetLogSpan(r.Context(), "deregister.container")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(r.Context(), "deregister.container")
+	defer logger.End()
 
 	if a.validateAuth(w, r, logger) {
 		return
@@ -642,8 +643,8 @@ type JSONRPCProxyPayload struct {
 
 // jsonrpcHandler is a generic JSONRPC proxy that forwards calls to container Unix sockets
 func (a *NodeAgent) jsonrpcHandler(w http.ResponseWriter, r *http.Request) {
-	ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "jsonrpc_proxy")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(r.Context(), "jsonrpc_proxy")
+	defer logger.End()
 
 	if a.validateAuth(w, r, logger) {
 		return
@@ -790,14 +791,14 @@ func (s *WekaJSONRPCService) getOrCreateClient(container *ContainerInfo) (*http.
 // Call makes a JSONRPC call to the specified container
 func (s *WekaJSONRPCService) Call(ctx context.Context, container *ContainerInfo, method string, params map[string]any, data interface{}) error {
 	// Create a descriptive span for the JSONRPC call
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "weka.jsonrpc_call",
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "weka.jsonrpc_call",
 		"jsonrpc.method", method,
 		"container.name", container.containerName,
 		"container.id", container.containerId,
 		"container.mode", container.mode,
 		"weka.container_name", container.wekaContainerName,
 	)
-	defer end()
+	defer logger.End()
 
 	client, err := s.getOrCreateClient(container)
 	if err != nil {
@@ -934,8 +935,8 @@ type WekaStat struct {
 func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *ContainerInfo) error {
 	// WARNING: no lock here, while calling in parallel from multiple places
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "metrics.fetch_container_data", "container_name", container.containerName, "container_mode", container.mode)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "metrics.fetch_container_data", "container_name", container.containerName, "container_mode", container.mode)
+	defer logger.End()
 
 	if container.mode != weka.WekaContainerModeEnvoy {
 		var response LocalConfigStateResponse
@@ -1034,8 +1035,8 @@ type FindDrivesResponse struct {
 }
 
 func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
-	ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "container.get_info")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(r.Context(), "container.get_info")
+	defer logger.End()
 
 	if a.validateAuth(w, r, logger) {
 		return
@@ -1125,8 +1126,8 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
-	_, logger, end := instrumentation.GetLogSpan(r.Context(), "mounts.get_active")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(r.Context(), "mounts.get_active")
+	defer logger.End()
 
 	if a.validateAuth(w, r, logger) {
 		return
@@ -1223,8 +1224,8 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *NodeAgent) findDrivesHandler(w http.ResponseWriter, r *http.Request) {
-	ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "FindDrives")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(r.Context(), "FindDrives")
+	defer logger.End()
 
 	if a.validateAuth(w, r, logger) {
 		return
@@ -1260,8 +1261,8 @@ func (a *NodeAgent) findDrivesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *NodeAgent) discoverWekaDrives(ctx context.Context) ([]domain.DriveInfo, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "discoverWekaDrives")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "discoverWekaDrives")
+	defer logger.End()
 
 	var drives []domain.DriveInfo
 	wekaPartitionTypeGUID := "993ec906-b4e2-11e7-a205-a0a8cd3ea1de"
@@ -1430,8 +1431,7 @@ type processedStat struct {
 }
 
 func processStat(ctx context.Context, stat *WekaStat, container *ContainerInfo) processedStat {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	floatVal, err := strconv.ParseFloat(stat.Value, 64)
 	if err != nil {
@@ -1527,8 +1527,8 @@ func aggregateTaggedValues(values []metrics2.TaggedValue) []metrics2.TaggedValue
 }
 
 func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.PromResponse, container *ContainerInfo, labels map[string]string) {
-	_, _, end := instrumentation.GetLogSpan(ctx, "addLocalNodeStats")
-	defer end()
+	_, spanLogger := instrumentation.CreateLogSpan(ctx, "addLocalNodeStats")
+	defer spanLogger.End()
 
 	if time.Since(container.containerStateLastPull) > 5*time.Minute {
 		return // ignoring all data
@@ -1873,8 +1873,7 @@ func sumTagsBy(sumBy string, keepTags []string, values []metrics2.TaggedValue) [
 }
 
 func deduceFsName(ctx context.Context, container *ContainerInfo, id string) string {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	targetIdInt, err := strconv.Atoi(id)
 	if err != nil {
@@ -1895,8 +1894,8 @@ func deduceFsName(ctx context.Context, container *ContainerInfo, id string) stri
 }
 
 func EnsureNodeAgentSecret(ctx context.Context, mgr ctrl.Manager) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNodeAgentSecret")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureNodeAgentSecret")
+	defer logger.End()
 
 	secretName := config.Config.Metrics.NodeAgentSecretName
 	secretNamespace, err := util.GetPodNamespace()

@@ -111,8 +111,8 @@ func (r *containerReconcilerLoop) processResults(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "updateNodeAnnotations")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "updateNodeAnnotations")
+	defer logger.End()
 
 	container := r.container
 	node := r.node
@@ -273,8 +273,8 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 }
 
 func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context, node *v1.Node, opResult *operations.DriveNodeResults) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "updateProxyModeAnnotations")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "updateProxyModeAnnotations")
+	defer logger.End()
 
 	logger.Info("Updating node annotations for proxy mode")
 

@@ -260,8 +260,7 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 }
 
 func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	cluster := r.cluster
 
@@ -378,8 +377,7 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 }
 
 func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	// Get labels using helper functions
 	labels := GetMonitoringServiceLabels(r.cluster)

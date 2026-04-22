@@ -46,8 +46,7 @@ func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context)
 		return nil // only envoy containers should be checked
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	nodeName := r.container.GetNodeAffinity()
 
@@ -128,8 +127,7 @@ func (r *containerReconcilerLoop) deleteTelemetryIfNoComputeNeighbor(ctx context
 		return nil // only telemetry containers should be checked
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	nodeName := r.container.GetNodeAffinity()
 

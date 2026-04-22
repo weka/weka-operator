@@ -25,8 +25,7 @@ import (
 )
 
 func (r *wekaClusterReconcilerLoop) EnsureSmbwCluster(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	cluster := r.cluster
 
@@ -131,8 +130,7 @@ func (r *wekaClusterReconcilerLoop) ShouldDestroySmbwCluster() bool {
 }
 
 func (r *wekaClusterReconcilerLoop) DestroySmbwCluster(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := discovery.SelectActiveContainer(r.containers)
 
@@ -188,8 +186,7 @@ func (r *wekaClusterReconcilerLoop) ShouldJoinSmbwDomain() bool {
 }
 
 func (r *wekaClusterReconcilerLoop) JoinSmbwDomain(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	cluster := r.cluster
 
@@ -333,8 +330,8 @@ func (r *wekaClusterReconcilerLoop) ShouldUpdateSmbwCluster() bool {
 // EnsureSmbwClusterUpdated updates the SMB-W cluster configuration for fields that support updates.
 // This includes profile, encryption, and IP pools/ranges.
 func (r *wekaClusterReconcilerLoop) EnsureSmbwClusterUpdated(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureSmbwClusterUpdated")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureSmbwClusterUpdated")
+	defer logger.End()
 
 	if r.cluster.Spec.SmbwConfig == nil {
 		return fmt.Errorf("smbwConfig is nil")

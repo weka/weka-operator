@@ -67,8 +67,8 @@ type featureFlagsCacheService struct {
 var ErrFeatureFlagsNotCached = fmt.Errorf("feature flags not cached")
 
 func (s *featureFlagsCacheService) GetFeatureFlags(ctx context.Context, image string) (*domain.FeatureFlags, error) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "GetFeatureFlags", "image", image)
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "GetFeatureFlags", "image", image)
+	defer logger.End()
 
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -84,8 +84,8 @@ func (s *featureFlagsCacheService) GetFeatureFlags(ctx context.Context, image st
 }
 
 func (s *featureFlagsCacheService) SetFeatureFlags(ctx context.Context, image string, flags *domain.FeatureFlags) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "SetFeatureFlags", "image", image)
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "SetFeatureFlags", "image", image)
+	defer logger.End()
 
 	s.lock.Lock()
 	defer s.lock.Unlock()

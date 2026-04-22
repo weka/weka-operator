@@ -29,13 +29,13 @@ import (
 func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 	container := r.container
 	pod := r.pod
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureDrives", "cluster_guid", container.Status.ClusterID, "container_id", container.Status.ClusterID)
-	defer end()
-
 	if container.Status.ClusterContainerID == nil {
 		err := errors.New("container cluster ID is not set, cannot ensure drives")
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
 	}
+
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureDrives", "cluster_guid", container.Status.ClusterID, "container_id", *container.Status.ClusterContainerID)
+	defer logger.End()
 
 	// Determine expected drive count based on mode
 	var expectedDriveCount int
@@ -99,7 +99,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 		// Add each virtual drive to the cluster
 		for _, vd := range container.Status.Allocations.VirtualDrives {
-			l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "serial", vd.Serial, "physical_uuid", vd.PhysicalUUID)
+			_, l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "serial", vd.Serial, "physical_uuid", vd.PhysicalUUID)
 
 			// Check if drive is already added to weka
 			if drivesAddedByVids[vd.VirtualUUID] {
@@ -117,11 +117,11 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 				pool = "iu4k"
 			}
 
-			l = l.WithValues("pool", pool)
+			vdCtx, l := l.WithValues("pool", pool)
 			l.Info("Adding virtual drive to cluster")
 
 			// Add drive using virtual UUID (virtual UUID was already signed on device via AddVirtualDrives)
-			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, vd.VirtualUUID, &pool)
+			err = wekaService.AddDrive(vdCtx, *container.Status.ClusterContainerID, vd.VirtualUUID, &pool)
 			if err != nil {
 				l.Error(err, "Error adding virtual drive to cluster")
 				errs = append(errs, err)
@@ -151,7 +151,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		// Regular mode: add exclusive drives
 		// Adding drives to weka one by one
 		for _, drive := range container.Status.Allocations.Drives {
-			l := logger.WithValues("drive_name", drive)
+			_, l := logger.WithValues("drive_name", drive)
 
 			// check if drive is already added to weka
 			if _, ok := drivesAddedBySerial[drive]; ok {
@@ -179,7 +179,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 				continue
 			}
 
-			l = l.WithValues("partition", kDrives[drive].Partition, "weka_guid", kDrives[drive].WekaGuid)
+			driveCtx, l := l.WithValues("partition", kDrives[drive].Partition, "weka_guid", kDrives[drive].WekaGuid)
 
 			if kDrives[drive].IsSigned {
 				l.Info("Drive has Weka signature on it, forbidding usage")
@@ -189,11 +189,11 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			}
 
 			if pool != nil {
-				l = l.WithValues("pool", *pool)
+				driveCtx, l = l.WithValues("pool", *pool)
 			}
 			l.Info("Adding drive into system")
 			// TODO: We need to login here. Maybe handle it on wekaauthcli level?
-			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, kDrives[drive].DevicePath, pool)
+			err = wekaService.AddDrive(driveCtx, *container.Status.ClusterContainerID, kDrives[drive].DevicePath, pool)
 			if err != nil {
 				l.Error(err, "Error adding drive into system")
 				errs = append(errs, err)
@@ -216,8 +216,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) UpdateWekaAddedDrives(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := r.container
 
@@ -249,8 +248,7 @@ func (r *containerReconcilerLoop) UpdateWekaAddedDrives(ctx context.Context) err
 // existing Weka clusters where drives are already in Weka (not visible in kernel).
 // Only runs for exclusive-drive containers (not drive-sharing mode).
 func (r *containerReconcilerLoop) UpdateFullDrivesAnnotationFromAddedDrives(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := r.container
 
@@ -347,8 +345,7 @@ func (r *containerReconcilerLoop) UpdateFullDrivesAnnotationFromAddedDrives(ctx 
 // Note: for the upgrade path, UpdateFullDrivesAnnotationFromAddedDrives (run earlier in the
 // pipeline for drive containers) may already have populated the annotation from AddedDrives.
 func (r *containerReconcilerLoop) EnsureNodeFullDrivesAnnotation(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	nodeName := r.container.Status.NodeAffinity
 	if nodeName == "" {
@@ -410,8 +407,7 @@ func (r *containerReconcilerLoop) EnsureNodeFullDrivesAnnotation(ctx context.Con
 }
 
 func (r *containerReconcilerLoop) RemoveDrives(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := r.container
 
@@ -474,8 +470,7 @@ func (r *containerReconcilerLoop) RemoveDrives(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) RemoveDrivesByPhysicalUuids(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := r.container
 
@@ -570,8 +565,8 @@ func (r *containerReconcilerLoop) RemoveDrivesByPhysicalUuids(ctx context.Contex
 
 // TODO: make it work with physical UUIDs as well
 func (r *containerReconcilerLoop) MarkDrivesForRemoval(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "MarkDrivesForRemoval")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "MarkDrivesForRemoval")
+	defer logger.End()
 
 	container := r.container
 
@@ -613,8 +608,8 @@ func (r *containerReconcilerLoop) MarkDrivesForRemoval(ctx context.Context) erro
 		return nil
 	}
 
-	ctx, logger, end = instrumentation.GetLogSpan(ctx, "BlockDrives", "drives", toRemoveSerialIDs)
-	defer end()
+	ctx, logger = instrumentation.CreateLogSpan(ctx, "BlockDrives", "drives", toRemoveSerialIDs)
+	defer logger.End()
 
 	logger.Info("Blocking drives on the node")
 
@@ -635,8 +630,8 @@ func (r *containerReconcilerLoop) MarkDrivesForRemoval(ctx context.Context) erro
 }
 
 func (r *containerReconcilerLoop) getKernelDrives(ctx context.Context, executor util.Exec) (map[string]domain.DriveInfo, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getKernelDrives")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "getKernelDrives")
+	defer logger.End()
 
 	// Try to get drives from node-agent first
 	drives, err := r.getKernelDrivesFromNodeAgent(ctx)
@@ -653,8 +648,8 @@ func (r *containerReconcilerLoop) getKernelDrives(ctx context.Context, executor 
 }
 
 func (r *containerReconcilerLoop) getKernelDrivesFromNodeAgent(ctx context.Context) (map[string]domain.DriveInfo, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getKernelDrivesFromNodeAgent")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "getKernelDrivesFromNodeAgent")
+	defer logger.End()
 
 	// Find node-agent pod on the same node as this container
 	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
@@ -733,8 +728,8 @@ func (r *containerReconcilerLoop) getKernelDrivesFromPod(ctx context.Context, ex
 }
 
 func (r *containerReconcilerLoop) getNodeBlockedDriveUuids(ctx context.Context) (blockedPhysicalUuids []string, err error) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "getNodeBlockedDriveUuids")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "getNodeBlockedDriveUuids")
+	defer logger.End()
 
 	node := r.node
 	if node == nil {
@@ -756,8 +751,8 @@ func (r *containerReconcilerLoop) getNodeBlockedDriveUuids(ctx context.Context) 
 }
 
 func (r *containerReconcilerLoop) getNodeBlockedDriveSerials(ctx context.Context) (blockedSerials []string, err error) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "getNodeBlockedDriveSerials")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "getNodeBlockedDriveSerials")
+	defer logger.End()
 
 	node := r.node
 	if node == nil {
@@ -780,8 +775,8 @@ func (r *containerReconcilerLoop) getNodeBlockedDriveSerials(ctx context.Context
 }
 
 func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive *weka.Drive, wekaService services.WekaService, useDriveSharing bool) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "removeReplacedDriveFromWeka", "drive_uuid", drive.Uuid, "drive_serial", drive.SerialNumber)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "removeReplacedDriveFromWeka", "drive_uuid", drive.Uuid, "drive_serial", drive.SerialNumber)
+	defer logger.End()
 
 	reFetchedDrive, err := wekaService.GetClusterDrive(ctx, drive.Uuid)
 	var notFoundErr *services.DriveNotFound

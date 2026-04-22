@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/weka/go-weka-observability/instrumentation"
+	obslogger "github.com/weka/go-weka-observability/logger"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -77,7 +78,7 @@ func main() {
 	ctx = context.WithValue(ctx, contextKey("is_root"), true)
 
 	// initialize root logger and put it into context
-	logrInstance := instrumentation.NewZerologrWithLoggerNameInsteadCaller()
+	logrInstance := obslogger.NewZerologrWithLoggerNameInsteadCaller()
 
 	// initialize config from environment variables
 	config.ConfigureEnv(ctx)
@@ -94,12 +95,14 @@ func main() {
 	}
 	fmt.Println("Using " + deploymentIdentifier + " as deployment identifier")
 
-	ctx, logger := instrumentation.GetLoggerForContext(ctx, &logrInstance, "", "deployment_identifier", deploymentIdentifier) //nolint:staticcheck // using deprecated API, will be updated separately
+	logger := logrInstance.WithValues("deployment_identifier", deploymentIdentifier)
+	ctx = obslogger.ContextWithLogr(ctx, logger)
 
 	ctrl.SetLogger(logger)
 	klog.SetLogger(logger)
 
-	shutdown, err := instrumentation.SetupOTelSDK(ctx, "weka-operator", config.Config.Version, logger, "deployment_identifier", deploymentIdentifier) //nolint:staticcheck // using deprecated API, will be updated separately
+	shutdown, err := instrumentation.SetupOTelSDKWithOptions(ctx, "weka-operator", config.Config.Version, logger,
+		instrumentation.WithResourceAttributes("deployment_identifier", deploymentIdentifier))
 	if err != nil {
 		logger.Error(err, "Failed to set up OTel SDK")
 		os.Exit(1)

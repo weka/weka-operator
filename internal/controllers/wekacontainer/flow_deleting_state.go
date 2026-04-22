@@ -295,8 +295,7 @@ func (r *containerReconcilerLoop) handleStateDeleting(ctx context.Context) error
 }
 
 func (r *containerReconcilerLoop) RemoveFromS3Cluster(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	containerId := r.container.Status.ClusterContainerID
 	if containerId == nil {
@@ -333,8 +332,7 @@ func (r *containerReconcilerLoop) RemoveFromS3Cluster(ctx context.Context) error
 }
 
 func (r *containerReconcilerLoop) RemoveFromNfs(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	containerId := r.container.Status.ClusterContainerID
 	if containerId == nil {
@@ -363,8 +361,7 @@ func (r *containerReconcilerLoop) RemoveFromNfs(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	containerId := r.container.Status.ClusterContainerID
 	if containerId == nil {
@@ -429,8 +426,7 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 }
 
 func (r *containerReconcilerLoop) RemoveDeactivatedContainersDrives(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	containerId := r.container.Status.ClusterContainerID
 	if containerId == nil {
@@ -509,8 +505,7 @@ func (r *containerReconcilerLoop) RemoveDeactivatedContainers(ctx context.Contex
 }
 
 func (r *containerReconcilerLoop) removeDeactivatedContainers(ctx context.Context, containerId int) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	containers, err := r.getClusterContainers(ctx)
 	if err != nil {

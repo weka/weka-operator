@@ -177,8 +177,8 @@ func (r *wekaClusterReconcilerLoop) calculateTelemetryHash(ctx context.Context, 
 // This includes enabling/disabling audit at cluster level and configuring individual exports.
 // When exports are removed from spec, they are also removed from Weka.
 func (r *wekaClusterReconcilerLoop) EnsureTelemetry(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureTelemetry")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ensureTelemetry")
+	defer logger.End()
 
 	// Calculate hash of target telemetry config (includes secret content)
 	currentHash := r.calculateTelemetryHash(ctx, r.cluster.Spec.Telemetry)
@@ -322,8 +322,8 @@ func (r *wekaClusterReconcilerLoop) EnsureTelemetry(ctx context.Context) error {
 
 // disableAutoStartTelemetryContainer sets the override to prevent weka from auto-provisioning telemetry container
 func (r *wekaClusterReconcilerLoop) disableAutoStartTelemetryContainer(ctx context.Context, executor util.Exec) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "disableAutoStartTelemetryContainer")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "disableAutoStartTelemetryContainer")
+	defer logger.End()
 
 	cmd := "weka debug override add --key auto_start_telemetry_container --value false --force"
 	_, stderr, err := executor.ExecNamed(ctx, "DisableAutoStartTelemetryContainer", []string{"bash", "-ce", cmd})
@@ -343,8 +343,8 @@ func (r *wekaClusterReconcilerLoop) disableAutoStartTelemetryContainer(ctx conte
 
 // enableAuditCluster runs `weka audit cluster enable`
 func (r *wekaClusterReconcilerLoop) enableAuditCluster(ctx context.Context, executor util.Exec) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "enableAuditCluster")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "enableAuditCluster")
+	defer logger.End()
 
 	cmd := "weka audit cluster enable"
 	_, stderr, err := executor.ExecNamed(ctx, "EnableAuditCluster", []string{"bash", "-ce", cmd})
@@ -364,8 +364,8 @@ func (r *wekaClusterReconcilerLoop) enableAuditCluster(ctx context.Context, exec
 
 // enableAuditDefaultFs runs `weka audit fs enable default`
 func (r *wekaClusterReconcilerLoop) enableAuditDefaultFs(ctx context.Context, executor util.Exec) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "enableAuditDefaultFs")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "enableAuditDefaultFs")
+	defer logger.End()
 
 	cmd := "weka audit fs enable default"
 	_, stderr, err := executor.ExecNamed(ctx, "EnableAuditDefaultFs", []string{"bash", "-ce", cmd})
@@ -403,8 +403,8 @@ func (r *wekaClusterReconcilerLoop) listTelemetryExports(ctx context.Context, ex
 func (r *wekaClusterReconcilerLoop) reconcileTelemetryExport(ctx context.Context, executor util.Exec, desired weka.TelemetryExport, currentByName map[string]TelemetryExportInfo) error {
 	// Use prefixed name for the actual export in Weka
 	prefixedName := getOperatorExportName(desired.Name)
-	_, logger, end := instrumentation.GetLogSpan(ctx, "reconcileTelemetryExport", "name", prefixedName)
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "reconcileTelemetryExport", "name", prefixedName)
+	defer logger.End()
 
 	// Currently only Splunk is supported
 	if desired.Splunk == nil {
@@ -426,8 +426,8 @@ func (r *wekaClusterReconcilerLoop) reconcileTelemetryExport(ctx context.Context
 
 // addTelemetryExport adds a new telemetry export with the given name (should include operator prefix)
 func (r *wekaClusterReconcilerLoop) addTelemetryExport(ctx context.Context, executor util.Exec, export weka.TelemetryExport, exportName string) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "addTelemetryExport", "name", exportName)
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "addTelemetryExport", "name", exportName)
+	defer logger.End()
 
 	if export.Splunk == nil {
 		return errors.Errorf("cannot add export %s: no splunk configuration provided", exportName)
@@ -517,8 +517,8 @@ func (r *wekaClusterReconcilerLoop) addTelemetryExport(ctx context.Context, exec
 
 // updateTelemetryExport updates an existing telemetry export
 func (r *wekaClusterReconcilerLoop) updateTelemetryExport(ctx context.Context, executor util.Exec, export weka.TelemetryExport, exportID string) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "updateTelemetryExport", "name", export.Name, "id", exportID)
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "updateTelemetryExport", "name", export.Name, "id", exportID)
+	defer logger.End()
 
 	if export.Splunk == nil {
 		return errors.Errorf("cannot update export %s: no splunk configuration provided", export.Name)
@@ -590,8 +590,8 @@ func (r *wekaClusterReconcilerLoop) updateTelemetryExport(ctx context.Context, e
 
 // removeTelemetryExport removes a telemetry export by ID
 func (r *wekaClusterReconcilerLoop) removeTelemetryExport(ctx context.Context, executor util.Exec, exportID, exportName string) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "removeTelemetryExport", "name", exportName, "id", exportID)
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "removeTelemetryExport", "name", exportName, "id", exportID)
+	defer logger.End()
 
 	// Extract numeric ID from TelemetrySinkId<N> format - weka CLI expects just the number
 	numericID := extractNumericID(exportID)
@@ -613,8 +613,8 @@ func (r *wekaClusterReconcilerLoop) removeTelemetryExport(ctx context.Context, e
 
 // disableAuditCluster runs `weka audit cluster disable`
 func (r *wekaClusterReconcilerLoop) disableAuditCluster(ctx context.Context, executor util.Exec) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "disableAuditCluster")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "disableAuditCluster")
+	defer logger.End()
 
 	cmd := "weka audit cluster disable"
 	_, stderr, err := executor.ExecNamed(ctx, "DisableAuditCluster", []string{"bash", "-ce", cmd})

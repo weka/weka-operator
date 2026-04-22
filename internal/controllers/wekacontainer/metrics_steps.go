@@ -94,8 +94,7 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	// TODO: Should we be do this locally? it actually will be better to find failures from different container
 	// but, if we dont keep locality - performance wise too easy to make mistake and funnel everything through just one
 	// tldr: we need a proper service gateway for weka api, that will both healthcheck and distribute
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	// submit http request to metrics pod
 	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
@@ -180,8 +179,8 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	r.container.Status.Stats.LastUpdate = metav1.NewTime(time.Now())
 
 	TracedPatch := func() error {
-		spanCtx, logger, end := instrumentation.GetLogSpan(ctx, "PatchContainerStatus")
-		defer end()
+		spanCtx, logger := instrumentation.CreateLogSpan(ctx, "PatchContainerStatus")
+		defer logger.End()
 		ctx = spanCtx
 		ret := r.Status().Patch(ctx, r.container, patch)
 		if ret != nil {
@@ -283,8 +282,8 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 }
 
 func (r *containerReconcilerLoop) ReportOtelMetrics(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "MetricsData", "pod_name", r.container.Name, "namespace", r.container.Namespace, "mode", r.container.Spec.Mode)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "MetricsData", "pod_name", r.container.Name, "namespace", r.container.Namespace, "mode", r.container.Spec.Mode)
+	defer logger.End()
 
 	if r.MetricsService == nil {
 		logger.Warn("Metrics service is not set")
@@ -418,8 +417,8 @@ func (r *containerReconcilerLoop) getPodStatusInfo() (string, time.Time) {
 }
 
 func (r *containerReconcilerLoop) DeregisterContainerFromMetrics(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeregisterContainerFromMetrics")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "DeregisterContainerFromMetrics")
+	defer logger.End()
 
 	// Get the node agent pod
 	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())

@@ -42,8 +42,7 @@ func GetDeletionSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 }
 
 func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	activeContainer := discovery.SelectActiveContainer(r.containers)
 	if activeContainer != nil {
@@ -91,18 +90,18 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 }
 
 func (r *wekaClusterReconcilerLoop) ensureContainersPaused(ctx context.Context, mode string) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainersPaused", "mode", mode)
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "ensureContainersPaused", "mode", mode)
+	defer spanLogger.End()
 
 	return workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
-		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainerPaused", "container", container.Name, "mode", mode, "container_mode", container.Spec.Mode)
-		defer end()
+		ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "ensureContainerPaused", "container", container.Name, "mode", mode, "container_mode", container.Spec.Mode)
+		defer spanLogger.End()
 		if mode != "" && container.Spec.Mode != mode {
 			return nil
 		}
 
-		ctx, _, end2 := instrumentation.GetLogSpan(ctx, "ensureMatchingContainerPaused", "container", container.Name, "mode", mode, "container_mode", container.Spec.Mode)
-		defer end2()
+		ctx, spanLogger2 := instrumentation.CreateLogSpan(ctx, "ensureMatchingContainerPaused", "container", container.Name, "mode", mode, "container_mode", container.Spec.Mode)
+		defer spanLogger2.End()
 
 		if !container.IsPaused() {
 			patch := map[string]interface{}{
@@ -134,18 +133,18 @@ func (r *wekaClusterReconcilerLoop) ensureContainersPaused(ctx context.Context, 
 }
 
 func (r *wekaClusterReconcilerLoop) ensureContainersNotPaused(ctx context.Context, mode string) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainersNotPaused", "mode", mode)
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "ensureContainersNotPaused", "mode", mode)
+	defer spanLogger.End()
 
 	return workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
-		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainersNotPaused", "container", container.Name, "mode", mode, "container_mode", container.Spec.Mode)
-		defer end()
+		ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "ensureContainersNotPaused", "container", container.Name, "mode", mode, "container_mode", container.Spec.Mode)
+		defer spanLogger.End()
 		if mode != "" && container.Spec.Mode != mode {
 			return nil
 		}
 
-		ctx, _, end2 := instrumentation.GetLogSpan(ctx, "ensureMatchingContainerNotPaused", "container", container.Name, "mode", mode, "container_mode", container.Spec.Mode)
-		defer end2()
+		ctx, spanLogger2 := instrumentation.CreateLogSpan(ctx, "ensureMatchingContainerNotPaused", "container", container.Name, "mode", mode, "container_mode", container.Spec.Mode)
+		defer spanLogger2.End()
 
 		if container.IsPaused() {
 			patch := map[string]interface{}{
@@ -177,8 +176,7 @@ func (r *wekaClusterReconcilerLoop) ensureContainersNotPaused(ctx context.Contex
 }
 
 func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	gracefulDestroyDuration := r.cluster.GetGracefulDestroyDuration()
 	deletionTime := r.cluster.GetDeletionTimestamp().Add(gracefulDestroyDuration)
@@ -225,8 +223,7 @@ func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 }
 
 func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	cluster := r.cluster
 	clusterService := r.clusterService

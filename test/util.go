@@ -10,8 +10,8 @@ import (
 
 // waitFor waits for the given condition to be true, or times out.
 func waitFor(ctx context.Context, fn func(context.Context) bool) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "waitFor")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "waitFor")
+	defer logger.End()
 
 	done := make(chan struct{})
 	go func() {

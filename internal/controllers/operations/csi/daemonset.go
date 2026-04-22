@@ -88,8 +88,8 @@ func GetCSINodeDaemonSetName(csiGroupName string) string {
 }
 
 func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient) (*appsv1.DaemonSet, error) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "NewCsiNodeDaemonSet")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "NewCsiNodeDaemonSet")
+	defer logger.End()
 
 	name := GetCSINodeDaemonSetName(csiGroupName)
 	csiDriverName := GetCsiDriverName(csiGroupName)

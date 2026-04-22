@@ -27,8 +27,8 @@ import (
 )
 
 func (r *containerReconcilerLoop) refreshPod(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "refreshPod")
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "refreshPod")
+	defer spanLogger.End()
 
 	pod := &v1.Pod{}
 	key := client.ObjectKey{Name: r.container.Name, Namespace: r.container.Namespace}
@@ -44,8 +44,7 @@ func (r *containerReconcilerLoop) refreshPod(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	if NodeIsUnschedulable(r.node) {
 		err := errors.Errorf("node %s is unschedulable, cannot create pod", r.node.Name)
@@ -185,8 +184,7 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) deletePodIfNodeInfoMismatch(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	if r.container.IsDiscoveryContainer() {
 		return nil
@@ -258,8 +256,7 @@ func targetPodConfigHash(container *weka.WekaContainer) string {
 // It runs image upgrade operations first (when the image is mismatched), then checks whether the
 // container's LastAppliedPodConfigHash matches the target. If mismatched, the pod is deleted for recreation.
 func (r *containerReconcilerLoop) handleSpecVersionMismatch(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	// Run image-upgrade operations first when the image is mismatched.
 	if r.container.Status.LastAppliedImage != "" && r.IsNotAlignedImage() {

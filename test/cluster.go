@@ -31,8 +31,8 @@ func (c *Cluster) ValidateStartupCompleted(ctx context.Context) func(t *testing.
 
 func (c *Cluster) VerifyNamespace(ctx context.Context) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx, _, done := instrumentation.GetLogSpan(ctx, "VerifyNamespace")
-		defer done()
+		ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "VerifyNamespace")
+		defer spanLogger.End()
 
 		ns := &v1.Namespace{}
 		if err := c.Get(ctx, client.ObjectKey{Name: c.Cluster.OperatorNamespace}, ns); err != nil {
@@ -43,8 +43,8 @@ func (c *Cluster) VerifyNamespace(ctx context.Context) func(t *testing.T) {
 
 func (c *Cluster) VerifyWekaContainers(ctx context.Context) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx, _, done := instrumentation.GetLogSpan(ctx, "VerifyWekaContainers")
-		defer done()
+		ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "VerifyWekaContainers")
+		defer spanLogger.End()
 
 		driveContainers := &wekav1alpha1.WekaContainerList{}
 		t.Run("List Drive Containers", func(t *testing.T) {
@@ -88,8 +88,8 @@ func (c *Cluster) VerifyWekaContainers(ctx context.Context) func(t *testing.T) {
 
 func (c *Cluster) VerifyWekaCluster(ctx context.Context) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx, logger, done := instrumentation.GetLogSpan(ctx, "VerifyWekaCluster")
-		defer done()
+		ctx, logger := instrumentation.CreateLogSpan(ctx, "VerifyWekaCluster")
+		defer logger.End()
 
 		cluster := &wekav1alpha1.WekaCluster{}
 		key := types.NamespacedName{
@@ -162,8 +162,8 @@ func (c *Cluster) DriversEnsuredCondition(ctx context.Context, container *wekav1
 
 func (c *Cluster) JoinedClusterCondition(ctx context.Context, container *wekav1alpha1.WekaContainerList) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx, logger, done := instrumentation.GetLogSpan(ctx, "JoinedClusterCondition")
-		defer done()
+		ctx, logger := instrumentation.CreateLogSpan(ctx, "JoinedClusterCondition")
+		defer logger.End()
 
 		for _, container := range container.Items {
 			logger.SetValues("container", container.Name)
@@ -225,8 +225,8 @@ func (c *Cluster) IOStartedCondition(ctx context.Context, cluster *wekav1alpha1.
 }
 
 func (c *Cluster) waitForCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster, cond string) error {
-	ctx, logger, done := instrumentation.GetLogSpan(ctx, "waitForCondition")
-	defer done()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "waitForCondition")
+	defer logger.End()
 
 	var actualCondition *metav1.Condition
 	waitFor(ctx, func(ctx context.Context) bool {

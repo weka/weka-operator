@@ -116,8 +116,8 @@ func (r *containerReconcilerLoop) EnsureNfsInterfaceGroupPorts(ctx context.Conte
 
 	currentHash := calculateInterfacesHash(targetInterfaces)
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNfsInterfaceGroupPorts", "hash", currentHash)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureNfsInterfaceGroupPorts", "hash", currentHash)
+	defer logger.End()
 
 	wekaService := services.NewWekaService(r.ExecService, r.container)
 	err = wekaService.EnsureNfsInterfaceGroupPorts(ctx, nfsInterfaceGroupName, *r.container.Status.ClusterContainerID, targetInterfaces)

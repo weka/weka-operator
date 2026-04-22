@@ -57,8 +57,8 @@ type AllocationResult struct {
 func (a *ContainerResourceAllocator) AllocateResources(ctx context.Context, req *AllocationRequest) (*AllocationResult, error) {
 	nodeName := req.Node.Name
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocateResources", "node", nodeName)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "AllocateResources", "node", nodeName)
+	defer logger.End()
 
 	// List all containers on this node (across all namespaces)
 	kubeService := kubernetes.NewKubeService(a.client)
@@ -119,8 +119,8 @@ func (a *ContainerResourceAllocator) AllocateResources(ctx context.Context, req 
 // and returns a map of allocated drives across all namespaces.
 // Drives are node-level resources, not namespace-level.
 func (a *ContainerResourceAllocator) aggregateNodeDrivesAllocations(ctx context.Context, containers []weka.WekaContainer) map[string]bool {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "aggregateNodeDrivesAllocations")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "aggregateNodeDrivesAllocations")
+	defer logger.End()
 
 	allocatedDrives := make(map[string]bool)
 
@@ -154,8 +154,8 @@ func (a *ContainerResourceAllocator) aggregateNodeDrivesAllocations(ctx context.
 // Ports are node-level resources, not namespace-level.
 // flags is used to determine the correct ports-per-container (60 for reduced mode, 100 otherwise).
 func (a *ContainerResourceAllocator) aggregateNodePortsAllocations(ctx context.Context, containers []weka.WekaContainer, flags *domain.FeatureFlags) []Range {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "aggregateNodePortsAllocations")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "aggregateNodePortsAllocations")
+	defer logger.End()
 
 	portsPerContainer := GetPortsPerContainerFromFlags(flags)
 	allocatedRanges := AggregatePortRangesFromContainers(containers, portsPerContainer)
@@ -172,8 +172,8 @@ func (a *ContainerResourceAllocator) aggregateNodePortsAllocations(ctx context.C
 // getAvailableDrivesFromStatus returns drives that are available for allocation on a node
 // based on aggregated allocations from container Status
 func (a *ContainerResourceAllocator) getAvailableDrivesFromStatus(ctx context.Context, node *v1.Node, allocatedDrives map[string]bool) ([]string, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getAvailableDrivesFromStatus")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "getAvailableDrivesFromStatus")
+	defer logger.End()
 
 	// Get all drives from node annotation
 	nodeInfoGetter := NewK8sNodeInfoGetter(a.client)
@@ -204,8 +204,8 @@ func (a *ContainerResourceAllocator) getAvailableDrivesFromStatus(ctx context.Co
 // allocateWeka: if true, allocate weka port (60 or 100 ports based on feature flags)
 // allocateAgent: if true, allocate agent port (1 port)
 func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Context, cluster *weka.WekaCluster, featureFlags *domain.FeatureFlags, allocatedRanges []Range, allocateWeka, allocateAgent bool) (wekaPort, agentPort int, err error) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "allocatePortRangesFromStatus")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "allocatePortRangesFromStatus")
+	defer logger.End()
 
 	// Get the cluster's allocated port range from cluster Status
 	if cluster.Status.Ports.BasePort == 0 {
@@ -282,8 +282,8 @@ type DriveReallocationResult struct {
 // This is used when drives fail and need to be replaced, or when scaling up drives
 // Supports both regular drives and virtual drives (drive sharing mode)
 func (a *ContainerResourceAllocator) ReallocateDrives(ctx context.Context, req *DriveReallocationRequest) (*DriveReallocationResult, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ContainerResourceAllocator.ReallocateDrives")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ContainerResourceAllocator.ReallocateDrives")
+	defer logger.End()
 
 	logger.Info("Reallocating drives for container",
 		"container", req.Container.Name,
@@ -312,8 +312,8 @@ func (a *ContainerResourceAllocator) ReallocateDrives(ctx context.Context, req *
 
 // reallocateRegularDrives handles reallocation for regular (non-shared) drives
 func (a *ContainerResourceAllocator) reallocateRegularDrives(ctx context.Context, req *DriveReallocationRequest, containers []weka.WekaContainer) (*DriveReallocationResult, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reallocateRegularDrives")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "reallocateRegularDrives")
+	defer logger.End()
 
 	// Aggregate existing drive allocations from all containers on this node
 	allocatedDrives := a.aggregateNodeDrivesAllocations(ctx, containers)
@@ -373,8 +373,8 @@ func (a *ContainerResourceAllocator) reallocateRegularDrives(ctx context.Context
 
 // reallocateVirtualDrives handles reallocation for virtual drives (drive sharing mode)
 func (a *ContainerResourceAllocator) reallocateVirtualDrives(ctx context.Context, req *DriveReallocationRequest, containers []weka.WekaContainer) (*DriveReallocationResult, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reallocateVirtualDrives")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "reallocateVirtualDrives")
+	defer logger.End()
 
 	// Create allocation request for new virtual drives
 	allocReq := &AllocationRequest{
@@ -427,8 +427,8 @@ func (a *ContainerResourceAllocator) reallocateVirtualDrives(ctx context.Context
 // AllocateSharedDrives allocates virtual drives from shared physical drives
 // Each virtual drive gets a random UUID and is mapped to a physical drive
 func (a *ContainerResourceAllocator) AllocateSharedDrives(ctx context.Context, req *AllocationRequest, containers []weka.WekaContainer) ([]weka.VirtualDrive, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocateSharedDrives")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "AllocateSharedDrives")
+	defer logger.End()
 
 	// Get node info to access shared drives
 	nodeInfoGetter := NewK8sNodeInfoGetter(a.client)
@@ -475,8 +475,8 @@ type virtualDriveAllocationPlan struct {
 // buildDriveCapacityMap builds per-physical-drive capacity tracking
 // Returns a map of physical drive UUID to capacity information, with claimed capacity calculated
 func buildDriveCapacityMap(ctx context.Context, availableSharedDrives []domain.SharedDriveInfo, containers []weka.WekaContainer) map[string]*physicalDriveCapacity {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "buildDriveCapacityMap")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "buildDriveCapacityMap")
+	defer logger.End()
 
 	// Initialize capacity tracking for all available drives
 	driveCapacities := make(map[string]*physicalDriveCapacity)
@@ -603,12 +603,12 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 		}
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocateSharedDrivesByCapacityWithTypes",
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "allocateSharedDrivesByCapacityWithTypes",
 		"tlcCapacityNeeded", tlcCapacityNeeded,
 		"qlcCapacityNeeded", qlcCapacityNeeded,
 		"numCores", numCores,
 	)
-	defer end()
+	defer logger.End()
 
 	logger.Info("Allocating virtual drives by capacity with drive types",
 		"numCores", numCores,
@@ -862,7 +862,7 @@ func allocateSingleDriveType(ctx context.Context,
 	}()
 
 	for strategy := range generator.GenerateStrategies(done) {
-		_, strategyLogger, end := instrumentation.GetLogSpan(ctx, "Trying"+driveType+"AllocationStrategy",
+		_, strategyLogger := instrumentation.CreateLogSpan(ctx, "Trying"+driveType+"AllocationStrategy",
 			"numDrives", strategy.NumDrives(),
 			"strategyTotalCapacity", strategy.TotalCapacity(),
 			"driveSizes", strategy.DriveSizes,
@@ -889,11 +889,11 @@ func allocateSingleDriveType(ctx context.Context,
 				"totalAllocatedGiB", strategy.TotalCapacity(),
 			)
 
-			end()
+			strategyLogger.End()
 			close(done)
 			return virtualDrives, nil
 		}
-		end()
+		strategyLogger.End()
 	}
 
 	// Allocation failed - calculate available capacity for error
@@ -918,8 +918,8 @@ func allocateSingleDriveType(ctx context.Context,
 }
 
 func (a *ContainerResourceAllocator) allocateSharedDrivesByDrivesNum(ctx context.Context, req *AllocationRequest, containers []weka.WekaContainer, availableSharedDrives []domain.SharedDriveInfo) ([]weka.VirtualDrive, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocateSharedDrivesByDrivesNum")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "allocateSharedDrivesByDrivesNum")
+	defer logger.End()
 
 	// Filter for TLC drives only in driveCapacity + numDrives mode
 	tlcDrives := make([]domain.SharedDriveInfo, 0)

@@ -24,8 +24,8 @@ func UpdateContainerState(ctx context.Context, container *weka.WekaContainer, c 
 		return nil
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, spanName)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, spanName)
+	defer logger.End()
 
 	logger.Info("Updating container state", "container", container.Name, "state", state)
 
@@ -49,4 +49,3 @@ func UpdateContainerState(ctx context.Context, container *weka.WekaContainer, c 
 
 	return nil
 }
-

@@ -3,15 +3,12 @@ package wekacontainer
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"testing"
-	"time"
 
-	"github.com/go-logr/zerologr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
+	obslogger "github.com/weka/go-weka-observability/logger"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,12 +25,10 @@ func TestEnsurePodDriversBuilder(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	ctx := context.Background()
-	writer := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.TimeOnly}
-	zeroLogger := zerolog.New(writer).Level(zerolog.DebugLevel).With().Timestamp().Logger()
-	logger := zerologr.New(&zeroLogger)
+	logger := obslogger.CreateLogger(obslogger.WithConsoleSink(), obslogger.WithDebugLevel())
 
 	var err error
-	otelShutdown, err = instrumentation.SetupOTelSDK(ctx, "ensure-pod-builder-tests", "", logger)
+	otelShutdown, err = instrumentation.SetupOTelSDKWithOptions(ctx, "ensure-pod-builder-tests", "", logger)
 	Expect(err).NotTo(HaveOccurred())
 })
 

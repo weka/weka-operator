@@ -134,7 +134,6 @@ func GetWekaContainerExtraCores(config *weka.WekaClusterTemplate) IntPerWekaRole
 	}
 }
 
-
 // GetWekaClusterTemplate builds cluster ClusterTemplate from config, setting defaults for container
 // counts and cores. Does not include hugepages, which are computed separately.
 func GetWekaClusterTemplate(config *weka.WekaClusterTemplate) ClusterTemplate {

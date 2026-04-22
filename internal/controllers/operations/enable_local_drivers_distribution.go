@@ -178,8 +178,8 @@ func (o *EnsureDistServiceOperation) getOsLabelKey() string {
 }
 
 func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DiscoverNodesAndLabel")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "DiscoverNodesAndLabel")
+	defer logger.End()
 
 	logger.Info("Discovering nodes and ensuring labels")
 
@@ -283,8 +283,8 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 }
 
 func (o *EnsureDistServiceOperation) DiscoverImages(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DiscoverImages")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "DiscoverImages")
+	defer logger.End()
 
 	logger.Info("Discovering Weka images")
 
@@ -337,8 +337,8 @@ func (o *EnsureDistServiceOperation) getDistContainerName(ctx context.Context) (
 		return o.distContainerName, nil
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getDistContainerName")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "getDistContainerName")
+	defer logger.End()
 
 	wekaContainerList := &weka.WekaContainerList{}
 	listOpts := &client.ListOptions{
@@ -381,8 +381,8 @@ func (o *EnsureDistServiceOperation) getServiceUrl() string {
 }
 
 func (o *EnsureDistServiceOperation) EnsureDistService(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureDistService")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureDistService")
+	defer logger.End()
 
 	serviceName := o.getDistServiceName()
 	namespace := o.policy.GetNamespace()
@@ -418,8 +418,8 @@ func (o *EnsureDistServiceOperation) EnsureDistService(ctx context.Context) erro
 }
 
 func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureDistContainer")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureDistContainer")
+	defer logger.End()
 
 	containerName, err := o.getDistContainerName(ctx)
 	if err != nil {
@@ -476,8 +476,8 @@ func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) er
 }
 
 func (o *EnsureDistServiceOperation) DeleteIfNodeNotReady(ctx context.Context, container *weka.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleNodeNotReady")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "HandleNodeNotReady")
+	defer logger.End()
 
 	var wc weka.WekaContainer
 	err := o.client.Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: container.Name}, &wc)
@@ -523,8 +523,8 @@ func (o *EnsureDistServiceOperation) DeleteIfNodeNotReady(ctx context.Context, c
 }
 
 func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureBuilderContainers")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureBuilderContainers")
+	defer logger.End()
 
 	logger.Info("Ensuring drivers builder containers")
 
@@ -646,8 +646,8 @@ fi
 }
 
 func (o *EnsureDistServiceOperation) PollBuilderContainersStatus(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "PollBuilderContainersStatus")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "PollBuilderContainersStatus")
+	defer logger.End()
 
 	logger.Info("Polling builder containers status")
 
@@ -723,8 +723,8 @@ func (o *EnsureDistServiceOperation) PollBuilderContainersStatus(ctx context.Con
 }
 
 func (o *EnsureDistServiceOperation) CleanupOldBuilderContainers(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CleanupOldBuilderContainers")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "CleanupOldBuilderContainers")
+	defer logger.End()
 
 	logger.Info("Cleaning up old builder containers")
 
@@ -758,7 +758,8 @@ func (o *EnsureDistServiceOperation) CleanupOldBuilderContainers(ctx context.Con
 }
 
 func (o *EnsureDistServiceOperation) UpdatePolicyStatusAndCallback(ctx context.Context) error {
-	ctx, logger, _ := instrumentation.GetLogSpan(ctx, "UpdatePolicyStatusAndCallback")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "UpdatePolicyStatusAndCallback")
+	defer logger.End()
 	logger.Info("Driver builders are still processing or some have failed. Policy will re-evaluate.")
 	return o.successCallback(ctx) // For an ongoing policy, success means it has reconciled the current state.
 }

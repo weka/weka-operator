@@ -32,8 +32,8 @@ func NewClientController(mgr ctrl.Manager, restClient rest.Interface) *ClientCon
 }
 
 func (c *ClientController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ClientReconcile", "namespace", req.Namespace, "name", req.Name)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ClientReconcile", "namespace", req.Namespace, "name", req.Name)
+	defer logger.End()
 
 	ctx, cancel := context.WithTimeout(ctx, config.Config.Timeouts.ReconcileTimeout)
 	defer cancel()
@@ -54,8 +54,8 @@ func (c *ClientController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 
 func (c *ClientController) GetClient(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaClient, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetClient", "namespace", req.Namespace, "name", req.Name)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetClient", "namespace", req.Namespace, "name", req.Name)
+	defer logger.End()
 
 	wekaClient := &wekav1alpha1.WekaClient{}
 	if err := c.Manager.GetClient().Get(ctx, req.NamespacedName, wekaClient); err != nil {

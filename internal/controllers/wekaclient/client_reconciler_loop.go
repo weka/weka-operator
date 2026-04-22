@@ -219,8 +219,7 @@ func (c *clientReconcilerLoop) clientManagesCsiDeployment() bool {
 }
 
 func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	if !controllerutil.ContainsFinalizer(c.wekaClient, consts.WekaFinalizer) {
 		return nil
@@ -258,8 +257,7 @@ func (c *clientReconcilerLoop) RecordEvent(eventtype *string, reason, message st
 }
 
 func (c *clientReconcilerLoop) ensureFinalizer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	logger.Info("Adding Finalizer for weka client")
 	if ok := controllerutil.AddFinalizer(c.wekaClient, consts.WekaFinalizer); !ok {
@@ -379,8 +377,7 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 }
 
 func (c *clientReconcilerLoop) updateClientLabels(ctx context.Context, expected, found *weka.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	missingLabels := util2.MapMissingItems(found.Labels, expected.Labels)
 	// if there are missing labels, we need to update the client
@@ -397,8 +394,8 @@ func (c *clientReconcilerLoop) updateClientLabels(ctx context.Context, expected,
 }
 
 func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nodeName string) (*weka.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "buildClientWekaContainer", "node", nodeName)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "buildClientWekaContainer", "node", nodeName)
+	defer logger.End()
 
 	wekaClient := c.wekaClient
 
@@ -524,8 +521,7 @@ func (c *clientReconcilerLoop) getClientContainerName(ctx context.Context, nodeN
 }
 
 func (c *clientReconcilerLoop) resolveJoinIps(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	targetCluster := c.targetCluster
 	if targetCluster == nil {
@@ -545,8 +541,7 @@ func (c *clientReconcilerLoop) resolveJoinIps(ctx context.Context) error {
 }
 
 func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	updatableSpec := NewUpdatableClientSpec(c.wekaClient)
 	specHash, err := util2.HashStruct(updatableSpec)
@@ -575,8 +570,7 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 }
 
 func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, container *weka.WekaContainer, newClientSpec *UpdatableClientSpec) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	patch := client.MergeFrom(container.DeepCopy())
 	changed := false
@@ -770,8 +764,8 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 }
 
 func (c *clientReconcilerLoop) getApplicableNodes(ctx context.Context) ([]v1.Node, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getApplicableNodes")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "getApplicableNodes")
+	defer logger.End()
 
 	nodes, err := c.KubeService.GetNodes(ctx, c.wekaClient.Spec.NodeSelector)
 	if err != nil {
@@ -783,8 +777,8 @@ func (c *clientReconcilerLoop) getApplicableNodes(ctx context.Context) ([]v1.Nod
 }
 
 func (c *clientReconcilerLoop) setToleratedNodes(ctx context.Context) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "setToleratedNodes")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "setToleratedNodes")
+	defer logger.End()
 
 	nodes := c.nodes
 
@@ -834,8 +828,8 @@ func (c *clientReconcilerLoop) GetUpgradedCount() int {
 }
 
 func (c *clientReconcilerLoop) emitClientUpgradeCustomEvent(ctx context.Context) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "emitClientUpgradeCustomEvent")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "emitClientUpgradeCustomEvent")
+	defer logger.End()
 
 	logger.Info("Emitting client custom event")
 
@@ -882,8 +876,7 @@ func (c *clientReconcilerLoop) RecordEventThrottled(eventtype, reason, message s
 }
 
 func (c *clientReconcilerLoop) ValidateClientVersionCompatibility(ctx context.Context) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	if c.targetCluster == nil {
 		return nil
@@ -912,8 +905,8 @@ func (c *clientReconcilerLoop) ValidateClientVersionCompatibility(ctx context.Co
 }
 
 func (c *clientReconcilerLoop) handleImagePrePull(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleImagePrePull")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "handleImagePrePull")
+	defer logger.End()
 
 	wekaClient := c.wekaClient
 
@@ -960,8 +953,8 @@ func (c *clientReconcilerLoop) handleImagePrePull(ctx context.Context) error {
 }
 
 func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleUpgrade")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "HandleUpgrade")
+	defer logger.End()
 
 	// Client upgrade uses image-based tracking (TargetPodConfigHash="" triggers image fallback)
 	uController := upgrade.NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image, "")
@@ -1243,8 +1236,7 @@ func (c *clientReconcilerLoop) CheckCsiConfigChanged(ctx context.Context) error 
 }
 
 func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	op, err := operations.NewDeployCsiOperation(
 		c.Manager.GetClient(),
@@ -1267,8 +1259,8 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 }
 
 func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UndeployCsiPlugin")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "UndeployCsiPlugin")
+	defer logger.End()
 
 	logger.Info("Undeploying CSI plugin")
 	op, err := operations.NewDeployCsiOperation(
@@ -1298,8 +1290,7 @@ func (c *clientReconcilerLoop) GetCSIGroup() string {
 }
 
 func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	deployment, err := c.getExistingCsiControllerDeployment(ctx)
 	if err != nil {
@@ -1336,8 +1327,8 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 			return err
 		}
 
-		spanCtx, _, end := instrumentation.GetLogSpan(ctx, "doUpdateCsiController")
-		defer end()
+		spanCtx, spanLogger := instrumentation.CreateLogSpan(ctx, "doUpdateCsiController")
+		defer spanLogger.End()
 
 		return c.Update(spanCtx, targetDeployment)
 	}
@@ -1347,8 +1338,7 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 }
 
 func (c *clientReconcilerLoop) CheckExistingCsiControllerOwner(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	deployment, err := c.getExistingCsiControllerDeployment(ctx)
 	if err != nil {
@@ -1370,8 +1360,8 @@ func (c *clientReconcilerLoop) CheckExistingCsiControllerOwner(ctx context.Conte
 }
 
 func (c *clientReconcilerLoop) getExistingCsiControllerDeployment(ctx context.Context) (*appsv1.Deployment, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getExistingCsiControllerDeployment")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "getExistingCsiControllerDeployment")
+	defer logger.End()
 
 	controllerDeploymentName := csi.GetCSIControllerName(c.GetCSIGroup())
 	namespace, err := util2.GetPodNamespace()
@@ -1396,8 +1386,8 @@ func (c *clientReconcilerLoop) getExistingCsiControllerDeployment(ctx context.Co
 }
 
 func (c *clientReconcilerLoop) isOwnedByDifferentWekaClient(ctx context.Context, deployment *appsv1.Deployment) (bool, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "isOwnedByDifferentWekaClient")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "isOwnedByDifferentWekaClient")
+	defer logger.End()
 
 	// if csi controller was deployed by different client, and this client still exists, do not interfere
 	ownerWekaClientAnnotation, ok := deployment.Spec.Template.Annotations["weka.io/csi-controller-owner"]
@@ -1443,8 +1433,7 @@ func (c *clientReconcilerLoop) isOwnedByDifferentWekaClient(ctx context.Context,
 }
 
 func (c *clientReconcilerLoop) UpdateCsiNodeDaemonSet(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	daemonSet, err := c.getExistingCsiNodeDaemonSet(ctx)
 	if err != nil {
@@ -1481,8 +1470,8 @@ func (c *clientReconcilerLoop) UpdateCsiNodeDaemonSet(ctx context.Context) error
 			return err
 		}
 
-		spanCtx, _, end := instrumentation.GetLogSpan(ctx, "doUpdateCsiNodeDaemonSet")
-		defer end()
+		spanCtx, spanLogger := instrumentation.CreateLogSpan(ctx, "doUpdateCsiNodeDaemonSet")
+		defer spanLogger.End()
 
 		return c.Update(spanCtx, targetDaemonSet)
 	}
@@ -1492,8 +1481,8 @@ func (c *clientReconcilerLoop) UpdateCsiNodeDaemonSet(ctx context.Context) error
 }
 
 func (c *clientReconcilerLoop) getExistingCsiNodeDaemonSet(ctx context.Context) (*appsv1.DaemonSet, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getExistingCsiNodeDaemonSet")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "getExistingCsiNodeDaemonSet")
+	defer logger.End()
 
 	nodeDaemonSetName := csi.GetCSINodeDaemonSetName(c.GetCSIGroup())
 	namespace, err := util2.GetPodNamespace()

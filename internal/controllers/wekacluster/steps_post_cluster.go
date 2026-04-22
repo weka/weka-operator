@@ -228,8 +228,7 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 }
 
 func (r *wekaClusterReconcilerLoop) ConfigureKms(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	activeContainer, err := discovery.SelectActiveContainerWithRole(ctx, r.containers, weka.WekaContainerModeDrive)
 	if err != nil {
@@ -269,8 +268,6 @@ func (r *wekaClusterReconcilerLoop) DeleteAdminUser(ctx context.Context) error {
 }
 
 func (r *wekaClusterReconcilerLoop) configureWekaHome(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
 
 	wekaCluster := r.cluster
 	containers := r.containers
@@ -326,8 +323,7 @@ func (r *wekaClusterReconcilerLoop) IsInternalEncryptionEnabled() bool {
 }
 
 func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := discovery.SelectActiveContainer(r.containers)
 	if container == nil {

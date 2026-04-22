@@ -81,8 +81,7 @@ func (r *wekaClusterReconcilerLoop) getReadyForClusterCreateContainers(ctx conte
 //   - number of "ready" compute containers < FormClusterMinComputeContainers --> error
 //   - number of "ready" containers + number of "ignored" containers < expectedComputeContainersNum + expectedDriveContainersNum --> error
 func (r *wekaClusterReconcilerLoop) InitialContainersReady(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	cluster := r.cluster
 
@@ -135,8 +134,7 @@ func (r *wekaClusterReconcilerLoop) InitialContainersReady(ctx context.Context) 
 }
 
 func (r *wekaClusterReconcilerLoop) FormCluster(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	wekaCluster := r.cluster
 	wekaClusterService := r.clusterService
@@ -157,8 +155,7 @@ func (r *wekaClusterReconcilerLoop) FormCluster(ctx context.Context) error {
 
 // Waits for initial containers to join the cluster right after the cluster is formed
 func (r *wekaClusterReconcilerLoop) WaitForContainersJoin(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	readyContainers := r.getReadyForClusterCreateContainers(ctx)
 
@@ -193,8 +190,8 @@ func (r *wekaClusterReconcilerLoop) WaitForContainersJoin(ctx context.Context) e
 }
 
 func (r *wekaClusterReconcilerLoop) RunPostFormClusterScript(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RunPostFormClusterScript")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "RunPostFormClusterScript")
+	defer logger.End()
 
 	activeContainer, err := discovery.SelectActiveContainerWithRole(ctx, r.containers, weka.WekaContainerModeDrive)
 	if err != nil {
@@ -222,8 +219,7 @@ func (r *wekaClusterReconcilerLoop) RunPostFormClusterScript(ctx context.Context
 }
 
 func (r *wekaClusterReconcilerLoop) WaitForDrivesAdd(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	err := r.updateClusterStatusIfNotEquals(ctx, weka.WekaClusterStatusWaitDrives)
 	if err != nil {
@@ -279,8 +275,7 @@ func (r *wekaClusterReconcilerLoop) WaitForDrivesAdd(ctx context.Context) error 
 }
 
 func (r *wekaClusterReconcilerLoop) StartIo(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	err := r.updateClusterStatusIfNotEquals(ctx, weka.WekaClusterStatusStartingIO)
 	if err != nil {
@@ -309,7 +304,8 @@ func (r *wekaClusterReconcilerLoop) StartIo(ctx context.Context) error {
 	cmd := "wekaauthcli cluster start-io"
 	_, stderr, err := executor.ExecNamed(ctx, "StartIO", []string{"bash", "-ce", cmd})
 	if err != nil {
-		logger.WithValues("stderr", stderr.String()).Error(err, "Failed to start-io")
+		logger.SetValues("stderr", stderr.String())
+		logger.Error(err, "Failed to start-io")
 		return errors.Wrapf(err, "Failed to start-io: %s", stderr.String())
 	}
 	logger.InfoWithStatus(codes.Ok, "IO started", "time_taken", time.Since(r.cluster.CreationTimestamp.Time).String())

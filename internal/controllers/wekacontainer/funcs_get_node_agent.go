@@ -34,8 +34,8 @@ func (r *containerReconcilerLoop) getCurrentPodNodeName() (string, error) {
 }
 
 func (r *containerReconcilerLoop) GetNodeAgentPod(ctx context.Context, nodeName weka.NodeName) (*v1.Pod, error) {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "GetNodeAgentPod", "node", nodeName)
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "GetNodeAgentPod", "node", nodeName)
+	defer spanLogger.End()
 
 	if nodeName == "" {
 		nodeNameStr, err := r.getCurrentPodNodeName()
@@ -81,8 +81,8 @@ var nodeAgentToken string
 var nodeAgentLastPull time.Time
 
 func (r *containerReconcilerLoop) getNodeAgentToken(ctx context.Context) (string, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getNodeAgentToken")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "getNodeAgentToken")
+	defer logger.End()
 
 	if nodeAgentToken != "" && time.Since(nodeAgentLastPull) < time.Minute {
 		return nodeAgentToken, nil

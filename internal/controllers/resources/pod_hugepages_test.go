@@ -14,21 +14,24 @@ import (
 // under each feature-flag state, and for non-SSDProxy and legacy containers.
 //
 // Config constants (from config.Consts, initialised before tests):
-//   SsdProxyDpdkMemoryMiB      = 2048
+//
+//	SsdProxyDpdkMemoryMiB      = 2048
 //
 // SSDProxy offset default = 200 (used when SsdProxyHugepagesOffsetMiB not configured).
 //
 // New SSDProxy container spec (built by buildProxyContainerSpec):
-//   Hugepages       = hugepagesMiB + 2048 + 200
-//   HugepagesOffset = 200
+//
+//	Hugepages       = hugepagesMiB + 2048 + 200
+//	HugepagesOffset = 200
 //
 // Expected --memory:
-//   ff=nil or flag=false  →  Hugepages - (200+2048)  = hugepagesMiB
-//   flag=true             →  Hugepages - 200         = hugepagesMiB + 2048
+//
+//	ff=nil or flag=false  →  Hugepages - (200+2048)  = hugepagesMiB
+//	flag=true             →  Hugepages - 200         = hugepagesMiB + 2048
 func TestGetHugePagesDetails(t *testing.T) {
 	const (
 		hugepagesMiB = 4000
-		offsetMiB    = 200  // SsdProxyHugepagesOffsetMiB default
+		offsetMiB    = 200 // SsdProxyHugepagesOffsetMiB default
 	)
 	dpdk := config.Consts.SsdProxyDpdkMemoryMiB // 2048
 

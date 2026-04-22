@@ -134,8 +134,7 @@ func GetClusterCreationSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 }
 
 func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	wekaCluster := r.cluster
 	if !controllerutil.ContainsFinalizer(wekaCluster, consts.WekaFinalizer) {
@@ -187,8 +186,7 @@ func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
 // AllocateClusterRanges allocates the cluster-level port ranges.
 // This step runs before container creation to ensure port ranges are available
 func (r *wekaClusterReconcilerLoop) AllocateClusterRanges(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	cluster := r.cluster
 
@@ -230,8 +228,7 @@ func (r *wekaClusterReconcilerLoop) AllocateClusterRanges(ctx context.Context) e
 }
 
 func (r *wekaClusterReconcilerLoop) refreshContainersJoinIps(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	containers := r.containers
 	cluster := r.cluster
@@ -250,8 +247,7 @@ func (r *wekaClusterReconcilerLoop) refreshContainersJoinIps(ctx context.Context
 }
 
 func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	cluster := r.cluster
 
@@ -332,8 +328,8 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 }
 
 func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) ([]*weka.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "BuildMissingContainers")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "BuildMissingContainers")
+	defer logger.End()
 
 	cluster := r.cluster
 	existingContainers := r.containers
@@ -432,8 +428,7 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 }
 
 func (r *wekaClusterReconcilerLoop) updateContainersOnNodeSelectorMismatch(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	kubeService := kubernetes.NewKubeService(r.getClient())
 	var toDelete []*weka.WekaContainer

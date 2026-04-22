@@ -16,8 +16,7 @@ import (
 )
 
 func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	node := r.node
 	pod := r.pod

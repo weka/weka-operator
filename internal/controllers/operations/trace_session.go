@@ -531,8 +531,7 @@ func (o *MaintainTraceSession) getK8sRoutingKeyName() string {
 
 func (o *MaintainTraceSession) EnsureK8sContainerRoutingConfigMap(ctx context.Context) error {
 	// another discovery mechanism, this one will map k8s pod name to endpoint of trace server that serves that pod
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	err := o.ensureClusterContainers(ctx)
 	if err != nil {

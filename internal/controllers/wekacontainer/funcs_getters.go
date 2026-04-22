@@ -231,8 +231,7 @@ func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
 }
 
 func (r *containerReconcilerLoop) GetNode(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	nodeName := r.container.GetNodeAffinity()
 	if nodeName == "" {
@@ -303,8 +302,8 @@ func (r *containerReconcilerLoop) getCluster(ctx context.Context) (*weka.WekaClu
 		return r._cluster, nil
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getCluster")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "getCluster")
+	defer logger.End()
 
 	ownerRefs := r.container.GetOwnerReferences()
 	if len(ownerRefs) == 0 {
@@ -326,8 +325,8 @@ func (r *containerReconcilerLoop) getCluster(ctx context.Context) (*weka.WekaClu
 }
 
 func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*weka.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getClusterContainers")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "getClusterContainers")
+	defer logger.End()
 
 	if r.clusterContainers != nil {
 		return r.clusterContainers, nil

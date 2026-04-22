@@ -20,8 +20,7 @@ import (
 )
 
 func (r *wekaClusterReconcilerLoop) ApplyCredentials(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 	cluster := r.cluster
 	containers := r.containers
 
@@ -48,13 +47,15 @@ func (r *wekaClusterReconcilerLoop) ApplyCredentials(ctx context.Context) error 
 		return nil
 	}
 
-	logger.WithValues("user_name", cluster.GetOperatorClusterUsername()).Info("Ensuring operator user")
+	logger.SetValues("user_name", cluster.GetOperatorClusterUsername())
+	logger.Info("Ensuring operator user")
 	if err := ensureUser(cluster.GetOperatorSecretName()); err != nil {
 		logger.Error(err, "Failed to apply operator user credentials")
 		return err
 	}
 
-	logger.WithValues("user_name", cluster.GetUserClusterUsername()).Info("Ensuring admin user")
+	logger.SetValues("user_name", cluster.GetUserClusterUsername())
+	logger.Info("Ensuring admin user")
 	if err := ensureUser(cluster.GetUserSecretName()); err != nil {
 		logger.Error(err, "Failed to apply admin user credentials")
 		return err
@@ -76,9 +77,6 @@ func (r *wekaClusterReconcilerLoop) EnsureLoginCredentials(ctx context.Context) 
 }
 
 func (r *wekaClusterReconcilerLoop) EnsureCsiLoginCredentials(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
 	cluster := r.cluster
 	secret := &v1.Secret{}
 	err := r.getClient().Get(ctx, client.ObjectKey{
@@ -130,8 +128,7 @@ func (r *wekaClusterReconcilerLoop) EnsureCsiLoginCredentials(ctx context.Contex
 }
 
 func (r *wekaClusterReconcilerLoop) applyClientLoginCredentials(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	cluster := r.cluster
 	containers := r.containers
@@ -159,8 +156,8 @@ func (r *wekaClusterReconcilerLoop) applyClientLoginCredentials(ctx context.Cont
 }
 
 func (r *wekaClusterReconcilerLoop) applyCsiLoginCredentials(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "applyCsiLoginCredentials")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "applyCsiLoginCredentials")
+	defer logger.End()
 
 	cluster := r.cluster
 	containers := r.containers
@@ -201,8 +198,7 @@ func (r *wekaClusterReconcilerLoop) getUsernameAndPassword(ctx context.Context, 
 }
 
 func (r *wekaClusterReconcilerLoop) ensureClientLoginCredentials(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	cluster := r.cluster
 	containers := r.containers
