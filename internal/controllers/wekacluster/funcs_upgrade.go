@@ -254,8 +254,8 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			return nil
 		}
 
-		ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleContainerSpecUpdate", "container", container.Name)
-		defer end()
+		ctx, logger := instrumentation.CreateLogSpan(ctx, "handleContainerSpecUpdate", "container", container.Name)
+		defer logger.End()
 
 		err := r.getClient().Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: container.Name}, container)
 		if err != nil {
@@ -424,8 +424,8 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 }
 
 func (r *wekaClusterReconcilerLoop) emitClusterUpgradeCustomEvent(ctx context.Context) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "emitClusterUpgradeCustomEvent")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "emitClusterUpgradeCustomEvent")
+	defer logger.End()
 
 	activeContainer := discovery.SelectActiveContainer(r.containers)
 	if activeContainer == nil {
@@ -460,8 +460,7 @@ func (r *wekaClusterReconcilerLoop) emitClusterUpgradeCustomEvent(ctx context.Co
 }
 
 func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	cluster := r.cluster
 	clusterService := r.clusterService
@@ -718,8 +717,8 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 }
 
 func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context, containers []*weka.WekaContainer, targetVersion string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "prepareForUpgradeDrives")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "prepareForUpgradeDrives")
+	defer logger.End()
 
 	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
 	if err != nil {
@@ -741,8 +740,8 @@ wekaauthcli status --json | grep upgrade_phase | grep -i drive ||  wekaauthcli d
 }
 
 func (r *wekaClusterReconcilerLoop) prepareForUpgradeCompute(ctx context.Context, containers []*weka.WekaContainer, targetVersion string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "prepareForUpgradeCompute")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "prepareForUpgradeCompute")
+	defer logger.End()
 
 	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
 	if err != nil {
@@ -764,8 +763,8 @@ wekaauthcli status --json | grep upgrade_phase | grep -i compute || wekaauthcli 
 }
 
 func (r *wekaClusterReconcilerLoop) prepareForUpgradeS3(ctx context.Context, containers []*weka.WekaContainer, targetVersion string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "prepareForUpgradeS3")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "prepareForUpgradeS3")
+	defer logger.End()
 
 	if len(containers) == 0 {
 		logger.Info("No S3 containers found to upgrade")
@@ -791,8 +790,8 @@ wekaauthcli status --json | grep upgrade_phase | grep -i frontend || wekaauthcli
 }
 
 func (r *wekaClusterReconcilerLoop) finalizeUpgrade(ctx context.Context, containers []*weka.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeUpgrade")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "finalizeUpgrade")
+	defer logger.End()
 
 	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
 	if err != nil {

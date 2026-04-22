@@ -29,8 +29,7 @@ import (
 )
 
 func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	logger.Info("Handling container deletion", "container", r.container.Name)
 
@@ -48,8 +47,8 @@ func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "finalizeContainer")
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "finalizeContainer")
+	defer spanLogger.End()
 
 	// first ensure no pod exists
 	err := r.stopForceAndEnsureNoPod(ctx)
@@ -84,8 +83,8 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "cleanupPersistentDir")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "cleanupPersistentDir")
+	defer logger.End()
 
 	container := r.container
 
@@ -153,8 +152,8 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 }
 
 func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Context, pod *v1.Pod, skipExec bool) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "writeAllowForceStopInstruction", "skipExec", skipExec)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "writeAllowForceStopInstruction", "skipExec", skipExec)
+	defer logger.End()
 
 	// create a Json and sent it to node-agent, required for CoreOS / cri-o container agent
 	// since we can't execute directly on pod if it is in terminating state
@@ -192,8 +191,8 @@ func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Con
 }
 
 func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Context, pod *v1.Pod, instructions resources.ShutdownInstructions) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "sendStopInstructionsViaAgent", "force", instructions.AllowForceStop, "instructions", instructions)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "sendStopInstructionsViaAgent", "force", instructions.AllowForceStop, "instructions", instructions)
+	defer logger.End()
 
 	var nodeName string
 	var err error
@@ -252,8 +251,8 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 		skipExec = strings.Contains(r.node.Status.NodeInfo.ContainerRuntimeVersion, "cri-o") || !NodeIsReady(r.node)
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ensureNoPod")
+	defer logger.End()
 
 	pod := &v1.Pod{}
 	err := r.Get(ctx, client.ObjectKey{Name: container.Name, Namespace: container.Namespace}, pod)
@@ -313,8 +312,8 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 		skipExec = strings.Contains(r.node.Status.NodeInfo.ContainerRuntimeVersion, "cri-o") || !NodeIsReady(r.node)
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod", "skipExec", skipExec)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ensureNoPod", "skipExec", skipExec)
+	defer logger.End()
 
 	pod := &v1.Pod{}
 	err := r.Get(ctx, client.ObjectKey{Name: container.Name, Namespace: container.Namespace}, pod)
@@ -362,8 +361,8 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 }
 
 func (r *containerReconcilerLoop) deletePod(ctx context.Context, pod *v1.Pod) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deletePod")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "deletePod")
+	defer logger.End()
 
 	if pod == nil {
 		return errors.New("pod is nil")
@@ -386,8 +385,8 @@ func (r *containerReconcilerLoop) deletePod(ctx context.Context, pod *v1.Pod) er
 }
 
 func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.Pod, force bool) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "runWekaLocalStop")
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "runWekaLocalStop")
+	defer spanLogger.End()
 
 	timeout := 12 * time.Second
 	bashTimeout := 10 * time.Second
@@ -418,8 +417,8 @@ func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.
 }
 
 func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context, pod *v1.Pod, skipExec bool) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "writeAllowStopInstruction", "skipExec", skipExec)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "writeAllowStopInstruction", "skipExec", skipExec)
+	defer logger.End()
 
 	// create a Json and sent it to node-agent, required for CoreOS / cri-o container agent
 	// since we can't execute directly on pod if it is in terminating state
@@ -455,8 +454,6 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 }
 
 func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
 
 	if r.node == nil {
 		// no reason to wait for mounts if node does not exist
@@ -499,8 +496,8 @@ func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) erro
 }
 
 func (r *containerReconcilerLoop) invokeDrain(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "invokeDrain")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "invokeDrain")
+	defer logger.End()
 
 	if r.pod == nil {
 		return errors.New("Pod is not set, cannot drain")
@@ -522,8 +519,8 @@ func (r *containerReconcilerLoop) invokeDrain(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) invokeForceUmountOnHost(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "invokeForceUmountOnHost")
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "invokeForceUmountOnHost")
+	defer spanLogger.End()
 	if r.pod == nil {
 		return errors.New("Pod is not set, cannot umount")
 	}
@@ -542,8 +539,7 @@ func (r *containerReconcilerLoop) invokeForceUmountOnHost(ctx context.Context) e
 }
 
 func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	nodeName := r.container.GetNodeAffinity()
 

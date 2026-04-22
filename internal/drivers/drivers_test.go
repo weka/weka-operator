@@ -2,15 +2,12 @@ package drivers
 
 import (
 	"context"
-	"os"
 	"testing"
-	"time"
 
-	"github.com/go-logr/zerologr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
+	obslogger "github.com/weka/go-weka-observability/logger"
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/weka/weka-operator/internal/config"
@@ -27,12 +24,10 @@ func TestDrivers(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	ctx := context.Background()
-	writer := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.TimeOnly}
-	zeroLogger := zerolog.New(writer).Level(zerolog.DebugLevel).With().Timestamp().Logger()
-	logger := zerologr.New(&zeroLogger)
+	logger := obslogger.CreateLogger(obslogger.WithConsoleSink(), obslogger.WithDebugLevel())
 
 	var err error
-	otelShutdown, err = instrumentation.SetupOTelSDK(ctx, "drivers-tests", "", logger)
+	otelShutdown, err = instrumentation.SetupOTelSDKWithOptions(ctx, "drivers-tests", "", logger)
 	Expect(err).NotTo(HaveOccurred())
 })
 

@@ -6,7 +6,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
-	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/operations"
@@ -87,9 +86,6 @@ func (o *UmountOperation) Cleanup(ctx context.Context) error {
 }
 
 func (o *UmountOperation) EnsureContainer(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
 	instructions := &weka.Instructions{
 		Type:    "umount",
 		Payload: "{}",

@@ -263,8 +263,8 @@ func GetClusterEndpoints(ctx context.Context, containers []*weka.WekaContainer, 
 }
 
 func GetClusterNfsTargetIps(ctx context.Context, containers []*weka.WekaContainer) []string {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "GetClusterNfsTargetIps")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "GetClusterNfsTargetIps")
+	defer logger.End()
 
 	var nfsTargetIps []string
 	for _, container := range containers {
@@ -424,8 +424,8 @@ func GetOcpToolkitImage(ctx context.Context, c client.Client, v string) (string,
 }
 
 func GetOwnedContainers(ctx context.Context, c client.Client, owner types.UID, namespace, mode string) ([]*weka.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetOwnedContainers", "owner", owner, "mode", mode, "namespace", namespace)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetOwnedContainers", "owner", owner, "mode", mode, "namespace", namespace)
+	defer logger.End()
 
 	containersList := weka.WekaContainerList{}
 	listOpts := []client.ListOption{
@@ -476,8 +476,8 @@ func SelectNonDeletedWekaContainers(containers []*weka.WekaContainer) []*weka.We
 }
 
 func GetWekaClientsForCluster(ctx context.Context, c client.Client, cluster *weka.WekaCluster) ([]*weka.WekaClient, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetWekaClientsForCluster", "cluster", cluster.Name)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetWekaClientsForCluster", "cluster", cluster.Name)
+	defer logger.End()
 
 	clientsList := weka.WekaClientList{}
 	err := c.List(ctx, &clientsList)
@@ -511,8 +511,8 @@ func (e *SsdProxyNotFoundError) Error() string {
 }
 
 func GetSsdProxyOnNode(ctx context.Context, c client.Client, nodeName weka.NodeName) (*weka.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetSsdProxyOnNode", "nodeName", nodeName)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetSsdProxyOnNode", "nodeName", nodeName)
+	defer logger.End()
 
 	// Get the operator namespace where ssdproxy containers are deployed
 	operatorNamespace, err := util.GetPodNamespace()

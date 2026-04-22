@@ -11,6 +11,7 @@ import (
 	"github.com/go-logr/zapr"
 	prettyconsole "github.com/thessem/zap-prettyconsole"
 	"github.com/weka/go-weka-observability/instrumentation"
+	obslogger "github.com/weka/go-weka-observability/logger"
 	uzap "go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -58,21 +59,21 @@ func initLogging(ctx context.Context) (context.Context, logr.Logger, func(contex
 	internalLogger := prettyconsole.NewLogger(logLevel)
 	logger := zapr.NewLogger(internalLogger)
 
-	shutdown, err := instrumentation.SetupOTelSDK(ctx, "weka-operator", "test", logger)
+	shutdown, err := instrumentation.SetupOTelSDKWithOptions(ctx, "weka-operator", "test", logger)
 	if err != nil {
 		panic(err)
 	}
 
-	// Add logger to context
-	ctx, logger = instrumentation.GetLoggerForContext(ctx, &logger, "operator.test")
+	logger = logger.WithName("operator.test")
+	ctx = obslogger.ContextWithLogr(ctx, logger)
 
 	log.SetLogger(logger)
 	return ctx, logger, shutdown
 }
 
 func ValidateTestEnvironment(ctx context.Context) error {
-	_, logger, done := instrumentation.GetLogSpan(ctx, "ValidateTestEnvironment")
-	defer done()
+	_, logger := instrumentation.CreateLogSpan(ctx, "ValidateTestEnvironment")
+	defer logger.End()
 
 	requiredEnvVars := []string{"QUAY_USERNAME", "QUAY_PASSWORD", "KUBECONFIG"}
 	for _, envVar := range requiredEnvVars {

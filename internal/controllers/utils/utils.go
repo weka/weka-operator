@@ -32,8 +32,8 @@ func getAWSGatewayIP(cidr string) (string, error) {
 }
 
 func GetNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaContainer) (netDevices []string, err error) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "getNetDevices")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "getNetDevices")
+	defer logger.End()
 
 	// if subnet for devices auto-discovery or network selectors are set, we don't need to set the netDevice
 	if len(container.Spec.Network.Selectors) > 0 {

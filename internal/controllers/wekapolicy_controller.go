@@ -54,8 +54,8 @@ type policyLoop struct {
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 
 func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaPolicyReconcile", "namespace", req.Namespace, "object_name", req.Name)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "WekaPolicyReconcile", "namespace", req.Namespace, "object_name", req.Name)
+	defer logger.End()
 
 	ctx, cancel := context.WithTimeout(ctx, config.Config.Timeouts.ReconcileTimeout)
 	defer cancel()

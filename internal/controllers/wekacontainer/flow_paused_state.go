@@ -35,8 +35,7 @@ func PausedStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 }
 
 func (r *containerReconcilerLoop) handleStatePaused(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	if r.container.Status.Status != weka.Paused {
 		err := r.stopForceAndEnsureNoPod(ctx)

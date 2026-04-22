@@ -1,6 +1,5 @@
 package allocator
 
-
 const MaxPort = 65535
 
 type Range struct {
@@ -22,4 +21,3 @@ type Owner struct {
 // ClusterRanges maps cluster owners to their allocated port ranges.
 // Used for finding free port ranges when allocating new clusters.
 type ClusterRanges map[OwnerCluster]Range
-

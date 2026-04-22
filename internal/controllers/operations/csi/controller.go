@@ -99,8 +99,8 @@ func GetCsiDriverName(csiGroup string) string {
 }
 
 func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient) (*appsv1.Deployment, error) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "NewCsiControllerDeployment")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "NewCsiControllerDeployment")
+	defer logger.End()
 
 	name := GetCSIControllerName(csiGroupName)
 	csiDriverName := GetCsiDriverName(csiGroupName)

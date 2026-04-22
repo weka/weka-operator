@@ -20,8 +20,7 @@ import (
 )
 
 func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	cluster := r.cluster
 
@@ -117,8 +116,7 @@ func (r *wekaClusterReconcilerLoop) ShouldDestroyS3Cluster() bool {
 }
 
 func (r *wekaClusterReconcilerLoop) DestroyS3Cluster(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := discovery.SelectActiveContainer(r.containers)
 

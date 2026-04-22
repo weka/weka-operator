@@ -16,8 +16,8 @@ import (
 )
 
 func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCluster, wekaStatus *services.WekaStatusResponse) (string, error) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "BuildClusterPrometheusMetrics")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "BuildClusterPrometheusMetrics")
+	defer logger.End()
 	metrics := []metrics2.PromMetric{}
 
 	commonTags := map[string]string{

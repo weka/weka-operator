@@ -80,8 +80,8 @@ func NewNodeAllocationLock(restConfig *rest.Config, namespace, nodeName, contain
 //	    return allocateResources(ctx)
 //	})
 func (l *NodeAllocationLock) RunWithLease(ctx context.Context, fn func(context.Context) error) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "NodeAllocationLock.RunWithLease")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "NodeAllocationLock.RunWithLease")
+	defer logger.End()
 
 	leaseName := fmt.Sprintf("weka-allocator-%s", l.nodeName)
 

@@ -90,8 +90,8 @@ func (o *GetFeatureFlagsViaAdhocOperation) AdhocExists() bool {
 }
 
 func (o *GetFeatureFlagsViaAdhocOperation) GetAdhocContainer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetAdhocContainer")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetAdhocContainer")
+	defer logger.End()
 
 	operatorNamespace, err := util.GetPodNamespace()
 	if err != nil {
@@ -126,8 +126,8 @@ func GetFeatureFlagsAdhocContainerName(image string) string {
 }
 
 func (o *GetFeatureFlagsViaAdhocOperation) EnsureAdhocContainer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureAdhocContainer")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureAdhocContainer")
+	defer logger.End()
 
 	instructions := &weka.Instructions{
 		Type: "feature-flags-update",
@@ -199,8 +199,8 @@ func (o *GetFeatureFlagsViaAdhocOperation) PollAdhocResult(ctx context.Context) 
 }
 
 func (o *GetFeatureFlagsViaAdhocOperation) ProcessAdhocResult(ctx context.Context) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "ProcessAdhocResult")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "ProcessAdhocResult")
+	defer logger.End()
 
 	if o.adhocContainer == nil || o.adhocContainer.Status.ExecutionResult == nil {
 		return errors.New("no ad-hoc container result to process")
@@ -218,8 +218,8 @@ func (o *GetFeatureFlagsViaAdhocOperation) ProcessAdhocResult(ctx context.Contex
 }
 
 func (o *GetFeatureFlagsViaAdhocOperation) CacheFeatureFlags(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CacheFeatureFlags")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "CacheFeatureFlags")
+	defer logger.End()
 
 	if o.featureFlags == nil {
 		return errors.New("no feature flags to cache")
@@ -239,8 +239,8 @@ func (o *GetFeatureFlagsViaAdhocOperation) DeleteAdhocContainer(ctx context.Cont
 		return nil
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeleteAdhocContainer")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "DeleteAdhocContainer")
+	defer logger.End()
 
 	err := o.client.Delete(ctx, o.adhocContainer)
 	if err != nil {

@@ -144,8 +144,8 @@ func (s *clustersJoinIpsService) GetJoinIps(ctx context.Context, clusterGuid, cl
 }
 
 func (s *clustersJoinIpsService) RefreshJoinIps(ctx context.Context, containers []*weka.WekaContainer, cluster *weka.WekaCluster) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "RefreshJoinIps")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "RefreshJoinIps")
+	defer logger.End()
 
 	s.lock.Lock()
 	defer s.lock.Unlock()

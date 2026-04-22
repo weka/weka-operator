@@ -31,8 +31,7 @@ const (
 
 // EnsureManagementProxy creates or updates the Envoy proxy deployment and service
 func (r *wekaClusterReconcilerLoop) EnsureManagementProxy(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	proxyName := r.getManagementProxyName()
 	configMapName := r.getManagementConfigMapName()

@@ -87,8 +87,7 @@ func (o *DiscoverNodeOperation) GetSteps() []lifecycle.Step {
 }
 
 func (o *DiscoverNodeOperation) GetNode(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	node, err := o.kubeService.GetNode(ctx, types.NodeName(o.nodeName))
 	if err != nil {

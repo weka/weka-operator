@@ -734,10 +734,10 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 
 			if wc.Status.NodeAffinity != "" {
 				// evicting for reschedule
-				spanCtx, logger, end := instrumentation.GetLogSpan(ctx, "enforceNodeAffinity-evict")
+				spanCtx, logger := instrumentation.CreateLogSpan(ctx, "enforceNodeAffinity-evict")
 				logger.Info("Another container is already using this node, evicting it", "other_container", wc.Name, "container_name", r.container.Name, "node", node)
 				//goland:noinspection ALL
-				end()
+				logger.End()
 				if err := r.ensureStateDeleting(spanCtx); err != nil {
 					return err
 				}
@@ -750,8 +750,7 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 }
 
 func (r *containerReconcilerLoop) setNodeAffinityStatus(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	nodeName := r.pod.Spec.NodeName
 	if nodeName == "" {
@@ -772,8 +771,7 @@ func (r *containerReconcilerLoop) setNodeAffinityStatus(ctx context.Context) err
 }
 
 func (r *containerReconcilerLoop) clearStatusOnNodeNotFound(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	nodeName := r.container.GetNodeAffinity()
 
@@ -795,8 +793,7 @@ func (r *containerReconcilerLoop) clearStatusOnNodeNotFound(ctx context.Context)
 // - wekacontainer was created with wrong node selector, node selector was changed, but pod is still in Pending state
 // - drivers container is in Pending state, but node affinity is set, so we want to change node affinity and reschedule pod
 func (r *containerReconcilerLoop) deletePodIfUnschedulable(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	pod := r.pod
 	container := r.container
@@ -857,8 +854,7 @@ func (r *containerReconcilerLoop) setPodRunningStatus(ctx context.Context) error
 }
 
 func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	pod := r.pod
 	container := r.container

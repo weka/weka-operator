@@ -17,8 +17,7 @@ import (
 )
 
 func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := r.container
 	pod := r.pod
@@ -86,8 +85,7 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 }
 
 func (r *containerReconcilerLoop) setJoinIpsIfStuckInStemMode(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := r.container
 

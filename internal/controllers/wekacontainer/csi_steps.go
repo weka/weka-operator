@@ -44,8 +44,6 @@ func (r *containerReconcilerLoop) getCsiDriverName() string {
 }
 
 func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
 
 	csiDriverName := r.getCsiDriverName()
 	nodeName := r.container.GetNodeAffinity()
@@ -55,8 +53,8 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 
 	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, string(nodeName), r.container)
 	if !csiTopologyLabelsService.NodeHasExpectedCsiTopologyLabels(r.node) {
-		spanCtx, logger, end := instrumentation.GetLogSpan(ctx, "UpdateNodeCsiTopologyLabels")
-		defer end()
+		spanCtx, logger := instrumentation.CreateLogSpan(ctx, "UpdateNodeCsiTopologyLabels")
+		defer logger.End()
 		ctx = spanCtx
 
 		expectedLabels := csiTopologyLabelsService.GetExpectedCsiTopologyLabels()
@@ -74,8 +72,8 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 }
 
 func (r *containerReconcilerLoop) UnsetCsiNodeTopologyLabels(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UnsetCsiNodeTopologyLabels")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "UnsetCsiNodeTopologyLabels")
+	defer logger.End()
 
 	csiDriverName := r.getCsiDriverName()
 	nodeName := r.node.Name

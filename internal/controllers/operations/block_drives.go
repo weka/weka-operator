@@ -118,8 +118,8 @@ func (o *BlockDrivesOperation) GetSteps() []lifecycle.Step {
 }
 
 func (o *BlockDrivesOperation) UnblockDrives(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UnblockDrives", "node", o.payload.Node)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "UnblockDrives", "node", o.payload.Node)
+	defer logger.End()
 
 	node := &corev1.Node{}
 	if err := o.client.Get(ctx, types.NamespacedName{Name: o.payload.Node}, node); err != nil {
@@ -201,8 +201,8 @@ func (o *BlockDrivesOperation) UnblockDrives(ctx context.Context) error {
 }
 
 func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "BlockDrives", "node", o.payload.Node)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "BlockDrives", "node", o.payload.Node)
+	defer logger.End()
 
 	node := &corev1.Node{}
 	if err := o.client.Get(ctx, types.NamespacedName{Name: o.payload.Node}, node); err != nil {
@@ -287,8 +287,8 @@ func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
 }
 
 func (o *BlockDrivesOperation) BlockSharedDrives(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "BlockSharedDrives", "node", o.payload.Node)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "BlockSharedDrives", "node", o.payload.Node)
+	defer logger.End()
 
 	node := &corev1.Node{}
 	if err := o.client.Get(ctx, types.NamespacedName{Name: o.payload.Node}, node); err != nil {
@@ -400,8 +400,8 @@ func (o *BlockDrivesOperation) BlockSharedDrives(ctx context.Context) error {
 }
 
 func (o *BlockDrivesOperation) UnblockSharedDrives(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UnblockSharedDrives", "node", o.payload.Node)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "UnblockSharedDrives", "node", o.payload.Node)
+	defer logger.End()
 
 	node := &corev1.Node{}
 	if err := o.client.Get(ctx, types.NamespacedName{Name: o.payload.Node}, node); err != nil {

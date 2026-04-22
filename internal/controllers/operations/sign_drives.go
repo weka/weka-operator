@@ -116,8 +116,7 @@ func (o *SignDrivesOperation) GetContainers(ctx context.Context) error {
 }
 
 func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	// validate image for sign-drives
 	if o.image == "" {

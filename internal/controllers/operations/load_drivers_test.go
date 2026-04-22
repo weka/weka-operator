@@ -3,15 +3,12 @@ package operations
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"testing"
-	"time"
 
-	"github.com/go-logr/zerologr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
+	obslogger "github.com/weka/go-weka-observability/logger"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,12 +32,10 @@ func TestLoadDrivers(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	ctx := context.Background()
-	writer := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.TimeOnly}
-	zeroLogger := zerolog.New(writer).Level(zerolog.DebugLevel).With().Timestamp().Logger()
-	logger := zerologr.New(&zeroLogger)
+	logger := obslogger.CreateLogger(obslogger.WithConsoleSink(), obslogger.WithDebugLevel())
 
 	var err error
-	otelShutdown, err = instrumentation.SetupOTelSDK(ctx, "load-drivers-tests", "", logger)
+	otelShutdown, err = instrumentation.SetupOTelSDKWithOptions(ctx, "load-drivers-tests", "", logger)
 	Expect(err).NotTo(HaveOccurred())
 })
 

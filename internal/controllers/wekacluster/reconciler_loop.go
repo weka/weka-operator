@@ -127,8 +127,8 @@ func (loop *wekaClusterReconcilerLoop) GetAllSteps() []lifecycle.Step {
 }
 
 func (r *wekaClusterReconcilerLoop) FetchCluster(ctx context.Context, req ctrl.Request) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "FetchCluster")
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "FetchCluster")
+	defer spanLogger.End()
 
 	wekaCluster := &weka.WekaCluster{}
 	err := r.getClient().Get(ctx, req.NamespacedName, wekaCluster)
@@ -178,4 +178,3 @@ func (r *wekaClusterReconcilerLoop) RecoverPausedContainers(ctx context.Context)
 func (r *wekaClusterReconcilerLoop) SetReadyStatus(ctx context.Context) error {
 	return r.updateClusterStatusIfNotEquals(ctx, weka.WekaClusterStatusReady)
 }
-

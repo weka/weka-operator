@@ -105,8 +105,8 @@ type secretsService struct {
 }
 
 func (r *secretsService) UpdateOperatorLoginSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "updateOperatorLoginSecret")
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "updateOperatorLoginSecret")
+	defer spanLogger.End()
 
 	secret := v1.Secret{}
 	err := r.Client.Get(ctx, client.ObjectKey{
@@ -133,8 +133,8 @@ func (r *secretsService) UpdateOperatorLoginSecret(ctx context.Context, cluster 
 }
 
 func (r *secretsService) EnsureLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureLoginCredentials")
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "ensureLoginCredentials")
+	defer spanLogger.End()
 
 	kubeService := kubernetes.NewKubeService(r.Client)
 
@@ -167,8 +167,8 @@ func (r *secretsService) EnsureLoginCredentials(ctx context.Context, cluster *we
 }
 
 func (r *secretsService) EnsureClientLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, container *wekav1alpha1.WekaContainer) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureClientLoginCredentials")
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "ensureClientLoginCredentials")
+	defer spanLogger.End()
 
 	kubeService := kubernetes.NewKubeService(r.Client)
 	wekaService := NewWekaService(r.ExecService, container)

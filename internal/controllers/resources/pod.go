@@ -1089,9 +1089,8 @@ func AlignMemoryToHugepageBoundary(memoryMiB, numCores int) int {
 //   - with SsdProxyIncludesDpdkMemory: DPDK is accounted through weka, only the hugepages
 //     offset buffer (HugepagesOffset) is subtracted from --memory
 func GetHugePagesDetails(container *weka.WekaContainer, ff *domain.FeatureFlags) HugePagesDetails {
-	hugePagesStr := ""
-	hugePagesK8sSuffix := "2Mi"
-	wekaMemoryString := ""
+	var hugePagesStr, hugePagesK8sSuffix, wekaMemoryString string
+
 	if container.Spec.HugepagesSize == "1Gi" {
 		hugePagesK8sSuffix = container.Spec.HugepagesSize
 		hugePagesStr = fmt.Sprintf("%dGi", container.Spec.Hugepages/1000)
@@ -1131,12 +1130,12 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
-	_, logger, end := instrumentation.GetLogSpan(ctx, "setResources",
+	_, logger := instrumentation.CreateLogSpan(ctx, "setResources",
 		"cores", totalNumCores,
 		"mode", f.container.Spec.Mode,
 		"cpuPolicy", f.container.Spec.CpuPolicy,
 	)
-	defer end()
+	defer logger.End()
 
 	cpuPolicy := f.container.Spec.CpuPolicy
 	if !cpuPolicy.IsValid() {

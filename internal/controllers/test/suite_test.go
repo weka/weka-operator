@@ -22,13 +22,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"time"
 	//+kubebuilder:scaffold:imports
 
 	"github.com/go-logr/logr"
-	"github.com/go-logr/zerologr"
-	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
+	obslogger "github.com/weka/go-weka-observability/logger"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -64,17 +62,12 @@ type TestEnvironment struct {
 
 func setupLogging(ctx context.Context) (logger logr.Logger, shutdown func(context.Context) error, err error) {
 	if os.Getenv("DEBUG") == "true" {
-		// Debug logger
-		writer := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.TimeOnly}
-		zeroLogger := zerolog.New(writer).Level(zerolog.DebugLevel).With().Timestamp().Logger()
-		logger = zerologr.New(&zeroLogger)
+		logger = obslogger.CreateLogger(obslogger.WithConsoleSink(), obslogger.WithDebugLevel())
 	} else {
-		// Logger that drops/silences messages for unit testing
-		zeroLogger := zerolog.Nop()
-		logger = zerologr.New(&zeroLogger)
+		logger = logr.Discard()
 	}
 
-	shutdown, err = instrumentation.SetupOTelSDK(ctx, "test-weka-operator", "", logger)
+	shutdown, err = instrumentation.SetupOTelSDKWithOptions(ctx, "test-weka-operator", "", logger)
 	if err != nil {
 		err = fmt.Errorf("failed to setup OTel SDK: %w", err)
 		return
@@ -175,4 +168,3 @@ func teardownTestEnv(testEnv *TestEnvironment) error {
 
 	return nil
 }
-

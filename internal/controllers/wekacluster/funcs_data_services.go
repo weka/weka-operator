@@ -11,8 +11,8 @@ import (
 )
 
 func (r *wekaClusterReconcilerLoop) EnsureDataServicesGlobalConfig(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDataServicesGlobalConfig")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ensureDataServicesGlobalConfig")
+	defer logger.End()
 
 	execInContainer := discovery.SelectActiveContainer(r.containers)
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)

@@ -36,8 +36,7 @@ func (r *containerReconcilerLoop) JoinSmbwCluster(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) RemoveFromSmbwCluster(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	containerId := r.container.Status.ClusterContainerID
 	if containerId == nil {

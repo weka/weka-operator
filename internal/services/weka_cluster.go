@@ -48,8 +48,8 @@ func (r *wekaClusterService) GetCluster() *wekav1alpha1.WekaCluster {
 }
 
 func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNoContainers", "cluster", r.Cluster.Name, "mode", mode)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureNoContainers", "cluster", r.Cluster.Name, "mode", mode)
+	defer logger.End()
 
 	containers, err := r.GetOwnedContainers(ctx, mode)
 	if err != nil {
@@ -86,8 +86,8 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 }
 
 func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "createCluster", "cluster", r.Cluster.Name, "containers", len(containers))
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "createCluster", "cluster", r.Cluster.Name, "containers", len(containers))
+	defer logger.End()
 
 	if len(containers) == 0 {
 		err := errors.New("cannot form cluster with no containers")
@@ -191,8 +191,8 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 }
 
 func (r *wekaClusterService) GetOwnedContainers(ctx context.Context, mode string) ([]*wekav1alpha1.WekaContainer, error) {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "GetClusterContainers", "cluster", r.Cluster.Name, "mode", mode, "cluster_uid", string(r.Cluster.UID))
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "GetClusterContainers", "cluster", r.Cluster.Name, "mode", mode, "cluster_uid", string(r.Cluster.UID))
+	defer spanLogger.End()
 
 	return discovery.GetOwnedContainers(ctx, r.Client, r.Cluster.UID, r.Cluster.Namespace, mode)
 }

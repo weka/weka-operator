@@ -90,8 +90,8 @@ type ContainerController struct {
 
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaContainerReconcile", "namespace", req.Namespace, "container_name", req.Name)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "WekaContainerReconcile", "namespace", req.Namespace, "container_name", req.Name)
+	defer logger.End()
 
 	ctx, cancel := context.WithTimeout(ctx, config.Config.Timeouts.ReconcileTimeout)
 	defer cancel()
@@ -117,8 +117,8 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 func (r *ContainerController) refreshContainer(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "refreshContainer")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "refreshContainer")
+	defer logger.End()
 
 	container := &wekav1alpha1.WekaContainer{}
 	if err := r.Get(ctx, req.NamespacedName, container); err != nil {

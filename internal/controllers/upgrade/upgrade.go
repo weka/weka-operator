@@ -15,10 +15,10 @@ import (
 )
 
 type UpgradeController struct {
-	Containers        []*v1alpha1.WekaContainer
-	TargetImage       string // non-empty only when the image itself changed
+	Containers          []*v1alpha1.WekaContainer
+	TargetImage         string // non-empty only when the image itself changed
 	TargetPodConfigHash string
-	Client            client.Client
+	Client              client.Client
 }
 
 func NewUpgradeController(k8sClient client.Client, containers []*v1alpha1.WekaContainer, targetImage, targetPodConfigHash string) *UpgradeController {
@@ -103,12 +103,12 @@ func (u *UpgradeController) AllAtOnceUpgrade(ctx context.Context) error {
 
 // Upgrades one container at a time
 func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RollingUpgrade")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "RollingUpgrade")
 
 	maxSkipPercent := config.Config.Upgrade.MaxDeactivatingContainersPercent
 	skipped := 0
 
-	defer end()
+	defer logger.End()
 	for _, container := range u.Containers {
 		if container.IsMarkedForDeletion() {
 			skipped += 1

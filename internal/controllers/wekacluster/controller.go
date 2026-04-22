@@ -52,8 +52,8 @@ func NewWekaClusterController(mgr ctrl.Manager, restClient rest.Interface) *Weka
 }
 
 func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(initContext, "WekaClusterReconcile", "namespace", req.Namespace, "cluster_name", req.Name)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(initContext, "WekaClusterReconcile", "namespace", req.Namespace, "cluster_name", req.Name)
+	defer logger.End()
 
 	ctx, cancel := context.WithTimeout(ctx, config.Config.Timeouts.ReconcileTimeout)
 	defer cancel()
@@ -82,8 +82,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	// 	return ctrl.Result{}, err
 	// }
 
-	ctx, logger, end = instrumentation.GetLogSpan(ctx, "WekaClusterReconcileLoop", "cluster_uid", string(loop.cluster.GetUID()))
-	defer end()
+	ctx, logger = instrumentation.CreateLogSpan(ctx, "WekaClusterReconcileLoop", "cluster_uid", string(loop.cluster.GetUID()))
+	defer logger.End()
 
 	logger.Info("Reconciling WekaCluster")
 	defer logger.Info("Reconciliation of WekaCluster finished")
@@ -103,8 +103,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 }
 
 func (r *WekaClusterReconciler) GetProvisionContext(initContext context.Context, wekaCluster *weka.WekaCluster) (context.Context, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(initContext, "GetProvisionContext")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(initContext, "GetProvisionContext")
+	defer logger.End()
 
 	if wekaCluster.Status.Status == weka.WekaClusterStatusInit && wekaCluster.Status.TraceId == "" {
 		span := trace.SpanFromContext(ctx)
@@ -112,8 +112,8 @@ func (r *WekaClusterReconciler) GetProvisionContext(initContext context.Context,
 		wekaCluster.Status.TraceId = span.SpanContext().TraceID().String()
 		// since this is init, we need to open new span with the original traceId
 		remoteContext := instrumentation.NewContextWithTraceID(ctx, nil, wekaCluster.Status.TraceId)
-		ctx, logger, end = instrumentation.GetLogSpan(remoteContext, "WekaClusterProvision")
-		defer end()
+		ctx, logger = instrumentation.CreateLogSpan(remoteContext, "WekaClusterProvision")
+		defer logger.End()
 		logger.AddEvent("New shared Span")
 		wekaCluster.Status.SpanID = logger.Span.SpanContext().SpanID().String()
 

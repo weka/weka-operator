@@ -20,8 +20,8 @@ import (
 func TestHappyPath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(pkgCtx, 30*time.Minute)
 	defer cancel()
-	ctx, logger, done := instrumentation.GetLogSpan(ctx, "TestHappyPath")
-	defer done()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "TestHappyPath")
+	defer logger.End()
 
 	operatorNamespace := "weka-operator-system"
 	cluster := testingCluster(*WekaImage, operatorNamespace)
@@ -114,8 +114,8 @@ func TestHappyPath(t *testing.T) {
 }
 
 func NewE2ETest(ctx context.Context, cluster *wekav1alpha1.WekaCluster) (*E2ETest, error) {
-	ctx, logger, done := instrumentation.GetLogSpan(ctx, "NewE2ETest")
-	defer done()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "NewE2ETest")
+	defer logger.End()
 
 	clusterName := cluster.Name
 	wekaClusterName := cluster.Name

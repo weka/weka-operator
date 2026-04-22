@@ -135,8 +135,8 @@ func (o *ResignDrivesOperation) DeleteContainer(ctx context.Context) error {
 }
 
 func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "EnsureResignContainer", "namespace", o.namespace, "is_deleting_namespace", o.nsIsDeleting)
-	defer end()
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "EnsureResignContainer", "namespace", o.namespace, "is_deleting_namespace", o.nsIsDeleting)
+	defer spanLogger.End()
 	if o.container != nil {
 		return nil
 	}

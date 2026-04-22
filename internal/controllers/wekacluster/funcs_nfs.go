@@ -40,8 +40,8 @@ func validateNfsConfig(cluster *weka.WekaCluster) error {
 }
 
 func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNfs")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ensureNfs")
+	defer logger.End()
 
 	// Validate NFS configuration before proceeding
 	if err := validateNfsConfig(r.cluster); err != nil {
@@ -95,8 +95,8 @@ func (r *wekaClusterReconcilerLoop) ShouldConfigureNfsIpRanges() bool {
 // EnsureNfsIpRanges ensures the NFS interface group has the correct IP ranges.
 // It fetches current state and reconciles to desired state.
 func (r *wekaClusterReconcilerLoop) EnsureNfsIpRanges(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNfsIpRanges")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ensureNfsIpRanges")
+	defer logger.End()
 
 	// Get target IP ranges from cluster spec
 	targetIpRanges := []string{}

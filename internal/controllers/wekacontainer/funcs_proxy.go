@@ -35,8 +35,8 @@ func getProxyContainerName(nodeName weka.NodeName) string {
 // ensureProxyContainer ensures that an SSD proxy container exists on the node
 // This function is called for drive containers that use drive sharing
 func (r *containerReconcilerLoop) ensureProxyContainer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureProxyContainer")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ensureProxyContainer")
+	defer logger.End()
 
 	nodeName := r.container.GetNodeAffinity()
 	if nodeName == "" {
@@ -150,8 +150,8 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 // calculateProxyHugepages calculates the required hugepages for ssd_proxy
 // based on the shared drives available on the node
 func (r *containerReconcilerLoop) calculateProxyHugepages(ctx context.Context, nodeName weka.NodeName) (int, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "calculateProxyHugepages", "node", nodeName)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "calculateProxyHugepages", "node", nodeName)
+	defer logger.End()
 
 	// Get the node to read annotations
 	node := &v1.Node{}

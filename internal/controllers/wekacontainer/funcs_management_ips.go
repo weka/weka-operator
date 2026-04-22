@@ -32,8 +32,7 @@ func (r *containerReconcilerLoop) getManagementIps(ctx context.Context) ([]strin
 }
 
 func (r *containerReconcilerLoop) reconcileManagementIPs(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := r.container
 
@@ -42,7 +41,8 @@ func (r *containerReconcilerLoop) reconcileManagementIPs(ctx context.Context) er
 		return errors.Wrap(err, "waiting for management IPs")
 	}
 
-	logger.WithValues("management_ips", ipAddresses).Info("Got management IPs")
+	logger.SetValues("management_ips", ipAddresses)
+	logger.Info("Got management IPs")
 	if !util.SliceEquals(container.Status.ManagementIPs, ipAddresses) {
 		container.Status.ManagementIPs = ipAddresses
 

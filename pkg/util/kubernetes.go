@@ -90,8 +90,8 @@ func NewExecInPodByName(restClient rest.Interface, cfg *rest.Config, pod *v1.Pod
 }
 
 func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout, stderr bytes.Buffer, err error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "Exec", "command_name", name)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "Exec", "command_name", name)
+	defer logger.End()
 
 	ctx, cancel := context.WithTimeout(ctx, *e.timeout)
 	defer cancel()

@@ -151,8 +151,8 @@ func (o *PrePullImageOperation) allPodsReady() bool {
 }
 
 func (o *PrePullImageOperation) SkipIfNoNodes(ctx context.Context) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "SkipIfNoNodes")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "SkipIfNoNodes")
+	defer logger.End()
 
 	logger.Info("No target nodes found for pre-pull, skipping")
 	o.results = PrePullImageResult{
@@ -164,8 +164,8 @@ func (o *PrePullImageOperation) SkipIfNoNodes(ctx context.Context) error {
 }
 
 func (o *PrePullImageOperation) DetermineTargetNodes(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DetermineTargetNodes")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "DetermineTargetNodes")
+	defer logger.End()
 
 	nodes, err := GetTargetNodes(ctx, o.client, o.payload.NodeSelector, o.payload.Tolerations)
 	if err != nil {
@@ -184,8 +184,8 @@ func (o *PrePullImageOperation) DetermineTargetNodes(ctx context.Context) error 
 }
 
 func (o *PrePullImageOperation) EnsureDaemonSet(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureDaemonSet")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureDaemonSet")
+	defer logger.End()
 
 	dsNamePrefix := o.payload.OwnerMeta.GetName() + "-" + o.payload.Role
 	dsName := GetPrePullDaemonSetName(dsNamePrefix, o.payload.TargetImage)
@@ -239,8 +239,8 @@ func (o *PrePullImageOperation) EnsureDaemonSet(ctx context.Context) error {
 }
 
 func (o *PrePullImageOperation) CheckPodStatus(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CheckPodStatus")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "CheckPodStatus")
+	defer logger.End()
 
 	if o.daemonSet == nil {
 		return errors.New("DaemonSet not found")
@@ -273,8 +273,8 @@ func (o *PrePullImageOperation) CheckPodStatus(ctx context.Context) error {
 }
 
 func (o *PrePullImageOperation) HandleTimeout(ctx context.Context) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "HandleTimeout")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "HandleTimeout")
+	defer logger.End()
 
 	// Fail-open: proceed with upgrade even if timeout is reached
 	logger.Warn("Pre-pull timed out, proceeding with upgrade (fail-open)",
@@ -300,8 +300,8 @@ func (o *PrePullImageOperation) HandleTimeout(ctx context.Context) error {
 }
 
 func (o *PrePullImageOperation) WaitForPods(ctx context.Context) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "WaitForPods")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "WaitForPods")
+	defer logger.End()
 
 	logger.Debug("Waiting for pre-pull pods",
 		"ready", o.currentStatus.ReadyNodes,
@@ -315,8 +315,8 @@ func (o *PrePullImageOperation) WaitForPods(ctx context.Context) error {
 }
 
 func (o *PrePullImageOperation) ReportSuccess(ctx context.Context) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "ReportSuccess")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "ReportSuccess")
+	defer logger.End()
 
 	logger.Info("Pre-pull completed successfully",
 		"image", o.payload.TargetImage,
@@ -338,8 +338,8 @@ func (o *PrePullImageOperation) ReportSuccess(ctx context.Context) error {
 
 // cleanupStaleDaemonSets removes DaemonSets for old/completed upgrades
 func (o *PrePullImageOperation) CleanupStaleDaemonSets(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CleanupStaleDaemonSets")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "CleanupStaleDaemonSets")
+	defer logger.End()
 
 	dsList, err := ListPrePullDaemonSets(ctx, o.client, o.namespace, o.ownerUID)
 	if err != nil {
@@ -366,8 +366,8 @@ func (o *PrePullImageOperation) CleanupStaleDaemonSets(ctx context.Context) erro
 
 // CleanupAllPrePullDaemonSets removes all pre-pull DaemonSets for the given owner
 func (o *PrePullImageOperation) CleanupAllPrePullDaemonSets(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CleanupPrePullDaemonSet")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "CleanupPrePullDaemonSet")
+	defer logger.End()
 
 	dsList, err := ListPrePullDaemonSets(ctx, o.client, o.namespace, o.ownerUID)
 	if err != nil {

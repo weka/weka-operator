@@ -169,8 +169,8 @@ func ComputeCapacityFromMostRecentDriveContainerAllocation(
 
 // ComputeCapacityBasedHugepages calculates compute hugepages using TLC/QLC-aware capacity ratios.
 func ComputeCapacityBasedHugepages(ctx context.Context, totalRawCapacityGiB, computeContainers, computeCores int, driveTypesRatio *weka.DriveTypesRatio) int {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "ComputeCapacityBasedHugepages")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "ComputeCapacityBasedHugepages")
+	defer logger.End()
 
 	capacityBased := 0
 	if computeContainers > 0 && totalRawCapacityGiB > 0 {

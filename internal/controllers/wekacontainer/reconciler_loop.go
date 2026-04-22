@@ -76,7 +76,6 @@ type containerReconcilerLoop struct {
 	_cluster *weka.WekaCluster
 }
 
-
 func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContainer) lifecycle.StepsEngine {
 	restClient := r.RestClient
 

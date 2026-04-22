@@ -41,8 +41,8 @@ func GetFeatureFlagsForImage(
 	scheme *runtime.Scheme,
 	params *AdhocContainerParams,
 ) (*domain.FeatureFlags, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetFeatureFlagsForImage", "image", params.Image)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetFeatureFlagsForImage", "image", params.Image)
+	defer logger.End()
 
 	// Check cache first
 	flags, err := services.GetFeatureFlags(ctx, params.Image)
@@ -95,8 +95,8 @@ func GetFeatureFlagsForContainer(
 	restClient rest.Interface,
 	container *weka.WekaContainer,
 ) (*domain.FeatureFlags, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetFeatureFlagsForContainer", "container", container.Name)
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetFeatureFlagsForContainer", "container", container.Name)
+	defer logger.End()
 
 	// Determine the image to use
 	image := container.Status.LastAppliedImage

@@ -16,8 +16,7 @@ import (
 )
 
 func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	node := r.node
 
@@ -117,7 +116,8 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 		if updateErr := r.Status().Update(ctx, container); updateErr != nil {
 			return updateErr
 		}
-		logger.WithValues("status", status, "internal_status", internalStatus).Info("Status updated")
+		logger.SetValues("status", status, "internal_status", internalStatus)
+		logger.Info("Status updated")
 		return nil
 	}
 

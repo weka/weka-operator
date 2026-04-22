@@ -69,8 +69,8 @@ func (r *containerReconcilerLoop) upgradeConditionsPass(ctx context.Context) (bo
 }
 
 func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleImageUpdate")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "handleImageUpdate")
+	defer logger.End()
 
 	container := r.container
 	pod := r.pod
@@ -155,8 +155,8 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) runFrontendUpgradePrepare(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "runFrontendUpgradePrepare")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "runFrontendUpgradePrepare")
+	defer logger.End()
 
 	container := r.container
 	pod := r.pod

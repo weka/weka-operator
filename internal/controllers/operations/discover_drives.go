@@ -209,8 +209,8 @@ func (o *DiscoverDrivesOperation) ProcessResult(ctx context.Context) error {
 }
 
 func processResult(ctx context.Context, containers []*v1alpha1.WekaContainer, skipIncompleted bool) (*DiscoverDrivesResult, error) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "ProcessResult")
-	defer end()
+	_, logger := instrumentation.CreateLogSpan(ctx, "ProcessResult")
+	defer logger.End()
 
 	results := make(map[string]DriveNodeResults)
 	errorCount := 0

@@ -18,8 +18,7 @@ import (
 )
 
 func (r *containerReconcilerLoop) HandleNodeNotReady(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	if r.node == nil {
 		return errors.New("node is not set")
@@ -94,8 +93,8 @@ func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
 // deleteIfTolerationsMismatch checks if container tolerates node taints.
 // If not tolerated, sets container state to deleting.
 func (r *containerReconcilerLoop) deleteIfTolerationsMismatch(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deleteIfTolerationsMismatch")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "deleteIfTolerationsMismatch")
+	defer logger.End()
 
 	// No node means no taints to check
 	if r.node == nil {
@@ -127,8 +126,8 @@ func (r *containerReconcilerLoop) deleteIfTolerationsMismatch(ctx context.Contex
 // deleteIfNodeSelectorMismatch checks if container's node selector matches the node.
 // If not matched, sets container state to deleting.
 func (r *containerReconcilerLoop) deleteIfNodeSelectorMismatch(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deleteIfNodeSelectorMismatch")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "deleteIfNodeSelectorMismatch")
+	defer logger.End()
 
 	// No node means no labels to check
 	if r.node == nil {

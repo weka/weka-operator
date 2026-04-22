@@ -75,8 +75,7 @@ func (r *containerReconcilerLoop) isTolerated() bool {
 }
 
 func (r *containerReconcilerLoop) ensureFinalizer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := r.container
 
@@ -95,8 +94,8 @@ func (r *containerReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) ensureBootConfigMapInTargetNamespace(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureBootConfigMapInTargetNamespace")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ensureBootConfigMapInTargetNamespace")
+	defer logger.End()
 
 	bundledConfigMap := &v1.ConfigMap{}
 	podNamespace, err := util.GetPodNamespace()
@@ -147,8 +146,8 @@ func (r *containerReconcilerLoop) ensureBootConfigMapInTargetNamespace(ctx conte
 }
 
 func (r *containerReconcilerLoop) updatePodMetadataOnChange(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "updatePodMetadataOnChange")
-	defer end()
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "updatePodMetadataOnChange")
+	defer logger.End()
 
 	pod := r.pod
 	newLabels := resources.LabelsForWekaPod(r.container)
@@ -182,8 +181,6 @@ func (r *containerReconcilerLoop) podMetadataChanged() bool {
 
 func (r *containerReconcilerLoop) updatePodTolerationsOnChange(ctx context.Context) error {
 	var logger *instrumentation.SpanLogger
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
 
 	pod := r.pod
 	containerTolerations := r.container.Spec.Tolerations
@@ -217,8 +214,8 @@ func (r *containerReconcilerLoop) updatePodTolerationsOnChange(ctx context.Conte
 		return nil
 	}
 
-	ctx, logger, end = instrumentation.GetLogSpan(ctx, "doTolerationsUpdate")
-	defer end()
+	ctx, logger = instrumentation.CreateLogSpan(ctx, "doTolerationsUpdate")
+	defer logger.End()
 
 	if len(newTolerations) > 0 {
 		logger.Debug("Adding new tolerations to pod", "new_tolerations", newTolerations)
