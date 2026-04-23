@@ -1398,19 +1398,14 @@ func (a *NodeAgent) getDeviceInfo(ctx context.Context, partName string) (serialI
 		}
 		devIndex := strings.TrimSpace(string(devIndexData))
 
-		// Read serial from udev data — prefer SCSI_IDENT_SERIAL (matches lsblk and weka-full-drives annotation),
-		// fall back to ID_SCSI_SERIAL, then ID_SERIAL_SHORT.
+		// Read serial from udev data
 		cmd := exec.CommandContext(ctx, "bash", "-c",
-			fmt.Sprintf(
-				"grep -m1 'SCSI_IDENT_SERIAL=' /host/run/udev/data/b%s 2>/dev/null || "+
-					"grep -m1 'ID_SCSI_SERIAL=' /host/run/udev/data/b%s 2>/dev/null || "+
-					"grep -m1 'ID_SERIAL_SHORT=' /host/run/udev/data/b%s 2>/dev/null",
-				devIndex, devIndex, devIndex))
+			fmt.Sprintf("grep -m1 'ID_SERIAL=' /host/run/udev/data/b%s 2>/dev/null | cut -d= -f2-", devIndex))
 		output, err := cmd.Output()
 		if err != nil {
 			return "", "", fmt.Errorf("failed to read serial from udev: %w", err)
 		}
-		serialID = strings.TrimSpace(strings.SplitN(string(output), "=", 2)[1])
+		serialID = strings.TrimSpace(string(output))
 	}
 
 	return serialID, blockDevice, nil

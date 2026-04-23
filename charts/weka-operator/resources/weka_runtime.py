@@ -451,19 +451,11 @@ async def find_disks() -> List[Disk]:
     for device in data.get("blockdevices", []):
         if device.get("type") == "disk":
             is_mounted = has_mountpoint(device)
-            serial_id = (device.get("serial") or "").strip() or None
             device_path = device["name"]
+            serial_id = await get_device_serial_id(device_path)
             capacity_gib = await get_capacity_gib(device_path)
             if capacity_gib is None:
                 continue
-
-            # On GCP COS, lsblk reports "nvme_card" for all NVMe drives — a placeholder,
-            # not a unique identifier. Always use get_device_serial_id for NVMe on COS.
-            nvme_on_cos = is_google_cos() and "nvme" in device_path.lower()
-            if not serial_id or nvme_on_cos:
-                if not serial_id:
-                    logging.warning(f"lsblk did not return serial for {device_path}. Using fallback.")
-                serial_id = await get_device_serial_id(device_path)
 
             logging.info(f"Found drive: {device_path}, mounted: {is_mounted}, serial: {serial_id}")
             disks.append(Disk(path=device_path, is_mounted=is_mounted, serial_id=serial_id, capacity_gib=capacity_gib))
@@ -670,10 +662,14 @@ async def get_device_serial_id(device_path: str) -> str:
                 timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC,
             ).decode().strip()
 
-            # Use SCSI_IDENT_SERIAL (matches lsblk/sysfs device/serial)
-            serial_id_cmd = f"grep -m1 'SCSI_IDENT_SERIAL=' /host/run/udev/data/b{dev_index} 2>/dev/null || grep -m1 'ID_SCSI_SERIAL=' /host/run/udev/data/b{dev_index} 2>/dev/null || grep -m1 'ID_SERIAL_SHORT=' /host/run/udev/data/b{dev_index} 2>/dev/null"
-            serial_id = subprocess.check_output(serial_id_cmd, shell=True,
-                                                timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip().split("=")[-1]
+            serial_id_cmd = (
+                f"grep -m1 'ID_SERIAL=' /host/run/udev/data/b{dev_index} | cut -d= -f2-"
+            )
+            serial_id = subprocess.check_output(
+                serial_id_cmd,
+                shell=True,
+                timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC,
+            ).decode().strip()
             return serial_id
 
     except (Exception, subprocess.TimeoutExpired) as e:
