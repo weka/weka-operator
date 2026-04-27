@@ -920,6 +920,8 @@ echo "=== OTEL Init Container Completed ==="`,
 		return nil, err
 	}
 
+	pod.Spec.SecurityContext = GetSecurityProfile()
+
 	return pod, nil
 }
 

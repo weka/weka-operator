@@ -172,6 +172,7 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
+					SecurityContext:    resources.GetSecurityProfile(),
 					NodeSelector:       nodeSelector,
 					Tolerations:        resources.ConditionalExpandNoScheduleTolerations(o.tolerations, !config.Config.SkipAuxNoScheduleToleration),
 					ServiceAccountName: serviceAccountName,
