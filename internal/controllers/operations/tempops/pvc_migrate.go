@@ -161,6 +161,7 @@ func (o *PvcMigrateOperation) EnsureJob(ctx context.Context) error {
 			BackoffLimit:            util.Int32Ref(3),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
+					SecurityContext:    resources.GetSecurityProfile(),
 					NodeSelector:       nodeSelector,
 					Tolerations:        resources.ConditionalExpandNoScheduleTolerations(o.tolerations, !config.Config.SkipAuxNoScheduleToleration),
 					ServiceAccountName: serviceAccountName,

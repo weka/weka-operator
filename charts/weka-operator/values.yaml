@@ -124,6 +124,18 @@ manager:
 
 debugSleep: 3
 
+# Pod-level securityContext applied to every privileged / hostPath pod produced
+# by the operator. Opt-in: leave empty (default {}) for no override. Accepts
+# any subset of the standard corev1.PodSecurityContext shape — every field
+# you set here flows through to the produced pods unchanged.
+# Example to satisfy Kyverno's require-apparmor-on-privileged-or-hostpath
+# (Unconfined is recommended for weka — its containers rely on DPDK/RDMA/device
+# access that RuntimeDefault may restrict):
+#   podSecurityContext:
+#     appArmorProfile:
+#       type: Unconfined
+podSecurityContext: {}
+
 tolerations: []
 deploymentIdentifier: ""
 

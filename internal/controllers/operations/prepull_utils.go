@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -102,7 +103,7 @@ func BuildPrePullDaemonSet(cfg *PrePullDaemonSetConfig) *appsv1.DaemonSet {
 		}
 	}
 
-	ds := &appsv1.DaemonSet{
+	return &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        cfg.Name,
 			Namespace:   cfg.Namespace,
@@ -123,6 +124,7 @@ func BuildPrePullDaemonSet(cfg *PrePullDaemonSetConfig) *appsv1.DaemonSet {
 					Annotations: annotations,
 				},
 				Spec: corev1.PodSpec{
+					SecurityContext:  resources.GetSecurityProfile(),
 					InitContainers:   []corev1.Container{initContainer},
 					Containers:       []corev1.Container{mainContainer},
 					ImagePullSecrets: imagePullSecrets,
@@ -132,8 +134,6 @@ func BuildPrePullDaemonSet(cfg *PrePullDaemonSetConfig) *appsv1.DaemonSet {
 			},
 		},
 	}
-
-	return ds
 }
 
 // PrePullNodeStatus represents the pre-pull status for a single node

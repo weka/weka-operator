@@ -217,6 +217,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 					},
 				},
 				Spec: corev1.PodSpec{
+					SecurityContext:    resources.GetSecurityProfile(),
 					NodeSelector:       nodeSelector,
 					HostNetwork:        config.Config.Csi.HostNetwork,
 					ServiceAccountName: "csi-wekafs-controller-sa",

@@ -438,6 +438,8 @@ spec:
               value: "{{ .Values.prefix }}-webhook-service"
             - name: WEBHOOK_NAME
               value: "{{ .Values.prefix }}-validating-webhook-configuration"
+            - name: WEKA_POD_SECURITY_CONTEXT
+              value: {{ .Values.podSecurityContext | default dict | toJson | quote }}
 
           image: "{{ .Values.image.repository }}:{{if not (empty .Values.image.tag)}}{{ .Values.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"
           imagePullPolicy: Always
