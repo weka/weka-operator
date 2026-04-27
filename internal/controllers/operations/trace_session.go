@@ -241,6 +241,7 @@ func (o *MaintainTraceSession) EnsureDeployment(ctx context.Context) error {
 					Annotations: annotations,
 				},
 				Spec: v1.PodSpec{
+					SecurityContext: resources.GetSecurityProfile(),
 					ImagePullSecrets: []v1.LocalObjectReference{
 						{Name: o.containerDetails.ImagePullSecret},
 					},
