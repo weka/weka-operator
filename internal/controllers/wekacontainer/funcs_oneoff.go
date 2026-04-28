@@ -17,7 +17,6 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
-	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 )
@@ -319,7 +318,7 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		node.Annotations = make(map[string]string)
 	}
 
-	var opResult *operations.DriveNodeResults
+	var opResult *domain.DriveNodeResults
 	err := json.Unmarshal([]byte(*container.Status.ExecutionResult), &opResult)
 	if err != nil {
 		err = fmt.Errorf("error unmarshalling execution result: %w", err)
@@ -483,7 +482,7 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	return complete()
 }
 
-func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context, node *v1.Node, opResult *operations.DriveNodeResults) error {
+func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context, node *v1.Node, opResult *domain.DriveNodeResults) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "updateProxyModeAnnotations")
 	defer logger.End()
 
@@ -678,7 +677,7 @@ func warnOverriddenDriveTypes(logger *instrumentation.SpanLogger, beforeTypes ma
 // Returns the blockedDrives and the serials newly added.
 func appendMissingDrivesToBlocked(
 	annotatedSerials []string,
-	opResult *operations.DriveNodeResults,
+	opResult *domain.DriveNodeResults,
 	blockedDrives []string,
 ) (updatedBlocked, newlyAdded []string) {
 	if !opResult.KernelViewComplete {
