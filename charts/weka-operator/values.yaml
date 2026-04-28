@@ -10,6 +10,14 @@ image:
   repository: quay.io/weka.io/weka-operator
   # Override only, default equals to the chart version
   tag: ""
+
+wekaPodRuntime:
+  image:
+    repository: quay.io/weka.io/weka-pod-runtime
+    tag: ""               # defaults to .Chart.AppVersion
+    pullPolicy: IfNotPresent
+  usePythonFallback: false
+
 kubeProxyImage: "quay.io/brancz/kube-rbac-proxy:v0.21.0"
 
 builderImages:

@@ -43,23 +43,9 @@ type DiscoverDrivesOperation struct {
 	tolerations     []corev1.Toleration
 }
 
-type DriveRawInfo struct {
-	SerialId    string `json:"serial_id"`
-	Path        string `json:"path"`
-	IsMounted   bool   `json:"is_mounted"`
-	CapacityGiB int    `json:"capacity_gib"`
-}
-
-type DriveNodeResults struct {
-	Err         error                    `json:"err"`
-	Drives      []domain.DriveInfo       `json:"drives"`
-	RawDrives   []DriveRawInfo           `json:"raw_drives"`
-	ProxyDrives []domain.SharedDriveInfo `json:"proxy_drives,omitempty"` // Signed drives for proxy mode
-}
-
 type DiscoverDrivesResult struct {
-	Err     string                      `json:"err,omitempty"`
-	Results map[string]DriveNodeResults `json:"results"`
+	Err     string                            `json:"err,omitempty"`
+	Results map[string]domain.DriveNodeResults `json:"results"`
 }
 
 func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaOwnerDetails, ownerStatus string, successCallback lifecycle.StepFunc, force bool) *DiscoverDrivesOperation { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
@@ -212,7 +198,7 @@ func processResult(ctx context.Context, containers []*v1alpha1.WekaContainer, sk
 	_, logger := instrumentation.CreateLogSpan(ctx, "ProcessResult")
 	defer logger.End()
 
-	results := make(map[string]DriveNodeResults)
+	results := make(map[string]domain.DriveNodeResults)
 	errorCount := 0
 
 	for _, container := range containers {
@@ -224,13 +210,13 @@ func processResult(ctx context.Context, containers []*v1alpha1.WekaContainer, sk
 			return nil, lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
 		}
 
-		var opResult DriveNodeResults
+		var opResult domain.DriveNodeResults
 		err := json.Unmarshal([]byte(*container.Status.ExecutionResult), &opResult)
 		logger.Info("Processing container result", "container", container.Name, "result", opResult)
 		if err != nil {
-			errs := err.Error()
-			results[string(container.GetNodeAffinity())] = DriveNodeResults{
-				Err: fmt.Errorf("failed to unmarshal execution result: %s", errs),
+			errMsg := fmt.Sprintf("failed to unmarshal execution result: %s", err.Error())
+			results[string(container.GetNodeAffinity())] = domain.DriveNodeResults{
+				Err: &errMsg,
 			}
 			continue
 		}

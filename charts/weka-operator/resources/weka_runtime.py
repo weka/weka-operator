@@ -296,7 +296,7 @@ class FeaturesFlags:
     traces_override_in_slash_traces: Union[bool, int] = 1
     supports_binding_to_not_all_interfaces: Union[bool, int] = 2
     agent_validate_60_ports_per_container: Union[bool, int] = 3
-    allow_per_container_driver_interfaces: Union[bool, int] = 4
+    allow_per_container_driver_interface: Union[bool, int] = 4
     weka_get_copy_local_driver_files: Union[bool, int] = 5
     driver_supports_auto_drain: Union[bool, int] = 6
     ssd_proxy_iommu_support: Union[bool, int] = 7

@@ -1,3 +1,4 @@
+import asyncio
 import re
 import logging
 import random
@@ -65,15 +66,15 @@ class OperatorFlows:
             helm_username: Optional username for helm registry login
             helm_password: Optional password for helm registry login
         """
-        from apps.operator import publish_operator, publish_operator_helm_chart
-        _ = await publish_operator(operator, sock,
-                                   repository=operator_repo,
-                                   )
-        operator_helm = await publish_operator_helm_chart(operator, sock,
-                                                          repository=helm_repo,
-                                                          helm_username=helm_username,
-                                                          helm_password=helm_password,
-                                                          )
+        from apps.operator import publish_operator, publish_operator_helm_chart, publish_pod_runtime
+        _, operator_helm, _ = await asyncio.gather(
+            publish_operator(operator, sock, repository=operator_repo),
+            publish_operator_helm_chart(operator, sock,
+                                        repository=helm_repo,
+                                        helm_username=helm_username,
+                                        helm_password=helm_password),
+            publish_pod_runtime(operator, sock, repository=operator_repo),
+        )
         return operator_helm
 
     @function
@@ -125,41 +126,41 @@ class OperatorFlows:
         helm_password: Optional[dagger.Secret] = None,
     ) -> List[str]:
         """
-        Build, publish operator and return image versions.
-
-        Args:
-            operator: Operator source directory
-            sock: Docker socket
-            operator_repo: Fully qualified operator image repository (e.g. quay.io/weka.io/weka-operator)
-            helm_repo: Fully qualified Helm chart OCI repository (e.g. quay.io/weka.io/helm)
-            gh_token: Optional GitHub token for private dependencies
-            helm_username: Optional Helm registry username
-            helm_password: Optional Helm registry password
+        Build and publish all images concurrently, return their refs.
 
         Returns:
-            Tuple of (operator_image, operator_helm_image)
+            [operator_image, operator_helm_image, pod_runtime_image]
         """
-        from apps.operator import publish_operator, publish_operator_helm_chart
+        from apps.operator import publish_operator, publish_operator_helm_chart, publish_pod_runtime
 
-        operator_image_with_hash = await publish_operator(
-            operator, sock,
-            repository=operator_repo,
-            gh_token=gh_token,
-            registry_username=helm_username,
-            registry_password=helm_password,
+        operator_image_with_hash, operator_helm_image, pod_runtime_image = await asyncio.gather(
+            publish_operator(
+                operator, sock,
+                repository=operator_repo,
+                gh_token=gh_token,
+                registry_username=helm_username,
+                registry_password=helm_password,
+            ),
+            publish_operator_helm_chart(
+                operator, sock,
+                repository=helm_repo,
+                gh_token=gh_token,
+                helm_username=helm_username,
+                helm_password=helm_password,
+            ),
+            publish_pod_runtime(
+                operator, sock,
+                repository=operator_repo,
+                registry_username=helm_username,
+                registry_password=helm_password,
+            ),
         )
 
-        operator_helm_image = await publish_operator_helm_chart(
-            operator, sock,
-            repository=helm_repo,
-            gh_token=gh_token,
-            helm_username=helm_username,
-            helm_password=helm_password,
-        )
-
-        operator_image = operator_image_with_hash.split("@")[0]
-
-        return operator_image, operator_helm_image
+        return [
+            operator_image_with_hash.split("@")[0],
+            operator_helm_image,
+            pod_runtime_image,
+        ]
 
 
     @function
@@ -386,7 +387,7 @@ class OperatorFlows:
             upgrade_test_container = upgrade_test_container.with_env_variable("GITHUB_SHA", gh_sha)
 
         if not operator_image or not operator_helm_image:
-            operator_image, operator_helm_image = await self.publish_operator_and_get_versions(
+            operator_image, operator_helm_image, _ = await self.publish_operator_and_get_versions(
                 operator, sock, operator_repo=operator_repo, helm_repo=helm_repo, gh_token=current_gh_token,
                 helm_username=helm_username, helm_password=helm_password,
             )
@@ -762,7 +763,7 @@ EOF
         )
 
         if not operator_image or not operator_helm_image:
-            operator_image, operator_helm_image = await self.publish_operator_and_get_versions(
+            operator_image, operator_helm_image, _ = await self.publish_operator_and_get_versions(
                 operator, sock, operator_repo=operator_repo, helm_repo=helm_repo, gh_token=current_gh_token,
             )
 
