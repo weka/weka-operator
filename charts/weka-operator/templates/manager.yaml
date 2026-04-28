@@ -139,6 +139,10 @@ spec:
             - name: WEKA_OTEL_PACKAGES_INSTALLER_IMAGE
               value: "{{ .Values.otelPackagesInstallerImage }}"
             {{- end }}
+            - name: WEKA_POD_RUNTIME_IMAGE
+              value: "{{ .Values.wekaPodRuntime.image.repository }}:{{if not (empty .Values.wekaPodRuntime.image.tag)}}{{ .Values.wekaPodRuntime.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"
+            - name: WEKA_USE_PYTHON_FALLBACK
+              value: "{{ .Values.wekaPodRuntime.usePythonFallback }}"
             - name: WEKA_OCP_PULL_SECRET
               value: "{{ .Values.ocpCompatibility.driverToolkitSecretName }}"
             - name: WEKA_OCP_TOOLKIT_IMAGE_BASE_URL

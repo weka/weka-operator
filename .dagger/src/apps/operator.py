@@ -59,6 +59,39 @@ async def publish_operator(src: Directory, sock: Socket, repository: str, versio
     )
 
 
+async def publish_pod_runtime(src: Directory, sock: Socket, repository: str, version: str = "",
+                              registry_username: Optional[Secret] = None,
+                              registry_password: Optional[Secret] = None) -> str:
+    """Build and publish multi-arch weka-pod-runtime image (linux/amd64 + linux/arm64)."""
+    version = await _calc_operator_version(src, version)
+
+    pod_runtime_repo = repository.replace("weka-operator", "weka-pod-runtime")
+
+    async def build_variant(p: str) -> Container:
+        target_os, target_arch = p.split("/")
+        binary = await build_go(src, sock, cache_deps=False,
+                                program_path="cmd/weka-pod-runtime/main.go",
+                                target_os=target_os, target_arch=target_arch)
+        return (
+            dag.container(platform=dagger.Platform(p))
+            .with_file("/weka-pod-runtime", binary.file("/out-binary"))
+        )
+
+    variants = await asyncio.gather(*[build_variant(p) for p in PLATFORMS])
+
+    publisher = dag.container()
+    if registry_username and registry_password:
+        registry_host = pod_runtime_repo.split("/")[0]
+        username_str = await registry_username.plaintext()
+        publisher = publisher.with_registry_auth(registry_host, username_str, registry_password)
+
+    ref = await publisher.publish(
+        f"{pod_runtime_repo}:{version}",
+        platform_variants=list(variants),
+    )
+    return ref.split("@")[0]
+
+
 async def publish_operator_helm_chart(src: Directory, sock: Socket, repository: str, version: str = "",
                                       gh_token: Optional[Secret] = None,
                                       helm_username: Optional[Secret] = None,

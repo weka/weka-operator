@@ -254,6 +254,9 @@ var Config struct {
 	PodConfigVersion                     string
 	EnablePodConfigCodeVersionRotation   bool
 	AllowRotateNonAnnotatedPodConfigHash bool
+
+	WekaPodRuntimeImage string
+	UsePythonFallback   bool
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -502,6 +505,9 @@ func ConfigureEnv(ctx context.Context) {
 	// Evicted pod cleanup configuration
 	Config.EvictedPodCleanupEnabled = getBoolEnvOrDefault("EVICTED_POD_CLEANUP_ENABLED", true)
 	Config.EvictedPodCleanupInterval = getDurationEnvOrDefault("EVICTED_POD_CLEANUP_INTERVAL", 2*time.Minute)
+
+	Config.WekaPodRuntimeImage = os.Getenv("WEKA_POD_RUNTIME_IMAGE") // No default - opt-in only
+	Config.UsePythonFallback = getBoolEnvOrDefault("WEKA_USE_PYTHON_FALLBACK", false)
 }
 
 func getEnvOrFail(envKey string) string {

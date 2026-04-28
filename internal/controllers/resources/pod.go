@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -213,7 +214,12 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 					Image:           image,
 					Name:            "weka-container",
 					ImagePullPolicy: corev1.PullIfNotPresent,
-					Command:         []string{"python3", "/opt/weka_runtime.py"},
+					Command: func() []string {
+						if config.Config.UsePythonFallback {
+							return []string{"python3", "/opt/weka_runtime.py"}
+						}
+						return []string{"/weka-pod-runtime-data/weka-pod-runtime"}
+					}(),
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: &[]bool{true}[0],
 					},
@@ -267,6 +273,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							{
 								Name:      "osrelease",
 								MountPath: "/hostside/etc/os-release",
+							},
+							{
+								Name:      "weka-pod-runtime-data",
+								MountPath: "/weka-pod-runtime-data",
 							},
 						}
 						if !f.container.IsAdhocOpContainer() {
@@ -522,6 +532,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						},
 					})
 				}
+				vols = append(vols, corev1.Volume{
+					Name: "weka-pod-runtime-data",
+					VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+				})
 				return vols
 			}(),
 		},
@@ -845,8 +859,20 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		f.setDriverDependencies(pod)
 	}
 
+	if config.Config.WekaPodRuntimeImage != "" {
+		wekaRuntimeInstaller := corev1.Container{
+			Name:  "weka-pod-runtime-installer",
+			Image: config.Config.WekaPodRuntimeImage,
+			Command: []string{"cp", "/weka-pod-runtime", "/weka-pod-runtime-data/weka-pod-runtime"},
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "weka-pod-runtime-data", MountPath: "/weka-pod-runtime-data"},
+			},
+		}
+		pod.Spec.InitContainers = append(pod.Spec.InitContainers, wekaRuntimeInstaller)
+	}
+
 	// Add OTEL packages installation init container only if explicitly configured
-	if config.Config.Otel.PythonPackagesInstallerImage != "" {
+	if config.Config.Otel.PythonPackagesInstallerImage != "" && config.Config.UsePythonFallback {
 		otelInitContainer := corev1.Container{
 			Name:            "otel-packages-installer",
 			Image:           config.Config.Otel.PythonPackagesInstallerImage,
@@ -1446,7 +1472,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 	return nil
 }
 
-func (f *PodFactory) initAffinities(ctx context.Context, affinity *corev1.Affinity) *corev1.Affinity {
+func (f *PodFactory) initAffinities(_ context.Context, affinity *corev1.Affinity) *corev1.Affinity {
 	var result *corev1.Affinity
 	if affinity != nil {
 		result = affinity.DeepCopy()
@@ -1481,7 +1507,7 @@ func (f *PodFactory) initAffinities(ctx context.Context, affinity *corev1.Affini
 	return result
 }
 
-func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
+func (f *PodFactory) setAffinities(_ context.Context, pod *corev1.Pod) error {
 	//TODO: Set high priority class for node-bound containers
 	matchExpression := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions
 	if f.container.GetNodeAffinity() != "" {
@@ -1600,9 +1626,7 @@ func LabelsForWekaPod(container *weka.WekaContainer) map[string]string {
 		"app.kubernetes.io/created-by": "weka-operator",
 		"weka.io/mode":                 container.Spec.Mode,
 	}
-	for k, v := range container.Labels {
-		labels[k] = v
-	}
+	maps.Copy(labels, container.Labels)
 
 	if container.GetParentClusterId() != "" {
 		labels["weka.io/cluster-id"] = container.GetParentClusterId()
