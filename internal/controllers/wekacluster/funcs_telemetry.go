@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -97,6 +98,53 @@ func (r *wekaClusterReconcilerLoop) getSecretValue(ctx context.Context, secretRe
 // getAuthTokenFromSecret retrieves the auth token from the referenced secret.
 func (r *wekaClusterReconcilerLoop) getAuthTokenFromSecret(ctx context.Context, secretRef, namespace string) (string, error) {
 	return r.getSecretValue(ctx, secretRef, namespace)
+}
+
+// validateExports checks all exports in the spec are valid before any Weka state is modified.
+// Each export must have exactly one backend configured, required fields must be present,
+// and all referenced secrets must be accessible.
+func (r *wekaClusterReconcilerLoop) validateExports(ctx context.Context) error {
+	ns := r.cluster.Namespace
+	for _, exp := range r.cluster.Spec.Telemetry.Exports {
+		if exp.Name == "" {
+			return errors.New("export has empty name")
+		}
+		if len(exp.Sources) == 0 {
+			return errors.Errorf("export %q has no sources configured", exp.Name)
+		}
+		if exp.Splunk == nil {
+			return errors.Errorf("export %q has no backend configured", exp.Name)
+		}
+		if err := r.validateSplunkExport(ctx, exp.Name, exp.Splunk, ns); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *wekaClusterReconcilerLoop) validateSplunkExport(ctx context.Context, exportName string, cfg *weka.SplunkExportConfig, ns string) error {
+	if cfg.Endpoint == "" {
+		return errors.Errorf("export %q: splunk endpoint is required", exportName)
+	}
+	hasCACert := cfg.CACertSecretRef != nil && *cfg.CACertSecretRef != ""
+	if hasCACert && cfg.VerifyWithClusterCACert {
+		return errors.Errorf("export %q: caCertSecretRef and verifyWithClusterCACert are mutually exclusive", exportName)
+	}
+	if cfg.AllowUnverifiedCertificate && (hasCACert || cfg.VerifyWithClusterCACert) {
+		return errors.Errorf("export %q: allowUnverifiedCertificate cannot be combined with CA certificate verification", exportName)
+	}
+	if cfg.AuthTokenSecretRef == "" {
+		return errors.Errorf("export %q: splunk authTokenSecretRef is required", exportName)
+	}
+	if _, err := r.getSecretValue(ctx, cfg.AuthTokenSecretRef, ns); err != nil {
+		return errors.Wrapf(err, "failed to get auth token for export %s", exportName)
+	}
+	if hasCACert {
+		if _, err := r.getSecretValue(ctx, *cfg.CACertSecretRef, ns); err != nil {
+			return errors.Wrapf(err, "failed to get CA cert for export %s", exportName)
+		}
+	}
+	return nil
 }
 
 // writeSecretToTempFile writes a secret value to a temporary file in the pod using ExecSensitive.
@@ -201,6 +249,8 @@ func (r *wekaClusterReconcilerLoop) EnsureTelemetry(ctx context.Context) error {
 		return errors.Wrap(err, "failed to get executor for telemetry configuration")
 	}
 
+	wekaService := services.NewWekaService(r.ExecService, execInContainer)
+
 	// Get current exports from weka (needed for both add and remove cases)
 	currentExports, err := r.listTelemetryExports(ctx, executor)
 	if err != nil {
@@ -253,7 +303,13 @@ func (r *wekaClusterReconcilerLoop) EnsureTelemetry(ctx context.Context) error {
 		return nil
 	}
 
-	if err := r.disableAutoStartTelemetryContainer(ctx, executor); err != nil {
+	if err := r.validateExports(ctx); err != nil {
+		logger.SetError(err, "Telemetry exports validation failed")
+		r.setTelemetryConditionError(ctx, logger, err)
+		return err
+	}
+
+	if err := r.disableAutoStartTelemetryContainer(ctx, wekaService); err != nil {
 		logger.SetError(err, "Failed to disable auto-start telemetry container")
 		r.setTelemetryConditionError(ctx, logger, err)
 		return err
@@ -320,23 +376,30 @@ func (r *wekaClusterReconcilerLoop) EnsureTelemetry(ctx context.Context) error {
 	return nil
 }
 
-// disableAutoStartTelemetryContainer sets the override to prevent weka from auto-provisioning telemetry container
-func (r *wekaClusterReconcilerLoop) disableAutoStartTelemetryContainer(ctx context.Context, executor util.Exec) error {
+// disableAutoStartTelemetryContainer sets the override to prevent weka from auto-provisioning telemetry container.
+// It only adds the override if the most recent entry already has the correct value.
+// weka debug override add --force always inserts a new row (not an upsert),
+// and Weka applies the last entry, so checking the tail is sufficient.
+func (r *wekaClusterReconcilerLoop) disableAutoStartTelemetryContainer(ctx context.Context, svc services.WekaService) error {
 	_, logger := instrumentation.CreateLogSpan(ctx, "disableAutoStartTelemetryContainer")
 	defer logger.End()
 
-	cmd := "weka debug override add --key auto_start_telemetry_container --value false --force"
-	_, stderr, err := executor.ExecNamed(ctx, "DisableAutoStartTelemetryContainer", []string{"bash", "-ce", cmd})
+	const key = "auto_start_telemetry_container"
+	const val = "false"
+
+	entries, err := svc.ListOverridesByKey(ctx, key)
 	if err != nil {
-		stderrStr := stderr.String()
-		// Check if override already exists (not an error)
-		if strings.Contains(stderrStr, "already exists") || strings.Contains(stderrStr, "already set") {
-			logger.Info("Auto-start telemetry container override already set")
-			return nil
-		}
-		return errors.Wrapf(err, "failed to disable auto-start telemetry container: %s", stderrStr)
+		return errors.Wrap(err, "failed to list auto_start_telemetry_container overrides")
 	}
 
+	if len(entries) > 0 && entries[len(entries)-1].Value == val {
+		logger.Info("auto_start_telemetry_container override already present, skipping")
+		return nil
+	}
+
+	if err := svc.AddOverride(ctx, key, val, true); err != nil {
+		return errors.Wrap(err, "failed to disable auto-start telemetry container")
+	}
 	logger.Info("Auto-start telemetry container disabled successfully")
 	return nil
 }
