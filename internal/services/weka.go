@@ -265,6 +265,13 @@ type WekaUserResponse struct {
 	Username string `json:"username"`
 }
 
+type WekaOverride struct {
+	OverrideID string `json:"override_id"`
+	Key        string `json:"key"`
+	Value      string `json:"value"`
+	Enabled    bool   `json:"enabled"`
+}
+
 // Examples of internalStatus:
 // - when container is part of the cluster:
 //
@@ -389,6 +396,8 @@ type WekaService interface {
 	GetWekaContainer(ctx context.Context, containerId int) (*WekaClusterContainer, error)
 	GetCapacity(ctx context.Context) (WekaCapacityInfo, error)
 	ConfigureDataServicesGlobalConfig(ctx context.Context) error
+	ListOverridesByKey(ctx context.Context, key string) ([]WekaOverride, error)
+	AddOverride(ctx context.Context, key, value string, force bool) error
 	// GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -1755,4 +1764,41 @@ func (c *CliWekaService) GetCapacity(ctx context.Context) (WekaCapacityInfo, err
 	capacity.TotalAvailableCapacity = capacity.TotalProvisionedCapacity - capacity.TotalUsedCapacity
 
 	return capacity, nil
+}
+
+func (c *CliWekaService) ListOverridesByKey(ctx context.Context, key string) ([]WekaOverride, error) {
+	var all []WekaOverride
+	err := c.RunJsonCmd(ctx, []string{
+		"weka", "debug", "override", "list", "-F", "key=" + key, "-J",
+	}, "ListOverridesByKey", &all)
+	if err != nil {
+		return nil, err
+	}
+	// Guard against CLI filter returning unexpected results
+	var out []WekaOverride
+	for _, o := range all {
+		if o.Key == key {
+			out = append(out, o)
+		}
+	}
+	return out, nil
+}
+
+func (c *CliWekaService) AddOverride(ctx context.Context, key, value string, force bool) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "AddOverride")
+	defer logger.End()
+
+	executor, err := c.getExecutor(ctx)
+	if err != nil {
+		return err
+	}
+	cmd := []string{"weka", "debug", "override", "add", "--key", key, "--value", value}
+	if force {
+		cmd = append(cmd, "--force")
+	}
+	_, stderr, err := executor.ExecNamed(ctx, "AddOverride", cmd)
+	if err != nil {
+		return errors.Wrapf(err, "failed to add override %s=%s: %s", key, value, stderr.String())
+	}
+	return nil
 }
