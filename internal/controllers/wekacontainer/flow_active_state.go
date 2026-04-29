@@ -328,7 +328,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.WaitForPodRunning,
 		},
-		// For drive/compute containers in full-drives mode: ensure the weka-full-drives annotation
+		// For drive containers in full-drives mode: ensure the weka-full-drives annotation
 		// is present on the node before proceeding. Triggers NewDiscoverDrivesOperation if absent.
 		// Gated on annotation absence (not Allocations == nil) so it also fires for already-allocated
 		// containers that lack the annotation (e.g. after upgrade from an older operator).
@@ -338,8 +338,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.EnsureNodeFullDrivesAnnotation,
 			Predicates: lifecycle.Predicates{
 				func() bool {
-					return (r.container.IsDriveContainer() && !r.container.UsesDriveSharing()) ||
-						r.container.IsComputeContainer()
+					return r.container.IsDriveContainer() && !r.container.UsesDriveSharing()
 				},
 				r.HasNodeAffinity,
 				lifecycle.IsNotFunc(r.NodeNotSet),
