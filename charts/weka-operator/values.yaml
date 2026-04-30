@@ -125,50 +125,67 @@ manager:
 debugSleep: 3
 
 tolerations: []
-# -- if true, pods will not tolerate unhealthy nodes (unschedulable and not-ready)
-skipUnhealthyToleration: false
-# -- if true, client pods will not tolerate NoSchedule taints
-skipClientNoScheduleToleration: false
-# -- if true, auxiliary pods (discovery, sign-drives, etc.) will not tolerate NoSchedule taints
-skipAuxNoScheduleToleration: false
 deploymentIdentifier: ""
 
-# -- if true, the operator will consider nodes that are gone as totally gone (not in the cluster anymore)
-# the operator will delete backend wekacontainers from the nodes that are not part of the k8s cluster anymore
+# === Lifecycle hooks ===========================================================
+# Operator behavior toggles for cleanup on environment drift, eviction,
+# throttling, and toleration shaping. Defaults below; only set what you change.
+
+# -- Delete backend WekaContainers whose target node is no longer in the K8s cluster.
 cleanupRemovedNodes: false
-# -- if true, the operator will delete backend wekacontainers from the nodes that do not match node selectors
+# -- Delete backend WekaContainers when their nodeSelector no longer matches the
+# assigned node. Aux containers are unaffected.
 cleanupOnNodeSelectorMismatch: false
-# -- if true, the operator will delete client wekacontainers from the nodes that do not match node selectors
+# -- Delete client WekaContainers when their nodeSelector no longer matches the
+# assigned node.
 cleanupClientsOnNodeSelectorMismatch: false
-# -- if true, the operator will delete any wekacontainers from the nodes that do not tolerate taints
+# -- Delete WekaContainers (except aux) when node taints are no longer tolerated.
 cleanupContainersOnTolerationsMismatch: false
-# -- evicted pod cleanup configuration
-evictedPodCleanup:
-  # -- if true, the operator will automatically clean up evicted operator-managed pods
-  enabled: true
-  # -- interval at which the operator checks for and deletes evicted pods
-  interval: 2m
-# -- if true, the operator will enforce deactivation on pod removal
+
+# -- When a backend pod begins terminating (DeletionTimestamp set, including
+# API-driven evictions / drains), transition the container to graceful
+# deactivation rather than force-stopping.
 evictContainerOnDeletion: false
-# -- if true, container removal from weka will be throttled
+# -- Evicted-pod cleanup: a background goroutine periodically deletes
+# operator-managed pods stuck in Phase=Failed, Reason=Evicted.
+evictedPodCleanup:
+  # -- Run the cleanup goroutine.
+  enabled: true
+  # -- Tick interval for the cleanup goroutine.
+  interval: 2m
+
+# -- Throttle container deactivation to one per role per cluster per minute,
+# preventing cascading removals.
 removalThrottlingEnabled: true
-# -- if true, unhealthy envoy container recreation will be throttled (one per cluster per minute)
+# -- Throttle envoy container recreation to one per cluster per minute when the
+# envoy process is missing.
 recreateUnhealthyEnvoyThrottlingEnabled: true
-# -- this validation is only relevant for new client containers creation
+
+# -- Pods omit standard "unhealthy node" tolerations (unschedulable, not-ready, unreachable).
+skipUnhealthyToleration: false
+# -- Client pods omit auto-generated NoSchedule tolerations.
+skipClientNoScheduleToleration: false
+# -- Aux pods (drivers, adhoc ops, telemetry) omit auto-generated NoSchedule tolerations.
+skipAuxNoScheduleToleration: false
+# -- Skip taint/toleration validation for client containers — assume all nodes
+# tolerate all clients.
 skipClientsTolerationValidation: true
-
-removeFailedDrives: false
-
-# -- if true, allows multiple network protocols containers per node, like NFS for multiple weka clusters or S3+NFS on same nodes,
-# in case of multiple clusters upgrades need to be synchronized/keep spares for per-node eviction
-allowMultipleProtocolsPerNode: false
-
+# -- Tolerations-mismatch cleanup tuning (paired with cleanupContainersOnTolerationsMismatch).
+# Listed taints are ignored when checking for toleration mismatch.
 tolerationsMismatchSettings:
   enableIgnoredTaints: true
   ignoredTaints:
     - "node.kubernetes.io/unschedulable"
     - "node.kubernetes.io/not-ready"
     - "node.kubernetes.io/unreachable"
+
+# === end lifecycle hooks =======================================================
+
+removeFailedDrives: false
+
+# -- if true, allows multiple network protocols containers per node, like NFS for multiple weka clusters or S3+NFS on same nodes,
+# in case of multiple clusters upgrades need to be synchronized/keep spares for per-node eviction
+allowMultipleProtocolsPerNode: false
 
 signDrivesImage: quay.io/weka.io/weka-sign-tool:85b61597c215bad4ff380f43cf01a1ba7547214f-multiarch  # +multiarch build
 

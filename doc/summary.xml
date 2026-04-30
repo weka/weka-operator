@@ -46,6 +46,10 @@
     </file>
 
     <!-- Operator Operations -->
+    <file relpath="operator/operations/admission-control.md">
+        <tags>admission control, validating webhook, ValidatingWebhookConfiguration, admissionPolicies, mode, strict, relaxed, skip-admission, enableAdmissionControl, policy override, kubectl warning</tags>
+        <summary>Operator admission control: configuration knobs, customer-visible warning/error UX, escape hatches, and behavior during rolling restarts. References values.yaml for the per-policy table.</summary>
+    </file>
     <file relpath="operator/operations/weka-cluster-ops.md">
         <tags>weka status, cluster processes, leadership, container correlation, container name mapping, kubectl</tags>
         <summary>Operations guide covering cluster status monitoring, health status interpretation, common command execution, and methods for correlating Weka containers with Kubernetes resources.</summary>
