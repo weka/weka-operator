@@ -93,7 +93,6 @@ const (
 	WekaContainerModeNfs            = "nfs"
 	WekaContainerModeSmbw           = "smbw"
 	WekaContainerModeDataServices   = "data-services"
-	WekaContainerModeDataServicesFe = "data-services-fe"
 	WekaContainerModeEnvoy          = "envoy"
 	WekaContainerModeSSDProxy       = "ssdproxy"
 	WekaContainerModeTelemetry      = "telemetry"
@@ -186,6 +185,10 @@ type Instructions struct {
 	Payload string `json:"payload,omitempty"`
 }
 
+type DataServicesConfig struct {
+	DataServicesFeCores int `json:"dataServicesFeCores,omitempty"`
+}
+
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.driveTypesRatio)",message="driveCapacity and driveTypesRatio are mutually exclusive; use driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio for mixed drive types"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.numDrives) || self.numDrives == 0 || self.numDrives >= self.numCores",message="numDrives must be >= numCores when using driveCapacity (TLC-only mode); each core requires at least one virtual drive"
 // +kubebuilder:validation:XValidation:rule="!has(self.numDrives) || self.numDrives == 0 || !has(self.containerCapacity) || self.containerCapacity == 0",message="numDrives and containerCapacity are mutually exclusive; use numDrives with driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio for mixed drive types"
@@ -273,9 +276,10 @@ type WekaContainerSpec struct {
 	Overrides         *WekaContainerSpecOverrides `json:"overrides,omitempty"`
 	HostPID           bool                        `json:"hostPID,omitempty"`
 	// resources to be proxied as-is to the pod spec
-	Resources        *PodResourcesSpec `json:"resources,omitempty"`
-	PVC              *PVCConfig        `json:"pvc,omitempty"`
-	DpdkBaseMemoryMb int               `json:"dpdkBaseMemoryMb,omitempty"`
+	Resources          *PodResourcesSpec   `json:"resources,omitempty"`
+	PVC                *PVCConfig          `json:"pvc,omitempty"`
+	DpdkBaseMemoryMb   int                 `json:"dpdkBaseMemoryMb,omitempty"`
+	DataServicesConfig *DataServicesConfig `json:"dataServicesConfig,omitempty"`
 }
 
 type AWSNetwork struct {
@@ -616,12 +620,11 @@ func (w *WekaContainer) HasPersistentStorage() bool {
 		WekaContainerModeSSDProxy,
 		WekaContainerModeTelemetry,
 		WekaContainerModeDataServices,
-		WekaContainerModeDataServicesFe,
 	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) HasFrontend() bool {
-	return slices.Contains([]string{WekaContainerModeS3, WekaContainerModeClient, WekaContainerModeNfs, WekaContainerModeSmbw, WekaContainerModeDataServicesFe}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeS3, WekaContainerModeClient, WekaContainerModeNfs, WekaContainerModeSmbw}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsS3Container() bool {
@@ -634,10 +637,6 @@ func (w *WekaContainer) IsNfsContainer() bool {
 
 func (w *WekaContainer) IsDataServicesContainer() bool {
 	return w.Spec.Mode == WekaContainerModeDataServices
-}
-
-func (w *WekaContainer) IsDataServicesFEContainer() bool {
-	return w.Spec.Mode == WekaContainerModeDataServicesFe
 }
 
 func (w *WekaContainer) HasJoinIps() bool {
@@ -667,12 +666,11 @@ func (w *WekaContainer) IsWekaContainer() bool {
 		WekaContainerModeSSDProxy,
 		WekaContainerModeTelemetry,
 		WekaContainerModeDataServices,
-		WekaContainerModeDataServicesFe,
 	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsAllocatable() bool {
-	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeSmbw, WekaContainerModeTelemetry, WekaContainerModeDataServices, WekaContainerModeDataServicesFe}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeSmbw, WekaContainerModeTelemetry, WekaContainerModeDataServices}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) MustHaveNodeAffinity() bool {
@@ -694,12 +692,11 @@ func (w *WekaContainer) HasAgent() bool {
 		WekaContainerModeSSDProxy,
 		WekaContainerModeTelemetry,
 		WekaContainerModeDataServices,
-		WekaContainerModeDataServicesFe,
 	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsHostWideSingleton() bool {
-	return slices.Contains([]string{WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeSmbw, WekaContainerModeTelemetry, WekaContainerModeDataServicesFe}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeSmbw, WekaContainerModeTelemetry}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) GetNodeAffinity() NodeName {

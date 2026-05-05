@@ -81,8 +81,6 @@ spec:
                     type: integer
                   dataServices:
                     type: integer
-                  dataServicesFe:
-                    type: integer
                   drive:
                     type: integer
                   envoy:
@@ -254,40 +252,21 @@ spec:
                     minimum: 0
                     type: integer
                   dataServicesContainers:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of data services containers'
                     minimum: 0
                     type: integer
                   dataServicesCores:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of data services cores per container'
                     minimum: 0
                     type: integer
                   dataServicesExtraCores:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of data services extra cores per container'
-                    minimum: 0
                     type: integer
                   dataServicesFeCores:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of data services frontend cores per container'
-                    type: integer
-                  dataServicesFeHugepages:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: hugepage allocation for data services frontend container'
-                    type: integer
-                  dataServicesFeHugepagesOffset:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: hugepage offset for data services frontend container'
+                    default: 1
+                    minimum: 0
                     type: integer
                   dataServicesHugepages:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: hugepage allocation for data services frontend'
                     minimum: 0
                     type: integer
                   dataServicesHugepagesOffset:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: hugepage offset for data services frontend'
                     minimum: 0
                     type: integer
                   driveCapacity:

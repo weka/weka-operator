@@ -1043,6 +1043,11 @@ spec:
                 - dedicated_ht
                 - manual
                 type: string
+              dataServicesConfig:
+                properties:
+                  dataServicesFeCores:
+                    type: integer
+                type: object
               dpdkBaseMemoryMb:
                 type: integer
               driveCapacity:

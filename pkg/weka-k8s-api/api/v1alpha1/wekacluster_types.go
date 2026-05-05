@@ -164,14 +164,13 @@ func (n *Network) Equal(o *Network) bool {
 }
 
 type AdditionalMemory struct {
-	Compute        int `json:"compute,omitempty"`
-	Drive          int `json:"drive,omitempty"`
-	S3             int `json:"s3,omitempty"`
-	Nfs            int `json:"nfs,omitempty"`
-	Envoy          int `json:"envoy,omitempty"`
-	Smbw           int `json:"smbw,omitempty"`
-	DataServices   int `json:"dataServices,omitempty"`
-	DataServicesFe int `json:"dataServicesFe,omitempty"`
+	Compute      int `json:"compute,omitempty"`
+	Drive        int `json:"drive,omitempty"`
+	S3           int `json:"s3,omitempty"`
+	Nfs          int `json:"nfs,omitempty"`
+	Envoy        int `json:"envoy,omitempty"`
+	Smbw         int `json:"smbw,omitempty"`
+	DataServices int `json:"dataServices,omitempty"`
 }
 
 func (a *AdditionalMemory) GetForMode(mode string) int {
@@ -187,8 +186,6 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 		additionalMemory = a.Nfs
 	case WekaContainerModeDataServices:
 		additionalMemory = a.DataServices
-	case WekaContainerModeDataServicesFe:
-		additionalMemory = a.DataServicesFe
 	case WekaContainerModeEnvoy:
 		additionalMemory = a.Envoy
 	case WekaContainerModeSmbw:
@@ -275,27 +272,18 @@ type WekaClusterTemplate struct {
 	ContainerCapacity int `json:"containerCapacity,omitempty"`
 	// DriveTypesRatio specifies the desired ratio of drive types (TLC vs QLC) when allocating drives for the cluster.
 	DriveTypesRatio *DriveTypesRatio `json:"driveTypesRatio,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services containers
 	// +kubebuilder:validation:Minimum=0
 	DataServicesContainers int `json:"dataServicesContainers,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services cores per container
 	// +kubebuilder:validation:Minimum=0
-	DataServicesCores int `json:"dataServicesCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services extra cores per container
-	// +kubebuilder:validation:Minimum=0
-	DataServicesExtraCores int `json:"dataServicesExtraCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for data services frontend
+	DataServicesCores      int  `json:"dataServicesCores,omitempty"`
+	DataServicesExtraCores *int `json:"dataServicesExtraCores,omitempty"`
 	// +kubebuilder:validation:Minimum=0
 	DataServicesHugepages int `json:"dataServicesHugepages,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for data services frontend
 	// +kubebuilder:validation:Minimum=0
 	DataServicesHugepagesOffset int `json:"dataServicesHugepagesOffset,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services frontend cores per container
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=1
 	DataServicesFeCores int `json:"dataServicesFeCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for data services frontend container
-	DataServicesFeHugepages int `json:"dataServicesFeHugepages,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for data services frontend container
-	DataServicesFeHugepagesOffset int `json:"dataServicesFeHugepagesOffset,omitempty"`
 }
 
 type DriveTypesRatio struct {
