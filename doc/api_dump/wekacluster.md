@@ -228,7 +228,6 @@
 | envoy | int |  |
 | smbw | int |  |
 | dataServices | int |  |
-| dataServicesFe | int |  |
 
 ---
 
@@ -280,14 +279,12 @@
 | driveCapacity | int | DriveCapacity is the capacity in GiB to allocate per single virtual drive.<br>NumDrives multiplied by DriveCapacity gives the total capacity requested by each drive container.<br>This value determines how much capacity each container receives from shared drives. |
 | containerCapacity | int | ContainerCapacity specifies the total capacity (in GiB) requested by each container when using shared drives via SSD proxy.<br>This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation. |
 | driveTypesRatio | *DriveTypesRatio | DriveTypesRatio specifies the desired ratio of drive types (TLC vs QLC) when allocating drives for the cluster. |
-| dataServicesContainers | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services containers |
-| dataServicesCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services cores per container |
-| dataServicesExtraCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services extra cores per container |
-| dataServicesHugepages | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for data services frontend |
-| dataServicesHugepagesOffset | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for data services frontend |
-| dataServicesFeCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services frontend cores per container |
-| dataServicesFeHugepages | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for data services frontend container |
-| dataServicesFeHugepagesOffset | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for data services frontend container |
+| dataServicesContainers | int |  |
+| dataServicesCores | int |  |
+| dataServicesExtraCores | *int |  |
+| dataServicesHugepages | int |  |
+| dataServicesHugepagesOffset | int |  |
+| dataServicesFeCores | int |  |
 
 ---
 

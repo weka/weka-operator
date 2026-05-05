@@ -16,6 +16,7 @@
 - [WekaContainerSpecOverrides](#wekacontainerspecoverrides)
 - [PodResourcesSpec](#podresourcesspec)
 - [PVCConfig](#pvcconfig)
+- [DataServicesConfig](#dataservicesconfig)
 - [ContainerAllocations](#containerallocations)
 - [Drive](#drive)
 - [WekaContainerMetrics](#wekacontainermetrics)
@@ -95,6 +96,7 @@
 | resources | *PodResourcesSpec | resources to be proxied as-is to the pod spec |
 | pvc | *PVCConfig |  |
 | dpdkBaseMemoryMb | int |  |
+| dataServicesConfig | *DataServicesConfig |  |
 
 ---
 
@@ -239,6 +241,14 @@
 |------------|------|-------------|
 | name | string |  |
 | path | string |  |
+
+---
+
+## DataServicesConfig
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| dataServicesFeCores | int |  |
 
 ---
 

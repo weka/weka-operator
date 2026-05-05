@@ -155,6 +155,12 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		container.Spec.ExposePorts = []int{cluster.Status.Ports.LbPort, cluster.Status.Ports.LbAdminPort}
 	}
 
+	if role == wekav1alpha1.WekaContainerModeDataServices && cluster.Spec.Dynamic != nil && cluster.Spec.Dynamic.DataServicesFeCores > 0 {
+		container.Spec.DataServicesConfig = &wekav1alpha1.DataServicesConfig{
+			DataServicesFeCores: cluster.Spec.Dynamic.DataServicesFeCores,
+		}
+	}
+
 	topologySpreadConstraints := preparePodTopologySpreadConstraints(cluster, role)
 	container.Spec.TopologySpreadConstraints = topologySpreadConstraints
 

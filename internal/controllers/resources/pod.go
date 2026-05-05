@@ -1323,12 +1323,26 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeDataServices {
-		// Data services require at least 3.5GB reserved memory
-		dataServicesMemory := 3584 // 3.5GB in MiB
-		managementMemory := 1965
-		perCoreMemory := 512 // minimal per-core overhead for data services
+		feCores := 0
+		if f.container.Spec.DataServicesConfig != nil {
+			feCores = f.container.Spec.DataServicesConfig.DataServicesFeCores
+		}
+
+		managementMemory := 2450
+		perFrontendMemory := 2850 // 5.1.0.8-8.13
+		perFrontendBuffer := 200
 		buffer := 450
-		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+dataServicesMemory+perCoreMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
+
+		perDataServMemory := 4096 // 4GiB per dataserv process
+		totalDatasrvMemory := buffer + managementMemory + perDataServMemory*f.container.Spec.NumCores + f.container.Spec.AdditionalMemory
+
+		if feCores > 0 {
+			catalogMemory := 24576 // 24GiB for catalog
+			total := totalDatasrvMemory + (perFrontendMemory+perFrontendBuffer)*feCores + catalogMemory
+			memRequest = fmt.Sprintf("%dMi", total)
+		} else {
+			memRequest = fmt.Sprintf("%dMi", totalDatasrvMemory)
+		}
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeEnvoy {

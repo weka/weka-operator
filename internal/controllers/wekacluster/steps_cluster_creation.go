@@ -370,6 +370,11 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 				}
 			case "data-services":
 				numContainers = nums.DataServices
+				if numContainers > 0 && cluster.Spec.Dynamic != nil && cluster.Spec.Dynamic.DataServicesFeCores != 0 {
+					_ = r.RecordEventThrottled(v1.EventTypeWarning, "DataServicesValidationFailed", //nolint:errcheck // event recording errors are intentionally ignored
+						"dataServicesContainers > 0 requires dataServicesFeCores to be 0; skipping data-services container creation", time.Minute)
+					numContainers = 0
+				}
 			}
 		} else {
 			switch role {
