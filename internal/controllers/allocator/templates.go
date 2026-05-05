@@ -119,6 +119,16 @@ func GetWekaContainerCores(config *weka.WekaClusterTemplate) IntPerWekaRole {
 	}
 }
 
+func GetDefaultDataServicesExtraCores(config *weka.WekaClusterTemplate) int {
+	if config.DataServicesExtraCores != nil {
+		return *config.DataServicesExtraCores
+	}
+	if config.DataServicesFeCores == 0 {
+		return 0
+	}
+	return 4
+}
+
 func GetWekaContainerExtraCores(config *weka.WekaClusterTemplate) IntPerWekaRole {
 	if config == nil {
 		config = &weka.WekaClusterTemplate{}
@@ -130,7 +140,7 @@ func GetWekaContainerExtraCores(config *weka.WekaClusterTemplate) IntPerWekaRole
 		S3:           util.GetNonZeroOrDefault(config.S3ExtraCores, 1),
 		Nfs:          util.GetNonZeroOrDefault(config.NfsExtraCores, 1),
 		Smbw:         util.GetNonZeroOrDefault(config.SmbwExtraCores, 1),
-		DataServices: config.DataServicesExtraCores,
+		DataServices: GetDefaultDataServicesExtraCores(config),
 	}
 }
 

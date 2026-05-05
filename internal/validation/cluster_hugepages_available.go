@@ -20,7 +20,7 @@ const mib = int64(1) << 20
 // Allocatable[hugepages-2Mi].Value() is bytes. Multiply MiB × mib to
 // compare. Skipped when *Hugepages is 0 (operator-derived from drive
 // capacity). Role mapping isn't 1:1 with cores: s3/nfs/smbw use the
-// *Frontend* fields. DataServicesFeHugepages is intentionally excluded.
+// *Frontend* fields.
 type clusterHugepagesAvailable struct{}
 
 func (clusterHugepagesAvailable) ID() string {
