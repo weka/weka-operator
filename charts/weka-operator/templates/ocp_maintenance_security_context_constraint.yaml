@@ -7,9 +7,12 @@ allowPrivilegedContainer: true
 allowHostDirVolumePlugin: true
 allowHostPID: true
 allowHostNetwork: true
-allowedVolumeTypes:
+volumes:
   - hostPath
   - secret
+  - configMap
+  - emptyDir
+  - persistentVolumeClaim
 readOnlyRootFilesystem: false
 allowHostPorts: true
 runAsUser:
