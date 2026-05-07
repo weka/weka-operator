@@ -624,6 +624,12 @@ func (w *WekaContainer) HasPersistentStorage() bool {
 }
 
 func (w *WekaContainer) HasFrontend() bool {
+	if w.Spec.Mode == WekaContainerModeDataServices {
+		if w.Spec.DataServicesConfig != nil && w.Spec.DataServicesConfig.DataServicesFeCores > 0 {
+			return true
+		}
+		return false
+	}
 	return slices.Contains([]string{WekaContainerModeS3, WekaContainerModeClient, WekaContainerModeNfs, WekaContainerModeSmbw}, w.Spec.Mode)
 }
 
