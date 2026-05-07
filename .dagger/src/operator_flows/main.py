@@ -729,7 +729,7 @@ EOF
         target_kubeconfig: dagger.Secret,
         operator_repo: str,
         helm_repo: str,
-        weka_image: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
+        weka_image: str,
         use_gh_token_for_go_deps: bool = False,
         cluster_name: str = "upgrade-extended",
         namespace: str = "test-upgrade-extended",

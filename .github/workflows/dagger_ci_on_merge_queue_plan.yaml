@@ -335,6 +335,7 @@ jobs:
             --operator-helm-image=${{ needs.upgrade_extended_test.outputs.operator_helm_image }}
             --operator-repo=${{ vars.CI_OPERATOR_REPO }}
             --helm-repo=${{ vars.CI_HELM_REPO }}
+            --weka-image=${{ env.NEW_WEKA_VERSION }}
 
   ci_on_merge_queue_required_status:
     needs: [run_condition_check, upgrade_extended_test, clients_only_test]

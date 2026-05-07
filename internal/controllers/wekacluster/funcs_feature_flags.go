@@ -19,12 +19,11 @@ func (r *wekaClusterReconcilerLoop) GetFeatureFlags(ctx context.Context) (*domai
 		r.Manager.GetClient(),
 		r.Manager.GetScheme(),
 		&operations.AdhocContainerParams{
-			Image:              r.cluster.Spec.Image,
-			Labels:             r.cluster.GetLabels(),
-			NodeSelector:       r.cluster.Spec.NodeSelector,
-			ImagePullSecret:    r.cluster.Spec.ImagePullSecret,
-			Tolerations:        util.ExpandTolerations([]corev1.Toleration{}, r.cluster.Spec.Tolerations, r.cluster.Spec.RawTolerations),
-			ServiceAccountName: r.cluster.Spec.ServiceAccountName,
+			Image:           r.cluster.Spec.Image,
+			Labels:          r.cluster.GetLabels(),
+			NodeSelector:    r.cluster.Spec.NodeSelector,
+			ImagePullSecret: r.cluster.Spec.ImagePullSecret,
+			Tolerations:     util.ExpandTolerations([]corev1.Toleration{}, r.cluster.Spec.Tolerations, r.cluster.Spec.RawTolerations),
 		},
 	)
 }

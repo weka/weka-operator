@@ -239,4 +239,3 @@ func TestWekaClusterValidateWebhookPath(t *testing.T) {
 			WekaClusterValidateWebhookPath, expected, gvk)
 	}
 }
-
