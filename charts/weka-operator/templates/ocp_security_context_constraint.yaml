@@ -6,9 +6,11 @@ metadata:
 
 allowPrivilegedContainer: true
 allowHostDirVolumePlugin: true
-allowedVolumeTypes:
+volumes:
   - hostPath
   - secret
+  - configMap
+  - emptyDir
 readOnlyRootFilesystem: false
 allowHostPorts: true
 runAsUser:

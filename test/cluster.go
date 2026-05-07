@@ -199,7 +199,6 @@ func (c *Cluster) PodsReadyCondition(ctx context.Context, cluster *wekav1alpha1.
 	}
 }
 
-
 func (c *Cluster) ClusterCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
 		if err := c.waitForCondition(ctx, cluster, condition.CondClusterCreated); err != nil {
