@@ -80,7 +80,7 @@ func coresOrOne(cores int) int {
 
 // reduceRatio divides both sides by their gcd so the message reads
 // `1:2` rather than `6:12`.
-func reduceRatio(a, b int) (int, int) {
+func reduceRatio(a, b int) (reducedA, reducedB int) {
 	g := gcd(a, b)
 	if g == 0 {
 		return a, b
