@@ -542,6 +542,10 @@ admissionPolicies:
   #   # unexpected behavior — recommended to omit the field.
   #   cluster_min_drives_small_advisory:    default  # strict: warn   | relaxed: warn
   #
+  #   # When dataServicesContainers > 0, dataServicesFeCores must be 0.
+  #   # Data services containers must not have frontend cores assigned.
+  #   cluster_dataservices_fe_cores:        default  # strict: error  | relaxed: error
+  #
   #   # WekaClient.spec.targetCluster must reference an existing
   #   # WekaCluster.
   #   client_target_cluster_exists:         default  # strict: error  | relaxed: warn
