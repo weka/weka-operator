@@ -22,4 +22,3 @@ func (c *Cluster) SetupK8s(ctx context.Context) error {
 
 	return nil
 }
-
