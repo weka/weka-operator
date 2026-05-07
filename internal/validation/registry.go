@@ -15,6 +15,7 @@ var (
 		&clusterSignedDrives{},
 		&clusterNetworkEthdevice{},
 		&clusterDriveComputeCoreRatio{},
+		&clusterDataservicesFeCores{},
 	}
 	WekaClient = []Validator{
 		&clientTargetClusterExists{},
