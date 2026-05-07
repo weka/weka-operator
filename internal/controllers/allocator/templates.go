@@ -123,10 +123,10 @@ func GetDefaultDataServicesExtraCores(config *weka.WekaClusterTemplate) int {
 	if config.DataServicesExtraCores != nil {
 		return *config.DataServicesExtraCores
 	}
-	if config.DataServicesFeCores == 0 {
-		return 0
+	if config.GetDataServicesFeCores() > 0 {
+		return 4
 	}
-	return 4
+	return 0
 }
 
 func GetWekaContainerExtraCores(config *weka.WekaClusterTemplate) IntPerWekaRole {

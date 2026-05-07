@@ -284,7 +284,7 @@
 | dataServicesExtraCores | *int |  |
 | dataServicesHugepages | int |  |
 | dataServicesHugepagesOffset | int |  |
-| dataServicesFeCores | int |  |
+| dataServicesFeCores | *int |  |
 
 ---
 
