@@ -260,7 +260,6 @@ spec:
                   dataServicesExtraCores:
                     type: integer
                   dataServicesFeCores:
-                    default: 1
                     minimum: 0
                     type: integer
                   dataServicesHugepages:

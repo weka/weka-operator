@@ -282,8 +282,16 @@ type WekaClusterTemplate struct {
 	// +kubebuilder:validation:Minimum=0
 	DataServicesHugepagesOffset int `json:"dataServicesHugepagesOffset,omitempty"`
 	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:default=1
-	DataServicesFeCores int `json:"dataServicesFeCores,omitempty"`
+	DataServicesFeCores *int `json:"dataServicesFeCores,omitempty"`
+}
+
+// GetDataServicesFeCores returns the configured DataServicesFeCores value,
+// defaulting to 1 when nil.
+func (d *WekaClusterTemplate) GetDataServicesFeCores() int {
+	if d == nil || d.DataServicesFeCores == nil {
+		return 1
+	}
+	return *d.DataServicesFeCores
 }
 
 type DriveTypesRatio struct {
