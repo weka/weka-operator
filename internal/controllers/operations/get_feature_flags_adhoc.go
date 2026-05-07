@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
@@ -25,13 +26,12 @@ import (
 // for fetching feature flags. The key identifier is the image.
 // Note: The container is always created in the operator's namespace for owner reference.
 type AdhocContainerParams struct {
-	Image              string
-	Labels             map[string]string
-	NodeSelector       map[string]string
-	NodeAffinity       weka.NodeName
-	ImagePullSecret    string
-	Tolerations        []corev1.Toleration
-	ServiceAccountName string
+	Image           string
+	Labels          map[string]string
+	NodeSelector    map[string]string
+	NodeAffinity    weka.NodeName
+	ImagePullSecret string
+	Tolerations     []corev1.Toleration
 }
 
 // GetFeatureFlagsViaAdhocOperation fetches feature flags for an image
@@ -153,17 +153,16 @@ func (o *GetFeatureFlagsViaAdhocOperation) EnsureAdhocContainer(ctx context.Cont
 			Labels:    labels,
 		},
 		Spec: weka.WekaContainerSpec{
-			Mode:            weka.WekaContainerModeAdhocOpWC,
-			Port:            weka.StaticPortAdhocyWCOperations,
-			AgentPort:       weka.StaticPortAdhocyWCOperationsAgent,
-			NodeSelector:    o.params.NodeSelector,
-			NodeAffinity:    o.params.NodeAffinity,
-			Image:           o.params.Image,
-			ImagePullSecret: o.params.ImagePullSecret,
-			Instructions:    instructions,
-			Tolerations:     o.params.Tolerations,
-			// ServiceAccountName intentionally not set - ad-hoc container runs in operator namespace
-			// where the caller's SA may not exist
+			Mode:               weka.WekaContainerModeAdhocOpWC,
+			Port:               weka.StaticPortAdhocyWCOperations,
+			AgentPort:          weka.StaticPortAdhocyWCOperationsAgent,
+			NodeSelector:       o.params.NodeSelector,
+			NodeAffinity:       o.params.NodeAffinity,
+			Image:              o.params.Image,
+			ImagePullSecret:    o.params.ImagePullSecret,
+			Instructions:       instructions,
+			Tolerations:        o.params.Tolerations,
+			ServiceAccountName: config.Config.MaintenanceSaName,
 		},
 	}
 
