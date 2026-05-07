@@ -33,6 +33,7 @@ type CsiNodeHashableSpec struct {
 	PriorityClassName     string
 	SelinuxSupport        string
 	KubeletPath           string
+	HostNetwork           bool
 }
 
 // GetCsiNodeDaemonSetHash generates a hash for the CSI Node DaemonSet
@@ -78,6 +79,7 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient) (
 		PriorityClassName:     config.Config.PriorityClasses.Targeted,
 		SelinuxSupport:        config.Config.Csi.SelinuxSupport,
 		KubeletPath:           config.Config.Csi.KubeletPath,
+		HostNetwork:           config.Config.Csi.HostNetwork,
 	}
 
 	return util2.HashStruct(spec)
@@ -254,6 +256,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 				},
 				Spec: corev1.PodSpec{
 					NodeSelector:       nodeSelector,
+					HostNetwork:        config.Config.Csi.HostNetwork,
 					ServiceAccountName: "csi-wekafs-node-sa",
 					PriorityClassName:  config.Config.PriorityClasses.Targeted,
 					Containers: []corev1.Container{
