@@ -243,96 +243,158 @@ func (r *containerReconcilerLoop) UpdateWekaAddedDrives(ctx context.Context) err
 	return nil
 }
 
-// UpdateFullDrivesAnnotationFromAddedDrives updates the weka-full-drives node annotation
-// based on the drive container's Status.AddedDrives field. This is the upgrade path for
-// existing Weka clusters where drives are already in Weka (not visible in kernel).
-// Only runs for exclusive-drive containers (not drive-sharing mode).
-func (r *containerReconcilerLoop) UpdateFullDrivesAnnotationFromAddedDrives(ctx context.Context) error {
-	logger := instrumentation.CurrentSpanLogger(ctx)
+// isPciBdf reports whether s has canonical PCI BDF shape (DDDD:BB:DD.F).
+func isPciBdf(s string) bool {
+	return len(s) == 12 && s[4] == ':' && s[7] == ':' && s[10] == '.'
+}
 
-	container := r.container
+type addedDriveInfo struct {
+	serial      string
+	capacityGiB int
+	pciAddress  string
+}
 
-	// Collect drives with known capacity from AddedDrives status
-	type driveCapacity struct {
-		serial      string
-		capacityGiB int
-	}
-	var drivesWithCapacity []driveCapacity
-	for _, d := range container.Status.AddedDrives {
+// collectAddedDrivesInfo extracts (serial, capacityGiB, pciAddress) triples
+// from AddedDrives. Skips rows without a serial or without a positive SizeBytes
+// (those are not actionable). pciAddress needs a valid BDF in DevicePath (NVMe only).
+func collectAddedDrivesInfo(added []weka.Drive) []addedDriveInfo {
+	out := make([]addedDriveInfo, 0, len(added))
+	for _, d := range added {
 		if d.SerialNumber == "" || d.SizeBytes == 0 {
 			continue
 		}
-		drivesWithCapacity = append(drivesWithCapacity, driveCapacity{
+		pci := ""
+		if isPciBdf(d.DevicePath) {
+			pci = d.DevicePath
+		}
+		out = append(out, addedDriveInfo{
 			serial:      d.SerialNumber,
-			capacityGiB: int(d.SizeBytes / (1024 * 1024 * 1024)),
+			capacityGiB: int(d.SizeBytes / consts.BytesPerGiB),
+			pciAddress:  pci,
 		})
 	}
-	if len(drivesWithCapacity) == 0 {
-		return nil // nothing to update
-	}
+	return out
+}
 
+// mergeAddedDrivesIntoEntryMap fills missing fields on existing entries (creates
+// new ones when absent). Monotonic: only fills empty fields. Returns true on mutation.
+func mergeAddedDrivesIntoEntryMap(entryMap map[string]domain.DriveEntry, infos []addedDriveInfo) bool {
+	changed := false
+	for _, d := range infos {
+		existing, exists := entryMap[d.serial]
+		fillCapacity := d.capacityGiB > 0 && existing.CapacityGiB <= 0
+		fillPci := d.pciAddress != "" && existing.PciAddress == ""
+		if exists && !fillCapacity && !fillPci {
+			continue
+		}
+		updated := existing
+		updated.Serial = d.serial
+		if fillCapacity {
+			updated.CapacityGiB = d.capacityGiB
+		}
+		if fillPci {
+			updated.PciAddress = d.pciAddress
+		}
+		entryMap[d.serial] = updated
+		changed = true
+	}
+	return changed
+}
+
+// shouldKickSignDrives returns true on the legacy-upgrade shape: no entry has
+// pci_address AND at least one addedDriveInfo carries a BDF (i.e. NVMe cluster).
+func shouldKickSignDrives(existing []domain.DriveEntry, infos []addedDriveInfo) bool {
+	if len(existing) == 0 {
+		return false
+	}
+	for _, e := range existing {
+		if e.PciAddress != "" {
+			return false
+		}
+	}
+	for _, d := range infos {
+		if d.pciAddress != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// UpdateFullDrivesAnnotationFromAddedDrives backfills weka-full-drives from
+// container.Status.AddedDrives (the upgrade path for entries Weka already has).
+// Exclusive-drive mode only.
+func (r *containerReconcilerLoop) UpdateFullDrivesAnnotationFromAddedDrives(ctx context.Context) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
 	node := r.node
 
-	// Read existing full-drives annotation entries
 	existingEntries, err := domain.ReadDriveAnnotations(node.Annotations[consts.AnnotationWekaFullDrives])
 	if err != nil {
 		return fmt.Errorf("failed to read weka-full-drives annotation: %w", err)
 	}
-
-	// Build map of existing entries (serial → entry)
 	entryMap := make(map[string]domain.DriveEntry, len(existingEntries))
 	for _, e := range existingEntries {
 		entryMap[e.Serial] = e
 	}
 
-	// Merge: add or update entries from AddedDrives (only if not already present with capacity)
-	updated := false
-	for _, d := range drivesWithCapacity {
-		if existing, ok := entryMap[d.serial]; ok && existing.CapacityGiB > 0 {
-			continue // already have good capacity data
+	addedDrivesInfo := collectAddedDrivesInfo(r.container.Status.AddedDrives)
+
+	// Pre-merge shape detector: legacy annotation + NVMe Weka has admitted → kick sign-drives.
+	kicked := false
+	if shouldKickSignDrives(existingEntries, addedDrivesInfo) {
+		delete(node.Annotations, consts.AnnotationSignDrivesHash)
+		kicked = true
+	}
+
+	// Merge is a no-op when AddedDrives is empty or all-malformed.
+	annotationChanged := mergeAddedDrivesIntoEntryMap(entryMap, addedDrivesInfo)
+	if !kicked && !annotationChanged {
+		return nil
+	}
+
+	var updatedEntries []domain.DriveEntry
+	if annotationChanged {
+		updatedEntries = make([]domain.DriveEntry, 0, len(entryMap))
+		for _, e := range entryMap {
+			updatedEntries = append(updatedEntries, e)
 		}
-		entryMap[d.serial] = domain.DriveEntry{Serial: d.serial, CapacityGiB: d.capacityGiB}
-		updated = true
-	}
+		slices.SortFunc(updatedEntries, func(a, b domain.DriveEntry) int {
+			return strings.Compare(a.Serial, b.Serial)
+		})
 
-	if !updated {
-		return nil // annotation already has capacity for all AddedDrives
-	}
-
-	updatedEntries := make([]domain.DriveEntry, 0, len(entryMap))
-	for _, e := range entryMap {
-		updatedEntries = append(updatedEntries, e)
-	}
-	// Sort entries by serial for stable annotation (not strictly necessary, but helps with readability and testing)
-	slices.SortFunc(updatedEntries, func(a, b domain.DriveEntry) int {
-		return strings.Compare(a.Serial, b.Serial)
-	})
-	annotationBytes, err := json.Marshal(updatedEntries)
-	if err != nil {
-		return fmt.Errorf("failed to marshal weka-full-drives annotation: %w", err)
-	}
-	if node.Annotations == nil {
-		node.Annotations = make(map[string]string)
-	}
-	node.Annotations[consts.AnnotationWekaFullDrives] = string(annotationBytes)
-
-	var blockedDrives []string
-	if blockedStr, ok := node.Annotations[consts.AnnotationBlockedDrives]; ok && blockedStr != "" {
-		if err := json.Unmarshal([]byte(blockedStr), &blockedDrives); err != nil {
-			return fmt.Errorf("failed to unmarshal blocked-drives annotation on node %s: %w", node.Name, err)
+		annotationBytes, err := json.Marshal(updatedEntries)
+		if err != nil {
+			return fmt.Errorf("failed to marshal weka-full-drives annotation: %w", err)
 		}
-	}
-	totalSerials := domain.DriveEntrySerials(updatedEntries)
-	domain.SetNodeDriveAllocatable(node, totalSerials, blockedDrives)
+		if node.Annotations == nil {
+			node.Annotations = make(map[string]string)
+		}
+		node.Annotations[consts.AnnotationWekaFullDrives] = string(annotationBytes)
 
-	if err := r.Status().Update(ctx, node); err != nil {
-		return fmt.Errorf("failed to update node status: %w", err)
+		var blockedDrives []string
+		if blockedStr, ok := node.Annotations[consts.AnnotationBlockedDrives]; ok && blockedStr != "" {
+			if err := json.Unmarshal([]byte(blockedStr), &blockedDrives); err != nil {
+				return fmt.Errorf("failed to unmarshal blocked-drives annotation on node %s: %w", node.Name, err)
+			}
+		}
+		domain.SetNodeDriveAllocatable(node, domain.DriveEntrySerials(updatedEntries), blockedDrives)
+
+		// Status writes allocatable; spec writes the annotations.
+		if err := r.Status().Update(ctx, node); err != nil {
+			return fmt.Errorf("failed to update node status: %w", err)
+		}
 	}
 	if err := r.Update(ctx, node); err != nil {
 		return fmt.Errorf("failed to update node annotations: %w", err)
 	}
 
-	logger.Info("Updated weka-full-drives annotation from AddedDrives", "node", node.Name, "count", len(drivesWithCapacity), "total", len(totalSerials))
+	if annotationChanged {
+		logger.Info("Updated weka-full-drives annotation from AddedDrives",
+			"node", node.Name, "count", len(addedDrivesInfo), "total", len(updatedEntries))
+	}
+	if kicked {
+		logger.Info("Cleared sign-drives-hash to populate pci_address on legacy annotation entries",
+			"node", node.Name)
+	}
 	return nil
 }
 
@@ -789,23 +851,18 @@ func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive
 		return err
 	}
 
-	statusActive := "ACTIVE"
-	statusInactive := "INACTIVE"
-
-	switch reFetchedDrive.Status {
-	case statusActive:
-		logger.Info("Deactivating drive")
-		deactivateErr := wekaService.DeactivateDrive(ctx, drive.Uuid)
-		if deactivateErr != nil {
-			return fmt.Errorf("error deactivating drive %s: %w", drive.SerialNumber, deactivateErr)
-		}
-
-		_ = r.RecordEvent("", "DriveDeactivated", fmt.Sprintf("Drive %s deactivated", drive.SerialNumber)) //nolint:errcheck // error return value intentionally not checked
-	case statusInactive:
-		logger.Debug("Drive is inactive")
-	default:
-		return fmt.Errorf("drive has status '%s', wait for it to become '%s'", drive.Status, statusInactive)
+	// Weka rejects `drive remove` unless should_be_active=false — set via
+	// `drive deactivate`, even when the drive is already INACTIVE.
+	if reFetchedDrive.Status != services.DriveStatusActive && reFetchedDrive.Status != services.DriveStatusInactive {
+		return fmt.Errorf("drive has status '%s', expected '%s' or '%s'",
+			reFetchedDrive.Status, services.DriveStatusActive, services.DriveStatusInactive)
 	}
+
+	logger.Info("Deactivating drive", "current_status", reFetchedDrive.Status)
+	if err := wekaService.DeactivateDrive(ctx, drive.Uuid); err != nil {
+		return fmt.Errorf("error deactivating drive %s: %w", drive.SerialNumber, err)
+	}
+	_ = r.RecordEvent("", "DriveDeactivated", fmt.Sprintf("Drive %s deactivated", drive.SerialNumber)) //nolint:errcheck // error return value intentionally not checked
 
 	// remove failed (replaced) drive from weka
 	logger.Info("Removing drive")

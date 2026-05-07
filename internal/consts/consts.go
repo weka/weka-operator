@@ -22,6 +22,15 @@ const (
 	// Format: ["SERIAL1", "SERIAL2", ...]
 	AnnotationBlockedDrives = "weka.io/blocked-drives"
 
+	// AnnotationKernelVisibleDrives stores serials currently visible to the
+	// kernel as block devices on this node at the most recent sign-drives run.
+	// Format: ["SERIAL1", "SERIAL2", ...]
+	// Allocator intersects weka-full-drives with this set to skip stale
+	// entries whose hardware no longer exists and that the PCI cross-check
+	// cannot block for lack of a recorded pci_address (typically pre-upgrade
+	// entries). Absent annotation = pre-upgrade node, intersect is skipped.
+	AnnotationKernelVisibleDrives = "weka.io/kernel-visible-drives"
+
 	// AnnotationSharedDrives stores shared drive information for proxy mode
 	// Format: [[uuid, serial, capacityGiB, devicePath], ...]
 	// Example: [["550e8400-e29b-41d4-a716-446655440000", "SERIAL123", 7000, "/dev/nvme0n1"]]
@@ -66,4 +75,9 @@ const (
 
 	// ResourceSharedDrivesCapacityTLC is the extended resource name for tracking shared drive capacity of QLC drives (proxy mode)
 	ResourcesSharedDrivesCapacityQLC = "weka.io/shared-drives-capacity-qlc"
+)
+
+// Unit conversions
+const (
+	BytesPerGiB int64 = 1024 * 1024 * 1024
 )

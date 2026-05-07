@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
@@ -349,11 +350,11 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 	// This defaults are not meant to be configurable, as instead weka should not require them.
 	// Until then, user configuration post cluster create
 
-	var thinProvisionedLimitsConfigFS int64 = 100 * 1024 * 1024 * 1024 // half a total capacity allocated for thin provisioning
+	var thinProvisionedLimitsConfigFS int64 = 100 * consts.BytesPerGiB // half a total capacity allocated for thin provisioning
 	thinProvisionedLimitsDefault := status.Capacity.TotalBytes / 10    // half a total capacity allocated for thin provisioning
 	fsReservedCapacity := status.Capacity.TotalBytes / 100
-	var configFsSize int64 = 10 * 1024 * 1024 * 1024
-	var defaultFsSize int64 = 1 * 1024 * 1024 * 1024
+	var configFsSize int64 = 10 * consts.BytesPerGiB
+	var defaultFsSize int64 = 1 * consts.BytesPerGiB
 
 	if defaultFsSize > thinProvisionedLimitsDefault {
 		thinProvisionedLimitsDefault = defaultFsSize

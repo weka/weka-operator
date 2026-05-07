@@ -34,6 +34,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	metrics2 "github.com/weka/weka-operator/pkg/metrics"
 	"github.com/weka/weka-operator/pkg/util"
@@ -494,7 +495,7 @@ func (a *NodeAgent) generateMetricsResponse(ctx context.Context) ([]byte, error)
 			}
 
 			for _, disk := range container.containerState.DisksSummary {
-				if !slices.Contains([]string{"ACTIVE", "PHASING_IN"}, disk.Status) || disk.IsFailed {
+				if !slices.Contains([]string{services.DriveStatusActive, services.DriveStatusPhasingIn}, disk.Status) || disk.IsFailed {
 					promResponse.AddMetric(metrics2.PromMetric{
 						Metric: "weka_inactive_drives",
 						Help:   "Weka processes",
@@ -1099,7 +1100,7 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 	//TODO: Expand prom metrics with failed disks metrics
 	for _, disk := range container.containerState.DisksSummary {
 		totalDrives++
-		if disk.Status == "ACTIVE" {
+		if disk.Status == services.DriveStatusActive {
 			activeDrives++
 		} else {
 			failedDrives = append(failedDrives, weka.DriveFailures{

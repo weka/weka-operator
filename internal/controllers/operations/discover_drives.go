@@ -48,13 +48,22 @@ type DriveRawInfo struct {
 	Path        string `json:"path"`
 	IsMounted   bool   `json:"is_mounted"`
 	CapacityGiB int    `json:"capacity_gib"`
+	PciAddress  string `json:"pci_address,omitempty"`
+}
+
+// NvmePciDevice describes one NVMe controller currently attached to the host's
+// PCI bus. Used to detect drive removals/replacements.
+type NvmePciDevice struct {
+	PciAddress string `json:"pci_address"`
+	Driver     string `json:"driver,omitempty"`
 }
 
 type DriveNodeResults struct {
-	Err         error                    `json:"err"`
-	Drives      []domain.DriveInfo       `json:"drives"`
-	RawDrives   []DriveRawInfo           `json:"raw_drives"`
-	ProxyDrives []domain.SharedDriveInfo `json:"proxy_drives,omitempty"` // Signed drives for proxy mode
+	Err          error                    `json:"err"`
+	Drives       []domain.DriveInfo       `json:"drives"`
+	RawDrives    []DriveRawInfo           `json:"raw_drives"`
+	PciInventory []NvmePciDevice          `json:"pci_inventory,omitempty"`
+	ProxyDrives  []domain.SharedDriveInfo `json:"proxy_drives,omitempty"` // Signed drives for proxy mode
 }
 
 type DiscoverDrivesResult struct {

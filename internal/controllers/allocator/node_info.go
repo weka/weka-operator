@@ -59,6 +59,22 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 				}
 			}
 
+			// Intersect with weka.io/kernel-visible-drives if present; see AnnotationKernelVisibleDrives doc.
+			if kernelVisibleStr, present := node.Annotations[consts.AnnotationKernelVisibleDrives]; present {
+				kernelVisibleSerials := []string{}
+				if err = json.Unmarshal([]byte(kernelVisibleStr), &kernelVisibleSerials); err != nil {
+					err = fmt.Errorf("failed to unmarshal kernel-visible-drives: %v", err)
+					return
+				}
+				filtered := make([]domain.DriveEntry, 0, len(availableDrives))
+				for _, entry := range availableDrives {
+					if slices.Contains(kernelVisibleSerials, entry.Serial) {
+						filtered = append(filtered, entry)
+					}
+				}
+				availableDrives = filtered
+			}
+
 			nodeInfo.AvailableDrives = availableDrives
 		} else {
 			// No exclusive drives annotation - set empty list

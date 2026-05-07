@@ -9,6 +9,7 @@ import (
 type DriveEntry struct {
 	Serial      string `json:"serial"`
 	CapacityGiB int    `json:"capacity_gib"`
+	PciAddress  string `json:"pci_address,omitempty"`
 }
 
 // DriveEntrySerials extracts serial strings from a slice of DriveEntry.

@@ -34,6 +34,13 @@ class Disk:
     is_mounted: bool
     serial_id: Optional[str]
     capacity_gib: Optional[int] = None
+    pci_address: Optional[str] = None
+
+
+@dataclass
+class NvmePciDevice:
+    pci_address: str
+    driver: Optional[str]   # "nvme", "igb_uio", "vfio-pci", or None if unbound
 
 
 MODE = os.environ.get("MODE")
@@ -457,11 +464,16 @@ async def find_disks() -> List[Disk]:
             device_path = device["name"]
             serial_id = await get_device_serial_id(device_path)
             capacity_gib = await get_capacity_gib(device_path)
+            pci_address = await get_device_pci_address(device_path)
             if capacity_gib is None:
                 continue
 
-            logging.info(f"Found drive: {device_path}, mounted: {is_mounted}, serial: {serial_id}")
-            disks.append(Disk(path=device_path, is_mounted=is_mounted, serial_id=serial_id, capacity_gib=capacity_gib))
+            logging.info(f"Found drive: {device_path}, mounted: {is_mounted}, serial: {serial_id}, pci: {pci_address}")
+            disks.append(Disk(
+                path=device_path, is_mounted=is_mounted,
+                serial_id=serial_id, capacity_gib=capacity_gib,
+                pci_address=pci_address,
+            ))
 
     return disks
 
@@ -678,6 +690,70 @@ async def get_device_serial_id(device_path: str) -> str:
     except (Exception, subprocess.TimeoutExpired) as e:
         logging.warning(f"Failed to get serial ID for {device_path}: {e}")
         return ""
+
+
+async def get_device_pci_address(device_path: str) -> Optional[str]:
+    """
+    Resolve a block device path to its PCI bus address (BDF), e.g. "0000:00:1f.0".
+    Returns None if the device is not on the PCI bus, isn't an NVMe device, or
+    the address can't be parsed. NVMe-only.
+    """
+    try:
+        device_name = os.path.basename(device_path)
+        device_sysfs_path = os.path.realpath(f"/sys/class/block/{device_name}")
+        # Pick the LAST path segment matching the PCI BDF format (e.g. "0000:00:1f.0").
+        # On hardware with PCIe switches/bridges between the root complex and the NVMe,
+        # the resolved path contains multiple BDF segments (bridges + device). We want
+        # the device's own BDF, which is the last one in the chain.
+        last_match: Optional[str] = None
+        for seg in device_sysfs_path.split("/"):
+            if len(seg) == 12 and seg[4] == ":" and seg[7] == ":" and seg[10] == ".":
+                last_match = seg
+        if last_match is None:
+            return None
+        # Confirm it's an NVMe device by checking the PCI class.
+        try:
+            with open(f"/sys/bus/pci/devices/{last_match}/class") as f:
+                if f.read().strip() != "0x010802":
+                    return None
+        except OSError:
+            return None
+        return last_match
+    except OSError as e:
+        logging.warning(f"Failed to get PCI address for {device_path}: {e}")
+        return None
+
+
+async def list_nvme_pcis() -> List[NvmePciDevice]:
+    """
+    Enumerate all NVMe PCI devices currently attached to the host, regardless
+    of which driver (kernel `nvme` or userspace `igb_uio`/`vfio-pci`) has
+    claimed them. Weka-claimed drives do not appear in /dev/nvme* but still
+    appear here — used to detect drive removals/replacements at the PCI layer.
+    """
+    inventory: List[NvmePciDevice] = []
+    # PCI class code for NVM Express (mass storage / non-volatile memory).
+    nvme_class = "0x010802"
+    pci_root = "/sys/bus/pci/devices"
+    try:
+        entries = os.listdir(pci_root)
+    except OSError as e:
+        logging.warning(f"Failed to enumerate NVMe PCI devices: {e}")
+        return inventory
+    for pci_address in entries:
+        entry = os.path.join(pci_root, pci_address)
+        try:
+            with open(os.path.join(entry, "class")) as f:
+                if f.read().strip() != nvme_class:
+                    continue
+        except OSError:
+            continue
+        driver: Optional[str] = None
+        driver_link = os.path.join(entry, "driver")
+        if os.path.islink(driver_link):
+            driver = os.path.basename(os.path.realpath(driver_link))
+        inventory.append(NvmePciDevice(pci_address=pci_address, driver=driver))
+    return inventory
 
 
 async def get_proxy_drive_info(device_path: str):
@@ -970,10 +1046,12 @@ async def get_block_device_path_by_serial(serial: str):
 async def discover_drives():
     drives = await find_weka_drives()
     raw_disks = await find_disks()
+    pci_inventory = await list_nvme_pcis()
     write_results(dict(
         err=None,
         drives=drives,
         raw_drives=[asdict(d) for d in raw_disks],
+        pci_inventory=[asdict(d) for d in pci_inventory],
     ))
 
 

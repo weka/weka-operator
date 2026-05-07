@@ -142,14 +142,20 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	// Update weka.io/weka-drives annotation (regular mode)
 	newDrivesFound := 0
 
-	// Build a map from raw drives for capacity lookup
+	// Build lookup maps from raw drives: serial → capacity, serial → PCI, PCI → raw entry.
 	rawDriveCapacity := make(map[string]int)
+	rawDrivePci := make(map[string]string)
+	rawByPci := make(map[string]operations.DriveRawInfo)
 	for _, raw := range opResult.RawDrives {
 		if raw.SerialId != "" {
 			if raw.CapacityGiB == 0 {
 				return fmt.Errorf("drive %s in RawDrives has zero capacity", raw.SerialId)
 			}
 			rawDriveCapacity[raw.SerialId] = raw.CapacityGiB
+			rawDrivePci[raw.SerialId] = raw.PciAddress
+		}
+		if raw.PciAddress != "" {
+			rawByPci[raw.PciAddress] = raw
 		}
 	}
 
@@ -189,7 +195,11 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 			newDrivesFound++
 		}
 		// capacity is guaranteed > 0 by the RawDrives validation above
-		seenDrives[drive.SerialId] = domain.DriveEntry{Serial: drive.SerialId, CapacityGiB: capacity}
+		seenDrives[drive.SerialId] = domain.DriveEntry{
+			Serial:      drive.SerialId,
+			CapacityGiB: capacity,
+			PciAddress:  rawDrivePci[drive.SerialId],
+		}
 	}
 
 	if newDrivesFound == 0 {
@@ -235,6 +245,47 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		}
 	}
 
+	// PCI-cross-check: detect drives that have physically disappeared or been replaced.
+	// For each known serial with a recorded PCI address, look at the current PCI inventory:
+	//   - PCI not present on the bus → slot empty, drive truly removed → block.
+	//   - PCI bound to `nvme` with a DIFFERENT serial in RawDrives → slot reused → block original.
+	//   - PCI bound to `nvme` with SAME serial in RawDrives → drive is back; no-op.
+	//   - PCI bound to `igb_uio`/`vfio-pci` → Weka likely owns it; no-op.
+	//   - No recorded PCI on the entry (pre-upgrade) → skip; next sign-drives run rewrites it.
+	pciDriverByAddr := make(map[string]string)
+	for _, p := range opResult.PciInventory {
+		pciDriverByAddr[p.PciAddress] = p.Driver
+	}
+	for _, entry := range seenDrives {
+		if entry.PciAddress == "" {
+			continue
+		}
+		driver, present := pciDriverByAddr[entry.PciAddress]
+		if !present {
+			if !slices.Contains(blockedDrives, entry.Serial) {
+				blockedDrives = append(blockedDrives, entry.Serial)
+				logger.Info("Blocking drive",
+					"serial_id", entry.Serial,
+					"reason", "PCI address not on bus",
+					"pci", entry.PciAddress)
+			}
+			continue
+		}
+		if driver == "nvme" {
+			if raw, ok := rawByPci[entry.PciAddress]; ok && raw.SerialId != entry.Serial && raw.SerialId != "" {
+				if !slices.Contains(blockedDrives, entry.Serial) {
+					blockedDrives = append(blockedDrives, entry.Serial)
+					logger.Info("Blocking drive",
+						"serial_id", entry.Serial,
+						"reason", "PCI slot now holds a different serial",
+						"pci", entry.PciAddress,
+						"current_serial", raw.SerialId)
+				}
+			}
+		}
+		// driver != "nvme" (igb_uio / vfio-pci / unbound) → Weka has the slot or it's in flight; assume the serial is unchanged.
+	}
+
 	availableDrives := 0
 	for _, entry := range updatedDrivesList {
 		if !slices.Contains(blockedDrives, entry.Serial) {
@@ -252,6 +303,24 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		return err
 	}
 	node.Annotations[consts.AnnotationBlockedDrives] = string(blockedDrivesStr)
+
+	// Snapshot of serials currently visible to the kernel as block devices on
+	// this node. The allocator intersects weka-full-drives with this set so it
+	// can never pick a stale entry whose hardware no longer exists but for
+	// which the PCI cross-check has no anchor (pre-upgrade entries with no
+	// pci_address). Sorted for deterministic output to avoid spurious patches.
+	kernelVisibleSerials := make([]string, 0, len(opResult.RawDrives))
+	for _, raw := range opResult.RawDrives {
+		if raw.SerialId != "" {
+			kernelVisibleSerials = append(kernelVisibleSerials, raw.SerialId)
+		}
+	}
+	slices.Sort(kernelVisibleSerials)
+	kernelVisibleDrivesStr, err := json.Marshal(kernelVisibleSerials)
+	if err != nil {
+		return fmt.Errorf("error marshalling kernel-visible drives: %w", err)
+	}
+	node.Annotations[consts.AnnotationKernelVisibleDrives] = string(kernelVisibleDrivesStr)
 
 	// Skip allocatable update when weka-full-drives was absent AND no kernel drives found —
 	// the result is provably incomplete (in-Weka drives not visible to kernel).

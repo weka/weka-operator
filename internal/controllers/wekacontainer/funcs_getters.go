@@ -22,6 +22,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
@@ -154,7 +155,7 @@ func (r *containerReconcilerLoop) AllExpectedDrivesAreActive() bool {
 			// Check that individual drives in AddedDrives also show ACTIVE status
 			// (not just relying on aggregate count from stats)
 			for _, drive := range r.container.Status.AddedDrives {
-				if drive.Status != "ACTIVE" {
+				if drive.Status != services.DriveStatusActive {
 					return false
 				}
 			}
