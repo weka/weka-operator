@@ -302,6 +302,8 @@ spec:
               value: "{{ .Values.csi.preventNewWorkloadOnClientContainerNotRunning }}"
             - name: CSI_LOG_LEVEL
               value: "{{ .Values.csi.logLevel }}"
+            - name: CSI_HOST_NETWORK
+              value: "{{ .Values.csi.hostNetwork | default false }}"
             - name: CSI_SELINUX_SUPPORT
               value: "{{ .Values.csi.selinuxSupport | default "auto" }}"
             - name: CSI_KUBELET_PATH

@@ -129,6 +129,7 @@ type EmbeddedCsiSettings struct {
 	NodeResources                                 CsiNodeResources
 	SelinuxSupport                                string // "auto", "enforced", or "off"
 	KubeletPath                                   string
+	HostNetwork                                   bool
 }
 
 type PriorityClasses struct {
@@ -487,6 +488,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Csi.RegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
 	Config.Csi.PreventNewWorkloadOnClientContainerNotRunning = getBoolEnvOrDefault("CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING", true)
 	Config.Csi.LogLevel = getIntEnvOrDefault("CSI_LOG_LEVEL", 5)
+	Config.Csi.HostNetwork = getBoolEnvOrDefault("CSI_HOST_NETWORK", false)
 	Config.Csi.ControllerResources = parseCsiControllerResources()
 	Config.Csi.NodeResources = parseCsiNodeResources()
 	Config.SyslogPackage = getEnvOrDefault("SYSLOG_PACKAGE", "auto")

@@ -39,6 +39,7 @@ type CsiControllerHashableSpec struct {
 	WekaContainerName     string
 	SelinuxSupport        string
 	KubeletPath           string
+	HostNetwork           bool
 }
 
 // GetCsiControllerDeploymentHash generates a hash for the CSI Controller Deployment
@@ -85,6 +86,7 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		WekaContainerName:     resources.GetWekaClientContainerName(wekaClient),
 		SelinuxSupport:        config.Config.Csi.SelinuxSupport,
 		KubeletPath:           config.Config.Csi.KubeletPath,
+		HostNetwork:           config.Config.Csi.HostNetwork,
 	}
 
 	return util2.HashStruct(spec)
@@ -215,6 +217,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 				},
 				Spec: corev1.PodSpec{
 					NodeSelector:       nodeSelector,
+					HostNetwork:        config.Config.Csi.HostNetwork,
 					ServiceAccountName: "csi-wekafs-controller-sa",
 					PriorityClassName:  config.Config.PriorityClasses.Targeted,
 					InitContainers: []corev1.Container{
