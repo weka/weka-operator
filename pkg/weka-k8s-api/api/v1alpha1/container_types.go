@@ -701,10 +701,6 @@ func (w *WekaContainer) HasAgent() bool {
 	}, w.Spec.Mode)
 }
 
-func (w *WekaContainer) IsHostWideSingleton() bool {
-	return slices.Contains([]string{WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeSmbw, WekaContainerModeTelemetry}, w.Spec.Mode)
-}
-
 func (w *WekaContainer) GetNodeAffinity() NodeName {
 	if w.Spec.NodeAffinity != "" {
 		return w.Spec.NodeAffinity
