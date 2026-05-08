@@ -40,11 +40,6 @@ type WekaHome struct {
 	EnableStats   bool
 }
 
-type OcpCompatibility struct {
-	DriverToolkitSecretName   string
-	DriverToolkitImageBaseUrl string
-}
-
 type GkeCompatibility struct {
 	DisableDriverSigning  bool
 	HugepageConfiguration struct {
@@ -221,7 +216,6 @@ var Config struct {
 	MaintenanceImage               string
 	EnvoyImage                     string
 	MaintenanceImagePullSecret     string
-	OcpCompatibility               OcpCompatibility
 	GkeCompatibility               GkeCompatibility
 	WekaAllocZombieDeleteAfter     time.Duration
 	DevMode                        bool
@@ -389,7 +383,6 @@ func ConfigureEnv(ctx context.Context) {
 		Config.BindAddress.Metrics = getEnvOrFail("OPERATOR_METRICS_BIND_ADDRESS")
 		Config.BindAddress.HealthProbe = getEnvOrFail("HEALTH_PROBE_BIND_ADDRESS")
 		Config.MaintenanceSaName = getEnvOrFail("WEKA_OPERATOR_MAINTENANCE_SA_NAME")
-		Config.OcpCompatibility.DriverToolkitSecretName = getEnvOrFail("WEKA_OCP_PULL_SECRET")
 	}
 	Config.BindAddress.NodeAgent = getEnvOrDefault("NODE_AGENT_BIND_ADDRESS", ":8090")
 	Config.EnableLeaderElection = getBoolEnvOrDefault("ENABLE_LEADER_ELECTION", false)
@@ -414,7 +407,6 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Upgrade.ImagePrePullTimeout = getDurationEnvOrDefault("UPGRADE_IMAGE_PRE_PULL_TIMEOUT", 20*time.Minute)
 	Config.MaintenanceImagePullSecret = os.Getenv("WEKA_MAINTENANCE_IMAGE_PULL_SECRET")
 	Config.Otel.PythonPackagesInstallerImage = os.Getenv("WEKA_OTEL_PACKAGES_INSTALLER_IMAGE") // No default - opt-in only
-	Config.OcpCompatibility.DriverToolkitImageBaseUrl = getEnvOrDefault("WEKA_OCP_TOOLKIT_IMAGE_BASE_URL", "quay.io/openshift-release-dev/ocp-v4.0-art-dev")
 	Config.GkeCompatibility.DisableDriverSigning = getBoolEnvOrDefault("WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING", false)
 	Config.GkeCompatibility.HugepageConfiguration.Enabled = getBoolEnvOrDefault("WEKA_COS_ALLOW_HUGEPAGE_CONFIG", false)
 	Config.GkeCompatibility.HugepageConfiguration.Size = getEnvOrDefault("WEKA_COS_GLOBAL_HUGEPAGE_SIZE", "2m")
