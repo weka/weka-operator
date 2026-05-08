@@ -153,6 +153,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 		"--mutuallyexclusivemountoptions=sync,async",
 		"--mutuallyexclusivemountoptions=ro,rw",
 		"--grpcrequesttimeoutseconds=30",
+		"--healthprobewekatimeoutseconds=5",
 		"--concurrency.createVolume=5",
 		"--concurrency.deleteVolume=5",
 		"--concurrency.expandVolume=5",
@@ -256,10 +257,10 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 								},
 							},
 							LivenessProbe: &corev1.Probe{
-								FailureThreshold:    5,
+								FailureThreshold:    10,
 								InitialDelaySeconds: 10,
-								TimeoutSeconds:      3,
-								PeriodSeconds:       2,
+								TimeoutSeconds:      6,
+								PeriodSeconds:       10,
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
 										Path: "/healthz",

@@ -759,6 +759,7 @@ EOF
             .with_exec(["mkdir", "-p", "/.kube"])
             .with_mounted_secret("/.kube/config", source_kubeconfig)
             .with_env_variable("KUBECONFIG", "/.kube/config")
+            .with_env_variable("LOG_FORMAT", "raw")
         )
 
         if not operator_image or not operator_helm_image:

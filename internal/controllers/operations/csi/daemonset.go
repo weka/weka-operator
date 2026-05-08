@@ -141,6 +141,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		"--mutuallyexclusivemountoptions=sync,async",
 		"--mutuallyexclusivemountoptions=ro,rw",
 		"--grpcrequesttimeoutseconds=30",
+		"--healthprobewekatimeoutseconds=5",
 		"--concurrency.nodePublishVolume=5",
 		"--concurrency.nodeUnpublishVolume=5",
 		"--nfsprotocolversion=4.1",
@@ -282,7 +283,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 								},
 							},
 							LivenessProbe: &corev1.Probe{
-								FailureThreshold: 5,
+								FailureThreshold: 10,
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
 										Path: "/healthz",
@@ -290,8 +291,8 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 									},
 								},
 								InitialDelaySeconds: 10,
-								TimeoutSeconds:      3,
-								PeriodSeconds:       2,
+								TimeoutSeconds:      7,
+								PeriodSeconds:       10,
 							},
 							Env: []corev1.EnvVar{
 								{
@@ -345,6 +346,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
 								"--health-port=$(HEALTH_PORT)",
+								"--probe-timeout=6s",
 							},
 							Env: []corev1.EnvVar{
 								{
