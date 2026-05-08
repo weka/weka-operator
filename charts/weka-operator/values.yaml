@@ -67,8 +67,6 @@ nodeAgentMetricsBindAddress: ":8090"
 healthProbeBindAddress: ":8081"
 
 ocpCompatibility:
-  driverToolkitSecretName:
-  driverToolkitImageBaseUrl: quay.io/openshift-release-dev/ocp-v4.0-art-dev
   # -- automatically create Tuned profile for the cluster nodes to apply hugepages configuration.
   # -- WARNING: do not enable this feature if you are already using custom Tuned profiles for setting hugepages
   hugepageConfiguration:

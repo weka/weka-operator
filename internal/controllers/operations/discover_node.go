@@ -133,16 +133,6 @@ func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {
 	o.result.Provider = o.GetProvider()
 	o.result.Arch = o.node.Status.NodeInfo.Architecture
 
-	if o.result.IsRhCos() {
-		if o.result.OsBuildId == "" {
-			return errors.New("Failed to get OCP version from node")
-		}
-		image, err := discovery.GetOcpToolkitImage(ctx, o.client, o.result.OsBuildId)
-		if err != nil || image == "" {
-			return errors.Wrap(err, fmt.Sprintf("Failed to get OCP toolkit image for version %s", o.result.OsBuildId))
-		}
-		o.result.InitContainerImage = image
-	}
 	return nil
 }
 

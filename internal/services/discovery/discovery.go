@@ -11,11 +11,9 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/otel/codes"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -24,7 +22,6 @@ const (
 	DiscoveryAnnotation            = "weka.io/discovery.json"
 	PodDiscoverySnapshotAnnotation = "weka.io/discovery-snapshot"
 	DiscoveryTargetSchema          = 3
-	ocpDriverToolkitMapName        = "ocp-driver-toolkit-images"
 )
 
 // Provider represents the cloud provider
@@ -59,7 +56,6 @@ type DiscoveryNodeInfo struct {
 	OsBuildId          string   `json:"os_build_id,omitempty"`
 	BootID             string   `json:"boot_id,omitempty"`
 	Schema             int      `json:"schema,omitempty"`
-	InitContainerImage string   `json:"init_container_image,omitempty"`
 	NumCpus            int      `json:"num_cpus,omitempty"`
 	Provider           Provider `json:"provider,omitempty"`
 	Arch               string   `json:"arch,omitempty"` // k8s-normalized, e.g. "amd64", "arm64"; set by Enrich()
@@ -399,28 +395,6 @@ func SelectActiveContainerWithRole(ctx context.Context, containers []*weka.WekaC
 
 	err := fmt.Errorf("no container with role %s found", role)
 	return nil, err
-}
-
-func GetOcpToolkitImage(ctx context.Context, c client.Client, v string) (string, error) {
-	toolkitMap := &corev1.ConfigMap{}
-	namespace, err := util.GetPodNamespace()
-	if err != nil {
-		return "", err
-	}
-	if err := c.Get(ctx, types.NamespacedName{Name: ocpDriverToolkitMapName, Namespace: namespace}, toolkitMap); err != nil {
-		return "", err
-	}
-	imageTag := ""
-	if toolkitMap.Data != nil {
-		if toolkitMap.Data[v] != "" {
-			imageTag = toolkitMap.Data[v]
-		}
-	}
-	if imageTag == "" {
-		return "", errors.New(fmt.Sprintf("Failed to fetch image tag %s from configmap %s", v, ocpDriverToolkitMapName))
-	}
-	imageBase := config.Config.OcpCompatibility.DriverToolkitImageBaseUrl
-	return fmt.Sprintf("%s@sha256:%s", imageBase, imageTag), nil
 }
 
 func GetOwnedContainers(ctx context.Context, c client.Client, owner types.UID, namespace, mode string) ([]*weka.WekaContainer, error) {
