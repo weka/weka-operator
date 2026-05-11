@@ -480,5 +480,10 @@ func setupWebhook(ctx context.Context, mgr ctrl.Manager, admissionEnabled bool, 
 		os.Exit(1)
 	}
 
-	logger.Info("Admission validating webhooks enabled", "webhooks", []string{"WekaCluster", "WekaClient"})
+	if err := admission.RegisterWekaContainerWebhookWithManager(mgr); err != nil {
+		logger.Error(err, "unable to create webhook", "webhook", "WekaContainer")
+		os.Exit(1)
+	}
+
+	logger.Info("Admission validating webhooks enabled", "webhooks", []string{"WekaCluster", "WekaClient", "WekaContainer"})
 }

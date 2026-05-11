@@ -20,4 +20,15 @@ var (
 	WekaClient = []Validator{
 		&clientTargetClusterExists{},
 	}
+
+	// Update-only registries: validators that require both old and new objects.
+	WekaClusterUpdate = []UpdateValidator{
+		&clusterCoresDecrease{},
+	}
+	WekaContainerUpdate = []UpdateValidator{
+		&containerCoresDecrease{},
+	}
+	WekaClientUpdate = []UpdateValidator{
+		&clientCoresDecrease{},
+	}
 )

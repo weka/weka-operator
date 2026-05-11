@@ -16,7 +16,8 @@ import (
 
 // evaluate runs every registered validator and partitions output by each
 // policy's effective Mode. All validators run unconditionally so one apply
-// surfaces every violation at once.
+// surfaces every violation at once. Returns a raw ErrorList so callers can
+// merge with other lists before calling ToAggregate once.
 func evaluate(
 	ctx context.Context,
 	c client.Client,
@@ -24,11 +25,7 @@ func evaluate(
 	validators []validation.Validator,
 	defaults map[string]PolicyDefaults,
 	cfg config.AdmissionPoliciesConfig,
-) (admission.Warnings, error) {
-	if len(validators) == 0 {
-		return nil, nil
-	}
-
+) (admission.Warnings, field.ErrorList) {
 	var warnings admission.Warnings
 	var errs field.ErrorList
 
@@ -52,7 +49,42 @@ func evaluate(
 		}
 	}
 
-	return warnings, errs.ToAggregate()
+	return warnings, errs
+}
+
+// evaluateUpdate runs every registered UpdateValidator and partitions output
+// by each policy's effective Mode. Mirrors evaluate but receives both old
+// and new objects and calls ValidateUpdate instead of Validate.
+func evaluateUpdate(
+	ctx context.Context,
+	c client.Client,
+	oldObj, newObj runtime.Object,
+	validators []validation.UpdateValidator,
+	defaults map[string]PolicyDefaults,
+	cfg config.AdmissionPoliciesConfig,
+) (admission.Warnings, field.ErrorList) {
+	var warnings admission.Warnings
+	var errs field.ErrorList
+
+	for _, v := range validators {
+		id := v.ID()
+		def, ok := defaults[id]
+		if !ok {
+			def = PolicyDefaults{Strict: Warn, Relaxed: Warn}
+		}
+		m := modeFor(cfg.Mode, cfg.Overrides[id], def)
+
+		for _, violation := range v.ValidateUpdate(ctx, c, oldObj, newObj) {
+			switch m {
+			case Warn:
+				warnings = append(warnings, violation.Error())
+			case Error:
+				errs = append(errs, violation)
+			}
+		}
+	}
+
+	return warnings, errs
 }
 
 // ValidateRegistry checks that every registered validator has a defaults
@@ -80,14 +112,45 @@ func ValidateRegistry(cfg config.AdmissionPoliciesConfig) error {
 			}
 		}
 	}
+	checkUpdate := func(kind string, validators []validation.UpdateValidator, defaults map[string]PolicyDefaults) {
+		ids := map[string]bool{}
+		for _, v := range validators {
+			id := v.ID()
+			if _, seen := ids[id]; seen {
+				errs = append(errs, fmt.Sprintf("%s (update): duplicate validator ID %q", kind, id))
+			}
+			ids[id] = true
+			if _, ok := defaults[id]; !ok {
+				errs = append(errs, fmt.Sprintf("%s (update): validator %q has no entry in defaults table", kind, id))
+			}
+		}
+		for id := range defaults {
+			if _, ok := ids[id]; !ok {
+				errs = append(errs, fmt.Sprintf("%s (update): defaults table has entry %q but no validator is registered with that ID", kind, id))
+			}
+		}
+	}
+
 	check("WekaCluster", validation.WekaCluster, wekaClusterDefaults)
 	check("WekaClient", validation.WekaClient, wekaClientDefaults)
+	checkUpdate("WekaCluster", validation.WekaClusterUpdate, wekaClusterUpdateDefaults)
+	checkUpdate("WekaContainer", validation.WekaContainerUpdate, wekaContainerUpdateDefaults)
+	checkUpdate("WekaClient", validation.WekaClientUpdate, wekaClientUpdateDefaults)
 
 	known := map[string]bool{}
 	for id := range wekaClusterDefaults {
 		known[id] = true
 	}
 	for id := range wekaClientDefaults {
+		known[id] = true
+	}
+	for id := range wekaClusterUpdateDefaults {
+		known[id] = true
+	}
+	for id := range wekaContainerUpdateDefaults {
+		known[id] = true
+	}
+	for id := range wekaClientUpdateDefaults {
 		known[id] = true
 	}
 	for id, val := range cfg.Overrides {

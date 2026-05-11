@@ -239,3 +239,14 @@ func TestWekaClusterValidateWebhookPath(t *testing.T) {
 			WekaClusterValidateWebhookPath, expected, gvk)
 	}
 }
+
+func TestWekaContainerValidateWebhookPath(t *testing.T) {
+	gvk := wekav1alpha1.GroupVersion.WithKind("WekaContainer")
+	expected := "/validate-" + strings.ReplaceAll(gvk.Group, ".", "-") + "-" +
+		gvk.Version + "-" + strings.ToLower(gvk.Kind)
+
+	if WekaContainerValidateWebhookPath != expected {
+		t.Errorf("WekaContainerValidateWebhookPath = %q, want %q (derived from GVK %s)",
+			WekaContainerValidateWebhookPath, expected, gvk)
+	}
+}

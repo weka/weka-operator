@@ -550,3 +550,16 @@ admissionPolicies:
   #   # WekaClient.spec.targetCluster must reference an existing
   #   # WekaCluster.
   #   client_target_cluster_exists:         default  # strict: error  | relaxed: warn
+  #
+  #   # Decreasing any cores field on a WekaCluster (spec.dynamic.*Cores)
+  #   # is denied — reducing cores on a running cluster can destabilize
+  #   # active workloads. Applies on Update only; also blocks unsetting an
+  #   # explicit value back to 0 (operator-derived).
+  #   cluster_cores_decrease:               default  # strict: error  | relaxed: error
+  #
+  #   # Decreasing spec.numCores or spec.extraCores on a WekaContainer
+  #   # is denied for the same reason.
+  #   container_cores_decrease:             default  # strict: error  | relaxed: error
+  #
+  #   # Decreasing spec.coresNum on a WekaClient is denied.
+  #   client_cores_decrease:                default  # strict: error  | relaxed: error
