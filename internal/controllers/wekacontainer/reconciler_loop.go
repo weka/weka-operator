@@ -70,6 +70,7 @@ type containerReconcilerLoop struct {
 	// is in deletion process or its node is not available
 	clusterContainers []*weka.WekaContainer
 	// values shared between steps
+	hasLease      *bool
 	activeMounts  *int
 	ThrottlingMap throttling.Throttler
 	// NOTE: always use getCluster() to access this field

@@ -107,7 +107,10 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	}
 
 	containerStatus := weka.ContainerStatus(status)
-	if (container.Status.Status != containerStatus && r.IsStatusOverwritableByLocal()) || container.Status.InternalStatus != internalStatus {
+	r.hasLease = localContainer.InternalStatus.HasLease
+
+	if (container.Status.Status != containerStatus && r.IsStatusOverwritableByLocal()) ||
+		container.Status.InternalStatus != internalStatus {
 		logger.Debug("Updating status", "old_status", container.Status.Status, "new_status", containerStatus, "old_internal_status", container.Status.InternalStatus, "new_internal_status", internalStatus)
 		if r.IsStatusOverwritableByLocal() {
 			container.Status.Status = containerStatus
