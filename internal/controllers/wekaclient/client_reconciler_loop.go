@@ -1444,7 +1444,7 @@ func (c *clientReconcilerLoop) UpdateCsiNodeDaemonSet(ctx context.Context) error
 		return nil
 	}
 
-	targetDaemonSet, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient)
+	targetDaemonSet, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient, c.nodes)
 	if err != nil {
 		return err
 	}

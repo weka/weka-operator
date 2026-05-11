@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
@@ -92,6 +93,26 @@ func (nodeInfo *DiscoveryNodeInfo) HasSupportedCloudProvider() bool {
 
 func (nodeInfo *DiscoveryNodeInfo) IsRhCos() bool {
 	return nodeInfo.Os == weka.OsNameOpenshift
+}
+
+// AnyNodeHasSelinux returns true if any node in the list is discovered to be an
+// RHCOS/OpenShift node (which enforces SELinux by default). Nodes with a missing
+// or unparsable discovery annotation are skipped.
+func AnyNodeHasSelinux(nodes []corev1.Node) bool {
+	for i := range nodes {
+		annotation, ok := nodes[i].Annotations[DiscoveryAnnotation]
+		if !ok {
+			continue
+		}
+		info := &DiscoveryNodeInfo{}
+		if json.Unmarshal([]byte(annotation), info) != nil {
+			continue
+		}
+		if info.IsRhCos() {
+			return true
+		}
+	}
+	return false
 }
 
 func (nodeInfo *DiscoveryNodeInfo) IsCos() bool {

@@ -81,9 +81,9 @@ func TestClusterCoresDecrease(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "multiple simultaneous decreases each produce an error",
-			old:  &wekav1alpha1.WekaClusterTemplate{DriveCores: 4, ComputeCores: 4},
-			new:  &wekav1alpha1.WekaClusterTemplate{DriveCores: 2, ComputeCores: 2},
+			name:    "multiple simultaneous decreases each produce an error",
+			old:     &wekav1alpha1.WekaClusterTemplate{DriveCores: 4, ComputeCores: 4},
+			new:     &wekav1alpha1.WekaClusterTemplate{DriveCores: 2, ComputeCores: 2},
 			wantErr: true,
 		},
 	}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/services/discovery"
 	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
@@ -89,7 +90,7 @@ func GetCSINodeDaemonSetName(csiGroupName string) string {
 	return strings.ReplaceAll(csiGroupName, ".", "-") + "-weka-csi-node"
 }
 
-func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient) (*appsv1.DaemonSet, error) {
+func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient, nodes []corev1.Node) (*appsv1.DaemonSet, error) {
 	_, logger := instrumentation.CreateLogSpan(ctx, "NewCsiNodeDaemonSet")
 	defer logger.End()
 
@@ -151,10 +152,6 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		args = append(args, "--allowinsecurehttps")
 	}
 
-	if config.Config.Csi.SelinuxSupport == "enforced" {
-		args = append(args, "--selinux-support")
-	}
-
 	tracingFlag := GetTracingFlag()
 	if tracingFlag != "" {
 		args = append(args, tracingFlag)
@@ -162,7 +159,19 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 
 	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
 
-	selinuxEnabled := config.Config.Csi.SelinuxSupport != "off"
+	var selinuxEnabled bool
+	switch config.Config.Csi.SelinuxSupport {
+	case "enforced":
+		selinuxEnabled = true
+	case "off":
+		selinuxEnabled = false
+	default: // "auto"
+		selinuxEnabled = discovery.AnyNodeHasSelinux(nodes)
+	}
+
+	if selinuxEnabled {
+		args = append(args, "--selinux-support")
+	}
 	kubeletPath := config.Config.Csi.KubeletPath
 
 	wekafsVolumeMounts := []corev1.VolumeMount{

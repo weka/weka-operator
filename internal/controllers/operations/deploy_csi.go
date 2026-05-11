@@ -469,7 +469,7 @@ func (o *DeployCsiOperation) deployCsiNodeDaemonSet(ctx context.Context) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "deployCsiNodeDaemonSet")
 	defer logger.End()
 
-	daemonSetSpec, err := csi.NewCsiNodeDaemonSet(ctx, o.csiGroupName, o.wekaClient)
+	daemonSetSpec, err := csi.NewCsiNodeDaemonSet(ctx, o.csiGroupName, o.wekaClient, o.nodes)
 	if err != nil {
 		return err
 	}
