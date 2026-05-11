@@ -171,11 +171,18 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		{MountPath: "/etc/nodeinfo", Name: "nodeinfo", ReadOnly: true},
 	}
 	if selinuxEnabled {
-		wekafsVolumeMounts = append(wekafsVolumeMounts, corev1.VolumeMount{
-			Name:      "selinux-config",
-			MountPath: "/etc/selinux/config",
-			ReadOnly:  true,
-		})
+		wekafsVolumeMounts = append(wekafsVolumeMounts,
+			corev1.VolumeMount{
+				Name:      "selinux-config",
+				MountPath: "/etc/selinux/config",
+				ReadOnly:  true,
+			},
+			corev1.VolumeMount{
+				Name:      "selinux-fs",
+				MountPath: "/sys/fs/selinux",
+				ReadOnly:  true,
+			},
+		)
 	}
 
 	volumes := []corev1.Volume{
@@ -188,15 +195,26 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		{Name: "nodeinfo", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 	}
 	if selinuxEnabled {
-		volumes = append(volumes, corev1.Volume{
-			Name: "selinux-config",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/etc/selinux/config",
-					Type: typePtr(corev1.HostPathFileOrCreate),
+		volumes = append(volumes,
+			corev1.Volume{
+				Name: "selinux-config",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/etc/selinux/config",
+						Type: typePtr(corev1.HostPathFileOrCreate),
+					},
 				},
 			},
-		})
+			corev1.Volume{
+				Name: "selinux-fs",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/sys/fs/selinux",
+						Type: typePtr(corev1.HostPathDirectory),
+					},
+				},
+			},
+		)
 	}
 
 	return &appsv1.DaemonSet{
