@@ -34,6 +34,22 @@ func violation(id string) *field.Error {
 	return field.Invalid(field.NewPath("spec", "x"), 0, "violation from "+id)
 }
 
+// fakeUpdateValidator is a stub that returns a pre-canned violation for a
+// given policy ID. It does not consult c, oldObj, or newObj.
+type fakeUpdateValidator struct {
+	id        string
+	violation *field.Error // nil → validator passes
+}
+
+func (f *fakeUpdateValidator) ID() string { return f.id }
+
+func (f *fakeUpdateValidator) ValidateUpdate(_ context.Context, _ client.Client, _, _ runtime.Object) field.ErrorList {
+	if f.violation == nil {
+		return nil
+	}
+	return field.ErrorList{f.violation}
+}
+
 func TestEvaluate(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -161,22 +177,84 @@ func TestEvaluate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			warns, err := evaluate(context.Background(), nil, nil, tt.validators, tt.defaults, tt.cfg)
+			warns, errs := evaluate(context.Background(), nil, nil, tt.validators, tt.defaults, tt.cfg)
 
 			if got := len(warns); got != tt.wantWarnings {
 				t.Errorf("warnings = %d, want %d (%v)", got, tt.wantWarnings, warns)
 			}
-
-			gotErrs := 0
-			if err != nil {
-				if agg, ok := err.(interface{ Errors() []error }); ok {
-					gotErrs = len(agg.Errors())
-				} else {
-					gotErrs = 1
-				}
+			if got := len(errs); got != tt.wantErrs {
+				t.Errorf("errors = %d, want %d (%v)", got, tt.wantErrs, errs)
 			}
-			if gotErrs != tt.wantErrs {
-				t.Errorf("errors = %d, want %d (%v)", gotErrs, tt.wantErrs, err)
+		})
+	}
+}
+
+func TestEvaluateUpdate(t *testing.T) {
+	tests := []struct {
+		name         string
+		validators   []validation.UpdateValidator
+		defaults     map[string]PolicyDefaults
+		cfg          config.AdmissionPoliciesConfig
+		wantWarnings int
+		wantErrs     int
+	}{
+		{
+			name:         "empty registry — no-op",
+			validators:   nil,
+			defaults:     nil,
+			wantWarnings: 0,
+			wantErrs:     0,
+		},
+		{
+			name: "error-mode policy with violation routes to errors",
+			validators: []validation.UpdateValidator{
+				&fakeUpdateValidator{id: "pX", violation: violation("pX")},
+			},
+			defaults: map[string]PolicyDefaults{
+				"pX": {Strict: Error, Relaxed: Error},
+			},
+			cfg:          config.AdmissionPoliciesConfig{Mode: "strict"},
+			wantWarnings: 0,
+			wantErrs:     1,
+		},
+		{
+			name: "passing update validator contributes nothing",
+			validators: []validation.UpdateValidator{
+				&fakeUpdateValidator{id: "pX", violation: nil},
+			},
+			defaults: map[string]PolicyDefaults{
+				"pX": {Strict: Error, Relaxed: Error},
+			},
+			cfg:          config.AdmissionPoliciesConfig{Mode: "strict"},
+			wantWarnings: 0,
+			wantErrs:     0,
+		},
+		{
+			name: "override forces error to warn",
+			validators: []validation.UpdateValidator{
+				&fakeUpdateValidator{id: "pErr", violation: violation("pErr")},
+			},
+			defaults: map[string]PolicyDefaults{
+				"pErr": {Strict: Error, Relaxed: Error},
+			},
+			cfg: config.AdmissionPoliciesConfig{
+				Mode:      "strict",
+				Overrides: map[string]string{"pErr": "warn"},
+			},
+			wantWarnings: 1,
+			wantErrs:     0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			warns, errs := evaluateUpdate(context.Background(), nil, nil, nil, tt.validators, tt.defaults, tt.cfg)
+
+			if got := len(warns); got != tt.wantWarnings {
+				t.Errorf("warnings = %d, want %d (%v)", got, tt.wantWarnings, warns)
+			}
+			if got := len(errs); got != tt.wantErrs {
+				t.Errorf("errors = %d, want %d (%v)", got, tt.wantErrs, errs)
 			}
 		})
 	}
@@ -212,6 +290,23 @@ func TestValidateRegistry(t *testing.T) {
 		}
 		err := ValidateRegistry(config.AdmissionPoliciesConfig{
 			Overrides: map[string]string{anyID: "warn"},
+		})
+		if err != nil {
+			t.Errorf("expected nil, got: %v", err)
+		}
+	})
+
+	t.Run("happy path — update policy IDs accepted in overrides", func(t *testing.T) {
+		var anyUpdateID string
+		for id := range wekaClusterUpdateDefaults {
+			anyUpdateID = id
+			break
+		}
+		if anyUpdateID == "" {
+			t.Skip("no cluster update policies registered")
+		}
+		err := ValidateRegistry(config.AdmissionPoliciesConfig{
+			Overrides: map[string]string{anyUpdateID: "warn"},
 		})
 		if err != nil {
 			t.Errorf("expected nil, got: %v", err)

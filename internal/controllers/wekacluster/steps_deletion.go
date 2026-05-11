@@ -273,7 +273,7 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	err = clusterService.EnsureNoContainers(ctx, weka.WekaContainerModeDataServices)
 	if err != nil {
 		reason := fmt.Sprintf("EnsureNo%sContainersError", weka.WekaContainerModeDataServices)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30) //nolint:errcheck // event recording errors are intentionally ignored
 
 		return err
 	}

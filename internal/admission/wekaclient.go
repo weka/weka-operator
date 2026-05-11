@@ -7,6 +7,7 @@ import (
 
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -37,7 +38,8 @@ func (v *WekaClientCustomValidator) ValidateCreate(ctx context.Context, obj runt
 	if !ok {
 		return nil, fmt.Errorf("expected a WekaClient object but got %T", obj)
 	}
-	return v.run(ctx, wc)
+	warns, errs := v.run(ctx, wc)
+	return warns, errs.ToAggregate()
 }
 
 // ValidateUpdate short-circuits on unchanged spec — same finalizer-deadlock
@@ -54,14 +56,21 @@ func (v *WekaClientCustomValidator) ValidateUpdate(ctx context.Context, oldObj, 
 	if reflect.DeepEqual(oldWC.Spec, newWC.Spec) {
 		return nil, nil
 	}
-	return v.run(ctx, newWC)
+
+	warns, errs := v.run(ctx, newWC)
+	updateWarns, updateErrs := evaluateUpdate(
+		ctx, v.Client, oldObj, newObj,
+		validation.WekaClientUpdate, wekaClientUpdateDefaults,
+		config.Config.AdmissionPolicies,
+	)
+	return append(warns, updateWarns...), append(errs, updateErrs...).ToAggregate()
 }
 
 func (v *WekaClientCustomValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
-func (v *WekaClientCustomValidator) run(ctx context.Context, wc *wekav1alpha1.WekaClient) (admission.Warnings, error) {
+func (v *WekaClientCustomValidator) run(ctx context.Context, wc *wekav1alpha1.WekaClient) (admission.Warnings, field.ErrorList) {
 	return evaluate(
 		ctx,
 		v.Client,
