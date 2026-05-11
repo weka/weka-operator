@@ -20,4 +20,16 @@ var (
 	wekaClientDefaults = map[string]PolicyDefaults{
 		"client_target_cluster_exists": {Strict: Error, Relaxed: Warn},
 	}
+
+	// Update-only defaults: cores-decrease checks are always Error regardless
+	// of strict/relaxed mode — decreasing cores is never a safe operation.
+	wekaClusterUpdateDefaults = map[string]PolicyDefaults{
+		"cluster_cores_decrease": {Strict: Error, Relaxed: Error},
+	}
+	wekaContainerUpdateDefaults = map[string]PolicyDefaults{
+		"container_cores_decrease": {Strict: Error, Relaxed: Error},
+	}
+	wekaClientUpdateDefaults = map[string]PolicyDefaults{
+		"client_cores_decrease": {Strict: Error, Relaxed: Error},
+	}
 )

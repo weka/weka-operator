@@ -18,3 +18,11 @@ type Validator interface {
 	ID() string
 	Validate(ctx context.Context, c client.Client, obj runtime.Object) field.ErrorList
 }
+
+// UpdateValidator is an admission rule that requires both the old and new
+// object. Used for checks that detect a regression between revisions (e.g.
+// a field that must not decrease). Only invoked on Update operations.
+type UpdateValidator interface {
+	ID() string
+	ValidateUpdate(ctx context.Context, c client.Client, oldObj, newObj runtime.Object) field.ErrorList
+}

@@ -32,8 +32,9 @@ import (
 // Constants must match the GVK-derived paths controller-runtime registers
 // at runtime; TestWekaClusterValidateWebhookPath asserts the match.
 const (
-	WekaClusterValidateWebhookPath = "/validate-weka-weka-io-v1alpha1-wekacluster"
-	WekaClientValidateWebhookPath  = "/validate-weka-weka-io-v1alpha1-wekaclient"
+	WekaClusterValidateWebhookPath   = "/validate-weka-weka-io-v1alpha1-wekacluster"
+	WekaClientValidateWebhookPath    = "/validate-weka-weka-io-v1alpha1-wekaclient"
+	WekaContainerValidateWebhookPath = "/validate-weka-weka-io-v1alpha1-wekacontainer"
 
 	// SkipAdmissionLabel on a CR excludes it from admission via the VWC's
 	// objectSelector — per-object escape hatch for emergencies.
@@ -357,6 +358,7 @@ func (m *WebhookManager) buildVWC(caBundle []byte) *admissionregistrationv1.Vali
 	timeoutSeconds := int32(10)
 	clusterPath := WekaClusterValidateWebhookPath
 	clientPath := WekaClientValidateWebhookPath
+	containerPath := WekaContainerValidateWebhookPath
 	failurePolicy := admissionregistrationv1.Fail
 
 	skipSelector := &metav1.LabelSelector{
@@ -423,6 +425,35 @@ func (m *WebhookManager) buildVWC(caBundle []byte) *admissionregistrationv1.Vali
 							APIGroups:   []string{"weka.weka.io"},
 							APIVersions: []string{"v1alpha1"},
 							Resources:   []string{"wekaclients"},
+						},
+					},
+				},
+			},
+			{
+				Name:                    "validate.wekacontainer.weka.io",
+				AdmissionReviewVersions: []string{"v1"},
+				SideEffects:             &sideEffects,
+				FailurePolicy:           &failurePolicy,
+				TimeoutSeconds:          &timeoutSeconds,
+				ObjectSelector:          skipSelector,
+				ClientConfig: admissionregistrationv1.WebhookClientConfig{
+					Service: &admissionregistrationv1.ServiceReference{
+						Namespace: m.namespace,
+						Name:      m.config.ServiceName,
+						Path:      &containerPath,
+					},
+					CABundle: caBundle,
+				},
+				Rules: []admissionregistrationv1.RuleWithOperations{
+					{
+						Operations: []admissionregistrationv1.OperationType{
+							admissionregistrationv1.Create,
+							admissionregistrationv1.Update,
+						},
+						Rule: admissionregistrationv1.Rule{
+							APIGroups:   []string{"weka.weka.io"},
+							APIVersions: []string{"v1alpha1"},
+							Resources:   []string{"wekacontainers"},
 						},
 					},
 				},
