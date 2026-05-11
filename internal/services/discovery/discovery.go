@@ -50,15 +50,15 @@ func IsSupportedCloudProvider(providerID string) bool {
 }
 
 type DiscoveryNodeInfo struct {
-	IsHt               bool     `json:"is_ht"`
-	KubernetesDistro   string   `json:"kubernetes_distro,omitempty"`
-	Os                 string   `json:"os,omitempty"`
-	OsBuildId          string   `json:"os_build_id,omitempty"`
-	BootID             string   `json:"boot_id,omitempty"`
-	Schema             int      `json:"schema,omitempty"`
-	NumCpus            int      `json:"num_cpus,omitempty"`
-	Provider           Provider `json:"provider,omitempty"`
-	Arch               string   `json:"arch,omitempty"` // k8s-normalized, e.g. "amd64", "arm64"; set by Enrich()
+	IsHt             bool     `json:"is_ht"`
+	KubernetesDistro string   `json:"kubernetes_distro,omitempty"`
+	Os               string   `json:"os,omitempty"`
+	OsBuildId        string   `json:"os_build_id,omitempty"`
+	BootID           string   `json:"boot_id,omitempty"`
+	Schema           int      `json:"schema,omitempty"`
+	NumCpus          int      `json:"num_cpus,omitempty"`
+	Provider         Provider `json:"provider,omitempty"`
+	Arch             string   `json:"arch,omitempty"` // k8s-normalized, e.g. "amd64", "arm64"; set by Enrich()
 	// this field is for internal use only, is populated by DiscoverNodeOperation.Enrich
 	// Node *corev1.Node `json:"-"` // this is not necessarily aligned with a node
 }

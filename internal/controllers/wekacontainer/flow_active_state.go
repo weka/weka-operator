@@ -3,7 +3,6 @@ package wekacontainer
 import (
 	"context"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/pkg/errors"
@@ -873,12 +872,21 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 		return errors.New("Pod is not running yet")
 	}
 
-	if !slices.Contains(
-		[]weka.ContainerStatus{weka.Running, weka.PodRunning},
-		container.Status.Status,
-	) {
-		logger.Info("Container is not running yet")
-		return errors.New("Container is not running yet")
+	if container.Status.Status != weka.Running {
+		logger.Info("Container is not fully running yet", "status", container.Status.Status)
+		return errors.New("Container is not fully running yet")
+	}
+
+	// Check STATUS == READY (skip if InternalStatus not yet populated)
+	if container.Status.InternalStatus != "" && container.Status.InternalStatus != "READY" {
+		logger.Info("Container is not READY yet", "status", container.Status.InternalStatus)
+		return lifecycle.NewWaitError(fmt.Errorf("container status is not READY: %s", container.Status.InternalStatus))
+	}
+
+	// Check VALID LEASE (only available in Weka >= 5.1.2; nil means field absent, skip)
+	if r.hasLease != nil && !*r.hasLease {
+		logger.Info("Container does not have a valid lease")
+		return lifecycle.NewWaitError(errors.New("container does not have a valid lease"))
 	}
 
 	logger.Info("Updating LastAppliedImage", "image", container.Spec.Image)

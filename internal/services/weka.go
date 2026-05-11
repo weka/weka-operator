@@ -302,6 +302,7 @@ type WekaOverride struct {
 type WekaLocalInternalStatus struct {
 	Action        string `json:"action"`
 	DisplayStatus string `json:"display_status"`
+	HasLease      *bool  `json:"has_lease"`
 	Message       string `json:"message"`
 	State         string `json:"state"`
 }
