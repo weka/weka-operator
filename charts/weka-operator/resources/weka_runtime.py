@@ -1552,6 +1552,17 @@ async def setup_overlayfs_for_lib_modules():
     real_path = stdout.decode('utf-8').strip()
     logging.info(f"Real path of /lib/modules: {real_path}")
 
+    # Only overlay when /lib/modules is a host mount (read-only). Hosts that don't mount
+    # /lib/modules into the pod (e.g. COS) expose the image's own writable layer and
+    # don't need — and can't always do — a nested overlay mount.
+    _, _, ec = await run_command(f"mountpoint -q {real_path}")
+    if ec != 0:
+        logging.info(
+            f"Skipping overlayfs: {real_path} is not a host mount "
+            "(no read-only /lib/modules to overlay)"
+        )
+        return
+
     # Setup paths
     ovl_root = "/tmp/ovl-libmodules"
     upper_dir = f"{ovl_root}/upper"
