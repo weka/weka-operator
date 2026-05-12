@@ -144,6 +144,7 @@ type WekaClientSpec struct {
 	CpuRequest          string               `json:"cpuRequest,omitempty"`
 	CoresNumber         int                  `json:"coresNum,omitempty"`
 	CoreIds             []int                `json:"coreIds,omitempty"`
+	NonDatapathCoreIds  []int                `json:"nonDatapathCoreIds,omitempty"`
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 	Tolerations         []string             `json:"tolerations,omitempty"`
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`

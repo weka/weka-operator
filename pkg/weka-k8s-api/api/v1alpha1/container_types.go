@@ -223,6 +223,8 @@ type WekaContainerSpec struct {
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
 	ExtraCores int    `json:"extraCores,omitempty"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
 	CoreIds    []int  `json:"coreIds,omitempty"`
+	// NonDatapathCoreIds pins management/aux (non-IONode) processes to specific CPUs.
+	NonDatapathCoreIds []int `json:"nonDatapathCoreIds,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	// +kubebuilder:default=auto
 	CpuPolicy             CpuPolicy             `json:"cpuPolicy,omitempty"`

@@ -1982,6 +1982,11 @@ func (in *WekaClientSpec) DeepCopyInto(out *WekaClientSpec) {
 		*out = make([]int, len(*in))
 		copy(*out, *in)
 	}
+	if in.NonDatapathCoreIds != nil {
+		in, out := &in.NonDatapathCoreIds, &out.NonDatapathCoreIds
+		*out = make([]int, len(*in))
+		copy(*out, *in)
+	}
 	if in.TracesConfiguration != nil {
 		in, out := &in.TracesConfiguration, &out.TracesConfiguration
 		*out = new(TracesConfiguration)
@@ -2237,6 +2242,7 @@ func (in *WekaClusterSpec) DeepCopyInto(out *WekaClusterSpec) {
 		**out = **in
 	}
 	in.RoleCoreIds.DeepCopyInto(&out.RoleCoreIds)
+	in.RoleNonDatapathCoreIds.DeepCopyInto(&out.RoleNonDatapathCoreIds)
 	if in.Encryption != nil {
 		in, out := &in.Encryption, &out.Encryption
 		*out = new(EncryptionConfig)
@@ -2512,6 +2518,11 @@ func (in *WekaContainerSpec) DeepCopyInto(out *WekaContainerSpec) {
 	}
 	if in.CoreIds != nil {
 		in, out := &in.CoreIds, &out.CoreIds
+		*out = make([]int, len(*in))
+		copy(*out, *in)
+	}
+	if in.NonDatapathCoreIds != nil {
+		in, out := &in.NonDatapathCoreIds, &out.NonDatapathCoreIds
 		*out = make([]int, len(*in))
 		copy(*out, *in)
 	}

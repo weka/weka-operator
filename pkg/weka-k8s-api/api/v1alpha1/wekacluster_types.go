@@ -745,11 +745,17 @@ type WekaClusterSpec struct {
 	//
 	// will result in every compute container getting coreIds [0,1,2,3] and every
 	// drive container getting [4,5,6,7].
-	RoleCoreIds RoleCoreIds       `json:"roleCoreIds,omitempty"`
-	Encryption  *EncryptionConfig `json:"encryption,omitempty"`
-	NFSConfig   *NfsConfig        `json:"nfs,omitempty"`
-	S3Config    *S3Config         `json:"s3,omitempty"`
-	SmbwConfig  *SmbwConfig       `json:"smbw,omitempty"`
+	RoleCoreIds RoleCoreIds `json:"roleCoreIds,omitempty"`
+	// RoleNonDatapathCoreIds defines CPU core IDs (as seen by the host) to pin
+	// management/aux (non-IONode) processes to, per container role. Applicable
+	// when CpuPolicy is "manual" or "shared".
+	// When set, weka pins management processes to these cores instead of deriving them automatically.
+	// +kubebuilder:validation:Type=object
+	RoleNonDatapathCoreIds RoleCoreIds       `json:"roleNonDatapathCoreIds,omitempty"`
+	Encryption             *EncryptionConfig `json:"encryption,omitempty"`
+	NFSConfig              *NfsConfig        `json:"nfs,omitempty"`
+	S3Config               *S3Config         `json:"s3,omitempty"`
+	SmbwConfig             *SmbwConfig       `json:"smbw,omitempty"`
 	// Telemetry configuration for exporting audit logs and other telemetry data
 	Telemetry *TelemetryConfig `json:"telemetry,omitempty"`
 	// Catalog configuration for data catalog service
@@ -1053,6 +1059,26 @@ func (c *WekaCluster) GetNetworkForRole(role string) Network {
 		return *roleNetworkSelector
 	} else {
 		return c.Spec.Network
+	}
+}
+
+// GetNonDatapathCoreIdsForRole returns the non-IONode CPU core IDs for the specified role.
+func (c *WekaCluster) GetNonDatapathCoreIdsForRole(role string) []int {
+	switch role {
+	case "compute":
+		return c.Spec.RoleNonDatapathCoreIds.Compute
+	case "drive":
+		return c.Spec.RoleNonDatapathCoreIds.Drive
+	case "s3":
+		return c.Spec.RoleNonDatapathCoreIds.S3
+	case "nfs":
+		return c.Spec.RoleNonDatapathCoreIds.Nfs
+	case "smbw":
+		return c.Spec.RoleNonDatapathCoreIds.Smbw
+	case "data-services":
+		return c.Spec.RoleNonDatapathCoreIds.DataServices
+	default:
+		return nil
 	}
 }
 
