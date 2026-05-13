@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  INITIAL_WEKA_VERSION: "quay.io/weka.io/weka-in-container:5.1.0.605"
+  INITIAL_WEKA_VERSION: "quay.io/weka.io/weka-in-container:4.4.23"
   NEW_WEKA_VERSION: "quay.io/weka.io/weka-in-container:5.1.20.7"
 
 jobs:

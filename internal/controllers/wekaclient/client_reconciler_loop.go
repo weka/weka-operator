@@ -460,6 +460,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			NumCores:            c.getClientCores(),
 			CpuPolicy:           wekaClient.Spec.CpuPolicy,
 			CoreIds:             wekaClient.Spec.CoreIds,
+			NonDatapathCoreIds:  wekaClient.Spec.NonDatapathCoreIds,
 			Network:             wekaClient.Spec.Network,
 			Hugepages:           c.getClientHugePages(),
 			HugepagesOffset:     c.getHugepagesOffset(),

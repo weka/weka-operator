@@ -40,6 +40,7 @@ MODE = os.environ.get("MODE")
 assert MODE != ""
 NUM_CORES = int(os.environ.get("CORES", 0))
 CORE_IDS = os.environ.get("CORE_IDS", "auto")
+NON_DATAPATH_CORE_IDS = os.environ.get("NON_DATAPATH_CORE_IDS", "auto")
 CPU_POLICY = os.environ.get("CPU_POLICY", "auto")
 # Flags for `weka local resources cores`.
 MODE_CORES_FLAG = {
@@ -302,6 +303,8 @@ class FeaturesFlags:
     ssd_proxy_iommu_support: Union[bool, int] = 7
     # flag 8 is not used by the operator
     ssd_proxy_includes_dpdk_memory: Union[bool, int] = 9
+    # flags 10, 11 are not used by the operator
+    weka_manages_non_ionode_affinity: Union[bool, int] = 12
 
     def __init__(self, b64_flags: Optional[str]) -> None:
         active: Set[int] = set(parse_feature_bitmap(b64_flags or ""))
@@ -1726,7 +1729,7 @@ def get_host_info():
 @lru_cache
 def find_full_cores(n):
     if CORE_IDS != "auto":
-        return list(CORE_IDS.split(","))
+        return [int(x) for x in CORE_IDS.split(",")]
 
     available_cores = parse_cpu_allowed_list()
     zero_siblings = [] if 0 not in available_cores else read_siblings_list(0)
@@ -2732,6 +2735,25 @@ async def ensure_weka_container():
             resources["restrict_listen"] = True
         else:
             resources["restrict_listen"] = False
+
+    if ff.weka_manages_non_ionode_affinity:
+        if NON_DATAPATH_CORE_IDS != "auto":
+            resources['non_datapath_cores'] = [int(c) for c in NON_DATAPATH_CORE_IDS.split(',')]
+        elif full_cores:
+            # Auto-derive: cpuset minus IONode cores (full_cores) and their HT siblings
+            available = set(parse_cpu_allowed_list())
+            reserved = set(full_cores)
+            for c in full_cores:
+                try:
+                    reserved.update(read_siblings_list(c))
+                except Exception as e:
+                    logging.debug(f"Failed to get siblings for core {c}: {e}")
+            non_datapath_cores = sorted(available - reserved)
+
+            logging.info(f"Auto-derived non-datapath cores: {non_datapath_cores} (available: {available}, reserved: {reserved})")
+
+            if non_datapath_cores:
+                resources['non_datapath_cores'] = non_datapath_cores
 
     nvidia_vf_single_ip = os.environ.get("NVIDIA_VF_SINGLE_IP")
     if nvidia_vf_single_ip is not None:
@@ -4279,8 +4301,11 @@ async def main():
     logging.info("Container is UP and running")
 
     # Start periodic CPU affinity management for drive, compute, and client containers
+    # Skip when weka manages non-IONode affinities natively via non_datapath_cores (flag 12)
     if MODE in ["drive", "compute", "client"]:
-        asyncio.create_task(periodic_cpu_affinity_management())
+        ff = await get_feature_flags()
+        if not ff.weka_manages_non_ionode_affinity:
+            asyncio.create_task(periodic_cpu_affinity_management())
 
     if MODE == "drive":
         await ensure_drives()

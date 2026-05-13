@@ -53,6 +53,7 @@
 | cpuRequest | string |  |
 | coresNum | int |  |
 | coreIds | []int |  |
+| nonDatapathCoreIds | []int |  |
 | tracesConfiguration | *TracesConfiguration |  |
 | tolerations | []string |  |
 | rawTolerations | []v1.Toleration |  |

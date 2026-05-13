@@ -29,8 +29,8 @@ import (
 const (
 	inPodHostBinds = "/host-binds"
 	// appliedAnnotationsKey is used to store the annotations that were applied to the pod by the operator.
-	appliedAnnotationsKey    = "weka.io/applied-annotations"
-	kubectlAnnotationPrefix  = "kubectl.kubernetes.io/"
+	appliedAnnotationsKey   = "weka.io/applied-annotations"
+	kubectlAnnotationPrefix = "kubectl.kubernetes.io/"
 )
 
 // if the container mode is not in the map, the default is 1 year
@@ -1233,6 +1233,14 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "CORE_IDS",
 			Value: commaSeparated(f.container.Spec.CoreIds),
+		})
+	}
+
+	if (cpuPolicy == weka.CpuPolicyManual || cpuPolicy == weka.CpuPolicyShared) &&
+		len(f.container.Spec.NonDatapathCoreIds) > 0 {
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "NON_DATAPATH_CORE_IDS",
+			Value: commaSeparated(f.container.Spec.NonDatapathCoreIds),
 		})
 	}
 

@@ -100,6 +100,7 @@
 | globalPVC | *PVCConfig |  |
 | serviceAccountName | string |  |
 | roleCoreIds | RoleCoreIds | RoleCoreIds defines a list of CPU core IDs (as seen by the host) that should<br>be assigned to containers of the specific role when CpuPolicy is set to<br>"manual". If the slice for the given role is empty, core ids will not be<br>set for that role, and the manual policy will fail validation on pod start.<br>NOTE: The semantics are the same as for NodeSelector/Annotations structures –<br>a single list per role which will be copied to every container of that role.<br>Users are responsible to provide a set that makes sense for their topology.<br>Example:<br>roleCoreIds:<br>compute: [0,1,2,3]<br>drive:   [4,5,6,7]<br>will result in every compute container getting coreIds [0,1,2,3] and every<br>drive container getting [4,5,6,7]. |
+| roleNonDatapathCoreIds | RoleCoreIds | RoleNonDatapathCoreIds defines CPU core IDs (as seen by the host) to pin<br>management/aux (non-IONode) processes to, per container role. Applicable<br>when CpuPolicy is "manual" or "shared".<br>When set, weka pins management processes to these cores instead of deriving them automatically. |
 | encryption | *EncryptionConfig |  |
 | nfs | *NfsConfig |  |
 | s3 | *S3Config |  |

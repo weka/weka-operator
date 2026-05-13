@@ -14,4 +14,6 @@ type FeatureFlags struct {
 	SsdProxyIommuSupport              bool `json:"ssd_proxy_iommu_support"`                // 7
 	// flag 8 is not used by the operator
 	SsdProxyIncludesDpdkMemory bool `json:"ssd_proxy_includes_dpdk_memory"` // 9
+	// flags 10, 11 are not used by the operator
+	WekaManagesNonIonodeAffinity bool `json:"weka_manages_non_ionode_affinity"` // 12
 }

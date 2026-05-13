@@ -65,6 +65,7 @@ type UpdatableClusterSpec struct {
 	PvcConfig                 *weka.PVCConfig
 	TracesConfiguration       *weka.TracesConfiguration
 	RoleCoreIds               weka.RoleCoreIds
+	RoleNonDatapathCoreIds    weka.RoleCoreIds
 	CpuPolicy                 weka.CpuPolicy
 	ComputeExtraCores         int
 	DriveExtraCores           int
@@ -178,6 +179,7 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 		PvcConfig:                 resources.GetPvcConfig(spec.GlobalPVC),
 		TracesConfiguration:       spec.TracesConfiguration,
 		RoleCoreIds:               spec.RoleCoreIds,
+		RoleNonDatapathCoreIds:    spec.RoleNonDatapathCoreIds,
 		CpuPolicy:                 spec.CpuPolicy,
 		ComputeExtraCores:         tmpl.ExtraCores.Compute,
 		DriveExtraCores:           tmpl.ExtraCores.Drive,
@@ -363,6 +365,11 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		roleCoreIds := cluster.GetCoreIdsForRole(role)
 		if !reflect.DeepEqual(container.Spec.CoreIds, roleCoreIds) {
 			container.Spec.CoreIds = roleCoreIds
+		}
+
+		roleNonDatapathCoreIds := cluster.GetNonDatapathCoreIdsForRole(role)
+		if !reflect.DeepEqual(container.Spec.NonDatapathCoreIds, roleNonDatapathCoreIds) {
+			container.Spec.NonDatapathCoreIds = roleNonDatapathCoreIds
 		}
 
 		if container.Spec.CpuPolicy != updatableSpec.CpuPolicy {

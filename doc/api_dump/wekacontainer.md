@@ -61,6 +61,7 @@
 | numCores | int | numCores is weka-specific cores |
 | extraCores | int | extraCores is temporary solution for S3 containers, cores allocation on top of weka cores |
 | coreIds | []int |  |
+| nonDatapathCoreIds | []int | NonDatapathCoreIds pins management/aux (non-IONode) processes to specific CPUs. |
 | cpuPolicy | CpuPolicy |  |
 | network | Network |  |
 | hugepages | int |  |
