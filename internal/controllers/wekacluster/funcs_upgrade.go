@@ -346,7 +346,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Labels = newLabels
 		}
 
-		newAnnotations := cluster.GetAnnotationsForRole(role)
+		newAnnotations := resources.FilterKubectlAnnotations(cluster.GetAnnotationsForRole(role))
 		if !util.NewHashableMap(newAnnotations).Equals(util.NewHashableMap(container.Annotations)) {
 			container.Annotations = newAnnotations
 		}

@@ -27,7 +27,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	labels := RequiredWekaContainerLabels(cluster.UID, cluster.Name, role)
 	labels = util2.MergeMaps(cluster.GetLabels(), labels)
 
-	annotations := cluster.GetAnnotationsForRole(role)
+	annotations := resources.FilterKubectlAnnotations(cluster.GetAnnotationsForRole(role))
 	network := cluster.GetNetworkForRole(role)
 	secretKey := cluster.GetOperatorSecretName()
 

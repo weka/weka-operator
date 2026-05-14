@@ -29,7 +29,8 @@ import (
 const (
 	inPodHostBinds = "/host-binds"
 	// appliedAnnotationsKey is used to store the annotations that were applied to the pod by the operator.
-	appliedAnnotationsKey = "weka.io/applied-annotations"
+	appliedAnnotationsKey    = "weka.io/applied-annotations"
+	kubectlAnnotationPrefix  = "kubectl.kubernetes.io/"
 )
 
 // if the container mode is not in the map, the default is 1 year
@@ -1630,7 +1631,7 @@ func AnnotationsForWekaPod(containerAnnotations, podAnnotations map[string]strin
 	if podAnnotations != nil {
 		if appliedAnnotationsStr, exists := podAnnotations[appliedAnnotationsKey]; exists {
 			for key := range strings.SplitSeq(appliedAnnotationsStr, ",") {
-				if key != "" {
+				if key != "" && !strings.HasPrefix(key, kubectlAnnotationPrefix) {
 					appliedAnnotations[key] = struct{}{}
 				}
 			}
@@ -1640,13 +1641,13 @@ func AnnotationsForWekaPod(containerAnnotations, podAnnotations map[string]strin
 	// create a new map for the final annotations
 	finalAnnotations := make(map[string]string)
 	// add existing pod annotations excluding ones that are added by weka-operator
-	for k, v := range podAnnotations {
+	for k, v := range FilterKubectlAnnotations(podAnnotations) {
 		if _, exists := appliedAnnotations[k]; !exists {
 			finalAnnotations[k] = v
 		}
 	}
 	// add all wekacontainer's annotations
-	for k, v := range containerAnnotations {
+	for k, v := range FilterKubectlAnnotations(containerAnnotations) {
 		finalAnnotations[k] = v
 		appliedAnnotations[k] = struct{}{} // mark this annotation as applied
 	}
@@ -1662,6 +1663,21 @@ func AnnotationsForWekaPod(containerAnnotations, podAnnotations map[string]strin
 	finalAnnotations[appliedAnnotationsKey] = strings.Join(appliedAnnotationsList, ",")
 
 	return finalAnnotations
+}
+
+// FilterKubectlAnnotations removes kubectl.kubernetes.io/* bookkeeping annotations that
+// must not propagate from a parent CR to managed child resources.
+func FilterKubectlAnnotations(annotations map[string]string) map[string]string {
+	if annotations == nil {
+		return nil
+	}
+	result := make(map[string]string, len(annotations))
+	for k, v := range annotations {
+		if !strings.HasPrefix(k, kubectlAnnotationPrefix) {
+			result[k] = v
+		}
+	}
+	return result
 }
 
 func commaSeparated(ints []int) string {

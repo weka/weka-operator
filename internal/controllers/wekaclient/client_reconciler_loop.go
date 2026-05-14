@@ -446,7 +446,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			Name:        clientName,
 			Namespace:   wekaClient.Namespace,
 			Labels:      labels,
-			Annotations: wekaClient.GetAnnotations(),
+			Annotations: resources.FilterKubectlAnnotations(wekaClient.GetAnnotations()),
 		},
 		Spec: weka.WekaContainerSpec{
 			NodeAffinity:        weka.NodeName(nodeName),
@@ -722,7 +722,7 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
-	newAnnotations := c.wekaClient.GetAnnotations()
+	newAnnotations := resources.FilterKubectlAnnotations(c.wekaClient.GetAnnotations())
 	oldAnnotations := container.GetAnnotations()
 	if !util2.NewHashableMap(newAnnotations).Equals(util2.NewHashableMap(oldAnnotations)) {
 		container.SetAnnotations(newAnnotations)
