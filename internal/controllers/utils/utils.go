@@ -59,7 +59,7 @@ func GetNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaConta
 		allocateVfPerIoNode = true
 	}
 
-	if allocateVfPerIoNode && !container.Spec.Network.UdpMode {
+	if allocateVfPerIoNode && !container.Spec.Network.UdpMode && container.ShouldJoinCluster() {
 		var allocations domain.Allocations
 		var allNICs []domain.NIC
 
