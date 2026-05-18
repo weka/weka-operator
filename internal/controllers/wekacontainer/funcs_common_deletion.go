@@ -568,9 +568,34 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 		return nil
 	}
 
+	allSerials := deactivatedContainer.Status.Allocations.Drives
+	serials := allSerials
+	if r.node != nil {
+		if blockedStr, ok := r.node.Annotations[consts.AnnotationBlockedDrives]; ok {
+			var blocked []string
+			if err := json.Unmarshal([]byte(blockedStr), &blocked); err != nil {
+				return fmt.Errorf("failed to unmarshal blocked-drives annotation: %w", err)
+			}
+			if len(blocked) > 0 {
+				blockedSet := make(map[string]struct{}, len(blocked))
+				for _, s := range blocked {
+					blockedSet[s] = struct{}{}
+				}
+				serials = make([]string, 0, len(allSerials))
+				for _, s := range allSerials {
+					if _, isBlocked := blockedSet[s]; !isBlocked {
+						serials = append(serials, s)
+					}
+				}
+				logger.Info("Filtered blocked drives from resign payload",
+					"total", len(allSerials), "blocked", len(blocked), "resigning", len(serials))
+			}
+		}
+	}
+
 	payload := weka.ForceResignDrivesPayload{
 		NodeName:      deactivatedContainer.GetNodeAffinity(),
-		DeviceSerials: deactivatedContainer.Status.Allocations.Drives,
+		DeviceSerials: serials,
 	}
 	emptyCallback := func(ctx context.Context) error { return nil }
 	details := *deactivatedContainer.ToOwnerDetails()
