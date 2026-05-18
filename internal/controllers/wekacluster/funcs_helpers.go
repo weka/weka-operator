@@ -76,19 +76,11 @@ func (r *wekaClusterReconcilerLoop) HasRunningDataServicesContainers() bool {
 	return len(c) > 0
 }
 
-func (r *wekaClusterReconcilerLoop) HasSmbwContainers() bool {
-	return len(r.SelectSmbwContainers(r.containers)) > 0
-}
+func (r *wekaClusterReconcilerLoop) HasRunningSmbwContainers() bool {
+	nums := allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic)
 
-func (r *wekaClusterReconcilerLoop) SelectSmbwContainers(containers []*weka.WekaContainer) []*weka.WekaContainer {
-	var smbwContainers []*weka.WekaContainer
-	for _, container := range containers {
-		if container.Spec.Mode == weka.WekaContainerModeSmbw {
-			smbwContainers = append(smbwContainers, container)
-		}
-	}
-
-	return smbwContainers
+	c := discovery.SelectRunningContainersByRole(r.containers, nums.Smbw, weka.WekaContainerModeSmbw)
+	return len(c) > 0
 }
 
 // ValidateDriveTypesRatio validates that driveTypesRatio.tlc > 0 when driveTypesRatio is specified.

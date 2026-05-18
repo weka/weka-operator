@@ -964,6 +964,10 @@ func (c *CliWekaService) RemoveFromSmbwCluster(ctx context.Context, containerId 
 			logger.Warn("Container is not recognized by the SMB-W cluster", "err", stderr.String(), "stdout", stdout.String())
 			return nil
 		}
+		if strings.Contains(stderr.String(), "Cluster not joined") {
+			logger.Warn("Cluster not joined, considering container as not part of SMB-W cluster", "err", stderr.String(), "stdout", stdout.String())
+			return nil
+		}
 		if strings.Contains(stderr.String(), "SMB cluster is not configured") {
 			logger.Error(err, "SMB-W cluster is not configured", "stderr", stderr.String(), "stdout", stdout.String())
 			return fmt.Errorf("SMB-W cluster is not configured")

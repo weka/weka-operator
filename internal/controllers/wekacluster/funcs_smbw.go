@@ -11,6 +11,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"go.opentelemetry.io/otel/codes"
 	corev1 "k8s.io/api/core/v1"
@@ -44,7 +45,7 @@ func (r *wekaClusterReconcilerLoop) EnsureSmbwCluster(ctx context.Context) error
 		return nil
 	}
 
-	smbwContainers := r.SelectSmbwContainers(r.containers)
+	smbwContainers := discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeSmbw)
 	containerIds := []int{}
 	for _, c := range smbwContainers {
 		if len(containerIds) == config.Consts.FormSmbwClusterMaxContainerCount {
@@ -114,10 +115,10 @@ func (r *wekaClusterReconcilerLoop) ShouldDestroySmbwCluster() bool {
 		return false
 	}
 
-	containers := r.SelectSmbwContainers(r.containers)
+	containers := discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeSmbw)
 
-	// if there are more than 1 SMB-W container, we should not destroy the cluster
-	if len(containers) > 1 {
+	// if there are more than "minimum allowed num" SMB-W containers, we should not destroy the cluster
+	if len(containers) > config.Consts.FormSmbwClusterMinContainerCount {
 		return false
 	}
 
@@ -141,10 +142,6 @@ func (r *wekaClusterReconcilerLoop) DestroySmbwCluster(ctx context.Context) erro
 		return err
 	}
 	logger.Info("SMB-W cluster containers", "containers", smbwContainerIds)
-
-	if len(smbwContainerIds) > 1 {
-		return lifecycle.NewWaitError(fmt.Errorf("more than one container in SMB-W cluster: %v", smbwContainerIds))
-	}
 
 	logger.Info("Destroying SMB-W cluster")
 	err = wekaService.DeleteSmbwCluster(ctx)
