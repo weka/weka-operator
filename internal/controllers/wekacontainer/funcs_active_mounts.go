@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-weka-observability/instrumentation"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	k8sTypes "k8s.io/apimachinery/pkg/types"
 
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -35,7 +38,27 @@ func (r *containerReconcilerLoop) GetActiveMounts(ctx context.Context) (*int, er
 }
 
 func (r *containerReconcilerLoop) fetchActiveMounts(ctx context.Context) (*int, error) {
-	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "fetchActiveMounts")
+	defer logger.End()
+
+	nodeName := r.container.GetNodeAffinity()
+
+	agentPod, err := r.GetNodeAgentPod(ctx, nodeName)
+
+	var nodeAgentPodNotFoundErr *NodeAgentPodNotFound
+	if err != nil && errors.As(err, &nodeAgentPodNotFoundErr) {
+		// check node not found error as well
+		_, getNodeErr := r.KubeService.GetNode(ctx, k8sTypes.NodeName(nodeName))
+		if apierrors.IsNotFound(getNodeErr) {
+			// if node is not found, we can assume that there are no active mounts
+			logger.Info("Node not found in cluster, assuming no active mounts", "node", nodeName)
+			val := 0
+			return &val, nil
+		}
+		if getNodeErr != nil {
+			logger.Error(getNodeErr, "Failed to get node, ignoring", "node", nodeName)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
