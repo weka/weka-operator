@@ -80,6 +80,7 @@ type UpdatableClusterSpec struct {
 	SmbwCores                 int
 	DriversLoaderImage        string
 	DriversBuildId            *string
+	MachineIdentifierNodeRef  string
 	ComputeHugepages          allocator.ContainerHugepages
 	DriveHugepages            allocator.ContainerHugepages
 	S3Hugepages               allocator.ContainerHugepages
@@ -192,6 +193,7 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 		SmbwCores:                 tmpl.Cores.Smbw,
 		DriversLoaderImage:        spec.GetOverrides().DriversLoaderImage,
 		DriversBuildId:            spec.GetOverrides().DriversBuildId,
+		MachineIdentifierNodeRef:  spec.GetOverrides().MachineIdentifierNodeRef,
 		ComputeHugepages:          computeHp,
 		DriveHugepages:            driveHp,
 		S3Hugepages:               s3Hp,
@@ -291,6 +293,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		}
 
 		overrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplace
+		overrides.MachineIdentifierNodeRef = updatableSpec.MachineIdentifierNodeRef
 
 		// Propagate PVC config only if the container doesn't have one set yet
 		if container.Spec.PVC == nil && updatableSpec.PvcConfig != nil {

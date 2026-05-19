@@ -148,6 +148,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			DriversBuildId:        cluster.Spec.GetOverrides().DriversBuildId,
 			PVC:                   resources.GetPvcConfig(cluster.Spec.GlobalPVC),
 			DpdkBaseMemoryMb:      dpdkBaseMemoryMb,
+			Overrides: &wekav1alpha1.WekaContainerSpecOverrides{
+				MachineIdentifierNodeRef: cluster.Spec.GetOverrides().MachineIdentifierNodeRef,
+			},
 		},
 	}
 

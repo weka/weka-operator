@@ -260,25 +260,26 @@ func (r *containerReconcilerLoop) getExpectedAllocations(ctx context.Context) (*
 	} else {
 		// client flow
 		allocations = &weka.ContainerAllocations{}
+	}
 
-		machineIdentifierPath := r.container.Spec.GetOverrides().MachineIdentifierNodeRef
-		if machineIdentifierPath == "" {
-			if r.node != nil {
-				// check if node has "weka.io/machine-identifier-ref" label
-				// if yes - use it as machine identifier path
-				if val, ok := r.node.Annotations["weka.io/machine-identifier-ref"]; ok && val != "" {
-					machineIdentifierPath = r.node.Annotations["weka.io/machine-identifier-ref"]
-				}
+	// resolve machineIdentifierNodeRef for both backend and client containers
+	machineIdentifierPath := r.container.Spec.GetOverrides().MachineIdentifierNodeRef
+	if machineIdentifierPath == "" {
+		if r.node != nil {
+			// check if node has "weka.io/machine-identifier-ref" annotation
+			// if yes - use it as machine identifier path
+			if val, ok := r.node.Annotations["weka.io/machine-identifier-ref"]; ok && val != "" {
+				machineIdentifierPath = val
 			}
 		}
+	}
 
-		if machineIdentifierPath != "" {
-			uid, err := util.GetKubeObjectFieldValue[string](r.node, machineIdentifierPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get machine identifier from node: %w and path %s", err, machineIdentifierPath)
-			}
-			allocations.MachineIdentifier = uid
+	if machineIdentifierPath != "" {
+		uid, err := util.GetKubeObjectFieldValue[string](r.node, machineIdentifierPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get machine identifier from node: %w and path %s", err, machineIdentifierPath)
 		}
+		allocations.MachineIdentifier = uid
 	}
 
 	var err error

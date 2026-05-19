@@ -333,6 +333,7 @@
 | paused | *bool | Pause the cluster - all containers will be stopped forcefully.<br>nil (not set): no propagation, allows direct container-level state manipulation.<br>true: pause all containers.<br>false: actively unpause containers that are in paused state. |
 | cancelDeletion | bool | Cancel deletion of the cluster if it is in graceful destroy period, a disaster recovery mechanism |
 | dpdkBaseMemoryMb | DpdkBaseMemoryMbOverride |  |
+| machineIdentifierNodeRef | string | used to override machine identifier node reference for backend containers (drive, compute, etc.) |
 
 ---
 
