@@ -670,6 +670,10 @@ spec:
                       nvme (impacts performance, but might serve as a fallback in
                       case of incompatible device)
                     type: boolean
+                  machineIdentifierNodeRef:
+                    description: used to override machine identifier node reference
+                      for backend containers (drive, compute, etc.)
+                    type: string
                   paused:
                     description: |-
                       Pause the cluster - all containers will be stopped forcefully.

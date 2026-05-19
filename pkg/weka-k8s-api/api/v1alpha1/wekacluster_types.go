@@ -828,6 +828,8 @@ type WekaClusterSpecOverrides struct {
 	// Cancel deletion of the cluster if it is in graceful destroy period, a disaster recovery mechanism
 	CancelDeletion   bool                     `json:"cancelDeletion,omitempty"`
 	DpdkBaseMemoryMb DpdkBaseMemoryMbOverride `json:"dpdkBaseMemoryMb,omitempty"`
+	// used to override machine identifier node reference for backend containers (drive, compute, etc.)
+	MachineIdentifierNodeRef string `json:"machineIdentifierNodeRef,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
