@@ -16,7 +16,6 @@ import (
 	k8sTypes "k8s.io/apimachinery/pkg/types"
 
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
@@ -895,20 +894,9 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 
 	container.Status.LastAppliedImage = container.Spec.Image
 
-	// Update pod annotation and status with the current pod config version
-	// so the drift check does not immediately delete the pod after a successful image upgrade.
+	// handleSpecVersionMismatch sets LastAppliedPodConfigHash via the pod annotation; this covers
+	// pre-existing pods that have no annotation and are skipped by that path.
 	if podConfigVer := targetPodConfigHash(container); podConfigVer != "" {
-		if r.pod != nil {
-			if r.pod.Annotations == nil {
-				r.pod.Annotations = make(map[string]string)
-			}
-			if r.pod.Annotations[consts.PodConfigVersionAnnotation] != podConfigVer {
-				r.pod.Annotations[consts.PodConfigVersionAnnotation] = podConfigVer
-				if err := r.Update(ctx, r.pod); err != nil {
-					return err
-				}
-			}
-		}
 		container.Status.LastAppliedPodConfigHash = podConfigVer
 	}
 

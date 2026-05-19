@@ -9,9 +9,10 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/config"
 )
 
 type UpgradeController struct {
@@ -40,10 +41,15 @@ func (u *UpgradeController) isContainerAligned(container *v1alpha1.WekaContainer
 
 // isContainerApplied returns true if the container's pod has successfully applied the target spec.
 func (u *UpgradeController) isContainerApplied(container *v1alpha1.WekaContainer) bool {
+	// During an image upgrade, LastAppliedPodConfigHash alone is not sufficient: it can be set
+	// by handleSpecVersionMismatch before the container is confirmed running with the new image.
+	if u.TargetImage != "" && container.Status.LastAppliedImage != u.TargetImage {
+		return false
+	}
 	if u.TargetPodConfigHash != "" {
 		return container.Status.LastAppliedPodConfigHash == u.TargetPodConfigHash
 	}
-	return container.Status.LastAppliedImage == u.TargetImage
+	return true
 }
 
 func (u *UpgradeController) UpdateContainer(ctx context.Context, container *v1alpha1.WekaContainer) error {
