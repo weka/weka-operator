@@ -23,6 +23,16 @@ func (r *containerReconcilerLoop) GetActiveMounts(ctx context.Context) (*int, er
 		return r.activeMounts, nil
 	}
 
+	if r.container.Spec.GetOverrides().SkipActiveMountsCheck {
+		_, logger := instrumentation.CreateLogSpan(ctx, "skipActiveMountsCheck")
+		defer logger.End()
+
+		logger.Info("SkipActiveMountsCheck override set, assuming no active mounts")
+		val := 0
+		r.activeMounts = &val
+		return r.activeMounts, nil
+	}
+
 	activeMounts, err := r.fetchActiveMounts(ctx)
 	if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 		// if no weka fs driver found, we can assume that there are no active mounts
