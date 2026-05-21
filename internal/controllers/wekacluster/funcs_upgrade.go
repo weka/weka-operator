@@ -206,12 +206,18 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 }
 
 type UpgradedCount struct {
-	TotalCompute    int
-	TotalDrive      int
-	TotalS3         int
-	UpgradedCompute int
-	UpgradedDrive   int
-	UpgradedS3      int
+	TotalCompute         int
+	TotalDrive           int
+	TotalS3              int
+	TotalNfs             int
+	TotalSmbw            int
+	TotalDataServices    int
+	UpgradedCompute      int
+	UpgradedDrive        int
+	UpgradedS3           int
+	UpgradedNfs          int
+	UpgradedSmbw         int
+	UpgradedDataServices int
 }
 
 func (r *wekaClusterReconcilerLoop) GetUpgradedCount(containers []*weka.WekaContainer) (upgradedCount UpgradedCount) {
@@ -223,6 +229,12 @@ func (r *wekaClusterReconcilerLoop) GetUpgradedCount(containers []*weka.WekaCont
 			upgradedCount.TotalDrive++
 		case weka.WekaContainerModeS3:
 			upgradedCount.TotalS3++
+		case weka.WekaContainerModeNfs:
+			upgradedCount.TotalNfs++
+		case weka.WekaContainerModeSmbw:
+			upgradedCount.TotalSmbw++
+		case weka.WekaContainerModeDataServices:
+			upgradedCount.TotalDataServices++
 		}
 
 		if container.Status.LastAppliedImage == r.cluster.Spec.Image && container.Spec.Image == r.cluster.Spec.Image {
@@ -233,6 +245,12 @@ func (r *wekaClusterReconcilerLoop) GetUpgradedCount(containers []*weka.WekaCont
 				upgradedCount.UpgradedDrive++
 			case weka.WekaContainerModeS3:
 				upgradedCount.UpgradedS3++
+			case weka.WekaContainerModeNfs:
+				upgradedCount.UpgradedNfs++
+			case weka.WekaContainerModeSmbw:
+				upgradedCount.UpgradedSmbw++
+			case weka.WekaContainerModeDataServices:
+				upgradedCount.UpgradedDataServices++
 			}
 		}
 	}
@@ -444,7 +462,9 @@ func (r *wekaClusterReconcilerLoop) emitClusterUpgradeCustomEvent(ctx context.Co
 	}
 
 	count := r.GetUpgradedCount(r.containers)
-	key := fmt.Sprintf("upgrade-%s-%d/%d/%d", r.cluster.Spec.Image, count.UpgradedCompute, count.UpgradedDrive, count.UpgradedS3)
+	totalFrontend := count.TotalS3 + count.TotalNfs + count.TotalSmbw
+	upgradedFrontend := count.UpgradedS3 + count.UpgradedNfs + count.UpgradedSmbw
+	key := fmt.Sprintf("upgrade-%s-%d/%d/%d/%d", r.cluster.Spec.Image, count.UpgradedCompute, count.UpgradedDrive, upgradedFrontend, count.UpgradedDataServices)
 	if !r.Throttler.ShouldRun(key, &throttling.ThrottlingSettings{
 		DisableRandomPreSetInterval: true,
 		Interval:                    10 * time.Minute,
@@ -456,9 +476,14 @@ func (r *wekaClusterReconcilerLoop) emitClusterUpgradeCustomEvent(ctx context.Co
 	msg = fmt.Sprintf(msg, count.UpgradedDrive, count.TotalDrive, count.UpgradedCompute, count.TotalCompute)
 	logger.SetValues("image", r.cluster.Spec.Image, "compute", count.UpgradedCompute, "drive", count.UpgradedDrive)
 
-	if count.TotalS3 > 0 {
-		msg += fmt.Sprintf(" s3: %d:%d", count.UpgradedS3, count.TotalS3)
-		logger.SetValues("s3", count.UpgradedS3)
+	if totalFrontend > 0 {
+		msg += fmt.Sprintf(" frontend: %d:%d", upgradedFrontend, totalFrontend)
+		logger.SetValues("frontend", upgradedFrontend)
+	}
+
+	if count.TotalDataServices > 0 {
+		msg += fmt.Sprintf(" data-services: %d:%d", count.UpgradedDataServices, count.TotalDataServices)
+		logger.SetValues("data-services", count.UpgradedDataServices)
 	}
 
 	execService := r.ExecService
@@ -642,17 +667,50 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		return err
 	}
 
+	dataServicesContainers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeDataServices)
+	if err != nil {
+		return err
+	}
+
+	if len(dataServicesContainers) > 0 {
+		if imageChanged {
+			prepareForUpgrade := true
+			for _, container := range dataServicesContainers {
+				if container.Status.LastAppliedPodConfigHash == targetPodConfigHash && container.Status.ClusterContainerID != nil {
+					prepareForUpgrade = false
+				}
+			}
+			if prepareForUpgrade {
+				err = r.prepareForUpgradeDataServices(ctx, dataServicesContainers, targetVersion)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		uController = upgrade.NewUpgradeController(r.getClient(), dataServicesContainers, targetImage, targetPodConfigHash)
+		err = uController.RollingUpgrade(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
 	s3Containers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeS3)
 	if err != nil {
 		return err
 	}
-	nfsContainres, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeNfs)
+	nfsContainers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeNfs)
 	if err != nil {
 		return err
 	}
-	feContainers := make([]*weka.WekaContainer, 0, len(s3Containers)+len(nfsContainres))
+	smbwContainers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeSmbw)
+	if err != nil {
+		return err
+	}
+	feContainers := make([]*weka.WekaContainer, 0, len(s3Containers)+len(nfsContainers)+len(smbwContainers))
 	feContainers = append(feContainers, s3Containers...)
-	feContainers = append(feContainers, nfsContainres...)
+	feContainers = append(feContainers, nfsContainers...)
+	feContainers = append(feContainers, smbwContainers...)
 
 	if imageChanged {
 		prepareForUpgrade := true
@@ -662,7 +720,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 		if prepareForUpgrade {
-			err = r.prepareForUpgradeS3(ctx, feContainers, targetVersion)
+			err = r.prepareForUpgradeFrontend(ctx, feContainers, targetVersion)
 			if err != nil {
 				return err
 			}
@@ -673,34 +731,6 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	err = uController.RollingUpgrade(ctx)
 	if err != nil {
 		return err
-	}
-
-	smbwContainers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeSmbw)
-	if err != nil {
-		return err
-	}
-
-	if len(smbwContainers) > 0 {
-		if imageChanged {
-			prepareForUpgrade := true
-			for _, container := range smbwContainers {
-				if container.Status.LastAppliedPodConfigHash == targetPodConfigHash && container.Status.ClusterContainerID != nil {
-					prepareForUpgrade = false
-				}
-			}
-			if prepareForUpgrade {
-				err = r.prepareForUpgradeS3(ctx, smbwContainers, targetVersion)
-				if err != nil {
-					return err
-				}
-			}
-		}
-
-		uController = upgrade.NewUpgradeController(r.getClient(), smbwContainers, targetImage, targetPodConfigHash)
-		err = uController.RollingUpgrade(ctx)
-		if err != nil {
-			return err
-		}
 	}
 
 	if imageChanged {
@@ -732,8 +762,7 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context,
 
 	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
 	if err != nil {
-		logger.Error(err, "Failed to create executor")
-		return nil
+		return errors.Wrap(err, "failed to get executor for upgrade preparation")
 	}
 
 	cmd := `
@@ -755,8 +784,7 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeCompute(ctx context.Context
 
 	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
 	if err != nil {
-		logger.Error(err, "Failed to create executor")
-		return nil
+		return errors.Wrap(err, "failed to get executor for upgrade preparation")
 	}
 
 	cmd := `
@@ -772,26 +800,51 @@ wekaauthcli status --json | grep upgrade_phase | grep -i compute || wekaauthcli 
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) prepareForUpgradeS3(ctx context.Context, containers []*weka.WekaContainer, targetVersion string) error {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "prepareForUpgradeS3")
+func (r *wekaClusterReconcilerLoop) prepareForUpgradeFrontend(ctx context.Context, containers []*weka.WekaContainer, targetVersion string) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "prepareForUpgradeFrontend")
 	defer logger.End()
 
 	if len(containers) == 0 {
-		logger.Info("No S3 containers found to upgrade")
+		logger.Info("No frontend containers found to upgrade")
 		return nil
 	}
 
 	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
 	if err != nil {
-		logger.Error(err, "Failed to create executor")
-		return nil
+		return errors.Wrap(err, "failed to get executor for upgrade preparation")
 	}
 
 	cmd := `
 wekaauthcli status --json | grep upgrade_phase | grep -i frontend || wekaauthcli debug jrpc upgrade_phase_finish
 wekaauthcli status --json | grep upgrade_phase | grep -i frontend || wekaauthcli debug jrpc upgrade_phase_start target_phase_type=FrontendPhase target_version_name=` + targetVersion + `
 `
-	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeS3", []string{"bash", "-ce", cmd})
+	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeFrontend", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to prepare for upgrade: %s", stderr.String())
+	}
+
+	return nil
+}
+
+func (r *wekaClusterReconcilerLoop) prepareForUpgradeDataServices(ctx context.Context, containers []*weka.WekaContainer, targetVersion string) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "prepareForUpgradeDataServices")
+	defer logger.End()
+
+	if len(containers) == 0 {
+		logger.Info("No data-services containers found to upgrade")
+		return nil
+	}
+
+	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
+	if err != nil {
+		return errors.Wrap(err, "failed to get executor for upgrade preparation")
+	}
+
+	cmd := `
+wekaauthcli status --json | grep upgrade_phase | grep -i dataserv || wekaauthcli debug jrpc upgrade_phase_finish
+wekaauthcli status --json | grep upgrade_phase | grep -i dataserv || wekaauthcli debug jrpc upgrade_phase_start target_phase_type=DataservPhase target_version_name=` + targetVersion + `
+`
+	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeDataServices", []string{"bash", "-ce", cmd})
 	if err != nil {
 		return errors.Wrapf(err, "Failed to prepare for upgrade: %s", stderr.String())
 	}

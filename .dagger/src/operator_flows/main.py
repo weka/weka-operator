@@ -416,6 +416,8 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
     --namespace {namespace} \
     --cluster-name {cluster_name} \
     --runs-in-lab \
+    --with-s3 \
+    --with-data-services \
     --cleanup {"no-cleanup" if no_cleanup else "on-start"}
 """
                 ])

@@ -188,5 +188,7 @@ jobs:
           --node-selector "weka.io/dedicated:upgrade-extended" \
           --namespace "test-upgrade-extended" \
           --cluster-name "upgrade-extended" \
+          --with-s3 \
+          --with-data-services \
           $cleanup \
           $dev_args
