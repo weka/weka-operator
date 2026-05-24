@@ -395,7 +395,7 @@ async def sign_drives_by_pci_info(vendor_id: str, device_id: str, options: dict)
     if not vendor_id or not device_id:
         raise ValueError("Vendor ID and Device ID are required")
 
-    cmd = f"lspci -d {vendor_id}:{device_id}" + " | sort | awk '{print $1}'"
+    cmd = f"lspci -D -d {vendor_id}:{device_id}" + " | sort | awk '{print $1}'"
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
         return
@@ -792,7 +792,7 @@ async def sign_drives_for_proxy_by_pci_info(vendor_id: str, device_id: str, opti
         raise ValueError("Vendor ID and Device ID are required")
 
     # Find PCI devices matching vendor and device ID
-    cmd = f"lspci -d {vendor_id}:{device_id}" + " | sort | awk '{print $1}'"
+    cmd = f"lspci -D -d {vendor_id}:{device_id}" + " | sort | awk '{print $1}'"
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
         logging.info("No devices found matching PCI info")
