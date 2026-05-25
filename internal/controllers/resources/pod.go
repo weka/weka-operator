@@ -270,6 +270,15 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 								MountPath: "/hostside/etc/os-release",
 							},
 						}
+						if config.Config.NetnsEnabled {
+							// Separate from the /host/run mount (which defaults to MountPropagationNone),
+							// this bidirectional mount ensures netns created on the host propagate into the container and vice-versa.
+							mounts = append(mounts, corev1.VolumeMount{
+								Name:             "host-run-netns",
+								MountPath:        "/run/netns",
+								MountPropagation: &[]corev1.MountPropagationMode{corev1.MountPropagationBidirectional}[0],
+							})
+						}
 						if !f.container.IsAdhocOpContainer() {
 							mounts = append(mounts, corev1.VolumeMount{
 								Name:      "hugepages",
@@ -500,6 +509,17 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							},
 						},
 					},
+				}
+				if config.Config.NetnsEnabled {
+					vols = append(vols, corev1.Volume{
+						Name: "host-run-netns",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/run/netns",
+								Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+							},
+						},
+					})
 				}
 				if !f.container.IsAdhocOpContainer() {
 					vols = append(vols, corev1.Volume{
