@@ -280,6 +280,8 @@ spec:
               value: "{{ .Values.managementProxy.ingressBaseDomain }}"
             - name: MANAGEMENT_PROXY_INGRESS_CLASS
               value: "{{ .Values.managementProxy.ingressClass }}"
+            - name: NETNS_ENABLED
+              value: "{{ .Values.netnsEnabled }}"
             - name: CSI_INSTALLATION_ENABLED
               value: "{{ .Values.csi.installationEnabled }}"
             - name: CSI_STORAGE_CLASS_CREATION_DISABLED

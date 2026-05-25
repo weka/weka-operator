@@ -258,6 +258,7 @@ var Config struct {
 	DeleteUnschedulablePodsAfter                 time.Duration
 	RemoveFailedDrivesFromWeka                   bool
 	AllowMultipleProtocolsPerNode                bool
+	NetnsEnabled                                 bool
 	ManagementProxyHostNetwork                   bool
 	ManagementProxyIngressBaseDomain             string
 	ManagementProxyIngressClass                  string
@@ -473,6 +474,8 @@ func ConfigureEnv(ctx context.Context) {
 
 	// Metrics server environment configuration
 	Config.MetricsServerEnv.NodeName = env.GetString("NODE_NAME", "")
+
+	Config.NetnsEnabled = getBoolEnvOrDefault("NETNS_ENABLED", true)
 
 	// CSI configuration
 	Config.Csi.Enabled = getBoolEnvOrDefault("CSI_INSTALLATION_ENABLED", false)

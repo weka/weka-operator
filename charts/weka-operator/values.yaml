@@ -563,3 +563,8 @@ admissionPolicies:
   #
   #   # Decreasing spec.coresNum on a WekaClient is denied.
   #   client_cores_decrease:                default  # strict: error  | relaxed: error
+
+# -- Bind-mount the host's /run/netns into weka runtime containers with bidirectional
+# mount propagation, so network namespaces created on either side propagate to the other.
+# Set to false only if you need to isolate the weka container from host netns changes.
+netnsEnabled: true
