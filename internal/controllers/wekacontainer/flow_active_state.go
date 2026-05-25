@@ -157,7 +157,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
-			Run: r.deleteTelemetryIfNoComputeNeighbor,
+			Run: r.handleTelemetryComputeNeighbor,
 			Predicates: lifecycle.Predicates{
 				r.container.IsTelemetry,
 			},
