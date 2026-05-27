@@ -1,0 +1,56 @@
+site_name: Weka K8s API Reference
+site_description: CRD API reference for Weka Kubernetes operator
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search:
+      separator: '[\s\-\.]+'
+
+extra_javascript:
+  - javascripts/scroll-to-highlight.js
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+  - tables
+  - attr_list
+
+nav:
+  - Overview: index.md
+  - Cluster Resources:
+      - WekaCluster: wekacluster.md
+      - WekaClient: wekaclient.md
+      - WekaContainer: wekacontainer.md
+  - Utility Resources:
+      - WekaManualOperation: wekamanualoperation.md
+      - WekaPolicy: wekapolicy.md

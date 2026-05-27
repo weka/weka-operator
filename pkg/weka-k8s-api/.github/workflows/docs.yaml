@@ -1,0 +1,78 @@
+name: Deploy CRD Docs
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - 'api/**'
+      - 'docs/**'
+      - 'scripts/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yaml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy-docs:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.0"
+
+      - name: Generate crd-ref-docs config
+        run: |
+          cat > /tmp/crd-ref-docs-config.yaml <<'EOF'
+          processor:
+            ignoreTypes:
+              - ".*List$"
+            ignoreFields:
+              - "TypeMeta$"
+              - "ObjectMeta$"
+          EOF
+
+      - name: Generate CRD reference docs
+        run: |
+          mkdir -p docs
+          go run github.com/elastic/crd-ref-docs@v0.3.0 \
+            --source-path=./api/v1alpha1 \
+            --config=/tmp/crd-ref-docs-config.yaml \
+            --renderer=markdown \
+            --output-path=docs/index.md
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate kubectl explain snippets
+        run: python3 scripts/generate-kubectl-explain.py
+
+      - name: Split CRD docs by resource
+        run: python3 scripts/split-crd-docs.py
+
+      - name: Install MkDocs Material
+        run: pip install mkdocs-material
+
+      - name: Build docs
+        run: mkdocs build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
