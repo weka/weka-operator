@@ -119,17 +119,16 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 			if getErr := r.Get(ctx, client.ObjectKey{Name: string(nodeAffinity)}, node); getErr != nil {
 				return errors.Wrap(getErr, "failed to get target node for drivers-builder")
 			}
-			builderImage := drivers.GetBuilderImageForNode(node)
-			image = builderImage
+			image = drivers.GetBuilderImageForNode(node)
+		}
 
-			payloadBytes, _ := json.Marshal(map[string]string{ //nolint:errcheck // error return value intentionally not checked
-				"targetImage": container.Spec.Image,
-				"cliImage":    builderImage,
-			})
-			container.Spec.Instructions = &weka.Instructions{
-				Type:    weka.InstructionCopyWekaFilesToDriverLoader,
-				Payload: string(payloadBytes),
-			}
+		payloadBytes, _ := json.Marshal(map[string]string{ //nolint:errcheck // error return value intentionally not checked
+			"targetImage": container.Spec.Image,
+			"cliImage":    image,
+		})
+		container.Spec.Instructions = &weka.Instructions{
+			Type:    weka.InstructionCopyWekaFilesToDriverLoader,
+			Payload: string(payloadBytes),
 		}
 	}
 
