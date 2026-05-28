@@ -30,22 +30,17 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 
 		// blockedDriveSerials is used for both exclusive drives and shared drives filtering
 		blockedDriveSerials := []string{}
+		if blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]; ok {
+			if err = json.Unmarshal([]byte(blockedDrivesStr), &blockedDriveSerials); err != nil {
+				err = fmt.Errorf("failed to unmarshal blocked-drives: %v", err)
+				return
+			}
+		}
 
 		// get from annotations, all serial ids minus blocked-drives serial ids
 		// Note: this is for exclusive drive allocation mode only
 		fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
 		if fullAnnotation != "" {
-			blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]
-			if !ok {
-				blockedDrivesStr = "[]"
-			}
-			// blockedDrivesStr is json list, unwrap it
-			err = json.Unmarshal([]byte(blockedDrivesStr), &blockedDriveSerials)
-			if err != nil {
-				err = fmt.Errorf("failed to unmarshal blocked-drives: %v", err)
-				return
-			}
-
 			allEntries, readErr := domain.ReadDriveAnnotations(fullAnnotation)
 			if readErr != nil {
 				err = fmt.Errorf("failed to read drive annotations: %v", readErr)
@@ -77,15 +72,14 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 			}
 
 			// Filter out blocked shared drives
-			blockedSharedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids]
-			if ok {
-				blockedSharedDrives := []string{}
+			var blockedSharedDrives []string
+			if blockedSharedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids]; ok {
 				if err := json.Unmarshal([]byte(blockedSharedDrivesStr), &blockedSharedDrives); err != nil {
 					err = fmt.Errorf("failed to unmarshal blocked-shared-drives: %w", err)
 					return nodeInfo, err
 				}
-				sharedDrives = filterBlockedSharedDrives(sharedDrives, blockedSharedDrives, blockedDriveSerials)
 			}
+			sharedDrives = filterBlockedSharedDrives(sharedDrives, blockedSharedDrives, blockedDriveSerials)
 
 			nodeInfo.SharedDrives = sharedDrives
 		}
