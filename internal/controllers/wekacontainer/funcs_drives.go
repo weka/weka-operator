@@ -789,11 +789,10 @@ func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive
 		return err
 	}
 
-	statusActive := "ACTIVE"
-	statusInactive := "INACTIVE"
-
 	switch reFetchedDrive.Status {
-	case statusActive:
+	case services.DriveStatusActive, services.DriveStatusInactive:
+		// Weka's RemoveDrive rejects unless should_be_active=false has been set via
+		// DeactivateDrive, even when the drive is already INACTIVE.
 		logger.Info("Deactivating drive")
 		deactivateErr := wekaService.DeactivateDrive(ctx, drive.Uuid)
 		if deactivateErr != nil {
@@ -801,10 +800,8 @@ func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive
 		}
 
 		_ = r.RecordEvent("", "DriveDeactivated", fmt.Sprintf("Drive %s deactivated", drive.SerialNumber)) //nolint:errcheck // error return value intentionally not checked
-	case statusInactive:
-		logger.Debug("Drive is inactive")
 	default:
-		return fmt.Errorf("drive has status '%s', wait for it to become '%s'", drive.Status, statusInactive)
+		return fmt.Errorf("drive has status '%s', wait for it to become '%s'", drive.Status, services.DriveStatusInactive)
 	}
 
 	// remove failed (replaced) drive from weka
