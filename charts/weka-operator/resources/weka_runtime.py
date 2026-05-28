@@ -967,6 +967,48 @@ async def get_block_device_path_by_serial(serial: str):
     return device_path
 
 
+def is_kernel_view_complete() -> bool:
+    """
+    True iff every NVMe-class PCI slot is bound to the kernel "nvme" driver.
+    Gates the operator's missing-drive detection: only when the kernel sees
+    every present NVMe can we trust "annotation serial not in raw_drives" to
+    mean "drive is gone". Anything else (DPDK binding, unbound, unknown
+    driver, sysfs failure) returns False so the operator defers.
+    """
+    devices_dir = "/sys/bus/pci/devices"
+    nvme_class = "0x010802"
+
+    try:
+        addresses = os.listdir(devices_dir)
+    except OSError as e:
+        logging.warning(f"Failed to list {devices_dir}: {e}")
+        return False
+
+    for addr in addresses:
+        class_path = os.path.join(devices_dir, addr, "class")
+        try:
+            with open(class_path, "r") as f:
+                class_code = f.read().strip()
+        except OSError:
+            continue
+        if class_code != nvme_class:
+            continue
+
+        driver_link = os.path.join(devices_dir, addr, "driver")
+        try:
+            driver_target = os.readlink(driver_link)
+            driver_name = os.path.basename(driver_target)
+        except OSError:
+            logging.info(f"Kernel view incomplete: NVMe slot {addr} is unbound")
+            return False
+
+        if driver_name != "nvme":
+            logging.info(f"Kernel view incomplete: NVMe slot {addr} bound to {driver_name}")
+            return False
+
+    return True
+
+
 async def discover_drives():
     drives = await find_weka_drives()
     raw_disks = await find_disks()
@@ -974,14 +1016,18 @@ async def discover_drives():
         err=None,
         drives=drives,
         raw_drives=[asdict(d) for d in raw_disks],
+        kernel_view_complete=is_kernel_view_complete(),
     ))
 
 
 async def discover_ssdproxy_drives():
     drives = await list_weka_proxy_drives_with_sign_tool()
+    raw_disks = await find_disks()
     write_results(dict(
         err=None,
         proxy_drives=drives,
+        raw_drives=[asdict(d) for d in raw_disks],
+        kernel_view_complete=is_kernel_view_complete(),
     ))
 
 

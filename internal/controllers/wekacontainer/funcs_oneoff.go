@@ -235,6 +235,16 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		}
 	}
 
+	annotatedSerials := make([]string, 0, len(seenDrives))
+	for s := range seenDrives {
+		annotatedSerials = append(annotatedSerials, s)
+	}
+	var missingDrives []string
+	blockedDrives, missingDrives = appendMissingDrivesToBlocked(annotatedSerials, opResult, blockedDrives)
+	for _, s := range missingDrives {
+		logger.Info("Blocking missing drive", "serial_id", s)
+	}
+
 	availableDrives := 0
 	for _, entry := range updatedDrivesList {
 		if !slices.Contains(blockedDrives, entry.Serial) {
@@ -278,6 +288,13 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 
 	logger.Info("Updating node annotations for proxy mode")
 
+	blockedDrives := []string{}
+	if blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]; ok {
+		if err := json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives); err != nil {
+			return fmt.Errorf("error unmarshalling blocked drives: %w", err)
+		}
+	}
+
 	// Read existing shared drives from annotation
 	existingDrives := []domain.SharedDriveInfo{}
 	if existingDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]; ok {
@@ -309,6 +326,16 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 		logger.Info("No new drives found")
 	}
 
+	annotatedSerials := make([]string, 0, len(drivesBySerial))
+	for s := range drivesBySerial {
+		annotatedSerials = append(annotatedSerials, s)
+	}
+	var missingDrives []string
+	blockedDrives, missingDrives = appendMissingDrivesToBlocked(annotatedSerials, opResult, blockedDrives)
+	for _, s := range missingDrives {
+		logger.Info("Blocking missing drive", "serial_id", s)
+	}
+
 	// Convert map back to slice and calculate capacities
 	mergedDrives := make([]domain.SharedDriveInfo, 0, len(drivesBySerial))
 	tlcDriveCapacityGiB := int64(0)
@@ -332,6 +359,12 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 	node.Annotations[consts.AnnotationSharedDrives] = string(proxyDrivesJSON)
 	node.Annotations[consts.AnnotationSignDrivesHash] = domain.CalculateNodeDriveSignHash(node)
 
+	blockedDrivesStr, err := json.Marshal(blockedDrives)
+	if err != nil {
+		return fmt.Errorf("error marshalling blocked drives: %w", err)
+	}
+	node.Annotations[consts.AnnotationBlockedDrives] = string(blockedDrivesStr)
+
 	// Update weka.io/shared-drives-capacity extended resource
 	// TLC drive type
 	node.Status.Capacity[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(tlcDriveCapacityGiB, resource.DecimalSI)
@@ -354,4 +387,53 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 	// Mark container as completed
 	r.container.Status.Status = weka.Completed
 	return r.Status().Update(ctx, r.container)
+}
+
+// appendMissingDrivesToBlocked extends blockedDrives with any annotatedSerial
+// absent from opResult.RawDrives. Gated by KernelViewComplete — when the
+// kernel view isn't complete, missing-from-RawDrives is not conclusive
+// evidence the drive is gone, so the function defers.
+// Returns the blockedDrives and the serials newly added.
+func appendMissingDrivesToBlocked(
+	annotatedSerials []string,
+	opResult *operations.DriveNodeResults,
+	blockedDrives []string,
+) ([]string, []string) {
+	if !opResult.KernelViewComplete {
+		return blockedDrives, nil
+	}
+
+	kernelVisible := make(map[string]struct{}, len(opResult.RawDrives))
+	for _, raw := range opResult.RawDrives {
+		if raw.SerialId != "" {
+			kernelVisible[raw.SerialId] = struct{}{}
+		}
+	}
+
+	blockedSet := make(map[string]struct{}, len(blockedDrives))
+	for _, s := range blockedDrives {
+		blockedSet[s] = struct{}{}
+	}
+
+	// Sort so map-derived input yields a stable blockedDrives order.
+	sortedSerials := slices.Clone(annotatedSerials)
+	slices.Sort(sortedSerials)
+
+	var missingDrives []string
+	for _, s := range sortedSerials {
+		if s == "" {
+			continue
+		}
+		if _, kernelOK := kernelVisible[s]; kernelOK {
+			continue
+		}
+		if _, alreadyBlocked := blockedSet[s]; alreadyBlocked {
+			continue
+		}
+		blockedDrives = append(blockedDrives, s)
+		blockedSet[s] = struct{}{}
+		missingDrives = append(missingDrives, s)
+	}
+
+	return blockedDrives, missingDrives
 }
