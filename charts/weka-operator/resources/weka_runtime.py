@@ -2917,17 +2917,27 @@ async def configure_persistency():
     command = dedent(f"""
         # Main persistent storage setup (only if /host-binds/opt-weka exists)
         if [ -d /host-binds/opt-weka ]; then
-            mkdir -p /opt/weka-preinstalled
-            # --- save weka image data separately
-            mount -o bind /opt/weka /opt/weka-preinstalled
+            # --- the /run/netns Bidirectional volume causes runc to set
+            # --- rootfsPropagation=rshared, placing /opt/weka in a shared peer group.
+            # --- this always happens on CRI-O; on containerd it happens when containers
+            # --- land in the same peer group (e.g. on nodes whose containerd DB was reset).
+            # --- binding the full /opt/weka would make the backup a root-level peer:
+            # --- the host XFS mount below would propagate to it, replacing the overlay
+            # --- with the empty persistence dir and breaking /usr/bin/weka on first run.
+            # --- binding only /opt/weka/dist avoids creating that root-level peer.
+            mkdir -p /opt/weka-dist-save
+            mount -o bind /opt/weka/dist /opt/weka-dist-save
+            # --- defensive: kernel peer-group inheritance for subdirectory binds is subtle;
+            # --- make-private ensures /opt/weka cannot propagate here under any propagation mode.
+            mount --make-private /opt/weka-dist-save
             # --- WEKA_PERSISTENCE_DIR - is HostPath (persistent volume)
-            # --- put existing drivers from persistent dir to weka-preinstalled
             mkdir -p {WEKA_PERSISTENCE_DIR}/dist/drivers
-            mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka-preinstalled/dist/drivers
             mount -o bind {WEKA_PERSISTENCE_DIR} /opt/weka
             mkdir -p /opt/weka/dist
-            # --- put weka dist back on top
-            mount -o bind /opt/weka-preinstalled/dist /opt/weka/dist
+            # --- restore image dist on top of the host persistence dir
+            mount -o bind /opt/weka-dist-save /opt/weka/dist
+            # --- /opt/weka/dist now holds its own reference; release the staging mount
+            umount /opt/weka-dist-save
             # --- make drivers dir persistent
             mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka/dist/drivers
         fi
