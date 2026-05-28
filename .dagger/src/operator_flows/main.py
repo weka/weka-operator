@@ -10,6 +10,8 @@ from dagger import dag, function, object_type, Ignore
 from containers.builders import build_go
 from utils.github import GitHubClient
 
+OCP_PULL_SECRET_NAME = "quay-io-robot-secret"
+
 OPERATOR_EXCLUDE_LIST = [
     "node_modules",
     ".aider*",
@@ -777,28 +779,12 @@ EOF
         client_secret_name = "weka-client-" + cluster_name
         csi_secret_name = "weka-csi-" + cluster_name
 
-        logger.info("Running OCP clients only test flow.")
-
-        secrets_to_copy = [client_secret_name, csi_secret_name, "quay-io-robot-secret"]
-        for secret_name in secrets_to_copy:
-            # Only logs secret name (metadata), not the actual secret content
-            logger.info(f"Copying secret {secret_name} from source cluster to target cluster.")
-
-            await self.copy_k8s_secret_from_one_cluster_to_another(
-                env=env,
-                source_kubeconfig=source_kubeconfig,
-                target_kubeconfig=target_kubeconfig,
-                source_secret_name=secret_name,
-                source_namespace=namespace,
-                target_secret_name=secret_name,
-                target_namespace=namespace,
-            )
-
-        join_ips = await self.get_join_ips(
-            env=env,
-            kubeconfig=source_kubeconfig,
-            clusterName=cluster_name,
-            namespace=namespace
+        logger.info("Running pre-clients-only: copying secrets and fetching join IPs.")
+        join_ips = await self.pre_clients_only(
+            source_kubeconfig=source_kubeconfig,
+            target_kubeconfig=target_kubeconfig,
+            cluster_name=cluster_name,
+            namespace=namespace,
         )
 
         # Mount the OCP kubeconfig and run the clients-only test
@@ -825,3 +811,43 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
         )
 
         logger.info("OCP clients-only test completed successfully.")
+
+    @function
+    async def pre_clients_only(
+        self,
+        source_kubeconfig: dagger.Secret,
+        target_kubeconfig: dagger.Secret,
+        cluster_name: str = "upgrade-extended",
+        namespace: str = "test-upgrade-extended",
+    ) -> str:
+        """Copies secrets from source cluster to OCP target cluster and returns join IPs.
+
+        Returns a comma-separated string of IP:PORT pairs used to join the Weka cluster,
+        e.g. '10.0.0.1:14000,10.0.0.2:14000'. Call this before submitting a clients-only
+        test execution to the weka-testing service.
+        """
+        base = self.with_kubectl(dag.container().from_("alpine:3.21"))
+
+        client_secret_name = f"weka-client-{cluster_name}"
+        csi_secret_name = f"weka-csi-{cluster_name}"
+
+        for secret_name in [client_secret_name, csi_secret_name, OCP_PULL_SECRET_NAME]:
+            logger.info(f"Copying secret {secret_name} from source cluster to target cluster.")
+            await self.copy_k8s_secret_from_one_cluster_to_another(
+                env=base,
+                source_kubeconfig=source_kubeconfig,
+                target_kubeconfig=target_kubeconfig,
+                source_secret_name=secret_name,
+                source_namespace=namespace,
+                target_secret_name=secret_name,
+                target_namespace=namespace,
+            )
+
+        join_ips = await self.get_join_ips(
+            env=base,
+            kubeconfig=source_kubeconfig,
+            clusterName=cluster_name,
+            namespace=namespace,
+        )
+        logger.info(f"pre-clients-only complete. Join IPs: {join_ips}")
+        return join_ips

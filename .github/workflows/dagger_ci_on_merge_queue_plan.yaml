@@ -119,8 +119,13 @@ jobs:
             echo "::error::CI_HELM_REPO repository variable is not set. Please set it in Settings → Secrets and variables → Actions → Variables"
             exit 1
           fi
+          if [ -z "${{ vars.WEKA_TESTING_SERVICE_URL }}" ]; then
+            echo "::error::WEKA_TESTING_SERVICE_URL repository variable is not set."
+            exit 1
+          fi
           echo "CI_OPERATOR_REPO is set to: ${{ vars.CI_OPERATOR_REPO }}"
           echo "CI_HELM_REPO is set to: ${{ vars.CI_HELM_REPO }}"
+          echo "WEKA_TESTING_SERVICE_URL is set to: ${{ vars.WEKA_TESTING_SERVICE_URL }}"
 
       - uses: actions/create-github-app-token@v2
         id: app-token
@@ -135,53 +140,6 @@ jobs:
           path: operator
           submodules: true
           token: ${{ steps.app-token.outputs.token }}
-
-      - name: Checkout wekai repository
-        uses: actions/checkout@v6
-        with:
-          repository: weka/wekai
-          token: ${{ steps.app-token.outputs.token }}
-          path: wekai
-          ref: fef89c34562a7c289d4bd1bf1f6f4c634cefcd9a
-
-      - name: Checkout testing repository
-        uses: actions/checkout@v6
-        with:
-          repository: weka/weka-k8s-testing
-          token: ${{ steps.app-token.outputs.token }}
-          path: testing
-          submodules: true
-
-      - name: Save Kubeconfig(s)
-        run: |
-          mkdir -p ${{ github.workspace }}/.kube
-          echo "${{ secrets.UPGRADE_TEST_KUBECONFIG }}" > ${{ github.workspace }}/.kube/config
-          chmod 600 ${{ github.workspace }}/.kube/config
-
-      - name: Call Generate Test Artifacts
-        uses: dagger/dagger-for-github@v8.2.0
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        with:
-          version: "0.19.10"
-          workdir: operator/.dagger/src
-          module: operator_flows
-          args: >-
-            generate-pr-test-artifacts
-            --operator=${{ github.workspace }}/operator
-            --pr-number=${{ github.event.pull_request.number }}
-            --gh-token="env://GH_TOKEN"
-            --openai-api-key="env://OPENAI_API_KEY"
-            export --path ${{ github.workspace }}/test-artifacts
-
-      - name: Upload test artifacts (AI-generated test plan)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-generated-test-plan
-          if-no-files-found: ignore
-          path: ${{ github.workspace }}/test-artifacts
-          retention-days: 1
 
       - name: Publish Operator
         uses: dagger/dagger-for-github@v8.2.0
@@ -221,58 +179,66 @@ jobs:
           echo "operator_image=$operator_image" >> $GITHUB_OUTPUT
           echo "operator_helm_image=$operator_helm_image" >> $GITHUB_OUTPUT
 
-      - name: Debug test artifacts directory
+      - name: Run Upgrade-extended Test via Testing Service
         run: |
-          echo "Checking test-artifacts directory:"
-          ls -la ${{ github.workspace }}/test-artifacts || echo "Directory not found"
-          find ${{ github.workspace }}/test-artifacts -type f -name "*.sh" -exec ls -la {} \; || echo "No .sh files found"
+          OPERATOR_VERSION=$(echo "${{ env.operator_image }}" | sed 's/.*://')
+          OPERATOR_IMAGE_REPO=$(echo "${{ env.operator_image }}" | sed 's/:.*//')
+          OPERATOR_HELM_IMAGE_REPO=$(echo "${{ env.operator_helm_image }}" | sed 's/:.*//')
 
-      - name: Run Upgrade-extended Test
-        uses: dagger/dagger-for-github@v8.2.0
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          HELM_USERNAME: ${{ secrets.CI_HELM_USERNAME }}
-          HELM_PASSWORD: ${{ secrets.CI_HELM_PASSWORD }}
-        with:
-          version: "0.19.10"
-          workdir: operator/.dagger/src
-          module: operator_flows
-          args: >-
-            run-upgrade-extended-test
-            --operator=${{ github.workspace }}/operator
-            --testing=${{ github.workspace }}/testing
-            --wekai=${{ github.workspace }}/wekai
-            --sock=/var/run/docker.sock
-            --pr-number=${{ github.event.pull_request.number }}
-            --gh-token="env://GH_TOKEN"
-            --gh-sha=${{ github.sha }}
-            --execution-id=GHA-${{ github.run_id }}
-            --execution-temp-dir=/testing_shared/executions/GHA-${{ github.run_id }}
-            --openai-api-key="env://OPENAI_API_KEY"
-            --gemini-api-key="env://GEMINI_API_KEY"
-            --kubeconfig-path=file://${{ github.workspace }}/.kube/config
-            --initial-weka-version=${{ env.INITIAL_WEKA_VERSION }}
-            --new-weka-version=${{ env.NEW_WEKA_VERSION }}
-            --test-artifacts-dir=${{ github.workspace }}/test-artifacts
-            --use-gh-token-for-go-deps
-            --operator-image=${{ env.operator_image }}
-            --operator-helm-image=${{ env.operator_helm_image }}
-            --operator-repo=${{ vars.CI_OPERATOR_REPO }}
-            --helm-repo=${{ vars.CI_HELM_REPO }}
-            --helm-username="env://HELM_USERNAME"
-            --helm-password="env://HELM_PASSWORD"
-            --wekai-endpoint=${{ vars.WEKAI_ENDPOINT}}
+          BODY=$(jq -n \
+            --arg operator_version "$OPERATOR_VERSION" \
+            --arg operator_image_repo "$OPERATOR_IMAGE_REPO" \
+            --arg operator_helm_image_repo "$OPERATOR_HELM_IMAGE_REPO" \
+            --arg initial_version "${{ env.INITIAL_WEKA_VERSION }}" \
+            --arg new_version "${{ env.NEW_WEKA_VERSION }}" \
+            '{
+              "flowName": "upgrade-extended",
+              "kubeContext": "operator-mq-ci",
+              "config": {
+                "flowName": "upgrade-extended",
+                "operator-version": $operator_version,
+                "operator-image": $operator_image_repo,
+                "operator-helm-image": $operator_helm_image_repo,
+                "initial-version": $initial_version,
+                "new-version": $new_version,
+                "namespace": "test-upgrade-extended",
+                "cluster-name": "upgrade-extended",
+                "node-selector": {"weka.io/dedicated": "upgrade-extended"},
+                "cleanup": "on-start",
+                "runs-in-lab": true,
+                "with-s3": true,
+                "with-data-services": true
+              }
+            }')
 
-      - name: Upload Wekai execution files
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: wekai-execution-files
-          if-no-files-found: ignore
-          path: /testing_shared/executions/GHA-${{ github.run_id }}
-          retention-days: 1
+          RESPONSE=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sf \
+            -X POST "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions" \
+            -H "Content-Type: application/json" \
+            -d "$BODY")
+          EXECUTION_ID=$(echo "$RESPONSE" | jq -r '.execution_id // empty')
+          if [ -z "$EXECUTION_ID" ]; then
+            echo "::error::testing service did not return execution_id. Response: $RESPONSE"
+            exit 1
+          fi
+          echo "::notice::Execution: ${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
+
+          MAX_POLLS=120
+          for ((i=1; i<=MAX_POLLS; i++)); do
+            STATUS=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sf \
+              "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions/$EXECUTION_ID" \
+              -H "Content-Type: application/json" | jq -r '.status')
+            echo "[$i/$MAX_POLLS] Status: $STATUS"
+            if [[ "$STATUS" == "succeeded" ]]; then break; fi
+            if [[ "$STATUS" != "running" && "$STATUS" != "pending" ]]; then
+              echo "::error::upgrade-extended test failed with status: $STATUS"
+              exit 1
+            fi
+            if [[ $i -eq $MAX_POLLS ]]; then
+              echo "::error::upgrade-extended test timed out after $((MAX_POLLS * 30 / 60)) minutes"
+              exit 1
+            fi
+            sleep 30
+          done
   
   clients_only_test:
     needs: [optimize_ci, run_condition_check, upgrade_extended_test]
@@ -292,6 +258,10 @@ jobs:
             echo "::error::CI_HELM_REPO repository variable is not set"
             exit 1
           fi
+          if [ -z "${{ vars.WEKA_TESTING_SERVICE_URL }}" ]; then
+            echo "::error::WEKA_TESTING_SERVICE_URL repository variable is not set."
+            exit 1
+          fi
 
       - uses: actions/create-github-app-token@v2
         id: app-token
@@ -306,43 +276,83 @@ jobs:
           path: operator
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Checkout testing repository
-        uses: actions/checkout@v6
-        with:
-          repository: weka/weka-k8s-testing
-          token: ${{ steps.app-token.outputs.token }}
-          path: testing
-          submodules: true
-
-      - name: Save Kubeconfig(s)
-        run: |
-          mkdir -p ${{ github.workspace }}/.kube
-          echo "${{ secrets.UPGRADE_TEST_KUBECONFIG }}" > ${{ github.workspace }}/.kube/config
-          echo "${{ secrets.OCP_CLUSTER_KUBECONFIG }}" > ${{ github.workspace }}/.kube/ocp-cluster-config
-          chmod 600 ${{ github.workspace }}/.kube/config
-          chmod 600 ${{ github.workspace }}/.kube/ocp-cluster-config
-
-      - name: Run OCP Clients-Only Test
+      - name: Pre clients-only (copy secrets + get join IPs)
         uses: dagger/dagger-for-github@v8.2.0
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SOURCE_KUBECONFIG: ${{ secrets.UPGRADE_TEST_KUBECONFIG }}
+          OCP_KUBECONFIG: ${{ secrets.OCP_CLUSTER_KUBECONFIG }}
         with:
           version: "0.19.10"
           workdir: operator/.dagger/src
           module: operator_flows
           args: >-
-            run-ocp-clients-only-test
-            --sock=/var/run/docker.sock
-            --gh-token="env://GH_TOKEN"
-            --testing=${{ github.workspace }}/testing
-            --source-kubeconfig=file://${{ github.workspace }}/.kube/config
-            --target-kubeconfig=file://${{ github.workspace }}/.kube/ocp-cluster-config
-            --use-gh-token-for-go-deps
-            --operator-image=${{ needs.upgrade_extended_test.outputs.operator_image }}
-            --operator-helm-image=${{ needs.upgrade_extended_test.outputs.operator_helm_image }}
-            --operator-repo=${{ vars.CI_OPERATOR_REPO }}
-            --helm-repo=${{ vars.CI_HELM_REPO }}
-            --weka-image=${{ env.NEW_WEKA_VERSION }}
+            pre-clients-only
+            --source-kubeconfig="env://SOURCE_KUBECONFIG"
+            --target-kubeconfig="env://OCP_KUBECONFIG"
+            --output ${{ github.workspace }}/join-ips
+
+      - name: Run Clients-Only Test via Testing Service
+        run: |
+          OPERATOR_VERSION=$(echo "${{ needs.upgrade_extended_test.outputs.operator_image }}" | sed 's/.*://')
+          OPERATOR_IMAGE_REPO=$(echo "${{ needs.upgrade_extended_test.outputs.operator_image }}" | sed 's/:.*//')
+          OPERATOR_HELM_IMAGE_REPO=$(echo "${{ needs.upgrade_extended_test.outputs.operator_helm_image }}" | sed 's/:.*//')
+          JOIN_IPS_JSON=$(tr ',' '\n' < "${{ github.workspace }}/join-ips" | jq -R . | jq -cs 'map(select(length > 0))')
+          if [[ "$JOIN_IPS_JSON" == "[]" ]]; then
+            echo "::error::pre-clients-only returned no join IPs"
+            exit 1
+          fi
+
+          BODY=$(jq -n \
+            --arg operator_version "$OPERATOR_VERSION" \
+            --arg operator_image_repo "$OPERATOR_IMAGE_REPO" \
+            --arg operator_helm_image_repo "$OPERATOR_HELM_IMAGE_REPO" \
+            --arg weka_image "${{ env.NEW_WEKA_VERSION }}" \
+            --argjson join_ips "$JOIN_IPS_JSON" \
+            '{
+              "flowName": "clients-only",
+              "kubeContext": "ocp_clients",
+              "config": {
+                "flowName": "clients-only",
+                "operator-version": $operator_version,
+                "operator-image": $operator_image_repo,
+                "operator-helm-image": $operator_helm_image_repo,
+                "weka-image": $weka_image,
+                "namespace": "test-upgrade-extended",
+                "join-ips": $join_ips,
+                "weka-secret-ref": "weka-client-upgrade-extended",
+                "csi-secret-name": "weka-csi-upgrade-extended",
+                "is-openshift": true
+              }
+            }')
+
+          RESPONSE=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sf \
+            -X POST "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions" \
+            -H "Content-Type: application/json" \
+            -d "$BODY")
+          EXECUTION_ID=$(echo "$RESPONSE" | jq -r '.execution_id // empty')
+          if [ -z "$EXECUTION_ID" ]; then
+            echo "::error::testing service did not return execution_id. Response: $RESPONSE"
+            exit 1
+          fi
+          echo "::notice::Execution: ${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
+
+          MAX_POLLS=120
+          for ((i=1; i<=MAX_POLLS; i++)); do
+            STATUS=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sf \
+              "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions/$EXECUTION_ID" \
+              -H "Content-Type: application/json" | jq -r '.status')
+            echo "[$i/$MAX_POLLS] Status: $STATUS"
+            if [[ "$STATUS" == "succeeded" ]]; then break; fi
+            if [[ "$STATUS" != "running" && "$STATUS" != "pending" ]]; then
+              echo "::error::clients-only test failed with status: $STATUS"
+              exit 1
+            fi
+            if [[ $i -eq $MAX_POLLS ]]; then
+              echo "::error::clients-only test timed out after $((MAX_POLLS * 30 / 60)) minutes"
+              exit 1
+            fi
+            sleep 30
+          done
 
   ci_on_merge_queue_required_status:
     needs: [run_condition_check, upgrade_extended_test, clients_only_test]
