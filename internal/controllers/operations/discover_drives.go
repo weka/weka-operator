@@ -55,6 +55,7 @@ type DriveNodeResults struct {
 	Drives      []domain.DriveInfo       `json:"drives"`
 	RawDrives   []DriveRawInfo           `json:"raw_drives"`
 	ProxyDrives []domain.SharedDriveInfo `json:"proxy_drives,omitempty"` // Signed drives for proxy mode
+	KernelViewComplete bool `json:"kernel_view_complete"` // every NVMe PCI slot is bound to the kernel "nvme" driver
 }
 
 type DiscoverDrivesResult struct {

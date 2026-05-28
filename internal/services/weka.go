@@ -18,6 +18,13 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
+// Drive.Status values reported by the Weka API.
+const (
+	DriveStatusActive    = "ACTIVE"
+	DriveStatusInactive  = "INACTIVE"
+	DriveStatusPhasingIn = "PHASING_IN"
+)
+
 type WekaContainerNotFound struct {
 	ContainerId int
 }
