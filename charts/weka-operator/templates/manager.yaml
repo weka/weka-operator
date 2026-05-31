@@ -134,6 +134,8 @@ spec:
               value: "{{ .Values.debugSleep }}"
             - name: WEKA_OPERATOR_MAINTENANCE_SA_NAME
               value: "{{ .Values.prefix }}-maintenance"
+            - name: WEKA_OPERATOR_SERVICE_ACCOUNT_NAME
+              value: "{{ .Values.prefix }}-controller-manager"
             - name: ENVOY_IMAGE
               value: "{{ .Values.envoyImage | default "docker.io/envoyproxy/envoy:v1.31-latest" }}"
             - name: WEKA_MAINTENANCE_IMAGE

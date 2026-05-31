@@ -36,6 +36,8 @@ const (
 	WekaClientValidateWebhookPath    = "/validate-weka-weka-io-v1alpha1-wekaclient"
 	WekaContainerValidateWebhookPath = "/validate-weka-weka-io-v1alpha1-wekacontainer"
 
+	FinalizerProtectionWebhookPath = "/protect-finalizers"
+
 	// SkipAdmissionLabel on a CR excludes it from admission via the VWC's
 	// objectSelector — per-object escape hatch for emergencies.
 	SkipAdmissionLabel = "weka.io/skip-admission"
@@ -359,6 +361,7 @@ func (m *WebhookManager) buildVWC(caBundle []byte) *admissionregistrationv1.Vali
 	clusterPath := WekaClusterValidateWebhookPath
 	clientPath := WekaClientValidateWebhookPath
 	containerPath := WekaContainerValidateWebhookPath
+	finalizerPath := FinalizerProtectionWebhookPath
 	failurePolicy := admissionregistrationv1.Fail
 
 	skipSelector := &metav1.LabelSelector{
@@ -368,7 +371,7 @@ func (m *WebhookManager) buildVWC(caBundle []byte) *admissionregistrationv1.Vali
 		}},
 	}
 
-	return &admissionregistrationv1.ValidatingWebhookConfiguration{
+	vwc := &admissionregistrationv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: m.config.WebhookName},
 		Webhooks: []admissionregistrationv1.ValidatingWebhook{
 			{
@@ -460,4 +463,39 @@ func (m *WebhookManager) buildVWC(caBundle []byte) *admissionregistrationv1.Vali
 			},
 		},
 	}
+
+	// Finalizer-protection webhooks — NO objectSelector escape hatch.
+	for _, res := range []string{"wekaclusters", "wekaclients", "wekacontainers"} {
+		// Trim trailing "s" to derive the singular name for the webhook.
+		singular := res[:len(res)-1]
+		vwc.Webhooks = append(vwc.Webhooks, admissionregistrationv1.ValidatingWebhook{
+			Name:                    fmt.Sprintf("protect-finalizers.%s.weka.io", singular),
+			AdmissionReviewVersions: []string{"v1"},
+			SideEffects:             &sideEffects,
+			FailurePolicy:           &failurePolicy,
+			TimeoutSeconds:          &timeoutSeconds,
+			ClientConfig: admissionregistrationv1.WebhookClientConfig{
+				Service: &admissionregistrationv1.ServiceReference{
+					Namespace: m.namespace,
+					Name:      m.config.ServiceName,
+					Path:      &finalizerPath,
+				},
+				CABundle: caBundle,
+			},
+			Rules: []admissionregistrationv1.RuleWithOperations{
+				{
+					Operations: []admissionregistrationv1.OperationType{
+						admissionregistrationv1.Update,
+					},
+					Rule: admissionregistrationv1.Rule{
+						APIGroups:   []string{"weka.weka.io"},
+						APIVersions: []string{"v1alpha1"},
+						Resources:   []string{res},
+					},
+				},
+			},
+		})
+	}
+
+	return vwc
 }
