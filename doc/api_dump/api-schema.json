@@ -1,0 +1,5636 @@
+{
+  "apiVersion": "v1alpha1",
+  "resources": {
+    "WekaClient": {
+      "description": "WekaClient is the Schema for the clients API",
+      "spec": "#/definitions/WekaClientSpec",
+      "status": "#/definitions/WekaClientStatus"
+    },
+    "WekaCluster": {
+      "description": "",
+      "spec": "#/definitions/WekaClusterSpec",
+      "status": "#/definitions/WekaClusterStatus"
+    },
+    "WekaContainer": {
+      "description": "",
+      "spec": "#/definitions/WekaContainerSpec",
+      "status": "#/definitions/WekaContainerStatus"
+    },
+    "WekaManualOperation": {
+      "description": "WekaManualOperation is the Schema for the wekamanualoperations API",
+      "spec": "#/definitions/WekaManualOperationSpec",
+      "status": "#/definitions/WekaManualOperationStatus"
+    },
+    "WekaPolicy": {
+      "description": "WekaPolicy is the Schema for the wekapolicies API",
+      "spec": "#/definitions/WekaPolicySpec",
+      "status": "#/definitions/WekaPolicyStatus"
+    }
+  },
+  "definitions": {
+    "AWSNetwork": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "DeviceSlots",
+          "jsonName": "deviceSlots",
+          "type": {
+            "type": "array",
+            "items": "int"
+          },
+          "description": "should provide list of additional nics indexes starting from 1, index 0 is reserved for kernel networking",
+          "optional": true
+        }
+      ]
+    },
+    "AdditionalMemory": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Compute",
+          "jsonName": "compute",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "Drive",
+          "jsonName": "drive",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "S3",
+          "jsonName": "s3",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "Nfs",
+          "jsonName": "nfs",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "Envoy",
+          "jsonName": "envoy",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "Smbw",
+          "jsonName": "smbw",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DataServices",
+          "jsonName": "dataServices",
+          "type": "int",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "AdvancedCsiConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "EnforceTrustedHttps",
+          "jsonName": "enforceTrustedHttps",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "NodeLabels",
+          "jsonName": "nodeLabels",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "NodeTolerations",
+          "jsonName": "nodeTolerations",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.Toleration"
+          },
+          "optional": true
+        },
+        {
+          "name": "ControllerLabels",
+          "jsonName": "controllerLabels",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "ControllerTolerations",
+          "jsonName": "controllerTolerations",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.Toleration"
+          },
+          "optional": true
+        },
+        {
+          "name": "SkipGarbageCollection",
+          "jsonName": "skipGarbageCollection",
+          "type": "bool",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient",
+        "WekaCluster"
+      ]
+    },
+    "BlockDrivesPayload": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "SerialIDs",
+          "jsonName": "serialIDs",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "PhysicalUUIDs",
+          "jsonName": "physicalUUIDs",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "Node",
+          "jsonName": "node",
+          "type": "string",
+          "optional": false
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation"
+      ]
+    },
+    "CapacityMetrics": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "TotalBytes",
+          "jsonName": "totalBytes",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "UnprovisionedBytes",
+          "jsonName": "unprovisionedBytes",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "UnavailableBytes",
+          "jsonName": "unavailableBytes",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "HotSpareBytes",
+          "jsonName": "hotSpareBytes",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "CatalogConfig": {
+      "kind": "struct",
+      "description": "CatalogConfig defines configuration for the data catalog service",
+      "fields": [
+        {
+          "name": "IndexInterval",
+          "jsonName": "indexInterval",
+          "type": "string",
+          "description": "IndexInterval specifies how often the catalog index is updated (e.g., \"1d\", \"1m\")",
+          "optional": true
+        },
+        {
+          "name": "RetentionPeriod",
+          "jsonName": "retentionPeriod",
+          "type": "string",
+          "description": "RetentionPeriod specifies how long catalog data is retained (e.g., \"30d\", \"10m\")",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "ClientContainerSpec": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Debug",
+          "jsonName": "debug",
+          "type": "bool",
+          "optional": true
+        }
+      ]
+    },
+    "ClientCsiConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "CsiGroup",
+          "jsonName": "csiGroup",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "DisableControllerCreation",
+          "jsonName": "disableControllerCreation",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "Advanced",
+          "jsonName": "advanced",
+          "type": {
+            "$ref": "#/definitions/AdvancedCsiConfig"
+          },
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient"
+      ]
+    },
+    "ClientMetrics": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Containers",
+          "jsonName": "containers",
+          "type": {
+            "$ref": "#/definitions/EntityStatefulNum"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient"
+      ]
+    },
+    "ClientPrinterColumns": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Containers",
+          "jsonName": "containers",
+          "type": {
+            "$ref": "#/definitions/StringMetric"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient"
+      ]
+    },
+    "ClusterMetrics": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Containers",
+          "jsonName": "containers",
+          "type": {
+            "$ref": "#/definitions/ContainersMetrics"
+          },
+          "optional": true
+        },
+        {
+          "name": "IoStats",
+          "jsonName": "ioStats",
+          "type": {
+            "$ref": "#/definitions/IoStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "Drives",
+          "jsonName": "drives",
+          "type": {
+            "$ref": "#/definitions/DriveMetrics"
+          },
+          "optional": true
+        },
+        {
+          "name": "AlertsCount",
+          "jsonName": "alertsCount",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "ClusterStatus",
+          "jsonName": "clusterStatus",
+          "type": {
+            "$ref": "#/definitions/StringMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "Capacity",
+          "jsonName": "capacity",
+          "type": {
+            "$ref": "#/definitions/CapacityMetrics"
+          },
+          "optional": true
+        },
+        {
+          "name": "NumFailures",
+          "jsonName": "numFailures",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": {
+              "$ref": "#/definitions/FloatMetric"
+            }
+          },
+          "optional": true
+        },
+        {
+          "name": "LastUpdate",
+          "jsonName": "lastUpdate",
+          "type": "k8s:metav1.Time",
+          "optional": true
+        },
+        {
+          "name": "Filesystem",
+          "jsonName": "filesystem",
+          "type": {
+            "$ref": "#/definitions/FilesystemMetrics"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "ClusterPorts": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "BasePort",
+          "jsonName": "basePort",
+          "type": "int",
+          "description": "We should not be updating Spec, as it's a user interface and we should not break ability to update spec file\nTherefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here",
+          "optional": true
+        },
+        {
+          "name": "PortRange",
+          "jsonName": "portRange",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "LbPort",
+          "jsonName": "lbPort",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "LbAdminPort",
+          "jsonName": "lbAdminPort",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "S3Port",
+          "jsonName": "s3Port",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "ManagementProxyPort",
+          "jsonName": "managementProxyPort",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DataServicesPort",
+          "jsonName": "dataServicesPort",
+          "type": "int",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "ClusterPrinterColumns": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "ComputeContainers",
+          "jsonName": "computeContainers",
+          "type": {
+            "$ref": "#/definitions/StringMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "DriveContainers",
+          "jsonName": "driveContainers",
+          "type": {
+            "$ref": "#/definitions/StringMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "Drives",
+          "jsonName": "drives",
+          "type": {
+            "$ref": "#/definitions/StringMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "Throughput",
+          "jsonName": "throughput",
+          "type": {
+            "$ref": "#/definitions/StringMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "Iops",
+          "jsonName": "iops",
+          "type": {
+            "$ref": "#/definitions/StringMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "FilesystemCapacity",
+          "jsonName": "filesystemCapacity",
+          "type": {
+            "$ref": "#/definitions/StringMetric"
+          },
+          "description": "Information about filesystem capacity: Available/Used",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "ContainerAllocations": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Drives",
+          "jsonName": "drives",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "WekaPort",
+          "jsonName": "wekaPort",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "AgentPort",
+          "jsonName": "agentPort",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "FailureDomain",
+          "jsonName": "failureDomain",
+          "type": "string",
+          "description": "value of the failure domain label of the node where the container is running",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "MachineIdentifier",
+          "jsonName": "machineIdentifier",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "NetDevices",
+          "jsonName": "netDevices",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "VirtualDrives",
+          "jsonName": "virtualDrives",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/VirtualDrive"
+            }
+          },
+          "description": "VirtualDrives contains virtual drive allocations for drive sharing mode.\nEach VirtualDrive maps a virtual UUID to a physical drive UUID with allocated capacity.",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "ContainerMetrics": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Containers",
+          "jsonName": "numContainers",
+          "type": {
+            "$ref": "#/definitions/EntityStatefulNum"
+          },
+          "optional": true
+        },
+        {
+          "name": "Processes",
+          "jsonName": "processes",
+          "type": {
+            "$ref": "#/definitions/EntityStatefulNum"
+          },
+          "optional": true
+        },
+        {
+          "name": "CpuUtilization",
+          "jsonName": "cpuUtilization",
+          "type": {
+            "$ref": "#/definitions/FloatMetric"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "ContainerPrinterColumns": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Processes",
+          "jsonName": "processes",
+          "type": {
+            "$ref": "#/definitions/StringMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "Drives",
+          "jsonName": "drives",
+          "type": {
+            "$ref": "#/definitions/StringMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "ActiveMounts",
+          "jsonName": "activeMounts",
+          "type": {
+            "$ref": "#/definitions/StringMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "ManagementIPs",
+          "jsonName": "managementIPs",
+          "type": "string",
+          "description": "pretty-printed management IPs",
+          "optional": true
+        },
+        {
+          "name": "NodeAffinity",
+          "jsonName": "nodeAffinity",
+          "type": "string",
+          "description": "node name where the container is running",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "ContainerState": {
+      "kind": "enum",
+      "enumValues": [
+        "active",
+        "paused",
+        "destroying",
+        "deleting"
+      ],
+      "baseType": "string",
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "ContainerStatus": {
+      "kind": "enum",
+      "enumValues": [
+        "Init",
+        "PodNotRunning",
+        "PodRunning",
+        "PodTerminating",
+        "WaitForDrivers",
+        "Running",
+        "Stopped",
+        "Starting",
+        "Deleting",
+        "Destroying",
+        "Paused",
+        "Degraded",
+        "Unhealthy",
+        "Error",
+        "DrivesAdding",
+        "Draining",
+        "Completed",
+        "Building",
+        "StoppingAttempt"
+      ],
+      "baseType": "string",
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "ContainersMetrics": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Drive",
+          "jsonName": "drive",
+          "type": {
+            "$ref": "#/definitions/ContainerMetrics"
+          },
+          "optional": true
+        },
+        {
+          "name": "Compute",
+          "jsonName": "compute",
+          "type": {
+            "$ref": "#/definitions/ContainerMetrics"
+          },
+          "optional": true
+        },
+        {
+          "name": "S3",
+          "jsonName": "s3",
+          "type": {
+            "$ref": "#/definitions/ContainerMetrics"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Nfs",
+          "jsonName": "nfs",
+          "type": {
+            "$ref": "#/definitions/ContainerMetrics"
+          },
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "CpuPolicy": {
+      "kind": "enum",
+      "enumValues": [
+        "auto",
+        "shared",
+        "dedicated",
+        "dedicated_ht",
+        "manual"
+      ],
+      "baseType": "string",
+      "usedBy": [
+        "WekaClient",
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "CsiConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "EndpointsSubnets",
+          "jsonName": "endpointsSubnets",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "CsiGroup",
+          "jsonName": "csiGroup",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "Advanced",
+          "jsonName": "advanced",
+          "type": {
+            "$ref": "#/definitions/AdvancedCsiConfig"
+          },
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "DataServicesConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "DataServicesFeCores",
+          "jsonName": "dataServicesFeCores",
+          "type": "int",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "DiscoverDrivesPayload": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "NodeSelector",
+          "jsonName": "nodeSelector",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation",
+        "WekaPolicy"
+      ]
+    },
+    "DistServiceStatus": {
+      "kind": "struct",
+      "description": "DistServiceStatus holds the status for the enable-local-drivers-distribution policy",
+      "fields": [
+        {
+          "name": "ServiceUrl",
+          "jsonName": "serviceUrl",
+          "type": "string",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
+      ]
+    },
+    "DpdkBaseMemoryMbOverride": {
+      "kind": "struct",
+      "description": "DpdkBaseMemoryMbOverride specifies DPDK base memory overrides (in MiB) per container mode.\nUsed for hugepages calculation and resources.json configuration. Default value is 64 MiB per core.\nOnly positive values are applied; zero or unset means use default.",
+      "fields": [
+        {
+          "name": "Drive",
+          "jsonName": "drive",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "Compute",
+          "jsonName": "compute",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "S3",
+          "jsonName": "s3",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "Nfs",
+          "jsonName": "nfs",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "Smbw",
+          "jsonName": "smbw",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DataServices",
+          "jsonName": "dataServices",
+          "type": "int",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "Drive": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Uuid",
+          "jsonName": "uuid",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "AddedTime",
+          "jsonName": "added_time",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "DevicePath",
+          "jsonName": "device_path",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "SerialNumber",
+          "jsonName": "serial_number",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "SizeBytes",
+          "jsonName": "size_bytes",
+          "type": "int64",
+          "optional": true
+        },
+        {
+          "name": "Status",
+          "jsonName": "status",
+          "type": "string",
+          "optional": false
+        }
+      ],
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "DriveClaim": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "ObjectMeta",
+          "jsonName": "metadata",
+          "type": "k8s:metav1.ObjectMeta",
+          "optional": true,
+          "embedded": true
+        },
+        {
+          "name": "Spec",
+          "jsonName": "spec",
+          "type": {
+            "$ref": "#/definitions/DriveClaimSpec"
+          },
+          "optional": true
+        },
+        {
+          "name": "Status",
+          "jsonName": "status",
+          "type": {
+            "$ref": "#/definitions/DriveClaimStatus"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "DriveClaimList": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "ListMeta",
+          "jsonName": "metadata",
+          "type": "k8s:metav1.ListMeta",
+          "optional": true,
+          "embedded": true
+        },
+        {
+          "name": "Items",
+          "jsonName": "items",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/DriveClaim"
+            }
+          },
+          "optional": false
+        }
+      ]
+    },
+    "DriveClaimSpec": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Owner",
+          "jsonName": "owner",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "Device",
+          "jsonName": "device",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "DriveUuid",
+          "jsonName": "driveUuid",
+          "type": "string",
+          "optional": false
+        }
+      ]
+    },
+    "DriveClaimStatus": {
+      "kind": "struct"
+    },
+    "DriveFailures": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "SerialId",
+          "jsonName": "serialId",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "WekaDriveId",
+          "jsonName": "wekaDriveId",
+          "type": "string",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "DriveMetrics": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "DriveCounters",
+          "jsonName": "counters",
+          "type": {
+            "$ref": "#/definitions/EntityStatefulNum"
+          },
+          "optional": true
+        },
+        {
+          "name": "DriveFailures",
+          "jsonName": "failures",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/DriveFailures"
+            }
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "DriveTypesRatio": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Tlc",
+          "jsonName": "tlc",
+          "type": "int",
+          "optional": false
+        },
+        {
+          "name": "Qlc",
+          "jsonName": "qlc",
+          "type": "int",
+          "optional": false
+        }
+      ],
+      "usedBy": [
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "DriverDistPayload": {
+      "kind": "struct",
+      "description": "DriverDistPayload defines the parameters for the enable-local-drivers-distribution policy",
+      "fields": [
+        {
+          "name": "EnsureImages",
+          "jsonName": "ensureImages",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "EnsureImages is a list of Weka images for which drivers should be proactively built.",
+          "optional": true
+        },
+        {
+          "name": "NodeSelectors",
+          "jsonName": "nodeSelectors",
+          "type": {
+            "type": "array",
+            "items": {
+              "type": "map",
+              "key": "string",
+              "value": "string"
+            }
+          },
+          "description": "NodeSelectors is a list of node selectors. Nodes matching any of these selectors will be considered for driver building.\nIf empty, all nodes in the cluster are considered.",
+          "optional": true
+        },
+        {
+          "name": "KernelLabelKey",
+          "jsonName": "kernelLabelKey",
+          "type": "string",
+          "description": "KernelLabelKey is the custom label key to use for storing the node's kernel version.\nIf not specified, \"weka.io/kernel\" will be used.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "ArchitectureLabelKey",
+          "jsonName": "architectureLabelKey",
+          "type": "string",
+          "description": "ArchitectureLabelKey is the custom label key to use for storing the node's architecture.\nIf not specified, \"weka.io/architecture\" will be used.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "OsLabelKey",
+          "jsonName": "osLabelKey",
+          "type": "string",
+          "description": "OsLabelKey is the custom label key to use for storing the node's os.\nIf not specified, \"weka.io/os\" will be used.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "BuilderImageOverride",
+          "jsonName": "builderImageOverride",
+          "type": "string",
+          "description": "BuilderImageOverride is an optional image that you can specify for the builder",
+          "optional": true
+        },
+        {
+          "name": "BuilderPreRunScript",
+          "jsonName": "builderPreRunScript",
+          "type": "string",
+          "description": "BuilderPreRunScript is an optional script to run on builder containers after kernel validation.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DistNodeSelector",
+          "jsonName": "distNodeSelector",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "DistNodeSelector is the node selector for the drivers distribution (dist) container.\nIf not specified, the dist container will be scheduled on any available node.",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
+      ]
+    },
+    "DriverSpec": {
+      "kind": "struct"
+    },
+    "DumperConfigMode": {
+      "kind": "enum",
+      "enumValues": [
+        "auto",
+        "override",
+        "partial-override",
+        "cluster"
+      ],
+      "baseType": "string",
+      "usedBy": [
+        "WekaClient",
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "EncryptionConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "VaultConfig",
+          "jsonName": "vault",
+          "type": {
+            "$ref": "#/definitions/VaultConfig"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "InternalConfig",
+          "jsonName": "internal",
+          "type": {
+            "$ref": "#/definitions/InternalEncryptionConfig"
+          },
+          "description": "InternalConfig defines internal encryption settings, encryption key stored in weka configuration, for production systems use real KMS, however this mode can be useful to evaluate performance of encrypted filesystems",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "EnsureNICsPayload": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Type",
+          "jsonName": "type",
+          "type": {
+            "$ref": "#/definitions/NICType"
+          },
+          "optional": false
+        },
+        {
+          "name": "NodeSelector",
+          "jsonName": "nodeSelector",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "DataNICsNumber",
+          "jsonName": "dataNICsNumber",
+          "type": "int",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation",
+        "WekaPolicy"
+      ]
+    },
+    "EntityStatefulNum": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Active",
+          "jsonName": "active",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "Created",
+          "jsonName": "created",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "Desired",
+          "jsonName": "desired",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient",
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "FailureDomain": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Label",
+          "jsonName": "label",
+          "type": "string",
+          "description": "label used for spreading the weka containers across different failure domains (if set)\nnodes that have the same value for the label will be considered as a single failure domain",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Skew",
+          "jsonName": "skew",
+          "type": "int",
+          "description": "skew for the failure domain, if set, the weka containers will be spread with the skew in mind\n(only applicable if `label` is set)",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "CompositeLabels",
+          "jsonName": "compositeLabels",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "If multiple labels are specified, the failure domain will be the combination of the labels.\nIf `compositeLabels` is set, `label` and `skew` will be ignored.\nWhen using compositeLabels, weka containers will be spread considering all labels\nwith best effort, but even distribution is not guaranteed",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "FilesystemMetrics": {
+      "kind": "struct",
+      "description": "FilesystemMetrics contains metrics about filesystem usage",
+      "fields": [
+        {
+          "name": "TotalProvisionedCapacity",
+          "jsonName": "totalProvisionedCapacity",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "description": "TotalProvisionedCapacity is the sum of total_budget for all filesystems",
+          "optional": true
+        },
+        {
+          "name": "TotalUsedCapacity",
+          "jsonName": "totalUsedCapacity",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "description": "TotalUsedCapacity is the sum of used_total for all filesystems",
+          "optional": true
+        },
+        {
+          "name": "TotalAvailableCapacity",
+          "jsonName": "totalAvailableCapacity",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "description": "TotalAvailableCapacity is the difference between TotalProvisionedCapacity and TotalUsedCapacity",
+          "optional": true
+        },
+        {
+          "name": "TotalProvisionedSSDCapacity",
+          "jsonName": "totalProvisionedSSDCapacity",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "description": "SSD-specific metrics",
+          "optional": true
+        },
+        {
+          "name": "TotalUsedSSDCapacity",
+          "jsonName": "totalUsedSSDCapacity",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "TotalAvailableSSDCapacity",
+          "jsonName": "totalAvailableSSDCapacity",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "HasTieredFilesystems",
+          "jsonName": "hasTieredFilesystems",
+          "type": "bool",
+          "description": "Object Store metrics",
+          "optional": true
+        },
+        {
+          "name": "TotalObsCapacity",
+          "jsonName": "totalObsCapacity",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "ObsBucketCount",
+          "jsonName": "obsBucketCount",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "ActiveObsBucketCount",
+          "jsonName": "activeObsBucketCount",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "FloatMetric": {
+      "kind": "alias",
+      "baseType": "string",
+      "usedBy": [
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "ForceResignDrivesPayload": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "NodeName",
+          "jsonName": "nodeName",
+          "type": {
+            "$ref": "#/definitions/NodeName"
+          },
+          "optional": false
+        },
+        {
+          "name": "DeviceSerials",
+          "jsonName": "deviceSerials",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "DevicePaths",
+          "jsonName": "devicePaths",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation"
+      ]
+    },
+    "InstructionType": {
+      "kind": "alias",
+      "baseType": "string"
+    },
+    "Instructions": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Type",
+          "jsonName": "type",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "Payload",
+          "jsonName": "payload",
+          "type": "string",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "IntMetric": {
+      "kind": "alias",
+      "baseType": "int64",
+      "usedBy": [
+        "WekaClient",
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "InternalEncryptionConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Enabled",
+          "jsonName": "enabled",
+          "type": "bool",
+          "optional": false
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "IoStats": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Throughput",
+          "jsonName": "throughput",
+          "type": {
+            "$ref": "#/definitions/StatusThroughput"
+          },
+          "optional": true
+        },
+        {
+          "name": "Iops",
+          "jsonName": "iops",
+          "type": {
+            "$ref": "#/definitions/StatusIops"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "ManualOperatorPayload": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "SignDrives",
+          "jsonName": "signDrivesPayload",
+          "type": {
+            "$ref": "#/definitions/SignDrivesPayload"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "BlockDrives",
+          "jsonName": "blockDrivesPayload",
+          "type": {
+            "$ref": "#/definitions/BlockDrivesPayload"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DiscoverDrives",
+          "jsonName": "discoverDrivesPayload",
+          "type": {
+            "$ref": "#/definitions/DiscoverDrivesPayload"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "EnsureNICs",
+          "jsonName": "ensureNICsPayload",
+          "type": {
+            "$ref": "#/definitions/EnsureNICsPayload"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "ForceResignDrives",
+          "jsonName": "forceResignDrivesPayload",
+          "type": {
+            "$ref": "#/definitions/ForceResignDrivesPayload"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "RemoteTracesSessionConfig",
+          "jsonName": "remoteTracesSessionPayload",
+          "type": {
+            "$ref": "#/definitions/RemoteTracesSessionConfig"
+          },
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation"
+      ]
+    },
+    "MinMaxAvgPercent": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Min",
+          "jsonName": "min",
+          "type": {
+            "$ref": "#/definitions/FloatMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "Max",
+          "jsonName": "max",
+          "type": {
+            "$ref": "#/definitions/FloatMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "Avg",
+          "jsonName": "avg",
+          "type": {
+            "$ref": "#/definitions/FloatMetric"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "NICType": {
+      "kind": "enum",
+      "enumValues": [
+        "aws"
+      ],
+      "baseType": "string",
+      "usedBy": [
+        "WekaManualOperation",
+        "WekaPolicy"
+      ]
+    },
+    "Network": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "EthDevice",
+          "jsonName": "ethDevice",
+          "type": "string",
+          "description": "The name of a single network interface (for example, eth1) to be used by every backend container.\nThis is for clusters that use only one dedicated NIC for the data path.\nYou cannot use this field with ethDevices.\nIf you leave this empty, the system automatically uses the node’s interface associated with the first subnet defined in deviceSubnets.",
+          "optional": true
+        },
+        {
+          "name": "EthDevices",
+          "jsonName": "ethDevices",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "A list of network interface names to be used by backend containers when you have multiple dedicated NICs.\nThe order of interfaces in this list is important, as it maps directly to the ethSlots index (the first interface maps to slot-0, the second to slot-1, and so on).\nYou cannot use this field with ethDevice. Ensure that every interface listed here exists on all nodes that are part of the cluster.",
+          "optional": true
+        },
+        {
+          "name": "Gateway",
+          "jsonName": "gateway",
+          "type": "string",
+          "description": "The default gateway IPv4 address for the backend containers’ data-path network.\nThis is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).\nIf you have a flat, non-routed backend network, you can leave this field empty.",
+          "optional": true
+        },
+        {
+          "name": "UdpMode",
+          "jsonName": "udpMode",
+          "type": "bool",
+          "description": "A setting that enables or disables UDP encapsulation for backend traffic.\n- false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.\nThis is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based.",
+          "optional": true
+        },
+        {
+          "name": "DeviceSubnets",
+          "jsonName": "deviceSubnets",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).\nThe operator assigns IP addresses from these subnets to the backend containers for their data path network",
+          "optional": true
+        },
+        {
+          "name": "Selectors",
+          "jsonName": "selectors",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/NetworkSelector"
+            }
+          },
+          "optional": true
+        },
+        {
+          "name": "ManagementIPsSelectors",
+          "jsonName": "managementIpsSelectors",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/NetworkSelector"
+            }
+          },
+          "optional": true
+        },
+        {
+          "name": "BindManagementAll",
+          "jsonName": "bindManagementAll",
+          "type": "bool",
+          "description": "BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.\nWhen set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).\nWhen set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.",
+          "optional": true
+        },
+        {
+          "name": "NvidiaVfSingleIp",
+          "jsonName": "nvidiaVfSingleIp",
+          "type": "bool",
+          "description": "NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF\nWhen not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "AllocateVfPerIoNode",
+          "jsonName": "allocateVfPerIoNode",
+          "type": "bool",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient",
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "NetworkSelector": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Subnet",
+          "jsonName": "subnet",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "Min",
+          "jsonName": "min",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "Max",
+          "jsonName": "max",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DeviceNames",
+          "jsonName": "deviceNames",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "RdmaOnly",
+          "jsonName": "rdmaOnly",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "DisableRdma",
+          "jsonName": "disableRdma",
+          "type": "bool",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient",
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "NfsConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Interfaces",
+          "jsonName": "interfaces",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "IpRanges",
+          "jsonName": "ipRanges",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "NodeName": {
+      "kind": "alias",
+      "baseType": "types.NodeName",
+      "usedBy": [
+        "WekaContainer",
+        "WekaManualOperation"
+      ]
+    },
+    "ObjectReference": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Name",
+          "jsonName": "name",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "Namespace",
+          "jsonName": "namespace",
+          "type": "string",
+          "optional": false
+        }
+      ],
+      "usedBy": [
+        "WekaClient",
+        "WekaManualOperation",
+        "WekaPolicy"
+      ]
+    },
+    "PCIDevices": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "VendorId",
+          "jsonName": "vendorId",
+          "type": "string",
+          "description": "VendorId is the 4-digit hexadecimal vendor ID\ndefault for AWS: `1d0f` (Amazon.com, Inc.)",
+          "optional": false
+        },
+        {
+          "name": "DeviceId",
+          "jsonName": "deviceId",
+          "type": "string",
+          "description": "DeviceId is the 4-digit hexadecimal device ID\ndefault for AWS: `cd01` (NVMe SSD)",
+          "optional": false
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation",
+        "WekaPolicy"
+      ]
+    },
+    "PVCConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Name",
+          "jsonName": "name",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "Path",
+          "jsonName": "path",
+          "type": "string",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient",
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "PodConfiguration": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "TopologySpreadConstraints",
+          "jsonName": "topologySpreadConstraints",
+          "type": "k8s:runtime.RawExtension",
+          "description": "controls the distribution of weka containers across the failure domains",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "RoleTopologySpreadConstraints",
+          "jsonName": "roleTopologySpreadConstraints",
+          "type": {
+            "$ref": "#/definitions/RoleTopologySpreadConstraints"
+          },
+          "description": "takes precedence over the `topologySpreadConstraints`",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Affinity",
+          "jsonName": "affinity",
+          "type": "k8s:runtime.RawExtension",
+          "description": "advanced scheduling constraints",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "RoleAffinity",
+          "jsonName": "roleAffinity",
+          "type": {
+            "$ref": "#/definitions/RoleAffinity"
+          },
+          "description": "affinity per container role\ntakes precedence over the `affinity` field",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "PodResources": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Cpu",
+          "jsonName": "cpu",
+          "type": "k8s:resource.Quantity",
+          "optional": true
+        },
+        {
+          "name": "Memory",
+          "jsonName": "memory",
+          "type": "k8s:resource.Quantity",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient",
+        "WekaContainer"
+      ]
+    },
+    "PodResourcesSpec": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Requests",
+          "jsonName": "requests",
+          "type": {
+            "$ref": "#/definitions/PodResources"
+          },
+          "optional": true
+        },
+        {
+          "name": "Limits",
+          "jsonName": "limits",
+          "type": {
+            "$ref": "#/definitions/PodResources"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient",
+        "WekaContainer"
+      ]
+    },
+    "PolicyPayload": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "SignDrives",
+          "jsonName": "signDrivesPayload",
+          "type": {
+            "$ref": "#/definitions/SignDrivesPayload"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "SchedulingConfig",
+          "jsonName": "schedulingConfigPayload",
+          "type": {
+            "$ref": "#/definitions/SchedulingConfigPayload"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DiscoverDrives",
+          "jsonName": "discoverDrivesPayload",
+          "type": {
+            "$ref": "#/definitions/DiscoverDrivesPayload"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "EnsureNICs",
+          "jsonName": "ensureNICsPayload",
+          "type": {
+            "$ref": "#/definitions/EnsureNICsPayload"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DriverDistPayload",
+          "jsonName": "driverDistPayload",
+          "type": {
+            "$ref": "#/definitions/DriverDistPayload"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "RemoteTracesSession",
+          "jsonName": "remoteTracesSessionPayload",
+          "type": {
+            "$ref": "#/definitions/RemoteTracesSessionConfig"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Interval",
+          "jsonName": "interval",
+          "type": "k8s:metav1.Duration",
+          "optional": true
+        },
+        {
+          "name": "WaitForPolicies",
+          "jsonName": "waitForPolicies",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
+      ]
+    },
+    "PortRange": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "BasePort",
+          "jsonName": "basePort",
+          "type": "int",
+          "optional": false
+        },
+        {
+          "name": "PortRange",
+          "jsonName": "portRange",
+          "type": "int",
+          "description": "number of ports to check for availability\nif 0 - will check all ports from basePort to 65535",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient",
+        "WekaContainer"
+      ]
+    },
+    "RemoteTracesSessionConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Cluster",
+          "jsonName": "cluster",
+          "type": {
+            "$ref": "#/definitions/ObjectReference"
+          },
+          "optional": true
+        },
+        {
+          "name": "NodeSelector",
+          "jsonName": "nodeSelector",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "HostNetwork",
+          "jsonName": "hostNetwork",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "Duration",
+          "jsonName": "duration",
+          "type": "k8s:metav1.Duration",
+          "description": "Duration specifies how long the trace session should run.\nWekaManualOperation: defaults to 1 week if omitted/0. CR auto-deletes after expiration.\nWekaPolicy: defaults to continuous if omitted/0. Resources cleaned up after expiration.\nExamples: \"30m\", \"2h\", \"7d\", \"168h\"",
+          "optional": true
+        },
+        {
+          "name": "WekahomeEndpointOverride",
+          "jsonName": "wekahomeEndpointOverride",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "AllowHttpWekahomeEndpoint",
+          "jsonName": "allowHttpWekahomeEndpoint",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "AllowInsecureWekahomeEndpoint",
+          "jsonName": "allowInsecureWekahomeEndpoint",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "WekahomeCaSecret",
+          "jsonName": "wekahomeCaSecret",
+          "type": "string",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation",
+        "WekaPolicy"
+      ]
+    },
+    "RoleAffinity": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Compute",
+          "jsonName": "compute",
+          "type": "k8s:runtime.RawExtension",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Drive",
+          "jsonName": "drive",
+          "type": "k8s:runtime.RawExtension",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "S3",
+          "jsonName": "s3",
+          "type": "k8s:runtime.RawExtension",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Nfs",
+          "jsonName": "nfs",
+          "type": "k8s:runtime.RawExtension",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Smbw",
+          "jsonName": "smbw",
+          "type": "k8s:runtime.RawExtension",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "RoleAnnotations": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Compute",
+          "jsonName": "compute",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "annotations for compute weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Drive",
+          "jsonName": "drive",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "annotations for drive weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "S3",
+          "jsonName": "s3",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "annotations for s3 weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Nfs",
+          "jsonName": "nfs",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "annotations for nfs weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Smbw",
+          "jsonName": "smbw",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "annotations for smbw weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DataServices",
+          "jsonName": "dataServices",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "annotations for data services weka containers",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "RoleCoreIds": {
+      "kind": "struct",
+      "description": "RoleCoreIds defines CPU core id lists per container role for Manual CPU policy.\nEach slice contains the core IDs (as visible to the node OS) that should be\npinned to every container of the corresponding role. If a slice is empty or\nomitted, no explicit core pinning will be applied for that role.",
+      "fields": [
+        {
+          "name": "Compute",
+          "jsonName": "compute",
+          "type": {
+            "type": "array",
+            "items": "int"
+          },
+          "optional": true
+        },
+        {
+          "name": "Drive",
+          "jsonName": "drive",
+          "type": {
+            "type": "array",
+            "items": "int"
+          },
+          "optional": true
+        },
+        {
+          "name": "S3",
+          "jsonName": "s3",
+          "type": {
+            "type": "array",
+            "items": "int"
+          },
+          "optional": true
+        },
+        {
+          "name": "Nfs",
+          "jsonName": "nfs",
+          "type": {
+            "type": "array",
+            "items": "int"
+          },
+          "optional": true
+        },
+        {
+          "name": "Smbw",
+          "jsonName": "smbw",
+          "type": {
+            "type": "array",
+            "items": "int"
+          },
+          "optional": true
+        },
+        {
+          "name": "DataServices",
+          "jsonName": "dataServices",
+          "type": {
+            "type": "array",
+            "items": "int"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "RoleNetworkSelector": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Compute",
+          "jsonName": "compute",
+          "type": {
+            "$ref": "#/definitions/Network"
+          },
+          "description": "network selector for compute weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Drive",
+          "jsonName": "drive",
+          "type": {
+            "$ref": "#/definitions/Network"
+          },
+          "description": "network selector for drive weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "S3",
+          "jsonName": "s3",
+          "type": {
+            "$ref": "#/definitions/Network"
+          },
+          "description": "network selector for s3 weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Nfs",
+          "jsonName": "nfs",
+          "type": {
+            "$ref": "#/definitions/Network"
+          },
+          "description": "network selector for nfs weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Smbw",
+          "jsonName": "smbw",
+          "type": {
+            "$ref": "#/definitions/Network"
+          },
+          "description": "network selector for smbw weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DataServices",
+          "jsonName": "dataServices",
+          "type": {
+            "$ref": "#/definitions/Network"
+          },
+          "description": "network selector for data services weka containers",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "RoleNodeSelector": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Compute",
+          "jsonName": "compute",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "nodeSelector for compute weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Drive",
+          "jsonName": "drive",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "nodeSelector for drive weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "S3",
+          "jsonName": "s3",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "nodeSelector for s3 weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Nfs",
+          "jsonName": "nfs",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "nodeSelector for nfs weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Smbw",
+          "jsonName": "smbw",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "nodeSelector for smbw weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DataServices",
+          "jsonName": "dataServices",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "nodeSelector for data services weka containers",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "RoleTopologySpreadConstraints": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Compute",
+          "jsonName": "compute",
+          "type": "k8s:runtime.RawExtension",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Drive",
+          "jsonName": "drive",
+          "type": "k8s:runtime.RawExtension",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "S3",
+          "jsonName": "s3",
+          "type": "k8s:runtime.RawExtension",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Nfs",
+          "jsonName": "nfs",
+          "type": "k8s:runtime.RawExtension",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Smbw",
+          "jsonName": "smbw",
+          "type": "k8s:runtime.RawExtension",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "S3Config": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "ClusterCreateArgs",
+          "jsonName": "clusterCreateArgs",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "No overlap validation, only appended to the cluster create command as-is\nUseful for settings such as: `--envoy-max-requests 1150 --envoy-max-connections 1300 --envoy-max-pending-requests 1450`\nNot propagated to already created cluster, and direct weka control should be used for that",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "S3Params": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "EnvoyPort",
+          "jsonName": "envoyPort",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "EnvoyAdminPort",
+          "jsonName": "envoyAdminPort",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "S3Port",
+          "jsonName": "s3Port",
+          "type": "int",
+          "optional": true
+        }
+      ]
+    },
+    "SchedulingConfigPayload": {
+      "kind": "struct",
+      "usedBy": [
+        "WekaPolicy"
+      ]
+    },
+    "SignDrivesPayload": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Type",
+          "jsonName": "type",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "NodeSelector",
+          "jsonName": "nodeSelector",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "DevicePaths",
+          "jsonName": "devicePaths",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "PCIDevices",
+          "jsonName": "pciDevices",
+          "type": {
+            "$ref": "#/definitions/PCIDevices"
+          },
+          "description": "PCI vendor and device IDs of the drives to sign.\nTo get the values for VendorId and DeviceId:\n1. Run the following command to list all PCI devices on your system:\n```bash\nlspci -nn\n```\n2. Find the relevant PCI device in the output, which will display both the\nvendor and device IDs in square brackets in the format [vendorId:deviceId].\nFor example:\n```\n00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01]\n```",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "SignOptions",
+          "jsonName": "options",
+          "type": {
+            "$ref": "#/definitions/SignOptions"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Shared",
+          "jsonName": "shared",
+          "type": "bool",
+          "description": "Shared enables shared drive signing for proxy mode (defaults to false).\nWhen enabled:\n- Drives are signed for proxy using 'weka-sign-drive sign proxy' command\n- Drives are signed with a proxy system GUID\n- Results are stored in weka.io/shared-drives annotation (instead of weka.io/weka-drives)\n- Physical UUIDs, serial IDs, and capacities are captured\n- Enables multi-tenant drive sharing via SSD proxy",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation",
+        "WekaPolicy"
+      ]
+    },
+    "SignOptions": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "AllowEraseWekaPartitions",
+          "jsonName": "allowEraseWekaPartitions",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "AllowEraseNonWekaPartitions",
+          "jsonName": "allowEraseNonWekaPartitions",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "AllowNonEmptyDevice",
+          "jsonName": "allowNonEmptyDevice",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "SkipTrimFormat",
+          "jsonName": "skipTrimFormat",
+          "type": "bool",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation",
+        "WekaPolicy"
+      ]
+    },
+    "SmbwConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "ClusterName",
+          "jsonName": "clusterName",
+          "type": "string",
+          "description": "ClusterName is the SMB-W cluster name, defaults to \"default\"",
+          "optional": true
+        },
+        {
+          "name": "DomainName",
+          "jsonName": "domainName",
+          "type": "string",
+          "description": "DomainName is the domain name for SMB-W, required for SMB-W cluster creation",
+          "optional": false
+        },
+        {
+          "name": "DomainJoinSecret",
+          "jsonName": "domainJoinSecret",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "UserName",
+          "jsonName": "userName",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "IpRanges",
+          "jsonName": "ipRanges",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "IpRanges specifies floating IP ranges for SMB-W high availability",
+          "optional": true
+        },
+        {
+          "name": "Symlink",
+          "jsonName": "symlink",
+          "type": "bool",
+          "description": "Creation-time configuration flags\nSymlink enables symlink support for SMB-W shares",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DomainNetbiosName",
+          "jsonName": "domainNetbiosName",
+          "type": "string",
+          "description": "DomainNetbiosName is the NetBIOS name for the domain",
+          "optional": true
+        },
+        {
+          "name": "IdmapBackend",
+          "jsonName": "idmapBackend",
+          "type": "string",
+          "description": "IdmapBackend specifies the identity mapping backend (e.g., \"ad\", \"rfc2307\")",
+          "optional": true
+        },
+        {
+          "name": "DefaultDomainMappingFromId",
+          "jsonName": "defaultDomainMappingFromId",
+          "type": "int",
+          "description": "DefaultDomainMappingFromId is the start of the UID/GID range for default domain mapping",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DefaultDomainMappingToId",
+          "jsonName": "defaultDomainMappingToId",
+          "type": "int",
+          "description": "DefaultDomainMappingToId is the end of the UID/GID range for default domain mapping",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "JoinedDomainMappingFromId",
+          "jsonName": "joinedDomainMappingFromId",
+          "type": "int",
+          "description": "JoinedDomainMappingFromId is the start of the UID/GID range for joined domain mapping",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "JoinedDomainMappingToId",
+          "jsonName": "joinedDomainMappingToId",
+          "type": "int",
+          "description": "JoinedDomainMappingToId is the end of the UID/GID range for joined domain mapping",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Encryption",
+          "jsonName": "encryption",
+          "type": "string",
+          "description": "Encryption specifies the encryption level for SMB connections",
+          "optional": true
+        },
+        {
+          "name": "ScaleOutMode",
+          "jsonName": "scaleOutMode",
+          "type": "string",
+          "description": "ScaleOutMode specifies the scale-out mode for SMB-W clustering",
+          "optional": true
+        },
+        {
+          "name": "SmbConfExtra",
+          "jsonName": "smbConfExtra",
+          "type": "string",
+          "description": "SmbConfExtra contains additional smb.conf configuration",
+          "optional": true
+        },
+        {
+          "name": "IpPools",
+          "jsonName": "ipPools",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "IpPools specifies IP pools for SMB-W service assignment",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "SplunkExportConfig": {
+      "kind": "struct",
+      "description": "SplunkExportConfig defines Splunk-specific export configuration",
+      "fields": [
+        {
+          "name": "AuthTokenSecretRef",
+          "jsonName": "authTokenSecretRef",
+          "type": "string",
+          "description": "AuthTokenSecretRef references a secret containing the Splunk HEC authentication token.\nFormat: \"secretName.keyName\" where secretName is the name of the secret in the same namespace\nand keyName is the key within the secret's data that contains the token.",
+          "optional": false
+        },
+        {
+          "name": "Endpoint",
+          "jsonName": "endpoint",
+          "type": "string",
+          "description": "Endpoint is the Splunk HEC endpoint URL (maps to --target in weka CLI)",
+          "optional": false
+        },
+        {
+          "name": "CACertSecretRef",
+          "jsonName": "caCertSecretRef",
+          "type": "string",
+          "description": "CACertSecretRef optionally references a secret containing a user-provided CA certificate PEM file.\nFormat: \"secretName.keyName\" where secretName is the name of the secret in the same namespace\nand keyName is the key within the secret's data that contains the certificate.\nMaps to --ca-cert in weka CLI. Empty string is treated same as nil (de-configures if was configured).\nMutually exclusive with VerifyWithClusterCACert.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "AllowUnverifiedCertificate",
+          "jsonName": "allowUnverifiedCertificate",
+          "type": "bool",
+          "description": "AllowUnverifiedCertificate allows accessing without verifying the target certificate.\nMaps to --allow-unverified-certificate in weka CLI.",
+          "optional": true
+        },
+        {
+          "name": "VerifyWithClusterCACert",
+          "jsonName": "verifyWithClusterCACert",
+          "type": "bool",
+          "description": "VerifyWithClusterCACert uses the Weka cluster's internal CA certificate to verify.\nMaps to --verify-with-cluster-cacert in weka CLI.\nMutually exclusive with CACertSecretRef.",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "StartIoConditions": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "MinNumDrives",
+          "jsonName": "minNumDrives",
+          "type": "int",
+          "description": "minimum number of drives that should be added to the cluster before starting IO",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "StatusIops": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Read",
+          "jsonName": "read",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": false
+        },
+        {
+          "name": "Write",
+          "jsonName": "write",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": false
+        },
+        {
+          "name": "Metadata",
+          "jsonName": "metadata",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": false
+        },
+        {
+          "name": "Total",
+          "jsonName": "total",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": false
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "StatusThroughput": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Read",
+          "jsonName": "read",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": false
+        },
+        {
+          "name": "Write",
+          "jsonName": "write",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": false
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "StringMetric": {
+      "kind": "alias",
+      "baseType": "string",
+      "usedBy": [
+        "WekaClient",
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "TelemetryConfig": {
+      "kind": "struct",
+      "description": "TelemetryConfig defines the telemetry export configuration for the Weka cluster",
+      "fields": [
+        {
+          "name": "Exports",
+          "jsonName": "exports",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/TelemetryExport"
+            }
+          },
+          "description": "List of telemetry exports to configure",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "TelemetryExport": {
+      "kind": "struct",
+      "description": "TelemetryExport defines a single telemetry export destination",
+      "fields": [
+        {
+          "name": "Name",
+          "jsonName": "name",
+          "type": "string",
+          "description": "Name is the unique identifier for this export",
+          "optional": false
+        },
+        {
+          "name": "Sources",
+          "jsonName": "sources",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "Sources specifies which telemetry sources to export (e.g., \"audit\")",
+          "optional": false
+        },
+        {
+          "name": "Splunk",
+          "jsonName": "splunk",
+          "type": {
+            "$ref": "#/definitions/SplunkExportConfig"
+          },
+          "description": "Splunk configuration for Splunk HEC export",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "TracesConfiguration": {
+      "kind": "struct",
+      "description": "TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes",
+      "fields": [
+        {
+          "name": "MaxCapacityPerIoNode",
+          "jsonName": "maxCapacityPerIoNode",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "EnsureFreeSpace",
+          "jsonName": "ensureFreeSpace",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DumperConfigMode",
+          "jsonName": "dumperConfigMode",
+          "type": {
+            "$ref": "#/definitions/DumperConfigMode"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient",
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "TypedPolicyStatus": {
+      "kind": "struct",
+      "description": "TypedPolicyStatus holds status fields specific to a policy type",
+      "fields": [
+        {
+          "name": "DistService",
+          "jsonName": "distService",
+          "type": {
+            "$ref": "#/definitions/DistServiceStatus"
+          },
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
+      ]
+    },
+    "UpgradePolicy": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Type",
+          "jsonName": "type",
+          "type": {
+            "$ref": "#/definitions/UpgradePolicyType"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient"
+      ]
+    },
+    "UpgradePolicyType": {
+      "kind": "enum",
+      "enumValues": [
+        "manual",
+        "rolling",
+        "all-at-once",
+        "all-at-once-force"
+      ],
+      "baseType": "string",
+      "usedBy": [
+        "WekaClient",
+        "WekaContainer"
+      ]
+    },
+    "VaultConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Address",
+          "jsonName": "address",
+          "type": "string",
+          "description": "Vault address, e.g. \"https://vault.example.com:8200\".",
+          "optional": false
+        },
+        {
+          "name": "Role",
+          "jsonName": "role",
+          "type": "string",
+          "description": "Role to authenticate as in Vault.",
+          "optional": false
+        },
+        {
+          "name": "AuthPath",
+          "jsonName": "authPath",
+          "type": "string",
+          "description": "Path under auth/ that the weka uses for login. defaults to \"kubernetes\"",
+          "optional": true
+        },
+        {
+          "name": "TransitPath",
+          "jsonName": "transitPath",
+          "type": "string",
+          "description": "Transit engine mount path, defaults \"transit\".",
+          "optional": true
+        },
+        {
+          "name": "Method",
+          "jsonName": "method",
+          "type": "string",
+          "description": "Vault Auth method (only “kubernetes” is supported  on operator side.)",
+          "optional": true
+        },
+        {
+          "name": "KeyName",
+          "jsonName": "keyName",
+          "type": "string",
+          "description": "Name of the transit key. defaults to \"weka-key\"",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "VirtualDrive": {
+      "kind": "struct",
+      "description": "VirtualDrive represents a virtual drive allocation in drive sharing mode",
+      "fields": [
+        {
+          "name": "VirtualUUID",
+          "jsonName": "virtualUUID",
+          "type": "string",
+          "description": "VirtualUUID is the virtual drive identifier",
+          "optional": false
+        },
+        {
+          "name": "PhysicalUUID",
+          "jsonName": "physicalUUID",
+          "type": "string",
+          "description": "PhysicalUUID is the physical drive UUID obtained from proxy signing",
+          "optional": false
+        },
+        {
+          "name": "CapacityGiB",
+          "jsonName": "capacityGiB",
+          "type": "int",
+          "description": "CapacityGiB is the allocated capacity in GiB",
+          "optional": false
+        },
+        {
+          "name": "Serial",
+          "jsonName": "serial",
+          "type": "string",
+          "description": "Serial is the serial number of the physical drive",
+          "optional": false
+        },
+        {
+          "name": "Type",
+          "jsonName": "type",
+          "type": "string",
+          "description": "Type is the type of the drive (e.g., TLC, QLC)",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "WekaClient": {
+      "kind": "struct",
+      "description": "WekaClient is the Schema for the clients API",
+      "fields": [
+        {
+          "name": "ObjectMeta",
+          "jsonName": "metadata",
+          "type": "k8s:metav1.ObjectMeta",
+          "optional": true,
+          "embedded": true
+        },
+        {
+          "name": "Spec",
+          "jsonName": "spec",
+          "type": {
+            "$ref": "#/definitions/WekaClientSpec"
+          },
+          "optional": true
+        },
+        {
+          "name": "Status",
+          "jsonName": "status",
+          "type": {
+            "$ref": "#/definitions/WekaClientStatus"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "WekaClientList": {
+      "kind": "struct",
+      "description": "WekaClientList contains a list of WekaClient",
+      "fields": [
+        {
+          "name": "ListMeta",
+          "jsonName": "metadata",
+          "type": "k8s:metav1.ListMeta",
+          "optional": true,
+          "embedded": true
+        },
+        {
+          "name": "Items",
+          "jsonName": "items",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/WekaClient"
+            }
+          },
+          "optional": false
+        }
+      ]
+    },
+    "WekaClientSpec": {
+      "kind": "struct",
+      "description": "WekaClientSpec defines the desired state of WekaClient",
+      "fields": [
+        {
+          "name": "Image",
+          "jsonName": "image",
+          "type": "string",
+          "description": "full container image in format of quay.io/weka.io/weka-in-container:VERSION",
+          "optional": false
+        },
+        {
+          "name": "ImagePullSecret",
+          "jsonName": "imagePullSecret",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "Port",
+          "jsonName": "port",
+          "type": "int",
+          "description": "if not set (0), weka will find a free port from the portRange",
+          "optional": true
+        },
+        {
+          "name": "AgentPort",
+          "jsonName": "agentPort",
+          "type": "int",
+          "description": "if not set (0), weka will find a free port from the portRange",
+          "optional": true
+        },
+        {
+          "name": "PortRange",
+          "jsonName": "portRange",
+          "type": {
+            "$ref": "#/definitions/PortRange"
+          },
+          "description": "used for dynamic port allocation",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "NodeSelector",
+          "jsonName": "nodeSelector",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "WekaSecretRef",
+          "jsonName": "wekaSecretRef",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "Network",
+          "jsonName": "network",
+          "type": {
+            "$ref": "#/definitions/Network"
+          },
+          "optional": true
+        },
+        {
+          "name": "DriversDistService",
+          "jsonName": "driversDistService",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "JoinIps",
+          "jsonName": "joinIpPorts",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "TargetCluster",
+          "jsonName": "targetCluster",
+          "type": {
+            "$ref": "#/definitions/ObjectReference"
+          },
+          "optional": true
+        },
+        {
+          "name": "CpuPolicy",
+          "jsonName": "cpuPolicy",
+          "type": {
+            "$ref": "#/definitions/CpuPolicy"
+          },
+          "optional": true
+        },
+        {
+          "name": "CpuRequest",
+          "jsonName": "cpuRequest",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "CoresNumber",
+          "jsonName": "coresNum",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "CoreIds",
+          "jsonName": "coreIds",
+          "type": {
+            "type": "array",
+            "items": "int"
+          },
+          "optional": true
+        },
+        {
+          "name": "NonDatapathCoreIds",
+          "jsonName": "nonDatapathCoreIds",
+          "type": {
+            "type": "array",
+            "items": "int"
+          },
+          "optional": true
+        },
+        {
+          "name": "TracesConfiguration",
+          "jsonName": "tracesConfiguration",
+          "type": {
+            "$ref": "#/definitions/TracesConfiguration"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Tolerations",
+          "jsonName": "tolerations",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "RawTolerations",
+          "jsonName": "rawTolerations",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.Toleration"
+          },
+          "optional": true
+        },
+        {
+          "name": "ServiceAccountName",
+          "jsonName": "serviceAccountName",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "AdditionalMemory",
+          "jsonName": "additionalMemory",
+          "type": "int",
+          "description": "memory to add/decrease from \"auto-calculated\" memory",
+          "optional": true
+        },
+        {
+          "name": "Resources",
+          "jsonName": "resources",
+          "type": {
+            "$ref": "#/definitions/PodResourcesSpec"
+          },
+          "description": "experimental: pod resources to be proxied as-is to the pod spec",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "HugePages",
+          "jsonName": "hugepages",
+          "type": "int",
+          "description": "hugepages, value in megabytes",
+          "optional": true
+        },
+        {
+          "name": "HugePagesOffset",
+          "jsonName": "hugepagesOffset",
+          "type": "int",
+          "description": "value in megabytes to offset",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "WekaHomeConfig",
+          "jsonName": "wekaHomeConfig",
+          "type": {
+            "$ref": "#/definitions/WekahomeClientConfig"
+          },
+          "description": "DEPRECATED, kept for compatibility with old API clients, not taking any action, to be removed on new API version",
+          "optional": true
+        },
+        {
+          "name": "WekaHome",
+          "jsonName": "wekaHome",
+          "type": {
+            "$ref": "#/definitions/WekahomeClientConfig"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "UpgradePolicy",
+          "jsonName": "upgradePolicy",
+          "type": {
+            "$ref": "#/definitions/UpgradePolicy"
+          },
+          "optional": true
+        },
+        {
+          "name": "AllowHotUpgrade",
+          "jsonName": "allowHotUpgrade",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "Overrides",
+          "jsonName": "overrides",
+          "type": {
+            "$ref": "#/definitions/WekaClientSpecOverrides"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "AutoRemoveTimeout",
+          "jsonName": "autoRemoveTimeout",
+          "type": "k8s:metav1.Duration",
+          "description": "sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config",
+          "optional": true
+        },
+        {
+          "name": "GlobalPVC",
+          "jsonName": "globalPVC",
+          "type": {
+            "$ref": "#/definitions/PVCConfig"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "CsiConfig",
+          "jsonName": "csiConfig",
+          "type": {
+            "$ref": "#/definitions/ClientCsiConfig"
+          },
+          "description": "EXPERIMENTAL, ALPHA STATE, should not be used in production: if set, allows to reuse the same csi resources for multiple clients",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient"
+      ]
+    },
+    "WekaClientSpecOverrides": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "DriversBuildId",
+          "jsonName": "driversBuildId",
+          "type": "string",
+          "description": "can be used to specify a build_id for a driver in the distributor service, keep empty for auto detection default",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DriversLoaderImage",
+          "jsonName": "driversLoaderImage",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "MachineIdentifierNodeRef",
+          "jsonName": "machineIdentifierNodeRef",
+          "type": "string",
+          "description": "used to override machine identifier node reference for client containers",
+          "optional": true
+        },
+        {
+          "name": "ForceDrain",
+          "jsonName": "forceDrain",
+          "type": "bool",
+          "description": "unsafe operation, forces drain on the node where the container is running, should not be used unless instructed explicitly by weka personnel, the effect of drain is throwing away all IOs and acknowledging all umounts in unsafe manner",
+          "optional": true
+        },
+        {
+          "name": "SkipActiveMountsCheck",
+          "jsonName": "skipActiveMountsCheck",
+          "type": "bool",
+          "description": "option to skip active mounts check before deleting client containers",
+          "optional": true
+        },
+        {
+          "name": "UmountOnHost",
+          "jsonName": "umountOnHost",
+          "type": "bool",
+          "description": "unsafe operation, runs nsenter in root namespace to umount all wekafs mounts visible on host",
+          "optional": true
+        },
+        {
+          "name": "DropAffinityConstraints",
+          "jsonName": "dropAffinityConstraints",
+          "type": "bool",
+          "description": "unsafe parameter, disables anti-affinities on client pods, allowing to schedule more than one client pod per node.\nRunning multiple clients for multiple clusters on the same node is not fully supported yet, and this flag should not be used in production.",
+          "optional": true
+        },
+        {
+          "name": "WekaContainerName",
+          "jsonName": "wekaContainerName",
+          "type": "string",
+          "description": "override name used in weka local setup for the container\nthis can be used for integration with external client on the host",
+          "optional": true
+        },
+        {
+          "name": "DpdkBaseMemoryMb",
+          "jsonName": "dpdkBaseMemoryMb",
+          "type": "int",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient"
+      ]
+    },
+    "WekaClientStatus": {
+      "kind": "struct",
+      "description": "WekaClientStatus defines the observed state of WekaClient",
+      "fields": [
+        {
+          "name": "Conditions",
+          "jsonName": "conditions",
+          "type": {
+            "type": "array",
+            "items": "k8s:metav1.Condition"
+          },
+          "optional": true
+        },
+        {
+          "name": "LastAppliedSpec",
+          "jsonName": "lastAppliedSpec",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "Status",
+          "jsonName": "status",
+          "type": {
+            "$ref": "#/definitions/WekaClientStatusEnum"
+          },
+          "optional": true
+        },
+        {
+          "name": "Stats",
+          "jsonName": "stats",
+          "type": {
+            "$ref": "#/definitions/ClientMetrics"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "PrinterColumns",
+          "jsonName": "printer",
+          "type": {
+            "$ref": "#/definitions/ClientPrinterColumns"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient"
+      ]
+    },
+    "WekaClientStatusEnum": {
+      "kind": "enum",
+      "enumValues": [
+        "Init",
+        "Running",
+        "Upgrading",
+        "Destroying"
+      ],
+      "baseType": "string",
+      "usedBy": [
+        "WekaClient"
+      ]
+    },
+    "WekaCluster": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "ObjectMeta",
+          "jsonName": "metadata",
+          "type": "k8s:metav1.ObjectMeta",
+          "optional": true,
+          "embedded": true
+        },
+        {
+          "name": "Spec",
+          "jsonName": "spec",
+          "type": {
+            "$ref": "#/definitions/WekaClusterSpec"
+          },
+          "optional": true
+        },
+        {
+          "name": "Status",
+          "jsonName": "status",
+          "type": {
+            "$ref": "#/definitions/WekaClusterStatus"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "WekaClusterList": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "ListMeta",
+          "jsonName": "metadata",
+          "type": "k8s:metav1.ListMeta",
+          "optional": true,
+          "embedded": true
+        },
+        {
+          "name": "Items",
+          "jsonName": "items",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/WekaCluster"
+            }
+          },
+          "optional": false
+        }
+      ]
+    },
+    "WekaClusterSpec": {
+      "kind": "struct",
+      "description": "WekaClusterSpec defines the desired state of WekaCluster",
+      "fields": [
+        {
+          "name": "Template",
+          "jsonName": "template",
+          "type": "string",
+          "description": "A template/strategy of how to build a cluster, right now only \"dynamic\" supported, explicitly specifying config of a cluster",
+          "optional": true
+        },
+        {
+          "name": "Image",
+          "jsonName": "image",
+          "type": "string",
+          "description": "full container image name in format of quay.io/weka.io/weka-in-container:VERSION",
+          "optional": false
+        },
+        {
+          "name": "ImagePullSecret",
+          "jsonName": "imagePullSecret",
+          "type": "string",
+          "description": "image pull secret to use for pulling the image",
+          "optional": true
+        },
+        {
+          "name": "DriversDistService",
+          "jsonName": "driversDistService",
+          "type": "string",
+          "description": "endpoint for distribution service, global https://drivers.weka.io or in-k8s-cluster \"https://weka-drivers-dist.namespace.svc.cluster.local:60001\"",
+          "optional": true
+        },
+        {
+          "name": "NodeSelector",
+          "jsonName": "nodeSelector",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "node selector for the weka containers",
+          "optional": true
+        },
+        {
+          "name": "RoleNodeSelector",
+          "jsonName": "roleNodeSelector",
+          "type": {
+            "$ref": "#/definitions/RoleNodeSelector"
+          },
+          "description": "node selector for the weka containers per role, overrides global nodeSelector",
+          "optional": true
+        },
+        {
+          "name": "RoleAnnotations",
+          "jsonName": "roleAnnotations",
+          "type": {
+            "$ref": "#/definitions/RoleAnnotations"
+          },
+          "description": "annotations for the weka containers per role",
+          "optional": true
+        },
+        {
+          "name": "RoleNetworkSelector",
+          "jsonName": "roleNetworkSelector",
+          "type": {
+            "$ref": "#/definitions/RoleNetworkSelector"
+          },
+          "description": "network selector for the weka containers per role, overrides global network",
+          "optional": true
+        },
+        {
+          "name": "FailureDomain",
+          "jsonName": "failureDomain",
+          "type": {
+            "$ref": "#/definitions/FailureDomain"
+          },
+          "description": "failure domain configuration for weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "PodConfig",
+          "jsonName": "podConfig",
+          "type": {
+            "$ref": "#/definitions/PodConfiguration"
+          },
+          "description": "advanced pod affinities configuration",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "CpuPolicy",
+          "jsonName": "cpuPolicy",
+          "type": {
+            "$ref": "#/definitions/CpuPolicy"
+          },
+          "description": "cpu policy to use for scheduling cores for weka, unless instructed by weka team, keep default of auto\nmanual and shared are same, with shared being deprecated\nwhen manual is used - no exclusive cores will be allocaated on k8s/cgroup level, assuming good alignment of cores usage across different applications, like weka and slurm\nthere is no need to specify siblings in this list, but on the side of other applications like slurm, both weka core and its siblings should be excluded from used cpu set",
+          "optional": true
+        },
+        {
+          "name": "TracesConfiguration",
+          "jsonName": "tracesConfiguration",
+          "type": {
+            "$ref": "#/definitions/TracesConfiguration"
+          },
+          "description": "traces capacities configuration for weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Tolerations",
+          "jsonName": "tolerations",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "simplified tolerations, checked only by key existence, expanding to NoExecute|NoSchedule tolerations",
+          "optional": true
+        },
+        {
+          "name": "RawTolerations",
+          "jsonName": "rawTolerations",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.Toleration"
+          },
+          "description": "tolerations in standard k8s format",
+          "optional": true
+        },
+        {
+          "name": "WekaHome",
+          "jsonName": "wekaHome",
+          "type": {
+            "$ref": "#/definitions/WekaHomeConfig"
+          },
+          "description": "weka home configuration",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Ipv6",
+          "jsonName": "ipv6",
+          "type": "bool",
+          "description": "use ipv6 for weka cluster networking configuration",
+          "optional": true
+        },
+        {
+          "name": "AdditionalMemory",
+          "jsonName": "additionalMemory",
+          "type": {
+            "$ref": "#/definitions/AdditionalMemory"
+          },
+          "description": "additional memory to allocate for weka containers",
+          "optional": true
+        },
+        {
+          "name": "Ports",
+          "jsonName": "ports",
+          "type": {
+            "$ref": "#/definitions/ClusterPorts"
+          },
+          "description": "port allocation for weka containers, if not set, free range will be auto selected. Currently allocated ports can be seen in wekacluster.status.ports",
+          "optional": true
+        },
+        {
+          "name": "OperatorSecretRef",
+          "jsonName": "operatorSecretRef",
+          "type": "string",
+          "description": "reference to the secret containing the weka system credentials used by operator, used in flow of migration",
+          "optional": true
+        },
+        {
+          "name": "ExpandEndpoints",
+          "jsonName": "expandEndpoints",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "endpoint of existing weka cluster, containers created for this k8s-driver cluster will join existing weka cluster, used in flow of migration",
+          "optional": true
+        },
+        {
+          "name": "Dynamic",
+          "jsonName": "dynamicTemplate",
+          "type": {
+            "$ref": "#/definitions/WekaClusterTemplate"
+          },
+          "description": "weka cluster topology configuration",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Network",
+          "jsonName": "network",
+          "type": {
+            "$ref": "#/definitions/Network"
+          },
+          "description": "weka cluster network configuration",
+          "optional": true
+        },
+        {
+          "name": "HotSpare",
+          "jsonName": "hotSpare",
+          "type": "int",
+          "description": "A hot spare is reserved capacity designed to handle data rebuilds while maintaining the system's net capacity, even in the event of failure domains being lost\nSee: https://docs.weka.io/weka-system-overview/ssd-capacity-management#hot-spare",
+          "optional": true
+        },
+        {
+          "name": "RedundancyLevel",
+          "jsonName": "redundancyLevel",
+          "type": "int",
+          "description": "storage capacity dedicated to system protection (2/4). https://docs.weka.io/weka-system-overview/ssd-capacity-management#protection-level",
+          "optional": true
+        },
+        {
+          "name": "StripeWidth",
+          "jsonName": "stripeWidth",
+          "type": "int",
+          "description": "stripe width is the number of blocks within a common protection set, ranging from 3 to 16 https://docs.weka.io/weka-system-overview/ssd-capacity-management#stripe-width",
+          "optional": true
+        },
+        {
+          "name": "LeadershipSize",
+          "jsonName": "leadershipRaftSize",
+          "type": "int",
+          "description": "size of raft for leadership, defaults to 5, 5/9 are supported",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "BucketRaftSize",
+          "jsonName": "bucketRaftSize",
+          "type": "int",
+          "description": "size of raft for buckets, defaults to 5, 5/9 are supported",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "StartIoConditions",
+          "jsonName": "startIoConditions",
+          "type": {
+            "$ref": "#/definitions/StartIoConditions"
+          },
+          "description": "conditions that must be met before starting IO",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "GracefulDestroyDuration",
+          "jsonName": "gracefulDestroyDuration",
+          "type": "k8s:metav1.Duration",
+          "description": "During this period the cluster will not be destroyed (protection from accidental deletion)\nNote: due to discrepancies in validation vs parsing, we use a Pattern instead of `Format=duration`. See\nhttps://bugzilla.redhat.com/show_bug.cgi?id=2050332\nhttps://github.com/kubernetes/apimachinery/issues/131\nhttps://github.com/kubernetes/apiextensions-apiserver/issues/56",
+          "optional": true
+        },
+        {
+          "name": "Overrides",
+          "jsonName": "overrides",
+          "type": {
+            "$ref": "#/definitions/WekaClusterSpecOverrides"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "CsiConfig",
+          "jsonName": "csiConfig",
+          "type": {
+            "$ref": "#/definitions/CsiConfig"
+          },
+          "optional": true
+        },
+        {
+          "name": "GlobalPVC",
+          "jsonName": "globalPVC",
+          "type": {
+            "$ref": "#/definitions/PVCConfig"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "ServiceAccountName",
+          "jsonName": "serviceAccountName",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "RoleCoreIds",
+          "jsonName": "roleCoreIds",
+          "type": {
+            "$ref": "#/definitions/RoleCoreIds"
+          },
+          "description": "RoleCoreIds defines a list of CPU core IDs (as seen by the host) that should\nbe assigned to containers of the specific role when CpuPolicy is set to\n\"manual\". If the slice for the given role is empty, core ids will not be\nset for that role, and the manual policy will fail validation on pod start.\nNOTE: The semantics are the same as for NodeSelector/Annotations structures –\na single list per role which will be copied to every container of that role.\nUsers are responsible to provide a set that makes sense for their topology.\nExample:\nroleCoreIds:\ncompute: [0,1,2,3]\ndrive:   [4,5,6,7]\nwill result in every compute container getting coreIds [0,1,2,3] and every\ndrive container getting [4,5,6,7].",
+          "optional": true
+        },
+        {
+          "name": "RoleNonDatapathCoreIds",
+          "jsonName": "roleNonDatapathCoreIds",
+          "type": {
+            "$ref": "#/definitions/RoleCoreIds"
+          },
+          "description": "RoleNonDatapathCoreIds defines CPU core IDs (as seen by the host) to pin\nmanagement/aux (non-IONode) processes to, per container role. Applicable\nwhen CpuPolicy is \"manual\" or \"shared\".\nWhen set, weka pins management processes to these cores instead of deriving them automatically.",
+          "optional": true
+        },
+        {
+          "name": "Encryption",
+          "jsonName": "encryption",
+          "type": {
+            "$ref": "#/definitions/EncryptionConfig"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "NFSConfig",
+          "jsonName": "nfs",
+          "type": {
+            "$ref": "#/definitions/NfsConfig"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "S3Config",
+          "jsonName": "s3",
+          "type": {
+            "$ref": "#/definitions/S3Config"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "SmbwConfig",
+          "jsonName": "smbw",
+          "type": {
+            "$ref": "#/definitions/SmbwConfig"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Telemetry",
+          "jsonName": "telemetry",
+          "type": {
+            "$ref": "#/definitions/TelemetryConfig"
+          },
+          "description": "Telemetry configuration for exporting audit logs and other telemetry data",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Catalog",
+          "jsonName": "catalog",
+          "type": {
+            "$ref": "#/definitions/CatalogConfig"
+          },
+          "description": "Catalog configuration for data catalog service",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "WekaClusterSpecOverrides": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "AllowS3ClusterDestroy",
+          "jsonName": "allowS3ClusterDestroy",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "AllowSmbwClusterDestroy",
+          "jsonName": "allowSmbwClusterDestroy",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "DisregardRedundancy",
+          "jsonName": "disregardRedundancy",
+          "type": "bool",
+          "description": "disregard redundancy constraints, useful for testing, should not be used in production as misaligns failure domains",
+          "optional": true
+        },
+        {
+          "name": "DriversBuildId",
+          "jsonName": "driversBuildId",
+          "type": "string",
+          "description": "can be used to specify a build_id for a driver in the distributor service, keep empty for auto detection default",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DriversLoaderImage",
+          "jsonName": "driversLoaderImage",
+          "type": "string",
+          "description": "image to be used for loading drivers, do not use unless explicitly instructed by Weka team",
+          "optional": true
+        },
+        {
+          "name": "ForceAio",
+          "jsonName": "forceAio",
+          "type": "bool",
+          "description": "force weka to use drives in aio mode and not direct nvme (impacts performance, but might serve as a fallback in case of incompatible device)",
+          "optional": true
+        },
+        {
+          "name": "PostFormClusterScript",
+          "jsonName": "postFormClusterScript",
+          "type": "string",
+          "description": "script to run post cluster create (i.e before starting io)",
+          "optional": true
+        },
+        {
+          "name": "UpgradeForceReplace",
+          "jsonName": "upgradeForceReplace",
+          "type": "bool",
+          "description": "unsafe operation, skips graceful stop of weka container for a quick replacement to a new image, should not be used unless instructed explicitly by weka personnel",
+          "optional": true
+        },
+        {
+          "name": "UpgradeForceReplaceDrives",
+          "jsonName": "upgradeForceReplaceDrives",
+          "type": "bool",
+          "description": "unsafe operation, skips graceful stop of drive weka container for a quick replacement to a new image, should not be used unless instructed explicitly by weka personnel",
+          "optional": true
+        },
+        {
+          "name": "UpgradeAllAtOnce",
+          "jsonName": "upgradeAllAtOnce",
+          "type": "bool",
+          "description": "unsafe operation, should not be used unless instructed explicitly by weka personnel",
+          "optional": true
+        },
+        {
+          "name": "UpgradePaused",
+          "jsonName": "upgradePaused",
+          "type": "bool",
+          "description": "Pause upgrade",
+          "optional": true
+        },
+        {
+          "name": "UpgradePausePreCompute",
+          "jsonName": "upgradePausePreCompute",
+          "type": "bool",
+          "description": "Prevent from moving into compute phase",
+          "optional": true
+        },
+        {
+          "name": "PodTerminationDeactivationTimeout",
+          "jsonName": "podTerminationDeactivationTimeout",
+          "type": "k8s:metav1.Duration",
+          "description": "Timeout duration for deactivating pods that are terminating longer than this duration.\nWhen nil (default), the default timeout of 5 minutes is used.\nWhen set to 0, deactivation of terminating pods is disabled.\nOtherwise, the specified duration is used.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Paused",
+          "jsonName": "paused",
+          "type": "bool",
+          "description": "Pause the cluster - all containers will be stopped forcefully.\nnil (not set): no propagation, allows direct container-level state manipulation.\ntrue: pause all containers.\nfalse: actively unpause containers that are in paused state.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "CancelDeletion",
+          "jsonName": "cancelDeletion",
+          "type": "bool",
+          "description": "Cancel deletion of the cluster if it is in graceful destroy period, a disaster recovery mechanism",
+          "optional": true
+        },
+        {
+          "name": "DpdkBaseMemoryMb",
+          "jsonName": "dpdkBaseMemoryMb",
+          "type": {
+            "$ref": "#/definitions/DpdkBaseMemoryMbOverride"
+          },
+          "optional": true
+        },
+        {
+          "name": "MachineIdentifierNodeRef",
+          "jsonName": "machineIdentifierNodeRef",
+          "type": "string",
+          "description": "used to override machine identifier node reference for backend containers (drive, compute, etc.)",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "WekaClusterStatus": {
+      "kind": "struct",
+      "description": "WekaClusterStatus defines the observed state of WekaCluster",
+      "fields": [
+        {
+          "name": "Status",
+          "jsonName": "status",
+          "type": {
+            "$ref": "#/definitions/WekaClusterStatusEnum"
+          },
+          "optional": false
+        },
+        {
+          "name": "Conditions",
+          "jsonName": "conditions",
+          "type": {
+            "type": "array",
+            "items": "k8s:metav1.Condition"
+          },
+          "optional": true
+        },
+        {
+          "name": "ClusterID",
+          "jsonName": "clusterID",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "TraceId",
+          "jsonName": "traceId",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "SpanID",
+          "jsonName": "spanId",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "LastAppliedImage",
+          "jsonName": "lastAppliedImage",
+          "type": "string",
+          "description": "Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later",
+          "optional": true
+        },
+        {
+          "name": "LastAppliedSpec",
+          "jsonName": "lastAppliedSpec",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "LastAppliedPodConfigHash",
+          "jsonName": "lastAppliedPodConfigHash",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "Ports",
+          "jsonName": "ports",
+          "type": {
+            "$ref": "#/definitions/ClusterPorts"
+          },
+          "optional": true
+        },
+        {
+          "name": "Stats",
+          "jsonName": "stats",
+          "type": {
+            "$ref": "#/definitions/ClusterMetrics"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "PrinterColumns",
+          "jsonName": "printer",
+          "type": {
+            "$ref": "#/definitions/ClusterPrinterColumns"
+          },
+          "optional": true
+        },
+        {
+          "name": "Timestamps",
+          "jsonName": "timestamps",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "k8s:metav1.Time"
+          },
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "WekaClusterStatusEnum": {
+      "kind": "enum",
+      "enumValues": [
+        "Init",
+        "Ready",
+        "WaitForDrives",
+        "StartingIO",
+        "Paused",
+        "GracePeriod",
+        "Destroying",
+        "Deallocating"
+      ],
+      "baseType": "string",
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "WekaClusterTemplate": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "ComputeContainers",
+          "jsonName": "computeContainers",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DriveContainers",
+          "jsonName": "driveContainers",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "S3Containers",
+          "jsonName": "s3Containers",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "ComputeCores",
+          "jsonName": "computeCores",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DriveCores",
+          "jsonName": "driveCores",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "S3Cores",
+          "jsonName": "s3Cores",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "NumDrives",
+          "jsonName": "numDrives",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "ComputeExtraCores",
+          "jsonName": "computeExtraCores",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DriveExtraCores",
+          "jsonName": "driveExtraCores",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "S3ExtraCores",
+          "jsonName": "s3ExtraCores",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DriveHugepages",
+          "jsonName": "driveHugepages",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DriveHugepagesOffset",
+          "jsonName": "driveHugepagesOffset",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "ComputeHugepages",
+          "jsonName": "computeHugepages",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "ComputeHugepagesOffset",
+          "jsonName": "computeHugepagesOffset",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "S3FrontendHugepages",
+          "jsonName": "s3FrontendHugepages",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "S3FrontendHugepagesOffset",
+          "jsonName": "s3FrontendHugepagesOffset",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "EnvoyCores",
+          "jsonName": "envoyCores",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "NfsContainers",
+          "jsonName": "nfsContainers",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "NfsCores",
+          "jsonName": "nfsCores",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "NfsExtraCores",
+          "jsonName": "nfsExtraCores",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "NfsFrontendHugepages",
+          "jsonName": "nfsFrontendHugepages",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "NfsFrontendHugepagesOffset",
+          "jsonName": "nfsFrontendHugepagesOffset",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "SmbwContainers",
+          "jsonName": "smbwContainers",
+          "type": "int",
+          "description": "EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W containers (3-8)",
+          "optional": true
+        },
+        {
+          "name": "SmbwCores",
+          "jsonName": "smbwCores",
+          "type": "int",
+          "description": "EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W cores per container",
+          "optional": true
+        },
+        {
+          "name": "SmbwExtraCores",
+          "jsonName": "smbwExtraCores",
+          "type": "int",
+          "description": "EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W extra cores per container",
+          "optional": true
+        },
+        {
+          "name": "SmbwFrontendHugepages",
+          "jsonName": "smbwFrontendHugepages",
+          "type": "int",
+          "description": "EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for SMB-W frontend",
+          "optional": true
+        },
+        {
+          "name": "SmbwFrontendHugepagesOffset",
+          "jsonName": "smbwFrontendHugepagesOffset",
+          "type": "int",
+          "description": "EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for SMB-W frontend",
+          "optional": true
+        },
+        {
+          "name": "DriveCapacity",
+          "jsonName": "driveCapacity",
+          "type": "int",
+          "description": "DriveCapacity is the capacity in GiB to allocate per single virtual drive.\nNumDrives multiplied by DriveCapacity gives the total capacity requested by each drive container.\nThis value determines how much capacity each container receives from shared drives.",
+          "optional": true
+        },
+        {
+          "name": "ContainerCapacity",
+          "jsonName": "containerCapacity",
+          "type": "int",
+          "description": "ContainerCapacity specifies the total capacity (in GiB) requested by each container when using shared drives via SSD proxy.\nThis value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.",
+          "optional": true
+        },
+        {
+          "name": "DriveTypesRatio",
+          "jsonName": "driveTypesRatio",
+          "type": {
+            "$ref": "#/definitions/DriveTypesRatio"
+          },
+          "description": "DriveTypesRatio specifies the desired ratio of drive types (TLC vs QLC) when allocating drives for the cluster.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DataServicesContainers",
+          "jsonName": "dataServicesContainers",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DataServicesCores",
+          "jsonName": "dataServicesCores",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DataServicesExtraCores",
+          "jsonName": "dataServicesExtraCores",
+          "type": "int",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DataServicesHugepages",
+          "jsonName": "dataServicesHugepages",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DataServicesHugepagesOffset",
+          "jsonName": "dataServicesHugepagesOffset",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DataServicesFeCores",
+          "jsonName": "dataServicesFeCores",
+          "type": "int",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "WekaContainer": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "ObjectMeta",
+          "jsonName": "metadata",
+          "type": "k8s:metav1.ObjectMeta",
+          "optional": true,
+          "embedded": true
+        },
+        {
+          "name": "Spec",
+          "jsonName": "spec",
+          "type": {
+            "$ref": "#/definitions/WekaContainerSpec"
+          },
+          "optional": true
+        },
+        {
+          "name": "Status",
+          "jsonName": "status",
+          "type": {
+            "$ref": "#/definitions/WekaContainerStatus"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "WekaContainerBuilder": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "WekaVersion",
+          "jsonName": "weka_version",
+          "type": "string",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "WekaContainerList": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "ListMeta",
+          "jsonName": "metadata",
+          "type": "k8s:metav1.ListMeta",
+          "optional": true,
+          "embedded": true
+        },
+        {
+          "name": "Items",
+          "jsonName": "items",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/WekaContainer"
+            }
+          },
+          "optional": false
+        }
+      ]
+    },
+    "WekaContainerMetrics": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Processes",
+          "jsonName": "processes",
+          "type": {
+            "$ref": "#/definitions/EntityStatefulNum"
+          },
+          "optional": true
+        },
+        {
+          "name": "CpuUsage",
+          "jsonName": "cpuUtilization",
+          "type": {
+            "$ref": "#/definitions/FloatMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "Drives",
+          "jsonName": "drives",
+          "type": {
+            "$ref": "#/definitions/DriveMetrics"
+          },
+          "optional": true
+        },
+        {
+          "name": "ActiveMounts",
+          "jsonName": "activeMounts",
+          "type": {
+            "$ref": "#/definitions/IntMetric"
+          },
+          "optional": true
+        },
+        {
+          "name": "LastUpdate",
+          "jsonName": "lastUpdate",
+          "type": "k8s:metav1.Time",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "WekaContainerMode": {
+      "kind": "alias",
+      "baseType": "string"
+    },
+    "WekaContainerSpec": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "NodeAffinity",
+          "jsonName": "nodeAffinity",
+          "type": {
+            "$ref": "#/definitions/NodeName"
+          },
+          "description": "name of the node where the container should run on",
+          "optional": true
+        },
+        {
+          "name": "FailureDomain",
+          "jsonName": "failureDomain",
+          "type": {
+            "$ref": "#/definitions/FailureDomain"
+          },
+          "description": "failure domain configuration",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "TopologySpreadConstraints",
+          "jsonName": "topologySpreadConstraints",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.TopologySpreadConstraint"
+          },
+          "description": "controls the distribution of weka containers across the failure domains",
+          "optional": true
+        },
+        {
+          "name": "Affinity",
+          "jsonName": "affinity",
+          "type": "k8s:v1.Affinity",
+          "description": "advanced scheduling constraints",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "NodeSelector",
+          "jsonName": "nodeSelector",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "Port",
+          "jsonName": "port",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "ExposePorts",
+          "jsonName": "exposePorts",
+          "type": {
+            "type": "array",
+            "items": "int"
+          },
+          "description": "deprecated, use ExposedPorts instead",
+          "optional": true
+        },
+        {
+          "name": "ExposedPorts",
+          "jsonName": "exposedPorts",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.ContainerPort"
+          },
+          "description": "ports to be exposed on the container, proxied to pod",
+          "optional": true
+        },
+        {
+          "name": "AgentPort",
+          "jsonName": "agentPort",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "PortRange",
+          "jsonName": "portRange",
+          "type": {
+            "$ref": "#/definitions/PortRange"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Image",
+          "jsonName": "image",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "PodConfigHash",
+          "jsonName": "podConfigHash",
+          "type": "string",
+          "description": "a hash that represents the config state of a WekaContainer, will recreate the pod if stale",
+          "optional": true
+        },
+        {
+          "name": "ImagePullSecret",
+          "jsonName": "imagePullSecret",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "WekaContainerName",
+          "jsonName": "name",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "Mode",
+          "jsonName": "mode",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "NumCores",
+          "jsonName": "numCores",
+          "type": "int",
+          "description": "numCores is weka-specific cores",
+          "optional": false
+        },
+        {
+          "name": "ExtraCores",
+          "jsonName": "extraCores",
+          "type": "int",
+          "description": "extraCores is temporary solution for S3 containers, cores allocation on top of weka cores",
+          "optional": true
+        },
+        {
+          "name": "CoreIds",
+          "jsonName": "coreIds",
+          "type": {
+            "type": "array",
+            "items": "int"
+          },
+          "optional": true
+        },
+        {
+          "name": "NonDatapathCoreIds",
+          "jsonName": "nonDatapathCoreIds",
+          "type": {
+            "type": "array",
+            "items": "int"
+          },
+          "description": "NonDatapathCoreIds pins management/aux (non-IONode) processes to specific CPUs.",
+          "optional": true
+        },
+        {
+          "name": "CpuPolicy",
+          "jsonName": "cpuPolicy",
+          "type": {
+            "$ref": "#/definitions/CpuPolicy"
+          },
+          "optional": true
+        },
+        {
+          "name": "Network",
+          "jsonName": "network",
+          "type": {
+            "$ref": "#/definitions/Network"
+          },
+          "optional": true
+        },
+        {
+          "name": "Hugepages",
+          "jsonName": "hugepages",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "HugepagesOffset",
+          "jsonName": "hugepagesOffset",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "HugepagesSize",
+          "jsonName": "hugepagesSize",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "NumDrives",
+          "jsonName": "numDrives",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DriversDistService",
+          "jsonName": "driversDistService",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "DriversLoaderImage",
+          "jsonName": "driversLoaderImage",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "DriversBuildId",
+          "jsonName": "driversBuildId",
+          "type": "string",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Builder",
+          "jsonName": "builder",
+          "type": {
+            "$ref": "#/definitions/WekaContainerBuilder"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "WekaSecretRef",
+          "jsonName": "wekaSecretRef",
+          "type": "k8s:v1.EnvVarSource",
+          "optional": true
+        },
+        {
+          "name": "JoinIps",
+          "jsonName": "joinIpPorts",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "TracesConfiguration",
+          "jsonName": "tracesConfiguration",
+          "type": {
+            "$ref": "#/definitions/TracesConfiguration"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Tolerations",
+          "jsonName": "tolerations",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.Toleration"
+          },
+          "optional": true
+        },
+        {
+          "name": "NodeInfoConfigMap",
+          "jsonName": "nodeInfoConfigMap",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "Ipv6",
+          "jsonName": "ipv6",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "AdditionalMemory",
+          "jsonName": "additionalMemory",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "Group",
+          "jsonName": "group",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "ServiceAccountName",
+          "jsonName": "serviceAccountName",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "AdditionalSecrets",
+          "jsonName": "additionalSecrets",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "Instructions",
+          "jsonName": "instructions",
+          "type": {
+            "$ref": "#/definitions/Instructions"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "NoAffinityConstraints",
+          "jsonName": "dropAffinityConstraints",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "UploadResultsTo",
+          "jsonName": "uploadResultsTo",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "UpgradePolicyType",
+          "jsonName": "upgradePolicyType",
+          "type": {
+            "$ref": "#/definitions/UpgradePolicyType"
+          },
+          "optional": true
+        },
+        {
+          "name": "State",
+          "jsonName": "state",
+          "type": {
+            "$ref": "#/definitions/ContainerState"
+          },
+          "optional": true
+        },
+        {
+          "name": "AllowHotUpgrade",
+          "jsonName": "allowHotUpgrade",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "DriveCapacity",
+          "jsonName": "driveCapacity",
+          "type": "int",
+          "description": "DriveCapacity specifies the capacity (in GiB) per virtual drive, indicates this container uses shared drives via SSD proxy.\nWhen enabled, the container will:\n- Use virtual UUIDs instead of device paths for drives\n- Allocate capacity from shared drives rather than exclusive drives\n- Require an SSD proxy container to be running on the same node\nThis value is copied from the cluster's DriveSharing.DriveCapacity configuration.\nUsed to calculate total capacity request: NumDrives * DriveCapacity",
+          "optional": true
+        },
+        {
+          "name": "ContainerCapacity",
+          "jsonName": "containerCapacity",
+          "type": "int",
+          "description": "ContainerCapacity specifies the total capacity (in GiB) requested by this container when using shared drives via SSD proxy.\nThis value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.",
+          "optional": true
+        },
+        {
+          "name": "DriveTypesRatio",
+          "jsonName": "driveTypesRatio",
+          "type": {
+            "$ref": "#/definitions/DriveTypesRatio"
+          },
+          "description": "DriveTypesRatio specifies the desired ratio of drive types (TLC vs QLC) when allocating drives for the container.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "AutoRemoveTimeout",
+          "jsonName": "autoRemoveTimeout",
+          "type": "k8s:metav1.Duration",
+          "description": "sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config",
+          "optional": true
+        },
+        {
+          "name": "Overrides",
+          "jsonName": "overrides",
+          "type": {
+            "$ref": "#/definitions/WekaContainerSpecOverrides"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "HostPID",
+          "jsonName": "hostPID",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "Resources",
+          "jsonName": "resources",
+          "type": {
+            "$ref": "#/definitions/PodResourcesSpec"
+          },
+          "description": "resources to be proxied as-is to the pod spec",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "PVC",
+          "jsonName": "pvc",
+          "type": {
+            "$ref": "#/definitions/PVCConfig"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DpdkBaseMemoryMb",
+          "jsonName": "dpdkBaseMemoryMb",
+          "type": "int",
+          "optional": true
+        },
+        {
+          "name": "DataServicesConfig",
+          "jsonName": "dataServicesConfig",
+          "type": {
+            "$ref": "#/definitions/DataServicesConfig"
+          },
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "WekaContainerSpecOverrides": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "SkipDeactivate",
+          "jsonName": "skipDeactivate",
+          "type": "bool",
+          "description": "skips deactivation of container, this is unsafe operation that should be used only when this container will never be back into cluster",
+          "optional": true
+        },
+        {
+          "name": "SkipDrivesForceResign",
+          "jsonName": "skipDrivesForceResign",
+          "type": "bool",
+          "description": "skips resign of drives, if we did not resign drives on removal of drive container we will not be able to reuse them, and manual operation with force resign will be required",
+          "optional": true
+        },
+        {
+          "name": "SkipVirtualDrivesRemoval",
+          "jsonName": "skipVirtualDrivesRemoval",
+          "type": "bool",
+          "description": "skips removal of virtual drives from ssdproxy - unsafe operation that can lead to virtual drives leftovers\nshould not be used unless instructed explicitly by weka personnel",
+          "optional": true
+        },
+        {
+          "name": "SkipCleanupPersistentDir",
+          "jsonName": "skipCleanupPersistentDir",
+          "type": "bool",
+          "description": "skips cleanup of persistent directory, if this operation was omit local data of container will remain in persistent location(/opt/k8s-weka on vanilla OS/k8s distributions)",
+          "optional": true
+        },
+        {
+          "name": "UpgradeForceReplace",
+          "jsonName": "upgradeForceReplace",
+          "type": "bool",
+          "description": "unsafe operation, skips graceful stop of weka container for a quick replacement to a new image, should not be used unless instructed explicitly by weka personnel",
+          "optional": true
+        },
+        {
+          "name": "UpgradePreventEviction",
+          "jsonName": "upgradePreventEviction",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "PodDeleteForceReplace",
+          "jsonName": "podDeleteForceReplace",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "MachineIdentifierNodeRef",
+          "jsonName": "machineIdentifierNodeRef",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "PreRunScript",
+          "jsonName": "preRunScript",
+          "type": "string",
+          "description": "script to be executed post initial persistency(if needed) configuration, before running actual workload",
+          "optional": true
+        },
+        {
+          "name": "ForceDrain",
+          "jsonName": "forceDrain",
+          "type": "bool",
+          "description": "unsafe operation, forces drain on the node where the container is running, should not be used unless instructed explicitly by weka personnel, the effect of drain is throwing away all IOs and acknowledging all umounts in unsafe manner",
+          "optional": true
+        },
+        {
+          "name": "SkipActiveMountsCheck",
+          "jsonName": "skipActiveMountsCheck",
+          "type": "bool",
+          "description": "option to skip active mounts check before deleting client containers",
+          "optional": true
+        },
+        {
+          "name": "UmountOnHost",
+          "jsonName": "umountOnHost",
+          "type": "bool",
+          "description": "unsafe operation, runs nsenter in root namespace to umount all wekafs mounts visible on host",
+          "optional": true
+        },
+        {
+          "name": "DebugSleepOnTerminate",
+          "jsonName": "debugSleepOnTerminate",
+          "type": "int",
+          "description": "DebugSleepOnTerminate specifies the number of seconds to sleep on container abnormal exit for debugging purposes",
+          "optional": true
+        },
+        {
+          "name": "MigrateOutFromPvc",
+          "jsonName": "migrateOutFromPvc",
+          "type": "bool",
+          "description": "MigrateOutFromPvc specifies that the container should be migrated out from PVC into local storage, this will be done prior to starting pod",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "WekaContainerStatus": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Status",
+          "jsonName": "status",
+          "type": {
+            "$ref": "#/definitions/ContainerStatus"
+          },
+          "optional": false
+        },
+        {
+          "name": "InternalStatus",
+          "jsonName": "internalStatus",
+          "type": "string",
+          "description": "weka local container internal status",
+          "optional": true
+        },
+        {
+          "name": "ManagementIP",
+          "jsonName": "managementIP",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "ManagementIPs",
+          "jsonName": "managementIPs",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "ClusterContainerID",
+          "jsonName": "containerID",
+          "type": "int",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "ClusterID",
+          "jsonName": "clusterID",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "Conditions",
+          "jsonName": "conditions",
+          "type": {
+            "type": "array",
+            "items": "k8s:metav1.Condition"
+          },
+          "optional": true
+        },
+        {
+          "name": "LastAppliedImage",
+          "jsonName": "lastAppliedImage",
+          "type": "string",
+          "description": "Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later",
+          "optional": true
+        },
+        {
+          "name": "LastAppliedSpec",
+          "jsonName": "lastAppliedSpec",
+          "type": "string",
+          "description": "set by weka cluster or client or other higher level controller, to track if higher level spec was propagated",
+          "optional": true
+        },
+        {
+          "name": "LastAppliedPodConfigHash",
+          "jsonName": "lastAppliedPodConfigHash",
+          "type": "string",
+          "description": "to signal to a higher controller WekaContainer's pod status",
+          "optional": true
+        },
+        {
+          "name": "NodeAffinity",
+          "jsonName": "nodeAffinity",
+          "type": {
+            "$ref": "#/definitions/NodeName"
+          },
+          "description": "active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity",
+          "optional": true
+        },
+        {
+          "name": "ExecutionResult",
+          "jsonName": "result",
+          "type": "string",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Allocations",
+          "jsonName": "allocations",
+          "type": {
+            "$ref": "#/definitions/ContainerAllocations"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "AddedDrives",
+          "jsonName": "addedDrives",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/Drive"
+            }
+          },
+          "description": "drives that were added to the weka cluster",
+          "optional": true
+        },
+        {
+          "name": "Stats",
+          "jsonName": "stats",
+          "type": {
+            "$ref": "#/definitions/WekaContainerMetrics"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "PrinterColumns",
+          "jsonName": "printer",
+          "type": {
+            "$ref": "#/definitions/ContainerPrinterColumns"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Timestamps",
+          "jsonName": "timestamps",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "k8s:metav1.Time"
+          },
+          "optional": true
+        },
+        {
+          "name": "NotToleratedOnReschedule",
+          "jsonName": "notToleratedOnReschedule",
+          "type": "bool",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaContainer"
+      ]
+    },
+    "WekaHomeConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Endpoint",
+          "jsonName": "endpoint",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "AllowInsecure",
+          "jsonName": "allowInsecure",
+          "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "CacertSecret",
+          "jsonName": "cacertSecret",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "EnableStats",
+          "jsonName": "enableStats",
+          "type": "bool",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
+    "WekaManualOperation": {
+      "kind": "struct",
+      "description": "WekaManualOperation is the Schema for the wekamanualoperations API",
+      "fields": [
+        {
+          "name": "ObjectMeta",
+          "jsonName": "metadata",
+          "type": "k8s:metav1.ObjectMeta",
+          "optional": true,
+          "embedded": true
+        },
+        {
+          "name": "Spec",
+          "jsonName": "spec",
+          "type": {
+            "$ref": "#/definitions/WekaManualOperationSpec"
+          },
+          "optional": true
+        },
+        {
+          "name": "Status",
+          "jsonName": "status",
+          "type": {
+            "$ref": "#/definitions/WekaManualOperationStatus"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "WekaManualOperationList": {
+      "kind": "struct",
+      "description": "WekaManualOperationList contains a list of WekaManualOperation",
+      "fields": [
+        {
+          "name": "ListMeta",
+          "jsonName": "metadata",
+          "type": "k8s:metav1.ListMeta",
+          "optional": true,
+          "embedded": true
+        },
+        {
+          "name": "Items",
+          "jsonName": "items",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/WekaManualOperation"
+            }
+          },
+          "optional": false
+        }
+      ]
+    },
+    "WekaManualOperationSpec": {
+      "kind": "struct",
+      "description": "WekaManualOperationSpec defines the desired state of WekaManualOperation",
+      "fields": [
+        {
+          "name": "Action",
+          "jsonName": "action",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "Payload",
+          "jsonName": "payload",
+          "type": {
+            "$ref": "#/definitions/ManualOperatorPayload"
+          },
+          "optional": false
+        },
+        {
+          "name": "Image",
+          "jsonName": "image",
+          "type": "string",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "ImagePullSecret",
+          "jsonName": "imagePullSecret",
+          "type": "string",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Tolerations",
+          "jsonName": "tolerations",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.Toleration"
+          },
+          "optional": true
+        },
+        {
+          "name": "ServiceAccountName",
+          "jsonName": "serviceAccountName",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "DeletionDelay",
+          "jsonName": "deletionDelay",
+          "type": "k8s:metav1.Duration",
+          "description": "DeletionDelay specifies how long to wait after completion before deleting the resource.\nDefaults to 5m if not specified.",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation"
+      ]
+    },
+    "WekaManualOperationStatus": {
+      "kind": "struct",
+      "description": "WekaManualOperationStatus defines the observed state of WekaManualOperation",
+      "fields": [
+        {
+          "name": "Result",
+          "jsonName": "result",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "Status",
+          "jsonName": "status",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "CompletedAt",
+          "jsonName": "completedAt",
+          "type": "k8s:metav1.Time",
+          "optional": false
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation"
+      ]
+    },
+    "WekaOwnerDetails": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Image",
+          "jsonName": "image",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "ImagePullSecret",
+          "jsonName": "imagePullSecrets",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "Tolerations",
+          "jsonName": "tolerations",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.Toleration"
+          },
+          "optional": true
+        },
+        {
+          "name": "Labels",
+          "jsonName": "labels",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "Affinity",
+          "jsonName": "affinity",
+          "type": "k8s:v1.Affinity",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "ServiceAccountName",
+          "jsonName": "serviceAccountName",
+          "type": "string",
+          "optional": true
+        }
+      ]
+    },
+    "WekaPolicy": {
+      "kind": "struct",
+      "description": "WekaPolicy is the Schema for the wekapolicies API",
+      "fields": [
+        {
+          "name": "ObjectMeta",
+          "jsonName": "metadata",
+          "type": "k8s:metav1.ObjectMeta",
+          "optional": true,
+          "embedded": true
+        },
+        {
+          "name": "Spec",
+          "jsonName": "spec",
+          "type": {
+            "$ref": "#/definitions/WekaPolicySpec"
+          },
+          "optional": true
+        },
+        {
+          "name": "Status",
+          "jsonName": "status",
+          "type": {
+            "$ref": "#/definitions/WekaPolicyStatus"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "WekaPolicyList": {
+      "kind": "struct",
+      "description": "WekaPolicyList contains a list of WekaPolicy",
+      "fields": [
+        {
+          "name": "ListMeta",
+          "jsonName": "metadata",
+          "type": "k8s:metav1.ListMeta",
+          "optional": true,
+          "embedded": true
+        },
+        {
+          "name": "Items",
+          "jsonName": "items",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/WekaPolicy"
+            }
+          },
+          "optional": false
+        }
+      ]
+    },
+    "WekaPolicySpec": {
+      "kind": "struct",
+      "description": "WekaPolicySpec defines the desired state of WekaPolicy",
+      "fields": [
+        {
+          "name": "Type",
+          "jsonName": "type",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "Payload",
+          "jsonName": "payload",
+          "type": {
+            "$ref": "#/definitions/PolicyPayload"
+          },
+          "optional": false
+        },
+        {
+          "name": "Image",
+          "jsonName": "image",
+          "type": "string",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "ImagePullSecret",
+          "jsonName": "imagePullSecret",
+          "type": "string",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Tolerations",
+          "jsonName": "tolerations",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.Toleration"
+          },
+          "optional": true
+        },
+        {
+          "name": "ServiceAccountName",
+          "jsonName": "serviceAccountName",
+          "type": "string",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
+      ]
+    },
+    "WekaPolicyStatus": {
+      "kind": "struct",
+      "description": "WekaPolicyStatus defines the observed state of WekaPolicy",
+      "fields": [
+        {
+          "name": "Status",
+          "jsonName": "status",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "LastResult",
+          "jsonName": "result",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "LastRunTime",
+          "jsonName": "lastRunTime",
+          "type": "k8s:metav1.Time",
+          "optional": false
+        },
+        {
+          "name": "Progress",
+          "jsonName": "progress",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "TypedStatus",
+          "jsonName": "typedStatus",
+          "type": {
+            "$ref": "#/definitions/TypedPolicyStatus"
+          },
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
+      ]
+    },
+    "WekahomeClientConfig": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "CacertSecret",
+          "jsonName": "cacertSecret",
+          "type": "string",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient"
+      ]
+    }
+  }
+}

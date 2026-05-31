@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -11,24 +12,97 @@ import (
 	"strings"
 )
 
+// ---- JSON schema structures ----
+
+type Schema struct {
+	APIVersion string                   `json:"apiVersion"`
+	Resources  map[string]*ResourceInfo `json:"resources"`
+	Definitions map[string]*Definition   `json:"definitions"`
+}
+
+type ResourceInfo struct {
+	Description string `json:"description"`
+	Spec        string `json:"spec,omitempty"`
+	Status      string `json:"status,omitempty"`
+}
+
+type Definition struct {
+	Kind        string     `json:"kind"`
+	Description string     `json:"description,omitempty"`
+	Fields      []FieldDef `json:"fields,omitempty"`
+	EnumValues  []string   `json:"enumValues,omitempty"`
+	BaseType    string     `json:"baseType,omitempty"`
+	UsedBy      []string   `json:"usedBy,omitempty"`
+}
+
+type FieldDef struct {
+	Name        string      `json:"name"`
+	JSONName    string      `json:"jsonName"`
+	Type        interface{} `json:"type"`
+	Description string      `json:"description,omitempty"`
+	Optional    bool        `json:"optional"`
+	Pointer     bool        `json:"pointer,omitempty"`
+	Embedded    bool        `json:"embedded,omitempty"`
+}
+
+type RefType struct {
+	Ref string `json:"$ref"`
+}
+
+type ArrayType struct {
+	Type  string      `json:"type"`
+	Items interface{} `json:"items"`
+}
+
+type MapType struct {
+	Type  string      `json:"type"`
+	Key   string      `json:"key"`
+	Value interface{} `json:"value"`
+}
+
+// ---- Internal tracking structures ----
+
+type typeInfo struct {
+	name     string
+	typeSpec *ast.TypeSpec
+	file     *ast.File
+}
+
+type enumInfo struct {
+	baseType string
+	values   []string
+}
+
+var mainCRDs = []string{"WekaCluster", "WekaContainer", "WekaClient", "WekaPolicy", "WekaManualOperation"}
+
 func main() {
 	sourceDir := "./pkg/weka-k8s-api/api/v1alpha1"
 	outputDir := "./doc/api_dump"
 
-	// Create output directory
-	os.MkdirAll(outputDir, 0o755) //nolint:errcheck // error return value intentionally not checked
+	os.MkdirAll(outputDir, 0o755) //nolint:errcheck
 
-	// Parse Go files
+	// Phase 1: Generate api-schema.json
+	schema := generateSchema(sourceDir)
+	writeSchemaJSON(schema, outputDir)
+
+	// Phase 2: Generate markdown docs from schema
+	generateMarkdownDocs(schema, outputDir)
+}
+
+// ---- Phase 1: Parse Go source and build schema ----
+
+func generateSchema(sourceDir string) *Schema {
 	fset := token.NewFileSet()
-	packages, err := parser.ParseDir(fset, sourceDir, nil, parser.ParseComments) //nolint:staticcheck // using deprecated API, will be updated separately
+	packages, err := parser.ParseDir(fset, sourceDir, nil, parser.ParseComments) //nolint:staticcheck
 	if err != nil {
 		fmt.Printf("Error parsing directory: %v\n", err)
-		return
+		os.Exit(1)
 	}
 
-	// Collect all types
-	allTypes := make(map[string]*TypeInfo)
-	var mainCRDs []string
+	allTypes := make(map[string]*typeInfo)
+	enums := make(map[string]*enumInfo)
+	structTypes := make(map[string]bool)
+	aliasTypes := make(map[string]string)
 
 	for _, pkg := range packages {
 		for filename, file := range pkg.Files {
@@ -36,96 +110,194 @@ func main() {
 				continue
 			}
 
-			// Create a map of line positions to comments for faster lookup
-			commentMap := make(map[int]bool)
-			for _, commentGroup := range file.Comments {
-				for _, comment := range commentGroup.List {
-					if strings.Contains(comment.Text, "+kubebuilder:object:root=true") {
-						pos := fset.Position(comment.Pos())
-						// Mark lines around the comment as potential CRD locations
-						for i := -3; i <= 10; i++ {
-							commentMap[pos.Line+i] = true
-						}
-					}
-				}
-			}
-
 			ast.Inspect(file, func(n ast.Node) bool {
-				if node, ok := n.(*ast.TypeSpec); ok {
-					if structType, ok := node.Type.(*ast.StructType); ok {
-						typePos := fset.Position(node.Pos())
-						// Check a wider range around the type position
-						isCRDType := false
-						for i := -15; i <= 5; i++ {
-							if commentMap[typePos.Line+i] {
-								isCRDType = true
-								break
+				genDecl, ok := n.(*ast.GenDecl)
+				if !ok {
+					return true
+				}
+
+				if genDecl.Tok == token.TYPE {
+					for _, spec := range genDecl.Specs {
+						ts, ok := spec.(*ast.TypeSpec)
+						if !ok {
+							continue
+						}
+						ti := &typeInfo{
+							name:     ts.Name.Name,
+							typeSpec: ts,
+							file:     file,
+						}
+						allTypes[ts.Name.Name] = ti
+
+						if _, ok := ts.Type.(*ast.StructType); ok {
+							structTypes[ts.Name.Name] = true
+						} else if ident, ok := ts.Type.(*ast.Ident); ok {
+							if isBasicType(ident.Name) {
+								aliasTypes[ts.Name.Name] = ident.Name
 							}
-						}
-						// Debug cluster/container detection
-						// if strings.Contains(node.Name.Name, "WekaCluster") || strings.Contains(node.Name.Name, "WekaContainer") {
-						//     fmt.Printf("Checking %s at line %d, isCRD: %v\n", node.Name.Name, typePos.Line, isCRDType)
-						// }
-
-						typeInfo := &TypeInfo{
-							Name:     node.Name.Name,
-							TypeSpec: node,
-							Struct:   structType,
-							File:     file,
-							IsCRD:    isCRDType,
-						}
-						allTypes[typeInfo.Name] = typeInfo
-
-						// Only consider types ending with base resource name (not List types)
-						// and filter out non-main resource types
-						if typeInfo.IsCRD && !strings.HasSuffix(typeInfo.Name, "List") && isMainResourceType(typeInfo.Name) {
-							mainCRDs = append(mainCRDs, typeInfo.Name)
-							fmt.Printf("Found main CRD: %s\n", typeInfo.Name)
+						} else if sel, ok := ts.Type.(*ast.SelectorExpr); ok {
+							pkgName := ""
+							if ident, ok := sel.X.(*ast.Ident); ok {
+								pkgName = ident.Name
+							}
+							aliasTypes[ts.Name.Name] = pkgName + "." + sel.Sel.Name
 						}
 					}
 				}
+
+				if genDecl.Tok == token.CONST {
+					for _, spec := range genDecl.Specs {
+						vs, ok := spec.(*ast.ValueSpec)
+						if !ok || vs.Type == nil {
+							continue
+						}
+						typeName := ""
+						switch t := vs.Type.(type) {
+						case *ast.Ident:
+							typeName = t.Name
+						case *ast.SelectorExpr:
+							continue
+						}
+						if typeName == "" {
+							continue
+						}
+
+						for _, val := range vs.Values {
+							lit, ok := val.(*ast.BasicLit)
+							if !ok {
+								continue
+							}
+							v := strings.Trim(lit.Value, `"`)
+							if enums[typeName] == nil {
+								enums[typeName] = &enumInfo{}
+							}
+							enums[typeName].values = append(enums[typeName].values, v)
+						}
+					}
+				}
+
 				return true
 			})
 		}
 	}
 
-	// Sort main CRDs
-	sort.Strings(mainCRDs)
+	// Set base types for enums
+	for name, ei := range enums {
+		if baseType, ok := aliasTypes[name]; ok {
+			ei.baseType = baseType
+		}
+	}
 
-	// Generate one file per main CRD with all related types
+	// Build definitions for all custom types
+	definitions := make(map[string]*Definition)
+
+	for name, ti := range allTypes {
+		if isBasicType(name) || isKubernetesType(name) {
+			continue
+		}
+
+		structType, isStruct := ti.typeSpec.Type.(*ast.StructType)
+
+		if isStruct {
+			def := &Definition{
+				Kind:        "struct",
+				Description: getTypeDescription(ti),
+			}
+
+			for _, field := range structType.Fields.List {
+				fieldDefs := processField(field, allTypes, structTypes, aliasTypes, enums)
+				def.Fields = append(def.Fields, fieldDefs...)
+			}
+
+			definitions[name] = def
+		} else if ei, isEnum := enums[name]; isEnum {
+			def := &Definition{
+				Kind:        "enum",
+				Description: getTypeDescription(ti),
+				BaseType:    ei.baseType,
+				EnumValues:  ei.values,
+			}
+			definitions[name] = def
+		} else if baseType, isAlias := aliasTypes[name]; isAlias {
+			def := &Definition{
+				Kind:        "alias",
+				Description: getTypeDescription(ti),
+				BaseType:    baseType,
+			}
+			definitions[name] = def
+		}
+	}
+
+	// Build resources map
+	resources := make(map[string]*ResourceInfo)
+
 	for _, crdName := range mainCRDs {
-		generateCRDMarkdown(crdName, allTypes, outputDir, fset)
+		ti, exists := allTypes[crdName]
+		if !exists {
+			fmt.Printf("Warning: CRD type %s not found\n", crdName)
+			continue
+		}
+
+		ri := &ResourceInfo{
+			Description: getTypeDescription(ti),
+		}
+
+		specName := crdName + "Spec"
+		if _, ok := definitions[specName]; ok {
+			ri.Spec = "#/definitions/" + specName
+		}
+		statusName := crdName + "Status"
+		if _, ok := definitions[statusName]; ok {
+			ri.Status = "#/definitions/" + statusName
+		}
+
+		resources[crdName] = ri
 	}
 
-	fmt.Printf("Generated %d CRD documentation files in %s\n", len(mainCRDs), outputDir)
+	// Compute usedBy for each definition
+	computeUsedBy(definitions, mainCRDs)
+
+	return &Schema{
+		APIVersion: "v1alpha1",
+		Resources:  resources,
+		Definitions: definitions,
+	}
 }
 
-type TypeInfo struct {
-	Name     string
-	TypeSpec *ast.TypeSpec
-	Struct   *ast.StructType
-	File     *ast.File
-	IsCRD    bool
-}
-
-func isMainResourceType(typeName string) bool {
-	// Skip DriveClaim - deprecated and will be removed from API later
-	if typeName == "DriveClaim" {
-		return false
+func writeSchemaJSON(schema *Schema, outputDir string) {
+	outputPath := filepath.Join(outputDir, "api-schema.json")
+	data, err := json.MarshalIndent(schema, "", "  ")
+	if err != nil {
+		fmt.Printf("Error marshaling JSON: %v\n", err)
+		os.Exit(1)
 	}
 
-	// Only include main CRD types, exclude helper/payload types
-	mainTypes := map[string]bool{
-		"WekaCluster":         true,
-		"WekaPolicy":          true,
-		"WekaContainer":       true,
-		"WekaClient":          true,
-		"WekaManualOperation": true,
+	err = os.WriteFile(outputPath, data, 0o644)
+	if err != nil {
+		fmt.Printf("Error writing file: %v\n", err)
+		os.Exit(1)
 	}
-	return mainTypes[typeName]
+
+	fmt.Printf("Generated %s (%d resources, %d definitions)\n", outputPath, len(schema.Resources), len(schema.Definitions))
 }
 
-func generateCRDMarkdown(crdName string, allTypes map[string]*TypeInfo, outputDir string, fset *token.FileSet) {
+// ---- Phase 2: Generate markdown docs from schema ----
+
+func generateMarkdownDocs(schema *Schema, outputDir string) {
+	var crdNames []string
+	for name := range schema.Resources {
+		crdNames = append(crdNames, name)
+	}
+	sort.Strings(crdNames)
+
+	for _, crdName := range crdNames {
+		generateCRDMarkdown(crdName, schema, outputDir)
+	}
+
+	fmt.Printf("Generated %d CRD documentation files in %s\n", len(crdNames), outputDir)
+}
+
+func generateCRDMarkdown(crdName string, schema *Schema, outputDir string) {
 	filename := filepath.Join(outputDir, strings.ToLower(crdName)+".md")
 
 	f, err := os.Create(filename)
@@ -133,67 +305,73 @@ func generateCRDMarkdown(crdName string, allTypes map[string]*TypeInfo, outputDi
 		fmt.Printf("Error creating file %s: %v\n", filename, err)
 		return
 	}
-	defer f.Close() //nolint:errcheck // error return value intentionally not checked
+	defer f.Close() //nolint:errcheck
 
-	// Write header
-	fmt.Fprintf(f, "# %s\n\n", crdName) //nolint:errcheck // error return value intentionally not checked
+	fmt.Fprintf(f, "# %s\n\n", crdName) //nolint:errcheck
 
-	// Find related types
-	relatedTypes := findRelatedTypes(crdName, allTypes)
+	// Find related types via BFS through $ref links (structs only)
+	relatedTypes := findRelatedTypes(crdName, schema)
 
 	// Write table of contents
-	fmt.Fprintf(f, "## API Types\n\n") //nolint:errcheck // error return value intentionally not checked
+	fmt.Fprintf(f, "## API Types\n\n") //nolint:errcheck
 	for _, typeName := range relatedTypes {
-		fmt.Fprintf(f, "- [%s](#%s)\n", typeName, strings.ToLower(typeName)) //nolint:errcheck // error return value intentionally not checked
+		fmt.Fprintf(f, "- [%s](#%s)\n", typeName, strings.ToLower(typeName)) //nolint:errcheck
 	}
-	fmt.Fprintf(f, "\n---\n\n") //nolint:errcheck // error return value intentionally not checked
+	fmt.Fprintf(f, "\n---\n\n") //nolint:errcheck
 
 	// Generate documentation for each related type
 	for _, typeName := range relatedTypes {
-		if typeInfo, exists := allTypes[typeName]; exists {
-			generateTypeSection(f, typeInfo)
+		def, exists := schema.Definitions[typeName]
+		if !exists {
+			continue
 		}
+		generateTypeSection(f, typeName, def)
 	}
 
 	fmt.Printf("Generated: %s\n", filename)
 }
 
-func findRelatedTypes(crdName string, allTypes map[string]*TypeInfo) []string {
+func findRelatedTypes(crdName string, schema *Schema) []string {
 	var related []string
 	visited := make(map[string]bool)
 
-	// Add the main CRD first
-	related = append(related, crdName)
-	visited[crdName] = true
-
-	// Add spec, status, and list types
-	candidates := []string{
-		crdName + "Spec",
-		crdName + "Status",
-		crdName + "List",
+	if _, exists := schema.Definitions[crdName]; exists {
+		related = append(related, crdName)
+		visited[crdName] = true
 	}
 
-	for _, candidate := range candidates {
-		if _, exists := allTypes[candidate]; exists && !visited[candidate] {
+	for _, suffix := range []string{"Spec", "Status", "List"} {
+		candidate := crdName + suffix
+		if _, exists := schema.Definitions[candidate]; exists && !visited[candidate] {
 			related = append(related, candidate)
 			visited[candidate] = true
 		}
 	}
 
-	// Find types referenced by spec and status
+	// BFS from spec and status to find all referenced struct types
 	queue := []string{crdName + "Spec", crdName + "Status"}
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
 
-		if typeInfo, exists := allTypes[current]; exists {
-			referencedTypes := getReferencedTypes(typeInfo.Struct)
-			for _, refType := range referencedTypes {
-				if _, exists := allTypes[refType]; exists && !visited[refType] && !isKubernetesType(refType) {
-					related = append(related, refType)
-					visited[refType] = true
-					queue = append(queue, refType)
+		def, exists := schema.Definitions[current]
+		if !exists || def.Kind != "struct" {
+			continue
+		}
+
+		for _, field := range def.Fields {
+			refs := extractTypeRefs(field.Type)
+			for _, ref := range refs {
+				refDef, exists := schema.Definitions[ref]
+				if !exists || visited[ref] {
+					continue
 				}
+				if refDef.Kind != "struct" {
+					continue
+				}
+				related = append(related, ref)
+				visited[ref] = true
+				queue = append(queue, ref)
 			}
 		}
 	}
@@ -201,38 +379,311 @@ func findRelatedTypes(crdName string, allTypes map[string]*TypeInfo) []string {
 	return related
 }
 
-func getReferencedTypes(structType *ast.StructType) []string {
-	var types []string
+func generateTypeSection(f *os.File, typeName string, def *Definition) {
+	fmt.Fprintf(f, "## %s\n\n", typeName) //nolint:errcheck
 
-	for _, field := range structType.Fields.List {
-		fieldTypes := extractFieldTypes(field.Type)
-		types = append(types, fieldTypes...)
+	// Write fields table for struct types (skip embedded/metadata fields)
+	hasFields := false
+	for _, field := range def.Fields {
+		if !field.Embedded {
+			hasFields = true
+			break
+		}
 	}
 
-	return types
+	if hasFields {
+		fmt.Fprintf(f, "| JSON Field | Type | Description |\n")  //nolint:errcheck
+		fmt.Fprintf(f, "|------------|------|-------------|\n") //nolint:errcheck
+
+		for _, field := range def.Fields {
+			if field.Embedded {
+				continue
+			}
+			goType := typeToGoString(field.Type, field.Pointer)
+			desc := strings.ReplaceAll(field.Description, "\n", "<br>")
+			desc = strings.ReplaceAll(desc, "|", "\\|")
+			fmt.Fprintf(f, "| %s | %s | %s |\n", field.JSONName, goType, desc) //nolint:errcheck
+		}
+		fmt.Fprintf(f, "\n") //nolint:errcheck
+	}
+
+	fmt.Fprintf(f, "---\n\n") //nolint:errcheck
 }
 
-func extractFieldTypes(expr ast.Expr) []string {
-	var types []string
-
-	switch t := expr.(type) {
-	case *ast.Ident:
-		if !isBasicType(t.Name) {
-			types = append(types, t.Name)
-		}
-	case *ast.StarExpr:
-		types = append(types, extractFieldTypes(t.X)...)
-	case *ast.ArrayType:
-		types = append(types, extractFieldTypes(t.Elt)...)
-	case *ast.MapType:
-		types = append(types, extractFieldTypes(t.Key)...)
-		types = append(types, extractFieldTypes(t.Value)...)
-	case *ast.SelectorExpr:
-		// Skip external types like v1.Pod, metav1.Time, etc.
-		return types
+// typeToGoString converts a JSON type representation back to a Go-style type string.
+func typeToGoString(t interface{}, pointer bool) string {
+	prefix := ""
+	if pointer {
+		prefix = "*"
 	}
 
-	return types
+	switch v := t.(type) {
+	case string:
+		if strings.HasPrefix(v, "k8s:") {
+			return prefix + strings.TrimPrefix(v, "k8s:")
+		}
+		return prefix + v
+
+	case RefType:
+		name := strings.TrimPrefix(v.Ref, "#/definitions/")
+		return prefix + name
+
+	case ArrayType:
+		items := typeToGoString(v.Items, false)
+		return prefix + "[]" + items
+
+	case MapType:
+		value := typeToGoString(v.Value, false)
+		return prefix + fmt.Sprintf("map[%s]%s", v.Key, value)
+	}
+
+	return "unknown"
+}
+
+// ---- Shared helpers ----
+
+// processField converts an AST field into one or more FieldDef entries.
+func processField(field *ast.Field, allTypes map[string]*typeInfo, structTypes map[string]bool, aliasTypes map[string]string, enums map[string]*enumInfo) []FieldDef {
+	jsonTag := getJSONTag(field)
+
+	if jsonTag == "-" {
+		return nil
+	}
+
+	if strings.Contains(getRawJSONTag(field), ",inline") {
+		return nil
+	}
+
+	_, isPointer := field.Type.(*ast.StarExpr)
+	optional := isOptionalField(field)
+
+	// Handle anonymous/embedded fields
+	if len(field.Names) == 0 {
+		typeName := resolveTypeName(field.Type)
+		if typeName == "" {
+			return nil
+		}
+		jsonName := jsonTag
+		if jsonName == "" {
+			jsonName = toCamelCase(typeName)
+		}
+		fieldType := resolveFieldType(field.Type, allTypes, structTypes, aliasTypes, enums)
+		return []FieldDef{{
+			Name:        typeName,
+			JSONName:    jsonName,
+			Type:        fieldType,
+			Description: getFieldDescription(field),
+			Optional:    optional,
+			Pointer:     isPointer,
+			Embedded:    true,
+		}}
+	}
+
+	var results []FieldDef
+	for _, name := range field.Names {
+		if !name.IsExported() {
+			continue
+		}
+
+		jsonName := jsonTag
+		if jsonName == "" {
+			jsonName = toCamelCase(name.Name)
+		}
+
+		fieldType := resolveFieldType(field.Type, allTypes, structTypes, aliasTypes, enums)
+
+		results = append(results, FieldDef{
+			Name:        name.Name,
+			JSONName:    jsonName,
+			Type:        fieldType,
+			Description: getFieldDescription(field),
+			Optional:    optional,
+			Pointer:     isPointer,
+		})
+	}
+	return results
+}
+
+// resolveFieldType converts an ast.Expr to a JSON-compatible type representation.
+func resolveFieldType(expr ast.Expr, allTypes map[string]*typeInfo, structTypes map[string]bool, aliasTypes map[string]string, enums map[string]*enumInfo) interface{} {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		name := t.Name
+		if isBasicType(name) {
+			return name
+		}
+		if structTypes[name] || enums[name] != nil || aliasTypes[name] != "" {
+			return RefType{Ref: "#/definitions/" + name}
+		}
+		return name
+
+	case *ast.StarExpr:
+		return resolveFieldType(t.X, allTypes, structTypes, aliasTypes, enums)
+
+	case *ast.ArrayType:
+		itemType := resolveFieldType(t.Elt, allTypes, structTypes, aliasTypes, enums)
+		return ArrayType{Type: "array", Items: itemType}
+
+	case *ast.MapType:
+		keyType := resolveFieldType(t.Key, allTypes, structTypes, aliasTypes, enums)
+		valType := resolveFieldType(t.Value, allTypes, structTypes, aliasTypes, enums)
+
+		keyStr := "string"
+		if s, ok := keyType.(string); ok {
+			keyStr = s
+		}
+
+		return MapType{Type: "map", Key: keyStr, Value: valType}
+
+	case *ast.SelectorExpr:
+		pkgName := ""
+		if ident, ok := t.X.(*ast.Ident); ok {
+			pkgName = ident.Name
+		}
+		return "k8s:" + pkgName + "." + t.Sel.Name
+
+	default:
+		return "unknown"
+	}
+}
+
+func resolveTypeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		return resolveTypeName(t.X)
+	case *ast.SelectorExpr:
+		return t.Sel.Name
+	default:
+		return ""
+	}
+}
+
+func isOptionalField(field *ast.Field) bool {
+	if _, ok := field.Type.(*ast.StarExpr); ok {
+		return true
+	}
+	rawTag := getRawJSONTag(field)
+	return strings.Contains(rawTag, "omitempty")
+}
+
+func getJSONTag(field *ast.Field) string {
+	if field.Tag == nil {
+		return ""
+	}
+	tag := strings.Trim(field.Tag.Value, "`")
+	jsonStart := strings.Index(tag, `json:"`)
+	if jsonStart == -1 {
+		return ""
+	}
+	jsonStart += 6
+	jsonEnd := strings.Index(tag[jsonStart:], `"`)
+	if jsonEnd == -1 {
+		return ""
+	}
+	jsonTag := tag[jsonStart : jsonStart+jsonEnd]
+	parts := strings.Split(jsonTag, ",")
+	name := parts[0]
+	if name == "-" {
+		return "-"
+	}
+	return name
+}
+
+func getRawJSONTag(field *ast.Field) string {
+	if field.Tag == nil {
+		return ""
+	}
+	tag := strings.Trim(field.Tag.Value, "`")
+	jsonStart := strings.Index(tag, `json:"`)
+	if jsonStart == -1 {
+		return ""
+	}
+	jsonStart += 6
+	jsonEnd := strings.Index(tag[jsonStart:], `"`)
+	if jsonEnd == -1 {
+		return ""
+	}
+	return tag[jsonStart : jsonStart+jsonEnd]
+}
+
+func getTypeDescription(ti *typeInfo) string {
+	if ti.typeSpec.Doc != nil {
+		return extractCommentText(ti.typeSpec.Doc)
+	}
+
+	for _, decl := range ti.file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range genDecl.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok || ts.Name.Name != ti.name {
+				continue
+			}
+			if len(genDecl.Specs) == 1 && genDecl.Doc != nil {
+				return extractCommentText(genDecl.Doc)
+			}
+		}
+	}
+
+	return ""
+}
+
+func extractCommentText(cg *ast.CommentGroup) string {
+	if cg == nil {
+		return ""
+	}
+	var lines []string
+	for _, c := range cg.List {
+		text := cleanComment(c.Text)
+		if text != "" {
+			lines = append(lines, text)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func getFieldDescription(field *ast.Field) string {
+	var lines []string
+
+	if field.Doc != nil {
+		for _, c := range field.Doc.List {
+			text := cleanComment(c.Text)
+			if text != "" {
+				lines = append(lines, text)
+			}
+		}
+	}
+
+	if field.Comment != nil {
+		for _, c := range field.Comment.List {
+			text := cleanComment(c.Text)
+			if text != "" {
+				lines = append(lines, text)
+			}
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func cleanComment(text string) string {
+	text = strings.TrimPrefix(text, "//")
+	text = strings.TrimSpace(text)
+	if strings.HasPrefix(text, "+") {
+		return ""
+	}
+	return text
+}
+
+func toCamelCase(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToLower(s[:1]) + s[1:]
 }
 
 func isBasicType(typeName string) bool {
@@ -245,7 +696,6 @@ func isBasicType(typeName string) bool {
 }
 
 func isKubernetesType(typeName string) bool {
-	// Skip common Kubernetes types that would clutter the docs
 	k8sTypes := map[string]bool{
 		"ObjectMeta": true, "TypeMeta": true, "ListMeta": true,
 		"Time": true, "Duration": true, "Quantity": true,
@@ -254,136 +704,61 @@ func isKubernetesType(typeName string) bool {
 	return k8sTypes[typeName]
 }
 
-func generateTypeSection(f *os.File, typeInfo *TypeInfo) {
-	typeName := typeInfo.Name
-
-	// Write type header
-	fmt.Fprintf(f, "## %s\n\n", typeName) //nolint:errcheck // error return value intentionally not checked
-
-	// Write type description from comments
-	if typeInfo.TypeSpec.Comment != nil {
-		hasDescription := false
-		for _, comment := range typeInfo.TypeSpec.Comment.List {
-			text := strings.TrimPrefix(comment.Text, "//")
-			text = strings.TrimSpace(text)
-			if !strings.HasPrefix(text, "+") && text != "" { // Skip kubebuilder annotations and empty lines
-				fmt.Fprintf(f, "%s\n", text) //nolint:errcheck // error return value intentionally not checked
-				hasDescription = true
-			}
-		}
-		if hasDescription {
-			fmt.Fprintf(f, "\n") //nolint:errcheck // error return value intentionally not checked
-		}
+// extractTypeRefs extracts definition names referenced in a type value.
+func extractTypeRefs(t interface{}) []string {
+	switch v := t.(type) {
+	case RefType:
+		name := strings.TrimPrefix(v.Ref, "#/definitions/")
+		return []string{name}
+	case ArrayType:
+		return extractTypeRefs(v.Items)
+	case MapType:
+		return extractTypeRefs(v.Value)
 	}
+	return nil
+}
 
-	// Write fields table
-	if len(typeInfo.Struct.Fields.List) > 0 {
-		fmt.Fprintf(f, "| JSON Field | Type | Description |\n") //nolint:errcheck // error return value intentionally not checked
-		fmt.Fprintf(f, "|------------|------|-------------|\n") //nolint:errcheck // error return value intentionally not checked
+// computeUsedBy populates the UsedBy field on each definition by tracing
+// which main CRD resources reference each type (directly or transitively).
+func computeUsedBy(definitions map[string]*Definition, crdNames []string) {
+	for _, crdName := range crdNames {
+		visited := make(map[string]bool)
+		queue := []string{crdName + "Spec", crdName + "Status"}
 
-		for _, field := range typeInfo.Struct.Fields.List {
-			if field.Names != nil {
-				for _, name := range field.Names {
-					// Skip embedded fields (usually metadata)
-					if name.IsExported() {
-						jsonName := getJSONFieldName(field)
-						fieldType := getTypeName(field.Type)
-						description := getFieldDescription(field, typeInfo.File)
-						fmt.Fprintf(f, "| %s | %s | %s |\n", jsonName, fieldType, description) //nolint:errcheck // error return value intentionally not checked
+		for len(queue) > 0 {
+			current := queue[0]
+			queue = queue[1:]
+
+			if visited[current] {
+				continue
+			}
+			visited[current] = true
+
+			def, ok := definitions[current]
+			if !ok {
+				continue
+			}
+
+			for _, field := range def.Fields {
+				refs := extractTypeRefs(field.Type)
+				for _, ref := range refs {
+					if !visited[ref] {
+						queue = append(queue, ref)
 					}
 				}
 			}
 		}
-		fmt.Fprintf(f, "\n") //nolint:errcheck // error return value intentionally not checked
-	}
 
-	fmt.Fprintf(f, "---\n\n") //nolint:errcheck // error return value intentionally not checked
-}
-
-func getTypeName(expr ast.Expr) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.SelectorExpr:
-		return fmt.Sprintf("%s.%s", getTypeName(t.X), t.Sel.Name)
-	case *ast.StarExpr:
-		return "*" + getTypeName(t.X)
-	case *ast.ArrayType:
-		return "[]" + getTypeName(t.Elt)
-	case *ast.MapType:
-		return fmt.Sprintf("map[%s]%s", getTypeName(t.Key), getTypeName(t.Value))
-	default:
-		return "unknown"
-	}
-}
-
-func getJSONFieldName(field *ast.Field) string {
-	if field.Tag != nil {
-		tag := strings.Trim(field.Tag.Value, "`")
-		// Extract json tag
-		if jsonStart := strings.Index(tag, `json:"`); jsonStart != -1 {
-			jsonStart += 6 // len(`json:"`)
-			jsonEnd := strings.Index(tag[jsonStart:], `"`)
-			if jsonEnd != -1 {
-				jsonTag := tag[jsonStart : jsonStart+jsonEnd]
-				// Handle json:",omitempty" or json:"fieldName,omitempty"
-				jsonName := strings.Split(jsonTag, ",")[0]
-				if jsonName != "" && jsonName != "-" {
-					return jsonName
-				}
+		for typeName := range visited {
+			if def, ok := definitions[typeName]; ok {
+				def.UsedBy = append(def.UsedBy, crdName)
 			}
 		}
 	}
 
-	// If no json tag, return field name in camelCase
-	if len(field.Names) > 0 {
-		return toCamelCase(field.Names[0].Name)
-	}
-	return ""
-}
-
-func toCamelCase(s string) string {
-	if s == "" {
-		return ""
-	}
-	// Convert first letter to lowercase
-	return strings.ToLower(s[:1]) + s[1:]
-}
-
-func getFieldDescription(field *ast.Field, file *ast.File) string {
-	var lines []string
-
-	// Check doc comments (comments above the field)
-	if field.Doc != nil {
-		for _, comment := range field.Doc.List {
-			text := cleanComment(comment.Text)
-			if text != "" {
-				lines = append(lines, text)
-			}
+	for _, def := range definitions {
+		if len(def.UsedBy) > 0 {
+			sort.Strings(def.UsedBy)
 		}
 	}
-
-	// Check line comments (comments on the same line)
-	if field.Comment != nil {
-		for _, comment := range field.Comment.List {
-			text := cleanComment(comment.Text)
-			if text != "" {
-				lines = append(lines, text)
-			}
-		}
-	}
-
-	return strings.Join(lines, "<br>")
-}
-
-func cleanComment(text string) string {
-	text = strings.TrimPrefix(text, "//")
-	text = strings.TrimSpace(text)
-	// Skip kubebuilder annotations
-	if strings.HasPrefix(text, "+") {
-		return ""
-	}
-	// Escape pipes to avoid breaking markdown tables
-	text = strings.ReplaceAll(text, "|", "\\|")
-	return text
 }
