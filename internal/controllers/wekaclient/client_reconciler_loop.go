@@ -233,6 +233,7 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 		return err
 	}
 
+	controllerutil.RemoveFinalizer(c.wekaClient, consts.DeletionProtectionFinalizer)
 	controllerutil.RemoveFinalizer(c.wekaClient, consts.WekaFinalizer)
 	if err := c.Update(ctx, c.wekaClient); err != nil {
 		logger.Error(err, "Error removing finalizer")
@@ -260,7 +261,9 @@ func (c *clientReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	logger.Info("Adding Finalizer for weka client")
-	if ok := controllerutil.AddFinalizer(c.wekaClient, consts.WekaFinalizer); !ok {
+	addedGuard := controllerutil.AddFinalizer(c.wekaClient, consts.DeletionProtectionFinalizer)
+	addedWeka := controllerutil.AddFinalizer(c.wekaClient, consts.WekaFinalizer)
+	if !addedGuard && !addedWeka {
 		return nil
 	}
 

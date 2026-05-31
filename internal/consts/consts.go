@@ -4,6 +4,11 @@ package consts
 const (
 	// WekaFinalizer is the finalizer added to Weka resources to ensure proper cleanup
 	WekaFinalizer = "weka.weka.io/finalizer"
+
+	// DeletionProtectionFinalizer is a guard finalizer with a clear name to prevent
+	// accidental deletion by automation or AI agents. It is added alongside WekaFinalizer
+	// and removed only during intentional operator-driven deletion flows.
+	DeletionProtectionFinalizer = "do-not-delete.weka.io/unsafe"
 )
 
 // Node annotation keys for drive management

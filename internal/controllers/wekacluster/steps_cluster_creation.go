@@ -147,20 +147,22 @@ func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
 		if err != nil {
 			logger.Error(err, "failed to init states")
 		}
+	}
 
-		if updated := controllerutil.AddFinalizer(wekaCluster, consts.WekaFinalizer); updated {
-			logger.Info("Adding Finalizer for weka cluster")
-			if err := r.getClient().Update(ctx, wekaCluster); err != nil {
-				logger.Error(err, "Failed to update custom resource to add finalizer")
-				return err
-			}
-
-			if err := r.getClient().Get(ctx, client.ObjectKey{Namespace: wekaCluster.Namespace, Name: wekaCluster.Name}, r.cluster); err != nil {
-				logger.Error(err, "Failed to re-fetch data")
-				return err
-			}
-			logger.Info("Finalizer added for wekaCluster", "conditions", len(wekaCluster.Status.Conditions))
+	addedGuard := controllerutil.AddFinalizer(wekaCluster, consts.DeletionProtectionFinalizer)
+	addedWeka := controllerutil.AddFinalizer(wekaCluster, consts.WekaFinalizer)
+	if addedGuard || addedWeka {
+		logger.Info("Adding Finalizer for weka cluster")
+		if err := r.getClient().Update(ctx, wekaCluster); err != nil {
+			logger.Error(err, "Failed to update custom resource to add finalizer")
+			return err
 		}
+
+		if err := r.getClient().Get(ctx, client.ObjectKey{Namespace: wekaCluster.Namespace, Name: wekaCluster.Name}, r.cluster); err != nil {
+			logger.Error(err, "Failed to re-fetch data")
+			return err
+		}
+		logger.Info("Finalizer added for wekaCluster", "conditions", len(wekaCluster.Status.Conditions))
 	}
 
 	clusterGuid := string(wekaCluster.GetUID())

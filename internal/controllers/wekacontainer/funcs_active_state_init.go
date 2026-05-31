@@ -79,7 +79,9 @@ func (r *containerReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 
 	container := r.container
 
-	if ok := controllerutil.AddFinalizer(container, consts.WekaFinalizer); !ok {
+	addedGuard := controllerutil.AddFinalizer(container, consts.DeletionProtectionFinalizer)
+	addedWeka := controllerutil.AddFinalizer(container, consts.WekaFinalizer)
+	if !addedGuard && !addedWeka {
 		return nil
 	}
 

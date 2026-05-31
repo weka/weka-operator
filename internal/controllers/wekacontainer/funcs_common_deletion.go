@@ -37,6 +37,7 @@ func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	controllerutil.RemoveFinalizer(r.container, consts.DeletionProtectionFinalizer)
 	controllerutil.RemoveFinalizer(r.container, consts.WekaFinalizer)
 	err = r.Update(ctx, r.container)
 	if err != nil {

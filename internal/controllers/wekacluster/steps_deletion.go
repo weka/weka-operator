@@ -213,6 +213,7 @@ func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 		}
 
 		logger.Info("Removing Finalizer for wekaCluster after successfully perform the operations")
+		controllerutil.RemoveFinalizer(r.cluster, consts.DeletionProtectionFinalizer)
 		if ok := controllerutil.RemoveFinalizer(r.cluster, consts.WekaFinalizer); !ok {
 			err := errors.New("Failed to remove finalizer for wekaCluster")
 			return err
