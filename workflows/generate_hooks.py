@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 gemini_client = AsyncOpenAI(base_url="https://generativelanguage.googleapis.com/v1beta/openai/", api_key=GEMINI_API_KEY)
 
 gemini_pro_model = OpenAIChatCompletionsModel(
-    model="gemini-3-pro-preview",
+    model="gemini-3.5-flash",
     openai_client=gemini_client
 )
 

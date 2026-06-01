@@ -28,8 +28,7 @@ CHUNK_SIZE = 300  # bytes for summarizing large file deltas
 # Set up logging
 logger = logging.getLogger(__name__)
 
-from util_gemini import gemini_pro
-final_release_notes_model = gemini_pro
+from util_gemini import final_release_notes_model
 
 # --- Commit Info Class ---
 class CommitInfo:
