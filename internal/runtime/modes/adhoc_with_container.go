@@ -16,6 +16,17 @@ func init() {
 func runAdhocWithContainer(ctx context.Context, cfg *config.Config) error {
 	const containerName = "adhoc"
 
+	// Mirror Python weka_runtime.py:4246-4260 (MODE != "adhoc-op"): configure + start the
+	// weka-agent and confirm the version BEFORE touching the stem container. `weka local
+	// setup container` requires a running agent. ensure_drivers is intentionally skipped —
+	// Python excludes adhoc-op-with-container from the ensure_drivers list (weka_runtime.py:4251).
+	if err := runAgent(ctx, cfg); err != nil {
+		return err
+	}
+	if err := weka.EnsureWekaVersion(ctx); err != nil {
+		return err
+	}
+
 	if err := weka.EnsureStemContainer(ctx, containerName, cfg.Port); err != nil {
 		return fmt.Errorf("ensure stem container: %w", err)
 	}

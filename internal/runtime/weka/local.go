@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/runtime/cmdutil"
 	"github.com/weka/weka-operator/internal/runtime/config"
 )
@@ -35,22 +36,31 @@ func StartStemContainer(_ context.Context) error {
 }
 
 // EnsureContainerExec polls until the named container accepts exec commands.
-// Polls every 1s with a 300s total timeout.
+// Polls every 2s with a 300s total timeout, matching Python asyncio.sleep(2) at weka_runtime.py:3055.
 // Mirrors Python ensure_container_exec() at weka_runtime.py:3055.
 func EnsureContainerExec(ctx context.Context, name string) error {
+	_, logger := instrumentation.CreateLogSpan(ctx, "weka.EnsureContainerExec", "container", name)
+	defer logger.End()
+
+	// Mirror Python: logging.info("ensuring container exec") at weka_runtime.py:3145
+	logger.Info("ensuring container exec")
+
 	deadline := time.Now().Add(300 * time.Second)
 	for {
 		err := cmdutil.Run(ctx, "weka", "local", "exec", "--container", name, "--", "ls")
 		if err == nil {
+			// Mirror Python: logging.info("container exec ensured") at weka_runtime.py:3154
+			logger.Info("container exec ensured")
 			return nil
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("container %q not exec-ready after 5 minutes: %w", name, err)
 		}
+		logger.Info("waiting for container exec to become ready", "container", name)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(1 * time.Second):
+		case <-time.After(2 * time.Second):
 		}
 	}
 }
