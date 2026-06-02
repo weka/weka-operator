@@ -29,8 +29,10 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 CURRENT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 ifneq ($(findstring release/,$(CURRENT_BRANCH)),)
 REPO ?= quay.io/weka.io/weka-operator
+REPO_POD_RUNTIME ?= quay.io/weka.io/weka-pod-runtime
 else
 REPO ?= quay.io/weka.io/weka-operator-dev
+REPO_POD_RUNTIME ?= quay.io/weka.io/weka-pod-runtime-dev
 endif
 VERSION ?= dev-$(shell git rev-parse --short HEAD)
 DEPLOY_CONTROLLER ?= true
@@ -284,7 +286,7 @@ endif
 
 .PHONY: install
 install: manifests ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	if [ "$(SKIP_CRD_INSTALL)" = "false" ]; then kubectl apply --server-side -f charts/weka-operator/crds; fi
+	if [ "$(SKIP_CRD_INSTALL)" = "false" ]; then kubectl apply --server-side --force-conflicts -f charts/weka-operator/crds; fi
 
 .PHONY: uninstall
 uninstall: manifests ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -392,4 +394,13 @@ else
 OPERATOR_SDK = $(shell which operator-sdk)
 endif
 endif
+
+.PHONY: build-pod-runtime
+build-pod-runtime:
+	go build -o bin/weka-pod-runtime ./cmd/weka-pod-runtime/main.go
+
+.PHONY: docker-push-pod-runtime
+docker-push-pod-runtime:
+	docker buildx build --platform linux/amd64,linux/arm64 \
+	  -t $(REPO_POD_RUNTIME):$(VERSION) --push -f pod-runtime.Dockerfile .
 

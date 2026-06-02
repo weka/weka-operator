@@ -48,12 +48,7 @@ func FindWekaPartitions(ctx context.Context) ([]domain.DriveInfo, error) {
 			signature = ""
 		}
 
-		isSigned := signature != "" && signature != unsignedDriveSignature
-		wekaGUID := ""
-		if isSigned && len(signature) == 32 {
-			wekaGUID = fmt.Sprintf("%s-%s-%s-%s-%s",
-				signature[0:8], signature[8:12], signature[12:16], signature[16:20], signature[20:32])
-		}
+		isSigned, wekaGUID := driveSignatureInfo(signature)
 
 		// Resolve partition block device to its parent disk
 		pciDevPath, err := filepath.EvalSymlinks(fmt.Sprintf("/sys/class/block/%s", partName))
@@ -78,6 +73,18 @@ func FindWekaPartitions(ctx context.Context) ([]domain.DriveInfo, error) {
 		})
 	}
 	return drives, nil
+}
+
+// driveSignatureInfo interprets a raw drive signature string and returns whether the drive is
+// signed and (for valid 32-hex-char signatures) the Weka GUID in dashed 8-4-4-4-12 UUID form.
+// An empty string or the unsignedDriveSignature constant means the drive is unsigned.
+func driveSignatureInfo(signature string) (isSigned bool, wekaGUID string) {
+	isSigned = signature != "" && signature != unsignedDriveSignature
+	if isSigned && len(signature) == 32 {
+		wekaGUID = fmt.Sprintf("%s-%s-%s-%s-%s",
+			signature[0:8], signature[8:12], signature[12:16], signature[16:20], signature[20:32])
+	}
+	return isSigned, wekaGUID
 }
 
 // collectPartNames collects unique partition names from /dev/disk/by-path/ and /dev/disk/by-id/.

@@ -12,10 +12,10 @@ import (
 )
 
 func init() {
-	register("s3", runS3)
+	register("smbw", runSMBW)
 }
 
-func runS3(ctx context.Context, cfg *config.Config) error {
+func runSMBW(ctx context.Context, cfg *config.Config) error {
 	if err := persistency.Configure(ctx, cfg); err != nil {
 		return err
 	}
@@ -38,14 +38,13 @@ func runS3(ctx context.Context, cfg *config.Config) error {
 	if err := agent.EnsureDrivers(ctx, cfg); err != nil {
 		return err
 	}
-	// agent.Configure (inside runAgent) adds skip_envoy_setup=true and envoy-data mount for s3.
 	if err := runAgent(ctx, cfg); err != nil {
 		return err
 	}
 	if err := weka.EnsureWekaVersion(ctx); err != nil {
 		return err
 	}
-	// EnsureWekaContainer sets allow_protocols=true for s3.
+	// EnsureWekaContainer sets allow_protocols=true for smbw.
 	if err := weka.EnsureWekaContainer(ctx, cfg, res); err != nil {
 		return err
 	}

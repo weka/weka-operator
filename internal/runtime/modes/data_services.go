@@ -12,10 +12,10 @@ import (
 )
 
 func init() {
-	register("s3", runS3)
+	register("data-services", runDataServices)
 }
 
-func runS3(ctx context.Context, cfg *config.Config) error {
+func runDataServices(ctx context.Context, cfg *config.Config) error {
 	if err := persistency.Configure(ctx, cfg); err != nil {
 		return err
 	}
@@ -38,14 +38,13 @@ func runS3(ctx context.Context, cfg *config.Config) error {
 	if err := agent.EnsureDrivers(ctx, cfg); err != nil {
 		return err
 	}
-	// agent.Configure (inside runAgent) adds skip_envoy_setup=true and envoy-data mount for s3.
 	if err := runAgent(ctx, cfg); err != nil {
 		return err
 	}
 	if err := weka.EnsureWekaVersion(ctx); err != nil {
 		return err
 	}
-	// EnsureWekaContainer sets allow_protocols=true for s3.
+	// EnsureWekaContainer uses --only-dataserv-cores and --allow-mix-setting for data-services.
 	if err := weka.EnsureWekaContainer(ctx, cfg, res); err != nil {
 		return err
 	}
@@ -58,5 +57,7 @@ func runS3(ctx context.Context, cfg *config.Config) error {
 	if err := weka.WriteFeatureFlagsJSON(ctx, cfg); err != nil {
 		return err
 	}
+	// No CPU affinity periodic task for data-services.
+	// runShutdownLoop skips the shutdown-instruction gate for data-services (see modesNeedShutdownInstruction).
 	return runShutdownLoop(ctx, cfg)
 }
