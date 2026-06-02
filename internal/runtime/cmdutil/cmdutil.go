@@ -7,9 +7,25 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
 )
+
+// PollUntil calls fn every interval until it returns true, or ctx is done.
+// fn should perform any per-iteration logging/side effects itself before returning false.
+func PollUntil(ctx context.Context, interval time.Duration, fn func() bool) error {
+	for {
+		if fn() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(interval):
+		}
+	}
+}
 
 // Output runs the named command with args under ctx and returns its stdout.
 // Stderr is captured: logged as a warning when non-empty and appended to any error.

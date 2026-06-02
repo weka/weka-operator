@@ -11,3 +11,6 @@ CROS = "CROS"
 ba = "ba"
 # umounted follows the umount(8) command naming convention
 umounted = "umounted"
+# SER is a serial-number prefix used in test fixtures (e.g. SER1, SER2 in
+# internal/runtime/wekadrive/sign_test.go); not a misspelling of "SET"
+SER = "SER"

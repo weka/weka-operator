@@ -30,7 +30,23 @@ internal/consts/             # Shared constants, annotations, resources
 internal/rest_api/           # Optional REST API server (cluster CRUD)
 internal/node_agent/         # Per-node agent server
 pkg/weka-k8s-api/           # CRD type definitions
-charts/weka-operator/        # Helm chart and Python runtime
+charts/weka-operator/        # Helm chart and Python runtime (weka_runtime.py)
+internal/runtime/            # Go rewrite of weka_runtime.py (pod-side process)
+  config/                   # Config loading from env vars
+  modes/                    # Per-mode entry points (compute, drive, client, ...)
+  agent/                    # Weka agent configuration and driver readiness
+  cpuaffinity/              # CPU core selection and affinity management
+  generation/               # Runtime generation file (takeover detection)
+  network/                  # Management IP discovery, net device reconciliation
+  persistency/              # Persistent storage bind-mount setup
+  ports/                    # Client port allocation
+  resources/                # Wait and load resources.json from operator
+  shutdown/                 # Shutdown instruction polling, drive release
+  syslog/                   # Syslog daemon (syslog-ng or go-syslog)
+  weka/                     # Weka container lifecycle (ensure, traces, features)
+  wekadrive/                # Drive discovery and VFIO validation
+  daemon/                   # Process supervisor
+  cmdutil/                  # Command execution helpers
 ```
 
 ## Key Areas by Functionality

@@ -34,6 +34,10 @@ func RunForceResignDrives(ctx context.Context, cfg *config.Config) error {
 		for _, serial := range payload.DeviceSerials {
 			p, err := blockdev.GetDevicePathBySerial(ctx, serial)
 			if err != nil {
+				// DELIBERATE DEVIATION from Python (weka_runtime.py:962): Python's
+				// force_resign_drives_by_serials appends None to device_paths when serial
+				// resolution fails, causing a downstream crash in sign_device_path_for_proxy.
+				// Go skips unresolvable serials instead, which is safer.  Do not revert.
 				logger.Info("force-resign-drives: failed to resolve serial to path, skipping", "serial", serial, "err", err.Error())
 				continue
 			}
