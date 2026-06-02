@@ -25,13 +25,15 @@ type Config struct {
 	FailureDomain     string
 	MachineIdentifier string
 	Version           string
+	Drives            []string // populated at runtime from NodeResources
 
 	// Resource allocation
-	Cores         []int
-	CoreIDs       []int
-	CPUPolicy     string
-	Memory        string
-	DPDKBaseMemMB int
+	Cores              []int
+	CoreIDs            []int
+	NonDatapathCoreIDs string
+	CPUPolicy          string
+	Memory             string
+	DPDKBaseMemMB      int
 
 	// Network
 	NetworkDevice         string
@@ -102,6 +104,11 @@ func Load() *Config {
 
 	cfg.Cores = parseIntSlice(os.Getenv("CORES"))
 	cfg.CoreIDs = parseIntSlice(os.Getenv("CORE_IDS"))
+	if v := os.Getenv("NON_DATAPATH_CORE_IDS"); v != "" {
+		cfg.NonDatapathCoreIDs = v
+	} else {
+		cfg.NonDatapathCoreIDs = "auto"
+	}
 	cfg.CPUPolicy = os.Getenv("CPU_POLICY")
 	cfg.Memory = os.Getenv("MEMORY")
 	cfg.DPDKBaseMemMB = parseInt(os.Getenv("DPDK_BASE_MEMORY_MB"))
@@ -243,5 +250,7 @@ func featureFlagsFromBitmap(b64 string) domain.FeatureFlags {
 		SsdProxyIommuSupport:              active[7],
 		// bit 8 unused
 		SsdProxyIncludesDpdkMemory: active[9],
+		// bits 10, 11 unused
+		WekaManagesNonIonodeAffinity: active[12],
 	}
 }
