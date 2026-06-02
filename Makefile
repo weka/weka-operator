@@ -304,7 +304,7 @@ endif
 
 .PHONY: install
 install: manifests ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	if [ "$(SKIP_CRD_INSTALL)" = "false" ]; then kubectl apply --server-side -f charts/weka-operator/crds; fi
+	if [ "$(SKIP_CRD_INSTALL)" = "false" ]; then kubectl apply --server-side --force-conflicts -f charts/weka-operator/crds; fi
 
 .PHONY: uninstall
 uninstall: manifests ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -415,3 +415,6 @@ OPERATOR_SDK = $(shell which operator-sdk)
 endif
 endif
 
+.PHONY: build-pod-runtime
+build-pod-runtime:
+	go build -o bin/weka-pod-runtime ./cmd/weka-pod-runtime/main.go

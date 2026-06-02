@@ -1,9 +1,12 @@
 package results
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/weka/go-weka-observability/instrumentation"
 )
 
 const defaultResultsPath = "/weka-runtime/results.json"
@@ -21,6 +24,12 @@ func Write(result any) error {
 		return err
 	}
 	path := resultsPath()
+
+	// Mirror Python write_results: logging.info("Writing result into /weka-runtime/results.json, results: \n%s", results)
+	_, logger := instrumentation.CreateLogSpan(context.Background(), "results.Write", "path", path)
+	defer logger.End()
+	logger.Info("Writing result", "path", path, "results", string(data))
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

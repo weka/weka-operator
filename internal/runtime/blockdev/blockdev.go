@@ -45,6 +45,27 @@ func (d *lsblkDevice) hasMountpoint() bool {
 	return false
 }
 
+// disksFromLsblk parses raw lsblk JSON output and returns Disk entries for every
+// device whose Type=="disk". Per-device I/O (serial, capacity) is NOT done here.
+func disksFromLsblk(out []byte) ([]Disk, error) {
+	var parsed lsblkOutput
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		return nil, fmt.Errorf("lsblk JSON parse: %w", err)
+	}
+	var disks []Disk
+	for i := range parsed.BlockDevices {
+		dev := &parsed.BlockDevices[i]
+		if dev.Type != "disk" {
+			continue
+		}
+		disks = append(disks, Disk{
+			Path:      dev.Name,
+			IsMounted: dev.hasMountpoint(),
+		})
+	}
+	return disks, nil
+}
+
 // FindDisks enumerates all disk-type block devices visible from the host PID namespace.
 func FindDisks(ctx context.Context) ([]Disk, error) {
 	out, err := cmdutil.Output(ctx,
@@ -55,34 +76,29 @@ func FindDisks(ctx context.Context) ([]Disk, error) {
 		return nil, fmt.Errorf("lsblk: %w", err)
 	}
 
-	var parsed lsblkOutput
-	if err := json.Unmarshal(out, &parsed); err != nil {
-		return nil, fmt.Errorf("lsblk JSON parse: %w", err)
+	disks, err := disksFromLsblk(out)
+	if err != nil {
+		return nil, err
 	}
 
-	var disks []Disk
-	for i := range parsed.BlockDevices {
-		dev := &parsed.BlockDevices[i]
-		if dev.Type != "disk" {
-			continue
-		}
-		isMounted := dev.hasMountpoint()
-		serialID, err := GetDeviceSerialID(ctx, dev.Name)
+	var result []Disk
+	for _, d := range disks {
+		serialID, err := GetDeviceSerialID(ctx, d.Path)
 		if err != nil {
 			serialID = ""
 		}
-		devCap, err := GetCapacityGiB(ctx, dev.Name)
+		devCap, err := GetCapacityGiB(ctx, d.Path)
 		if err != nil || devCap == 0 {
 			continue
 		}
-		disks = append(disks, Disk{
-			Path:        dev.Name,
-			IsMounted:   isMounted,
+		result = append(result, Disk{
+			Path:        d.Path,
+			IsMounted:   d.IsMounted,
 			SerialID:    serialID,
 			CapacityGiB: devCap,
 		})
 	}
-	return disks, nil
+	return result, nil
 }
 
 // GetDeviceSerialID returns the serial ID for the given block device path.
@@ -123,12 +139,31 @@ func GetDeviceSerialID(ctx context.Context, devicePath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("reading udev data %s: %w", udevPath, err)
 	}
+	return parseUdevSerial(data), nil
+}
+
+// parseUdevSerial finds the first line containing the substring "ID_SERIAL=" and
+// returns the text after the first "=" on that line, trimmed. This matches the
+// Python original (grep 'ID_SERIAL=' | cut -d= -f2-).
+//
+// Bug fix: the previous Go code used strings.CutPrefix(line, "ID_SERIAL="), which
+// only matched lines *starting* with "ID_SERIAL=". Real udev data lines are
+// "E:"-prefixed (e.g. "E:ID_SERIAL=Samsung_SSD_970"), so the old code always
+// returned "" for real SATA/SCSI drives. Note that "ID_SERIAL_SHORT=" does NOT
+// contain the substring "ID_SERIAL=" so it is correctly excluded.
+func parseUdevSerial(data []byte) string {
 	for _, line := range strings.Split(string(data), "\n") {
-		if after, ok := strings.CutPrefix(line, "ID_SERIAL="); ok {
-			return after, nil
+		if !strings.Contains(line, "ID_SERIAL=") {
+			continue
 		}
+		// Return everything after the first "=" on this line, trimmed.
+		idx := strings.Index(line, "=")
+		if idx < 0 {
+			continue
+		}
+		return strings.TrimSpace(line[idx+1:])
 	}
-	return "", nil
+	return ""
 }
 
 // GetCapacityGiB returns the capacity of a block device in GiB.
