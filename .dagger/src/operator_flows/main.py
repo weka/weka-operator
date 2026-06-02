@@ -819,13 +819,22 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
         target_kubeconfig: dagger.Secret,
         cluster_name: str = "upgrade-extended",
         namespace: str = "test-upgrade-extended",
+        cache_buster: str = "",
     ) -> str:
         """Copies secrets from source cluster to OCP target cluster and returns join IPs.
 
         Returns a comma-separated string of IP:PORT pairs used to join the Weka cluster,
         e.g. '10.0.0.1:14000,10.0.0.2:14000'. Call this before submitting a clients-only
         test execution to the weka-testing service.
+
+        Args:
+            cache_buster: Opaque token (e.g. CI run id) that changes the function's
+                cache key so the body re-executes every run. Without it, Dagger memoizes
+                this call on its inputs and returns a stale result without re-copying
+                secrets or re-fetching live join IPs.
         """
+        if cache_buster:
+            logger.info(f"pre-clients-only cache_buster: {cache_buster}")
         base = self.with_kubectl(dag.container().from_("alpine:3.21"))
 
         client_secret_name = f"weka-client-{cluster_name}"

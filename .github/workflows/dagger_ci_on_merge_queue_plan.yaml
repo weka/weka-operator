@@ -222,22 +222,23 @@ jobs:
           fi
           echo "::notice::Execution: ${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
 
-          MAX_POLLS=120
+          SLEEP_SECONDS=60
+          MAX_POLLS=60
           for ((i=1; i<=MAX_POLLS; i++)); do
             STATUS=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sf \
               "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions/$EXECUTION_ID" \
               -H "Content-Type: application/json" | jq -r '.status')
-            echo "[$i/$MAX_POLLS] Status: $STATUS"
+            echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [$i/$MAX_POLLS] Status: $STATUS"
             if [[ "$STATUS" == "succeeded" ]]; then break; fi
             if [[ "$STATUS" != "running" && "$STATUS" != "pending" ]]; then
               echo "::error::upgrade-extended test failed with status: $STATUS"
               exit 1
             fi
             if [[ $i -eq $MAX_POLLS ]]; then
-              echo "::error::upgrade-extended test timed out after $((MAX_POLLS * 30 / 60)) minutes"
+              echo "::error::upgrade-extended test timed out after $((MAX_POLLS * SLEEP_SECONDS / 60)) minutes"
               exit 1
             fi
-            sleep 30
+            sleep "$SLEEP_SECONDS"
           done
   
   clients_only_test:
@@ -289,6 +290,7 @@ jobs:
             pre-clients-only
             --source-kubeconfig="env://SOURCE_KUBECONFIG"
             --target-kubeconfig="env://OCP_KUBECONFIG"
+            --cache-buster="${{ github.run_id }}-${{ github.run_attempt }}"
             --output ${{ github.workspace }}/join-ips
 
       - name: Run Clients-Only Test via Testing Service
@@ -336,22 +338,23 @@ jobs:
           fi
           echo "::notice::Execution: ${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
 
-          MAX_POLLS=120
+          SLEEP_SECONDS=60
+          MAX_POLLS=60
           for ((i=1; i<=MAX_POLLS; i++)); do
             STATUS=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sf \
               "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions/$EXECUTION_ID" \
               -H "Content-Type: application/json" | jq -r '.status')
-            echo "[$i/$MAX_POLLS] Status: $STATUS"
+            echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [$i/$MAX_POLLS] Status: $STATUS"
             if [[ "$STATUS" == "succeeded" ]]; then break; fi
             if [[ "$STATUS" != "running" && "$STATUS" != "pending" ]]; then
               echo "::error::clients-only test failed with status: $STATUS"
               exit 1
             fi
             if [[ $i -eq $MAX_POLLS ]]; then
-              echo "::error::clients-only test timed out after $((MAX_POLLS * 30 / 60)) minutes"
+              echo "::error::clients-only test timed out after $((MAX_POLLS * SLEEP_SECONDS / 60)) minutes"
               exit 1
             fi
-            sleep 30
+            sleep "$SLEEP_SECONDS"
           done
 
   ci_on_merge_queue_required_status:
