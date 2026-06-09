@@ -1478,6 +1478,38 @@ spec:
                     description: nodeSelector for smbw weka containers
                     type: object
                 type: object
+              roleNonDatapathCoreIds:
+                description: |-
+                  RoleNonDatapathCoreIds defines CPU core IDs (as seen by the host) to pin
+                  management/aux (non-IONode) processes to, per container role. Applicable
+                  when CpuPolicy is "manual" or "shared".
+                  When set, weka pins management processes to these cores instead of deriving them automatically.
+                properties:
+                  compute:
+                    items:
+                      type: integer
+                    type: array
+                  dataServices:
+                    items:
+                      type: integer
+                    type: array
+                  drive:
+                    items:
+                      type: integer
+                    type: array
+                  nfs:
+                    items:
+                      type: integer
+                    type: array
+                  s3:
+                    items:
+                      type: integer
+                    type: array
+                  smbw:
+                    items:
+                      type: integer
+                    type: array
+                type: object
               s3:
                 properties:
                   clusterCreateArgs:

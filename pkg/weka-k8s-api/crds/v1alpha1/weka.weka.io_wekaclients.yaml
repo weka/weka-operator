@@ -308,6 +308,10 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
+              nonDatapathCoreIds:
+                items:
+                  type: integer
+                type: array
               overrides:
                 properties:
                   dpdkBaseMemoryMb:

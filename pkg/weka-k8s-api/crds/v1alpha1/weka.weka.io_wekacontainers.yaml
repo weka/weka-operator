@@ -1303,6 +1303,12 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
+              nonDatapathCoreIds:
+                description: NonDatapathCoreIds pins management/aux (non-IONode) processes
+                  to specific CPUs.
+                items:
+                  type: integer
+                type: array
               numCores:
                 type: integer
               numDrives:
