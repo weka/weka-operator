@@ -192,10 +192,19 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				ContinueOnError: true,
 			},
 			&lifecycle.SimpleStep{
+				State:              &lifecycle.State{Name: condition.CondCsiNodeDaemonSetDeployed},
+				SkipStepStateCheck: true,
+				Run:                loop.DeployCsiNodeDaemonSetForClient,
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.Csi.Enabled),
+				},
+				ContinueOnError: true,
+			},
+			&lifecycle.SimpleStep{
 				Run: loop.UpdateCsiNodeDaemonSet,
 				Predicates: lifecycle.Predicates{
-					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &wekaClient.Status.Conditions),
-					loop.clientManagesCsiDeployment,
+					lifecycle.IsTrueCondition(condition.CondCsiNodeDaemonSetDeployed, &wekaClient.Status.Conditions),
+					lifecycle.BoolValue(config.Config.Csi.Enabled),
 				},
 				ContinueOnError: true,
 			},
@@ -294,6 +303,16 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 		return lifecycle.NewWaitErrorWithDuration(errors.New("waiting for client weka containers to be deleted"), time.Second*15)
 	}
 
+	// Undeploy per-client CSI node DaemonSet (each client owns its own).
+	// Always attempt cleanup regardless of the current Csi.Enabled value:
+	// the daemonset may have been created while CSI was enabled and CSI
+	// disabled afterwards. UndeployCsiNodeDaemonSetForClient treats NotFound
+	// as success, so this is a no-op when nothing is present.
+	if err := c.UndeployCsiNodeDaemonSetForClient(ctx); err != nil {
+		return errors.Wrap(err, "failed to undeploy per-client CSI node daemonset")
+	}
+
+	// Undeploy shared CSI components only if this client manages them
 	if c.clientManagesCsiDeployment() {
 		err = c.UndeployCsiPlugin(ctx)
 		if err != nil {
@@ -1220,7 +1239,14 @@ func (c *clientReconcilerLoop) FetchTargetCluster(ctx context.Context) error {
 
 func (c *clientReconcilerLoop) CheckCsiConfigChanged(ctx context.Context) error {
 	if !config.Config.Csi.Enabled {
-		// if we are here, installation was switched off
+		// if we are here, installation was switched off; tear down the
+		// per-client node daemonset as well as the shared CSI plugin
+		if err := c.UndeployCsiNodeDaemonSetForClient(ctx); err != nil {
+			return errors.Wrap(err, "failed to undeploy per-client CSI node daemonset")
+		}
+		if err := c.UndeploySharedCsiNodeDaemonSet(ctx); err != nil {
+			return errors.Wrap(err, "failed to undeploy shared CSI node daemonset")
+		}
 		return c.UndeployCsiPlugin(ctx)
 	}
 
@@ -1243,7 +1269,6 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 		c.Manager.GetClient(),
 		c.wekaClient,
 		c.GetCSIGroup(),
-		c.nodes,
 		false,
 	)
 	if err != nil {
@@ -1268,7 +1293,6 @@ func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context) error {
 		c.Manager.GetClient(),
 		c.wekaClient,
 		c.GetCSIGroup(),
-		c.nodes,
 		true,
 	)
 	if err != nil {
@@ -1433,6 +1457,87 @@ func (c *clientReconcilerLoop) isOwnedByDifferentWekaClient(ctx context.Context,
 	return false, nil
 }
 
+func (c *clientReconcilerLoop) DeployCsiNodeDaemonSetForClient(ctx context.Context) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "DeployCsiNodeDaemonSetForClient")
+	defer logger.End()
+
+	daemonSetSpec, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient, c.wekaClient.Name, c.wekaClient.Namespace, c.nodes)
+	if err != nil {
+		return err
+	}
+
+	operatorDeployment, err := util2.GetOperatorDeployment(ctx, c.Client)
+	if err != nil {
+		return errors.Wrap(err, "failed to get operator deployment")
+	}
+
+	err = controllerutil.SetControllerReference(operatorDeployment, daemonSetSpec, c.Scheme)
+	if err != nil {
+		return err
+	}
+
+	err = c.Create(ctx, daemonSetSpec)
+	if err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			logger.Debug("Per-client CSI node daemonset already exists, skipping creation", "client", c.wekaClient.Name)
+			return nil
+		}
+		return fmt.Errorf("failed to create CSI node daemonset for client %s: %w", c.wekaClient.Name, err)
+	}
+	logger.Info("Created per-client CSI node daemonset successfully", "client", c.wekaClient.Name)
+	return nil
+}
+
+func (c *clientReconcilerLoop) UndeployCsiNodeDaemonSetForClient(ctx context.Context) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "UndeployCsiNodeDaemonSetForClient")
+	defer logger.End()
+
+	nodeDaemonSetName := csi.GetCSINodeDaemonSetNameForClient(c.GetCSIGroup(), c.wekaClient.Name, c.wekaClient.Namespace)
+	namespace, err := util2.GetPodNamespace()
+	if err != nil {
+		return errors.Wrap(err, "failed to get pod namespace")
+	}
+
+	if err := c.Delete(ctx, &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      nodeDaemonSetName,
+			Namespace: namespace,
+		},
+	}); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete CSI node daemonset %s: %w", nodeDaemonSetName, err)
+		}
+		return nil
+	}
+	logger.Info("Deleted per-client CSI node daemonset", "name", nodeDaemonSetName)
+	return nil
+}
+
+func (c *clientReconcilerLoop) UndeploySharedCsiNodeDaemonSet(ctx context.Context) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "UndeploySharedCsiNodeDaemonSet")
+	defer logger.End()
+
+	sharedDaemonSetName := csi.GetCSINodeDaemonSetName(c.GetCSIGroup())
+	namespace, err := util2.GetPodNamespace()
+	if err != nil {
+		return errors.Wrap(err, "failed to get pod namespace")
+	}
+
+	if err := c.Delete(ctx, &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sharedDaemonSetName,
+			Namespace: namespace,
+		},
+	}); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete shared CSI node daemonset %s: %w", sharedDaemonSetName, err)
+		}
+		return nil
+	}
+	logger.Info("Deleted shared CSI node daemonset", "name", sharedDaemonSetName)
+	return nil
+}
+
 func (c *clientReconcilerLoop) UpdateCsiNodeDaemonSet(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
@@ -1445,7 +1550,7 @@ func (c *clientReconcilerLoop) UpdateCsiNodeDaemonSet(ctx context.Context) error
 		return nil
 	}
 
-	targetDaemonSet, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient, c.nodes)
+	targetDaemonSet, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient, c.wekaClient.Name, c.wekaClient.Namespace, c.nodes)
 	if err != nil {
 		return err
 	}
@@ -1485,7 +1590,7 @@ func (c *clientReconcilerLoop) getExistingCsiNodeDaemonSet(ctx context.Context) 
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "getExistingCsiNodeDaemonSet")
 	defer logger.End()
 
-	nodeDaemonSetName := csi.GetCSINodeDaemonSetName(c.GetCSIGroup())
+	nodeDaemonSetName := csi.GetCSINodeDaemonSetNameForClient(c.GetCSIGroup(), c.wekaClient.Name, c.wekaClient.Namespace)
 	namespace, err := util2.GetPodNamespace()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get pod namespace")
