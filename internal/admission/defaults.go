@@ -15,6 +15,8 @@ var (
 		"cluster_network_ethdevice":           {Strict: Warn, Relaxed: Warn},
 		"cluster_drive_compute_core_ratio":    {Strict: Warn, Relaxed: Warn},
 		"cluster_dataservices_fe_cores":       {Strict: Error, Relaxed: Error},
+		"cluster_capacity_protection":         {Strict: Error, Relaxed: Error},
+		"cluster_capacity_chunk_feasibility":  {Strict: Error, Relaxed: Error},
 	}
 
 	wekaClientDefaults = map[string]PolicyDefaults{

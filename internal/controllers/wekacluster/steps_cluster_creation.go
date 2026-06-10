@@ -64,6 +64,14 @@ func GetClusterSetupSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			SkipStepStateCheck: true,
 		},
 		&lifecycle.SimpleStep{
+			Run: loop.GarbageCollectUnschedulableDriveContainers,
+			Predicates: lifecycle.Predicates{
+				func() bool {
+					return loop.cluster.Spec.Dynamic != nil && loop.cluster.Spec.Dynamic.UsesClusterCapacity()
+				},
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: loop.HandleSpecUpdates,
 		},
 		&lifecycle.SimpleStep{
@@ -327,6 +335,271 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	return results.AsError()
 }
 
+// buildClusterCapacityDriveContainers runs the clusterCapacity planner once and applies its full plan:
+// it grows existing drive AND compute containers in place (plan.Grow / plan.ComputeCores) and builds
+// the new, node-pinned drive containers it asks to CREATE (plan.Create). It returns the drive
+// containers to create, any skipped-build reasons, the resolved plan (the caller reads its
+// node-core-aware compute sizing — ComputeContainers/ComputeCores/ComputeNodes), and a WaitError when
+// the plan is infeasible (caller returns and retries next reconcile). Growth and creation are
+// intentionally applied from this single planning pass so both derive from one consistent
+// inventory/existing snapshot.
+func (r *wekaClusterReconcilerLoop) buildClusterCapacityDriveContainers(ctx context.Context) (driveContainers []*weka.WekaContainer, skipped []string, plan *allocator.CapacityPlan, err error) {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "buildClusterCapacityDriveContainers")
+	defer logger.End()
+
+	cluster := r.cluster
+
+	plan, err = r.planClusterCapacity(ctx)
+	if err != nil {
+		return nil, nil, nil, err // planClusterCapacity already records the event / returns WaitError
+	}
+
+	// Grow existing drive and compute containers in place (no-op when nothing grew) before building the
+	// creates, so growth and creation derive from one consistent planning pass.
+	if err := r.applyClusterCapacityGrowth(ctx, plan); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := r.applyClusterCapacityComputeGrowth(ctx, plan); err != nil {
+		return nil, nil, nil, err
+	}
+
+	template := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
+
+	// Drive hugepages must be sized for the planner's PER-CONTAINER core count: the planner derives
+	// NumCores from each container's capacity (TLC vs QLC), so a single template-default sizing would
+	// under-provision multi-core containers (weka then rejects them as below its minimum memory).
+	hpByCores := make(map[int]allocator.ContainerHugepages)
+
+	for _, pc := range plan.Create {
+		name := allocator.NewContainerName(weka.WekaContainerModeDrive)
+		logger.Info("Building clusterCapacity drive container", "name", name, "node", pc.Node, "type", pc.Type, "tlcGiB", pc.TlcGiB, "qlcGiB", pc.QlcGiB, "cores", pc.NumCores)
+
+		// Per-container template carrying the planner's core count. ClusterTemplate is a value type and
+		// Cores is an embedded value field, so this copy does not mutate the shared template.
+		perTemplate := template
+		perTemplate.Cores.Drive = pc.NumCores
+
+		hp, ok := hpByCores[pc.NumCores]
+		if !ok {
+			var hpErr error
+			hp, hpErr = allocator.GetContainerHugepages(ctx, r.getClient(), perTemplate, cluster, r.containers, weka.WekaContainerModeDrive)
+			if hpErr != nil {
+				skipped = append(skipped, fmt.Sprintf("role drive hugepages (cores=%d): %s", pc.NumCores, hpErr))
+				continue
+			}
+			hpByCores[pc.NumCores] = hp
+		}
+
+		container, err := factory.NewWekaContainerForWekaCluster(cluster, perTemplate, hp, weka.WekaContainerModeDrive, name)
+		if err != nil {
+			logger.Info("Skipping drive container — failed to build", "name", name, "reason", err)
+			skipped = append(skipped, fmt.Sprintf("role drive container %s: %s", name, err))
+			continue
+		}
+		// Override with planner-supplied per-container capacity/ratio. NumCores is carried via
+		// perTemplate so it is not overridden here.
+		container.Spec.ContainerCapacity = pc.TlcGiB + pc.QlcGiB
+		container.Spec.DriveTypesRatio = pc.Ratio
+		// Pin every drive container to its planned node via Spec.NodeAffinity (a dedicated field the
+		// cluster-level NodeSelector merge never touches). Failure-domain identity is owned by Weka:
+		// AUTO mode (no Spec.FailureDomain) makes FD = host; the factory propagates the cluster's
+		// label-based Spec.FailureDomain in label mode.
+		container.Spec.NodeAffinity = weka.NodeName(pc.Node)
+		driveContainers = append(driveContainers, container)
+	}
+
+	return driveContainers, skipped, plan, nil
+}
+
+// applyClusterCapacityGrowth edits existing drive containers in place to absorb a clusterCapacity
+// or driveTypesRatio increase: it bumps Spec.ContainerCapacity / Spec.DriveTypesRatio (and NumCores
+// upward) so the wekacontainer reconcile loop allocates and adds the extra virtual drives live, with
+// no pod restart (ContainerCapacity is intentionally absent from the pod config hash). It only ever
+// grows — shrink is a no-op surfaced as an event by the planner.
+//
+// It consumes the plan.Grow already produced by planClusterCapacity (called from
+// buildClusterCapacityDriveContainers), so growth and creation are applied from one consistent
+// planning pass rather than two re-plans against a shifting baseline.
+func (r *wekaClusterReconcilerLoop) applyClusterCapacityGrowth(ctx context.Context, plan *allocator.CapacityPlan) error {
+	if len(plan.Grow) == 0 {
+		return nil
+	}
+	logger := instrumentation.CurrentSpanLogger(ctx)
+	cluster := r.cluster
+
+	byName := make(map[string]*weka.WekaContainer, len(r.containers))
+	for _, c := range r.containers {
+		byName[c.Name] = c
+	}
+
+	for _, g := range plan.Grow {
+		c, ok := byName[g.Name]
+		if !ok {
+			continue
+		}
+		newCap := g.NewTlcGiB + g.NewQlcGiB
+		if newCap <= c.Spec.ContainerCapacity {
+			continue // already at/above target (e.g. drive-add still in flight) — never shrink
+		}
+		c.Spec.ContainerCapacity = newCap
+		c.Spec.DriveTypesRatio = allocator.RatioFromCaps(g.NewTlcGiB, g.NewQlcGiB)
+		// Capacity growth is applied live (ContainerCapacity is absent from the pod config hash). A
+		// NumCores/Hugepages bump, however, changes the pod spec and only takes effect once the pod is
+		// recreated — surfaced as a Warning so operators know a restart is required.
+		coresChanged := g.NewCores > c.Spec.NumCores
+		if coresChanged {
+			c.Spec.NumCores = g.NewCores
+			if hp, hpErr := r.driveHugepagesForCores(ctx, cluster, g.NewCores, r.containers); hpErr == nil {
+				c.Spec.Hugepages = hp.Hugepages
+				c.Spec.HugepagesOffset = hp.HugepagesOffset
+			} else {
+				logger.Info("could not resize hugepages for grown drive container; keeping existing", "name", c.Name, "reason", hpErr)
+			}
+		}
+		logger.Info("Growing clusterCapacity drive container in place", "name", c.Name, "newContainerCapacity", newCap, "tlcGiB", g.NewTlcGiB, "qlcGiB", g.NewQlcGiB, "cores", c.Spec.NumCores)
+		if err := r.getClient().Update(ctx, c); err != nil {
+			return fmt.Errorf("applyClusterCapacityGrowth: failed to update container %s: %w", c.Name, err)
+		}
+
+		if coresChanged {
+			r.Recorder.Event(
+				c, v1.EventTypeWarning, "CapacityGrowthApplied",
+				fmt.Sprintf("applied clusterCapacity growth to drive container (capacity %d GiB, cores %d); the drive spec changed — the pod must be recreated to apply the new cores/hugepages", newCap, c.Spec.NumCores),
+			)
+		} else {
+			r.Recorder.Event(
+				c, v1.EventTypeNormal, "CapacityGrowthApplied",
+				fmt.Sprintf("applied clusterCapacity growth to drive container live (capacity %d GiB); no restart required", newCap),
+			)
+		}
+	}
+	return nil
+}
+
+// driveHugepagesForCores recomputes a drive container's hugepages for a specific (per-container) core
+// count. clusterCapacity assigns heterogeneous, planner-derived drive cores that the cluster-level
+// template default does not represent, so any code that resizes such a container (in-place growth or
+// spec-update propagation) must size hugepages from THIS container's cores or weka rejects the
+// multi-core drive process for being below its minimum memory.
+func (r *wekaClusterReconcilerLoop) driveHugepagesForCores(ctx context.Context, cluster *weka.WekaCluster, cores int, containers []*weka.WekaContainer) (allocator.ContainerHugepages, error) {
+	perTemplate := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
+	perTemplate.Cores.Drive = cores
+	return allocator.GetContainerHugepages(ctx, r.getClient(), perTemplate, cluster, containers, weka.WekaContainerModeDrive)
+}
+
+// applyClusterCapacityComputeGrowth bumps this cluster's existing compute containers UP to the planner's
+// per-container core target (and resizes their hugepages) when a clusterCapacity increase raised the
+// compute sizing. It only ever grows — a lower target leaves existing compute untouched (no shrink),
+// mirroring applyClusterCapacityGrowth for drives. The in-place core change requires the pod to be
+// recreated to take effect, surfaced as an event. Additional compute containers (count increase) are
+// created by the normal role loop in BuildMissingContainers.
+func (r *wekaClusterReconcilerLoop) applyClusterCapacityComputeGrowth(ctx context.Context, plan *allocator.CapacityPlan) error {
+	if plan.ComputeCores <= 0 {
+		return nil
+	}
+	logger := instrumentation.CurrentSpanLogger(ctx)
+	cluster := r.cluster
+
+	// Per-container target by node: with a heterogeneous layout, each existing compute grows only to ITS
+	// node's target — a FROZEN compute's target equals its current cores (no-op, no disruption). Fall back
+	// to the uniform plan.ComputeCores for every node when no layout is present (legacy/uniform case).
+	targetByNode := make(map[string]int, len(plan.ComputeLayout))
+	for _, e := range plan.ComputeLayout {
+		targetByNode[e.Node] = e.NumCores
+	}
+	totalCount := plan.ComputeContainers
+
+	for _, c := range r.containers {
+		if c.Spec.Mode != weka.WekaContainerModeCompute {
+			continue
+		}
+		if unhealthy, _, _ := utils.IsUnhealthy(ctx, c); unhealthy { //nolint:errcheck // intentional
+			continue
+		}
+		target := plan.ComputeCores
+		if len(plan.ComputeLayout) > 0 {
+			node := string(c.GetNodeAffinity())
+			t, ok := targetByNode[node]
+			if !ok {
+				continue // not in the layout (e.g. unpinned/unknown node) — leave untouched
+			}
+			target = t
+		}
+		if c.Spec.NumCores >= target {
+			continue // already at/above its target — never shrink (frozen computes land here)
+		}
+		c.Spec.NumCores = target
+		if hp, hpErr := r.computeHugepagesForCores(ctx, cluster, target, totalCount, r.containers); hpErr == nil {
+			c.Spec.Hugepages = hp.Hugepages
+			c.Spec.HugepagesOffset = hp.HugepagesOffset
+		} else {
+			logger.Info("could not resize hugepages for grown compute container; keeping existing", "name", c.Name, "reason", hpErr)
+		}
+		logger.Info("Growing clusterCapacity compute container in place", "name", c.Name, "cores", c.Spec.NumCores)
+		if err := r.getClient().Update(ctx, c); err != nil {
+			return fmt.Errorf("applyClusterCapacityComputeGrowth: failed to update container %s: %w", c.Name, err)
+		}
+		r.Recorder.Event(
+			c, v1.EventTypeWarning, "CapacityGrowthApplied",
+			fmt.Sprintf("applied clusterCapacity compute growth to container (cores %d); the compute spec changed — the pod must be recreated to apply the new cores/hugepages", c.Spec.NumCores),
+		)
+	}
+	return nil
+}
+
+// computeHugepagesForCores recomputes a compute container's hugepages for a specific (per-container)
+// core count, used when growing clusterCapacity compute containers in place. Mirrors
+// driveHugepagesForCores: the cluster-level template default does not represent the planner-derived
+// compute cores, so hugepages must be sized from THIS container's cores.
+func (r *wekaClusterReconcilerLoop) computeHugepagesForCores(ctx context.Context, cluster *weka.WekaCluster, cores, computeContainers int, wekaContainers []*weka.WekaContainer) (allocator.ContainerHugepages, error) {
+	perTemplate := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
+	perTemplate.Cores.Compute = cores
+	if computeContainers > 0 {
+		perTemplate.Containers.Compute = computeContainers // planner-derived count, not the min-default 5
+	}
+	return allocator.GetContainerHugepages(ctx, r.getClient(), perTemplate, cluster, wekaContainers, weka.WekaContainerModeCompute)
+}
+
+// GarbageCollectUnschedulableDriveContainers deletes clusterCapacity drive containers that have never
+// been scheduled (Status.NodeAffinity == "") longer than the configured timeout, so the planner can
+// re-place that capacity on a node that can actually host it on the next reconcile. It targets only
+// never-scheduled containers: an established (once-scheduled) drive container keeps Status.NodeAffinity
+// set and is skipped here.
+//
+// TODO: move this GC into the wekacontainer reconciler — each drive container can evaluate its own
+// unscheduled age there (it already has its pod loaded and a self-delete path), avoiding the
+// cluster-level scan. Kept at the wekacluster level for now.
+func (r *wekaClusterReconcilerLoop) GarbageCollectUnschedulableDriveContainers(ctx context.Context) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	timeout := config.Config.UnschedulableDriveContainerGCTimeout
+
+	for _, c := range r.containers {
+		if c.Spec.Mode != weka.WekaContainerModeDrive || !c.HasContainerCapacity() {
+			continue
+		}
+		if c.Status.NodeAffinity != "" || c.IsMarkedForDeletion() || c.IsDeletingState() || c.IsDestroyingState() {
+			continue // scheduled, or already going away
+		}
+		age := time.Since(c.CreationTimestamp.Time)
+		if age < timeout {
+			continue
+		}
+
+		r.Recorder.Event(
+			c, v1.EventTypeWarning, "UnschedulableDriveContainer",
+			fmt.Sprintf("drive container unscheduled for %s (> %s); deleting so capacity can be re-placed", age.Round(time.Second), timeout),
+		)
+
+		logger.Info("Deleting long-unschedulable clusterCapacity drive container", "name", c.Name, "age", age.String())
+
+		if err := services.SetContainerStateDeleting(ctx, c, r.getClient()); err != nil {
+			return fmt.Errorf("GarbageCollectUnschedulableDriveContainers: failed to delete container %s: %w", c.Name, err)
+		}
+	}
+	return nil
+}
+
 func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) ([]*weka.WekaContainer, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "BuildMissingContainers")
 	defer logger.End()
@@ -344,7 +617,56 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 	// Check if telemetry exports are configured
 	hasTelemetryExports := cluster.Spec.Telemetry != nil && len(cluster.Spec.Telemetry.Exports) > 0
 
+	// clusterCapacity mode: planner builds DRIVE containers; remaining roles use the normal path.
+	clusterCapacityMode := cluster.Spec.Dynamic != nil && cluster.Spec.Dynamic.UsesClusterCapacity()
+
+	// computeCores derived from clusterCapacity planner (1:1 TLC drive cores rule).
+	// 0 means "use template default" (non-clusterCapacity path).
+	derivedComputeCores := 0
+	// derivedComputeNodes are the planner-reserved compute nodes (post-drive headroom). New compute
+	// containers are pinned to them so they never schedule onto a drive-pinned node lacking the
+	// post-drive hugepages to host both (which would leave the pinned drive pod unschedulable).
+	var derivedComputeNodes []string
+	// derivedComputeLayout is the planner's PER-CONTAINER compute layout (heterogeneous when an existing
+	// compute is frozen at its current size and the deficit is covered by compensating containers). When
+	// non-empty it is the authoritative source for compute creation: each net-new entry is built on its
+	// own node with its own cores/hugepages. Empty falls back to the uniform derivedComputeCores path.
+	var derivedComputeLayout []allocator.ComputeContainerSpec
+
+	if clusterCapacityMode {
+		driveContainers, skipped, plan, err := r.buildClusterCapacityDriveContainers(ctx)
+		if err != nil {
+			return nil, err
+		}
+		containers = append(containers, driveContainers...)
+		skippedReasons = append(skippedReasons, skipped...)
+
+		// Compute container count and per-container cores are computed by the planner from the POST-drive
+		// per-node core/hugepage headroom (1:1 with TLC drive cores, bounded by real per-node headroom).
+		// Advisory warnings are emitted as plan.Warnings in planClusterCapacity; an unsatisfiable 1:1 was
+		// already returned as a WaitError above (so no drive/compute container was created or grown).
+		derivedComputeCores = plan.ComputeCores
+		nums.Compute = plan.ComputeContainers
+		derivedComputeNodes = plan.ComputeNodes
+		derivedComputeLayout = plan.ComputeLayout
+	}
+
 	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs", "smbw", "telemetry", "data-services"} {
+		// Drive containers are handled by the planner branch above in clusterCapacity mode.
+		if clusterCapacityMode && role == weka.WekaContainerModeDrive {
+			continue
+		}
+
+		// Compute in clusterCapacity mode with a per-container layout: create each missing layout entry on
+		// its own node with its own cores/hugepages (heterogeneous when a frozen compute is being
+		// compensated). This supersedes the uniform compute path below.
+		if clusterCapacityMode && role == weka.WekaContainerModeCompute && len(derivedComputeLayout) > 0 {
+			built, skipped := r.buildClusterCapacityComputeContainers(ctx, derivedComputeLayout, existingContainers)
+			containers = append(containers, built...)
+			skippedReasons = append(skippedReasons, skipped...)
+			continue
+		}
+
 		var numContainers int
 
 		if clusterReady {
@@ -403,6 +725,19 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 
 		template := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
 
+		// nodePins, when non-empty, pins the containers about to be created to specific nodes (consumed
+		// one-per-container below). In clusterCapacity mode we also inject the 1:1-derived compute cores
+		// and pin compute to the planner-reserved nodes — symmetric with drives — so it never lands on a
+		// drive-pinned node lacking the post-drive hugepages to host both.
+		var nodePins []string
+		if clusterCapacityMode && role == weka.WekaContainerModeCompute && derivedComputeCores > 0 {
+			template.Cores.Compute = derivedComputeCores
+			if nums.Compute > 0 {
+				template.Containers.Compute = nums.Compute // planner-derived count, not the min-default 5
+			}
+			nodePins = unusedComputeNodes(existingContainers, derivedComputeNodes)
+		}
+
 		hp, err := allocator.GetContainerHugepages(ctx, r.getClient(), template, cluster, r.containers, role)
 		if err != nil {
 			logger.Info("Skipping role — hugepages not available yet", "role", role, "reason", err)
@@ -420,6 +755,10 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 				skippedReasons = append(skippedReasons, fmt.Sprintf("role %s container %s: %s", role, name, err))
 				continue
 			}
+			if len(nodePins) > 0 {
+				container.Spec.NodeAffinity = weka.NodeName(nodePins[0])
+				nodePins = nodePins[1:]
+			}
 			containers = append(containers, container)
 		}
 	}
@@ -430,6 +769,87 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 	}
 
 	return containers, nil
+}
+
+// buildClusterCapacityComputeContainers creates the compute containers in the planner's per-container
+// layout that do not yet exist on their pinned node. Each entry carries its OWN cores/hugepages, so a
+// heterogeneous layout (frozen existing compute + grown others + extra compensating containers) is
+// realized correctly — unlike the uniform path which applies one core count to every container. Nodes
+// already hosting a compute container are skipped here (in-place growth handles their resizing); only the
+// missing entries (net-new and compensating containers) are built. Hugepages are sized authoritatively
+// per distinct core count via computeHugepagesForCores (cached), using the layout's total container count.
+func (r *wekaClusterReconcilerLoop) buildClusterCapacityComputeContainers(ctx context.Context, layout []allocator.ComputeContainerSpec, existing []*weka.WekaContainer) (built []*weka.WekaContainer, skippedReasons []string) {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+	cluster := r.cluster
+
+	occupied := make(map[string]struct{})
+	for _, c := range existing {
+		if c.Spec.Mode == weka.WekaContainerModeCompute {
+			if n := string(c.GetNodeAffinity()); n != "" {
+				occupied[n] = struct{}{}
+			}
+		}
+	}
+
+	totalCount := len(layout)
+	hpByCores := make(map[int]allocator.ContainerHugepages)
+	for _, entry := range layout {
+		if entry.Node == "" {
+			continue
+		}
+		if _, taken := occupied[entry.Node]; taken {
+			continue // an existing compute already lives here; in-place growth resizes it
+		}
+
+		hp, ok := hpByCores[entry.NumCores]
+		if !ok {
+			h, err := r.computeHugepagesForCores(ctx, cluster, entry.NumCores, totalCount, r.containers)
+			if err != nil {
+				logger.Info("Skipping compute container — hugepages not available yet", "node", entry.Node, "cores", entry.NumCores, "reason", err)
+				skippedReasons = append(skippedReasons, fmt.Sprintf("compute node %s hugepages: %s", entry.Node, err))
+				continue
+			}
+			hp = h
+			hpByCores[entry.NumCores] = h
+		}
+
+		template := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
+		template.Cores.Compute = entry.NumCores
+		template.Containers.Compute = totalCount
+
+		name := allocator.NewContainerName(weka.WekaContainerModeCompute)
+		logger.Info("Building missing clusterCapacity compute container", "name", name, "node", entry.Node, "cores", entry.NumCores)
+		container, err := factory.NewWekaContainerForWekaCluster(cluster, template, hp, weka.WekaContainerModeCompute, name)
+		if err != nil {
+			logger.Info("Skipping compute container — failed to build", "name", name, "node", entry.Node, "reason", err)
+			skippedReasons = append(skippedReasons, fmt.Sprintf("compute container %s: %s", name, err))
+			continue
+		}
+		container.Spec.NodeAffinity = weka.NodeName(entry.Node)
+		built = append(built, container)
+	}
+	return built, skippedReasons
+}
+
+// unusedComputeNodes returns the planner-reserved compute nodes that are not already hosting a compute
+// container, preserving the planner's order. New compute containers pin to these (one each) so they never
+// schedule onto a drive-pinned node lacking the post-drive hugepages to host both.
+func unusedComputeNodes(existing []*weka.WekaContainer, planned []string) []string {
+	used := make(map[string]struct{})
+	for _, c := range existing {
+		if c.Spec.Mode == weka.WekaContainerModeCompute {
+			if n := string(c.GetNodeAffinity()); n != "" {
+				used[n] = struct{}{}
+			}
+		}
+	}
+	free := make([]string, 0, len(planned))
+	for _, n := range planned {
+		if _, taken := used[n]; !taken {
+			free = append(free, n)
+		}
+	}
+	return free
 }
 
 func (r *wekaClusterReconcilerLoop) updateContainersOnNodeSelectorMismatch(ctx context.Context) error {
@@ -485,6 +905,8 @@ func (r *wekaClusterReconcilerLoop) updateContainersOnNodeSelectorMismatch(ctx c
 
 	logger.Info("Updating containers with node selector mismatch", "toUpdate", len(toUpdate))
 	updateErr := workers.ProcessConcurrently(ctx, toUpdate, maxBackendsDeletePerReconcile, func(ctx context.Context, container *weka.WekaContainer) error {
+		// clusterCapacity drive containers pin to their node via Spec.NodeAffinity (a separate field
+		// this NodeSelector replace never touches), so no hostname preservation is needed here.
 		patch := []map[string]any{
 			{
 				"op":    "replace",

@@ -279,6 +279,7 @@
 | smbwFrontendHugepagesOffset | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for SMB-W frontend |
 | driveCapacity | int | DriveCapacity is the capacity in GiB to allocate per single virtual drive.<br>NumDrives multiplied by DriveCapacity gives the total capacity requested by each drive container.<br>This value determines how much capacity each container receives from shared drives. |
 | containerCapacity | int | ContainerCapacity specifies the total capacity (in GiB) requested by each container when using shared drives via SSD proxy.<br>This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation. |
+| clusterCapacity | string | ClusterCapacity is a human-friendly target USABLE capacity for the whole cluster.<br>Alternative to ContainerCapacity: instead of sizing each container, the operator<br>translates this target into failure domains built from whole containers and grows<br>toward it (capacity only ever increases). Mutually exclusive with ContainerCapacity,<br>NumDrives and DriveCapacity.<br>Unit handling: the suffix determines whether decimal (base-1000) or binary (base-1024)<br>interpretation is used.<br>- Binary (IEC): "GiB"/"Gi", "TiB"/"Ti", "MiB"/"Mi", etc.  e.g. "8000GiB" = 8000 GiB<br>- Decimal (SI): "GB", "TB", "MB", etc.                      e.g. "8000GB"  ≈ 7450 GiB<br>- Bare unit (no "B"): "8000g", "300t" — treated as binary for backward compatibility |
 | driveTypesRatio | *DriveTypesRatio | DriveTypesRatio specifies the desired ratio of drive types (TLC vs QLC) when allocating drives for the cluster. |
 | dataServicesContainers | int |  |
 | dataServicesCores | int |  |
@@ -462,6 +463,7 @@
 | throughput | StringMetric |  |
 | iops | StringMetric |  |
 | filesystemCapacity | StringMetric | Information about filesystem capacity: Available/Used |
+| capacity | StringMetric | Aggregated raw provisioned drive-sharing capacity per type, e.g. "TLC 100TiB / QLC 200TiB" |
 
 ---
 

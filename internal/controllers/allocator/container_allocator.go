@@ -554,9 +554,25 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 	hasExistingAllocations := req.Container.Status.Allocations != nil && len(req.Container.Status.Allocations.VirtualDrives) > 0
 	isReallocation := hasExistingAllocations && req.CapacityGiB > 0
 
-	// Calculate TLC and QLC capacities using GetTlcQlcCapacity to avoid rounding loss
-	// req.CapacityGiB contains the full capacity for initial allocation, or missing capacity for reallocation
-	tlcCapacityNeeded, qlcCapacityNeeded := weka.GetTlcQlcCapacity(req.CapacityGiB, req.Container.Spec.DriveTypesRatio)
+	// Calculate per-type TLC and QLC capacities to allocate.
+	//
+	// For initial allocation req.CapacityGiB is the full target, so splitting it by the ratio yields the
+	// per-type targets directly. For reallocation (grow), splitting the *increment* (req.CapacityGiB) by
+	// the ratio and piling it on top of the existing drives drifts the realized split away from the ratio
+	// whenever the existing drives don't already match it (e.g. a container that started TLC-only and is
+	// grown into a 1:2 mix). That drift can push a pool across a per-core capacity boundary, so the
+	// realized layout needs more cores than the planner sized the pod for — and the pod-level feasibility
+	// gate then defers the drive-add forever. Instead, derive per-type targets from the FULL container
+	// capacity and subtract what each type already holds, so the realized total converges to the ratio.
+	var tlcCapacityNeeded, qlcCapacityNeeded int
+	if isReallocation {
+		fullTlc, fullQlc := weka.GetTlcQlcCapacity(req.Container.Spec.ContainerCapacity, req.Container.Spec.DriveTypesRatio)
+		existingTlc, existingQlc := req.Container.Status.Allocations.GetAllocatedVirtualDrivesCapacityByType()
+		tlcCapacityNeeded = max(0, fullTlc-existingTlc)
+		qlcCapacityNeeded = max(0, fullQlc-existingQlc)
+	} else {
+		tlcCapacityNeeded, qlcCapacityNeeded = weka.GetTlcQlcCapacity(req.CapacityGiB, req.Container.Spec.DriveTypesRatio)
+	}
 
 	// Validate minimum drive count constraint based on configuration
 	// Each drive must be at least MinChunkSizeGiB (384 GiB)

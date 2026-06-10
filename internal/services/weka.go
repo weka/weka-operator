@@ -405,7 +405,7 @@ type WekaService interface {
 	GetCapacity(ctx context.Context) (WekaCapacityInfo, error)
 	ConfigureDataServicesGlobalConfig(ctx context.Context) error
 	ListOverridesByKey(ctx context.Context, key string) ([]WekaOverride, error)
-	AddOverride(ctx context.Context, key, value string, force bool) error
+	AddOverride(ctx context.Context, key, value, comment string, force bool) error
 	// GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -1796,7 +1796,7 @@ func (c *CliWekaService) ListOverridesByKey(ctx context.Context, key string) ([]
 	return out, nil
 }
 
-func (c *CliWekaService) AddOverride(ctx context.Context, key, value string, force bool) error {
+func (c *CliWekaService) AddOverride(ctx context.Context, key, value, comment string, force bool) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "AddOverride")
 	defer logger.End()
 
@@ -1805,6 +1805,9 @@ func (c *CliWekaService) AddOverride(ctx context.Context, key, value string, for
 		return err
 	}
 	cmd := []string{"weka", "debug", "override", "add", "--key", key, "--value", value}
+	if comment != "" {
+		cmd = append(cmd, "--comment", comment)
+	}
 	if force {
 		cmd = append(cmd, "--force")
 	}

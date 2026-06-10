@@ -159,15 +159,32 @@ type SmbwConfig struct {
 	ShmSize string
 }
 
+type ClusterCapacityConfig struct {
+	MaxComputeCoresPerNode int
+	TlcCapacityPerCoreGiB  int
+	QlcCapacityPerCoreGiB  int
+	// ImbalanceFactor gates the heterogeneous "balanced fresh" growth fallback: when each new drive
+	// container would be at least this factor (8.0 = 8.0x) of the existing containers' average
+	// capacity, the planner lays out a fresh balanced set instead. 0 falls back to the default (8.0).
+	ImbalanceFactor float64
+}
+
 type DriveSharingConfig struct {
-	DriveTypesRatio                v1alpha1.DriveTypesRatio
-	MaxVirtualDrivesPerCore        int
-	EnforceMinDrivesPerTypePerCore bool
-	EnableDynamicDriveScaling      bool
-	SsdProxyHugepagesOffsetMiB     int
-	SsdProxyImageOverride          string
-	HugepagesTlcRatio              int
-	HugepagesQlcRatio              int
+	DriveTypesRatio                      v1alpha1.DriveTypesRatio
+	MaxVirtualDrivesPerCore              int
+	EnforceMinDrivesPerTypePerCore       bool
+	EnableDynamicDriveScaling            bool
+	SsdProxyHugepagesOffsetMiB           int
+	SsdProxyImageOverride                string
+	HugepagesTlcRatio                    int
+	HugepagesQlcRatio                    int
+	SmallBigDiskSizesMaxProportionFactor int
+	// AllowSingleParity lowers the clusterCapacity protection floor from the production
+	// 3+2+1 (stripeWidth/data>=3, redundancyLevel/parity>=2, hotSpare>=1) to single-parity
+	// 2+1+0, enabling QA/test clusters such as 2+1. QA/test only: a single parity chunk leaves
+	// a stripe unprotected during rebuild. When set, the operator also emits the allow_1_parity
+	// weka override at cluster formation (weka rejects parity=1 without it).
+	AllowSingleParity bool
 }
 
 type PortAllocationConfig struct {
@@ -264,14 +281,17 @@ var Config struct {
 	DeleteEnvoyWithoutS3NeighborTimeout          time.Duration
 	DeleteTelemetryWithoutComputeNeighborTimeout time.Duration
 	DeleteUnschedulablePodsAfter                 time.Duration
-	RemoveFailedDrivesFromWeka                   bool
-	AllowMultipleProtocolsPerNode                bool
-	NetnsEnabled                                 bool
-	ManagementProxyHostNetwork                   bool
-	ManagementProxyIngressBaseDomain             string
-	ManagementProxyIngressClass                  string
-	EvictedPodCleanupEnabled                     bool
-	EvictedPodCleanupInterval                    time.Duration
+	// How long a clusterCapacity drive container may stay unscheduled before the operator deletes it
+	// so the planner can re-place its capacity on a node that can host it.
+	UnschedulableDriveContainerGCTimeout time.Duration
+	RemoveFailedDrivesFromWeka           bool
+	AllowMultipleProtocolsPerNode        bool
+	NetnsEnabled                         bool
+	ManagementProxyHostNetwork           bool
+	ManagementProxyIngressBaseDomain     string
+	ManagementProxyIngressClass          string
+	EvictedPodCleanupEnabled             bool
+	EvictedPodCleanupInterval            time.Duration
 
 	BuilderImages          BuilderImagesConfig
 	Csi                    EmbeddedCsiSettings
@@ -280,6 +300,7 @@ var Config struct {
 	PriorityClasses        PriorityClasses
 	Nfs                    NfsConfig
 	Smbw                   SmbwConfig
+	ClusterCapacity        ClusterCapacityConfig
 	DriveSharing           DriveSharingConfig
 	PortAllocation         PortAllocationConfig
 	HugepagesUpdate        HugepagesUpdateConfig
@@ -356,6 +377,8 @@ var Consts struct {
 	ManagementServiceUpdateInterval time.Duration
 	// Interval for telemetry exports configuration updates
 	TelemetryUpdateInterval time.Duration
+	// Interval for weka debug override reconciliation
+	WekaOverridesUpdateInterval time.Duration
 	// DPDK memory reserved for SSD proxy containers (MiB).
 	// Excluded from weka's --memory without SsdProxyIncludesDpdkMemory FF; included with it.
 	SsdProxyDpdkMemoryMiB int
@@ -368,8 +391,15 @@ func init() {
 	Consts.NewContainersLimit = 1000 // virtually no limit for now
 	Consts.PeriodicDrivesCheckInterval = 1 * time.Minute
 	Consts.CheckDriversInterval = 7 * time.Minute
-	Consts.FormClusterMinComputeContainers = 5
-	Consts.FormClusterMinDriveContainers = 5
+	// Default minimum drive/compute containers required to form a cluster. The 5-container default
+	// suits production 3+2+1 (minFdNum=6); a single-parity 2+1 cluster (minFdNum=3) legitimately
+	// forms with as few as 3, so AllowSingleParity lowers the default. Both remain env-overridable.
+	formClusterMinDefault := 5
+	if getBoolEnvOrDefault("ALLOW_SINGLE_PARITY", false) {
+		formClusterMinDefault = 3
+	}
+	Consts.FormClusterMinComputeContainers = getIntEnvOrDefault("FORM_CLUSTER_MIN_COMPUTE_CONTAINERS", formClusterMinDefault)
+	Consts.FormClusterMinDriveContainers = getIntEnvOrDefault("FORM_CLUSTER_MIN_DRIVE_CONTAINERS", formClusterMinDefault)
 	Consts.FormClusterMaxComputeContainers = 10
 	Consts.FormClusterMaxDriveContainers = 10
 	Consts.FormS3ClusterMaxContainerCount = 3
@@ -383,6 +413,7 @@ func init() {
 	Consts.TolerationsMismatchCleanupInterval = 1 * time.Minute
 	Consts.ManagementServiceUpdateInterval = 1 * time.Minute
 	Consts.TelemetryUpdateInterval = 1 * time.Minute
+	Consts.WekaOverridesUpdateInterval = 1 * time.Minute
 	Consts.SsdProxyDpdkMemoryMiB = 2048
 }
 
@@ -475,6 +506,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DeleteEnvoyWithoutS3NeighborTimeout = getDurationEnvOrDefault("DELETE_ENVOY_WITHOUT_S3_NEIGHBOR_TIMEOUT", 5*time.Minute)
 	Config.DeleteTelemetryWithoutComputeNeighborTimeout = getDurationEnvOrDefault("DELETE_TELEMETRY_WITHOUT_COMPUTE_NEIGHBOR_TIMEOUT", 5*time.Minute)
 	Config.DeleteUnschedulablePodsAfter = getDurationEnvOrDefault("DELETE_UNSCHEDULABLE_PODS_AFTER", 1*time.Minute)
+	Config.UnschedulableDriveContainerGCTimeout = getDurationEnvOrDefault("UNSCHEDULABLE_DRIVE_CONTAINER_GC_TIMEOUT", 2*time.Minute)
 	Config.RemoveFailedDrivesFromWeka = getBoolEnvOrDefault("REMOVE_FAILED_DRIVES_FROM_WEKA", false)
 	Config.AllowMultipleProtocolsPerNode = getBoolEnvOrDefault("ALLOW_MULTIPLE_PROTOCOLS_PER_NODE", false)
 	Config.PodConfigVersion = env.GetString("POD_CONFIG_VERSION", "1")
@@ -531,6 +563,14 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DriveSharing.SsdProxyImageOverride = getEnvOrDefault("SSD_PROXY_IMAGE_OVERRIDE", "")
 	Config.DriveSharing.HugepagesTlcRatio = getIntEnvOrDefault("HUGEPAGES_TLC_RATIO", 1000)
 	Config.DriveSharing.HugepagesQlcRatio = getIntEnvOrDefault("HUGEPAGES_QLC_RATIO", 6000)
+	Config.DriveSharing.SmallBigDiskSizesMaxProportionFactor = getIntEnvOrDefault("SMALL_BIG_DISK_SIZES_MAX_PROPORTION_FACTOR", 10)
+	Config.DriveSharing.AllowSingleParity = getBoolEnvOrDefault("ALLOW_SINGLE_PARITY", false)
+
+	// Cluster capacity configuration
+	Config.ClusterCapacity.MaxComputeCoresPerNode = getIntEnvOrDefault("CLUSTER_CAPACITY_MAX_COMPUTE_CORES_PER_NODE", 16)
+	Config.ClusterCapacity.TlcCapacityPerCoreGiB = getIntEnvOrDefault("CLUSTER_CAPACITY_TLC_CAPACITY_PER_CORE_GIB", 5*1024)
+	Config.ClusterCapacity.QlcCapacityPerCoreGiB = getIntEnvOrDefault("CLUSTER_CAPACITY_QLC_CAPACITY_PER_CORE_GIB", 50*1024)
+	Config.ClusterCapacity.ImbalanceFactor = getFloatEnvOrDefault("CLUSTER_CAPACITY_IMBALANCE_FACTOR", 8.0)
 
 	// Builder images configuration
 	Config.BuilderImages.Default = getEnvOrDefault("BUILDER_IMAGE_DEFAULT", "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22")
@@ -653,6 +693,22 @@ func getIntEnvOrDefault(envKey string, defaultVal int) int {
 	}
 
 	return ival
+}
+
+func getFloatEnvOrDefault(envKey string, defaultVal float64) float64 {
+	val, found := os.LookupEnv(envKey)
+	if !found || val == "" {
+		return defaultVal
+	}
+
+	fval, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		err = fmt.Errorf("failed to parse float value %s from env var %s", val, envKey)
+		klog.Error(err)
+		os.Exit(1)
+	}
+
+	return fval
 }
 
 func getDurationEnvOrDefault(envKey string, defaultVal time.Duration) time.Duration {

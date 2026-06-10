@@ -503,6 +503,15 @@
           },
           "description": "Information about filesystem capacity: Available/Used",
           "optional": true
+        },
+        {
+          "name": "Capacity",
+          "jsonName": "capacity",
+          "type": {
+            "$ref": "#/definitions/StringMetric"
+          },
+          "description": "Aggregated raw provisioned drive-sharing capacity per type, e.g. \"TLC 100TiB / QLC 200TiB\"",
+          "optional": true
         }
       ],
       "usedBy": [
@@ -644,6 +653,13 @@
           "jsonName": "nodeAffinity",
           "type": "string",
           "description": "node name where the container is running",
+          "optional": true
+        },
+        {
+          "name": "Capacity",
+          "jsonName": "capacity",
+          "type": "string",
+          "description": "per-drive-type capacity of a drive container, e.g. \"TLC 30TiB / QLC 60TiB\" (drive-sharing only)",
           "optional": true
         }
       ],
@@ -4338,6 +4354,13 @@
           "jsonName": "containerCapacity",
           "type": "int",
           "description": "ContainerCapacity specifies the total capacity (in GiB) requested by each container when using shared drives via SSD proxy.\nThis value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.",
+          "optional": true
+        },
+        {
+          "name": "ClusterCapacity",
+          "jsonName": "clusterCapacity",
+          "type": "string",
+          "description": "ClusterCapacity is a human-friendly target USABLE capacity for the whole cluster.\nAlternative to ContainerCapacity: instead of sizing each container, the operator\ntranslates this target into failure domains built from whole containers and grows\ntoward it (capacity only ever increases). Mutually exclusive with ContainerCapacity,\nNumDrives and DriveCapacity.\nUnit handling: the suffix determines whether decimal (base-1000) or binary (base-1024)\ninterpretation is used.\n- Binary (IEC): \"GiB\"/\"Gi\", \"TiB\"/\"Ti\", \"MiB\"/\"Mi\", etc.  e.g. \"8000GiB\" = 8000 GiB\n- Decimal (SI): \"GB\", \"TB\", \"MB\", etc.                      e.g. \"8000GB\"  ≈ 7450 GiB\n- Bare unit (no \"B\"): \"8000g\", \"300t\" — treated as binary for backward compatibility",
           "optional": true
         },
         {

@@ -398,7 +398,7 @@ func appendMissingDrivesToBlocked(
 	annotatedSerials []string,
 	opResult *operations.DriveNodeResults,
 	blockedDrives []string,
-) ([]string, []string) {
+) (updatedBlocked, newlyAdded []string) {
 	if !opResult.KernelViewComplete {
 		return blockedDrives, nil
 	}

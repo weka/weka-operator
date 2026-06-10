@@ -30,6 +30,9 @@ type PodExecService struct {
 }
 
 func (s *PodExecService) GetExecutorWithTimeout(ctx context.Context, container *wekav1alpha1.WekaContainer, timeout *time.Duration) (util2.Exec, error) {
+	if container == nil {
+		return nil, errors.New("container is nil")
+	}
 	config := s.getConfig()
 	nodeName := string(container.GetNodeAffinity())
 

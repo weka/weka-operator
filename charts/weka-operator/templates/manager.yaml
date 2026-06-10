@@ -270,6 +270,8 @@ spec:
               value: "{{ .Values.defaultIntervals.deleteEnvoyWithoutS3NeighborTimeout }}"
             - name: DELETE_UNSCHEDULABLE_PODS_AFTER
               value: "{{ .Values.defaultIntervals.deleteUnschedulablePodsAfter }}"
+            - name: UNSCHEDULABLE_DRIVE_CONTAINER_GC_TIMEOUT
+              value: "{{ .Values.defaultIntervals.unschedulableDriveContainerGCTimeout }}"
             - name: REMOVE_FAILED_DRIVES_FROM_WEKA
               value: "{{ .Values.removeFailedDrives }}"
             - name: ALLOW_MULTIPLE_PROTOCOLS_PER_NODE
@@ -404,6 +406,14 @@ spec:
               value: "{{ .Values.nfs.notifyPort }}"
             - name: SMBW_SHM_SIZE
               value: "{{ .Values.smbw.shmSize }}"
+            - name: CLUSTER_CAPACITY_MAX_COMPUTE_CORES_PER_NODE
+              value: "{{ .Values.clusterCapacity.maxComputeCoresPerNode }}"
+            - name: CLUSTER_CAPACITY_TLC_CAPACITY_PER_CORE_GIB
+              value: "{{ .Values.clusterCapacity.tlcCapacityPerCoreGiB }}"
+            - name: CLUSTER_CAPACITY_QLC_CAPACITY_PER_CORE_GIB
+              value: "{{ .Values.clusterCapacity.qlcCapacityPerCoreGiB }}"
+            - name: CLUSTER_CAPACITY_IMBALANCE_FACTOR
+              value: "{{ .Values.clusterCapacity.imbalanceFactor }}"
             - name: DRIVE_TYPES_RATIO_TLC
               value: "{{ .Values.driveSharing.driveTypesRatio.tlc }}"
             - name: DRIVE_TYPES_RATIO_QLC
@@ -414,6 +424,10 @@ spec:
               value: "{{ .Values.driveSharing.enforceMinDrivesPerTypePerCore }}"
             - name: ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES
               value: "{{ .Values.driveSharing.enableDynamicDriveScalingForSharedDrives }}"
+            - name: SMALL_BIG_DISK_SIZES_MAX_PROPORTION_FACTOR
+              value: "{{ .Values.driveSharing.smallBigDiskSizesMaxProportionFactor }}"
+            - name: ALLOW_SINGLE_PARITY
+              value: "{{ .Values.allowSingleParity }}"
             - name: HUGEPAGES_TLC_RATIO
               value: "{{ .Values.hugepagesTlcRatio }}"
             - name: HUGEPAGES_QLC_RATIO

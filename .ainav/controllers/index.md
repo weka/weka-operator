@@ -25,6 +25,12 @@ allocator/          # Resource allocation (ports, IPs, drives)
   allocator.go      # Main allocation logic
   templates.go      # Container templates
   ranges.go         # IP/port range management
+  capacity_planner.go   # clusterCapacity planner: pure PlanCapacity (grow-in-place /
+                        #   create-new / balanced-fresh fallback / node-fit gate; FD = host in
+                        #   AUTO mode or label group; no operator FD stamping)
+  cluster_capacity.go   # shared helpers (RawCapacityGiB, imbalanceExceeds, NodeCapacity)
+  cluster_capacity_assignment.go  # RatioType + ResolveNodeFDValue
+                        #   (see wekacluster.md / drive-sharing.md clusterCapacity section)
 
 factory/            # Object construction
   container_factory.go  # Creates container specs

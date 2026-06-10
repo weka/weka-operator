@@ -472,12 +472,6 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			ContinueOnError: true,
 		},
 		&lifecycle.SimpleStep{
-			Run: r.applyCurrentImage,
-			Predicates: lifecycle.Predicates{
-				r.IsNotAlignedImage,
-			},
-		},
-		&lifecycle.SimpleStep{
 			Run: r.setJoinIpsIfStuckInStemMode,
 			Predicates: lifecycle.Predicates{
 				r.container.ShouldJoinCluster,
@@ -487,6 +481,12 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				func() bool {
 					return r.container.Status.InternalStatus == "STEM"
 				},
+			},
+		},
+		&lifecycle.SimpleStep{
+			Run: r.applyCurrentImage,
+			Predicates: lifecycle.Predicates{
+				r.IsNotAlignedImage,
 			},
 		},
 		&lifecycle.SimpleStep{
@@ -876,7 +876,7 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 		return errors.New("Container is not fully running yet")
 	}
 
-	if !container.IsServiceContainer() {
+	if !container.IsServiceContainer() && !container.IsSSDProxyContainer() {
 		// Check STATUS == READY (skip if InternalStatus not yet populated)
 		if container.Status.InternalStatus != "" && container.Status.InternalStatus != "READY" {
 			logger.Info("Container is not READY yet", "status", container.Status.InternalStatus)

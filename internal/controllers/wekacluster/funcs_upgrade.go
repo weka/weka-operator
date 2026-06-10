@@ -123,14 +123,28 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 
 	clusterForHp := &weka.WekaCluster{Spec: *spec}
 
-	computeHp, err := allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "compute")
-	if err != nil {
-		return nil, errors.Wrap(err, "Cannot compute hugepages for compute containers")
-	}
+	// In clusterCapacity mode the capacity planner owns drive and compute containers' cores and
+	// hugepages (sized heterogeneously per failure domain), and the per-container propagation loop
+	// below skips those fields for these containers (see the plannerManaged guard). Computing
+	// compute/drive hugepages here would be discarded anyway, while needlessly emitting capacity
+	// hugepages logs and feeding template-default values into specHash. Skip them — other roles
+	// (s3/nfs/smbw/data-services) are not planner-managed and still compute below.
+	usesClusterCapacity := spec.Dynamic != nil && spec.Dynamic.UsesClusterCapacity()
 
-	driveHp, err := allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "drive")
-	if err != nil {
-		return nil, errors.Wrap(err, "Cannot compute hugepages for drive containers")
+	var (
+		computeHp, driveHp allocator.ContainerHugepages
+		err                error
+	)
+	if !usesClusterCapacity {
+		computeHp, err = allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "compute")
+		if err != nil {
+			return nil, errors.Wrap(err, "Cannot compute hugepages for compute containers")
+		}
+
+		driveHp, err = allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "drive")
+		if err != nil {
+			return nil, errors.Wrap(err, "Cannot compute hugepages for drive containers")
+		}
 	}
 
 	s3Hp, err := allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "s3")
@@ -372,8 +386,11 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		}
 
 		if role != weka.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
-			oldNodeSelector := util.NewHashableMap(container.Spec.NodeSelector)
 			newNodeSelector := cluster.GetNodeSelectorForRole(role)
+			// clusterCapacity drive containers pin to their node via Spec.NodeAffinity (set by the
+			// capacity planner) — a dedicated field this NodeSelector overwrite never touches — so the
+			// pin survives without any hostname preservation here.
+			oldNodeSelector := util.NewHashableMap(container.Spec.NodeSelector)
 			if !util.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
 				container.Spec.NodeSelector = newNodeSelector
 			}
@@ -395,35 +412,51 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		}
 
 		rv := updatableSpec.forRole(role)
-		// ExtraCores allows zero (explicit removal), so uses equality guard.
-		// NumCores and Hugepages treat zero as "not set" — only update when non-zero.
-		if container.Spec.ExtraCores != rv.ExtraCores {
-			container.Spec.ExtraCores = rv.ExtraCores
-		}
 
-		coresUpdated := false
-		// NumCores can only be increased — decreasing requires manual intervention (container restart/reconfiguration).
-		if rv.NumCores > container.Spec.NumCores {
-			container.Spec.NumCores = rv.NumCores
-			coresUpdated = true
-		}
+		// In clusterCapacity mode the capacity planner OWNS drive and compute containers' cores,
+		// extra cores, hugepages, drive-types ratio and container capacity: it assigns them
+		// heterogeneously per container (sized per failure domain from TLC/QLC capacity, and the
+		// compute 1:1 sizing) and reconciles them in applyClusterCapacityGrowth /
+		// applyClusterCapacityComputeGrowth. The cluster-level values in updatableSpec are computed
+		// from the template-default cores and do NOT represent these containers, so propagating them
+		// here would clobber the planner-managed sizing — e.g. reset a multi-core drive/compute
+		// container back to a 1-core hugepage value, which weka then rejects for being below its
+		// minimum memory. Skip those fields for these containers; everything else (image, drivers,
+		// node selector, cpu/core-id policy, labels, dpdk) still propagates below/above.
+		plannerManaged := cluster.Spec.Dynamic != nil && cluster.Spec.Dynamic.UsesClusterCapacity() &&
+			(role == weka.WekaContainerModeDrive || role == weka.WekaContainerModeCompute)
 
-		dpdkChanged := rv.HugepagesInfo.DpdkBaseMemoryMb > 0 && container.Spec.DpdkBaseMemoryMb != rv.HugepagesInfo.DpdkBaseMemoryMb
-		if dpdkChanged {
-			container.Spec.DpdkBaseMemoryMb = rv.HugepagesInfo.DpdkBaseMemoryMb
-		}
+		if !plannerManaged {
+			// ExtraCores allows zero (explicit removal), so uses equality guard.
+			// NumCores and Hugepages treat zero as "not set" — only update when non-zero.
+			if container.Spec.ExtraCores != rv.ExtraCores {
+				container.Spec.ExtraCores = rv.ExtraCores
+			}
 
-		if coresUpdated || dpdkChanged {
-			container.Spec.Hugepages = rv.HugepagesInfo.Hugepages
-			container.Spec.HugepagesOffset = rv.HugepagesInfo.HugepagesOffset
-		}
+			coresUpdated := false
+			// NumCores can only be increased — decreasing requires manual intervention (container restart/reconfiguration).
+			if rv.NumCores > container.Spec.NumCores {
+				container.Spec.NumCores = rv.NumCores
+				coresUpdated = true
+			}
 
-		if rv.HugepagesInfo.ShouldPropagateHugepages() {
-			container.Spec.Hugepages = rv.HugepagesInfo.Hugepages
-		}
+			dpdkChanged := rv.HugepagesInfo.DpdkBaseMemoryMb > 0 && container.Spec.DpdkBaseMemoryMb != rv.HugepagesInfo.DpdkBaseMemoryMb
+			if dpdkChanged {
+				container.Spec.DpdkBaseMemoryMb = rv.HugepagesInfo.DpdkBaseMemoryMb
+			}
 
-		if rv.HugepagesInfo.ShouldPropagateHugepagesOffset() {
-			container.Spec.HugepagesOffset = rv.HugepagesInfo.HugepagesOffset
+			if coresUpdated || dpdkChanged {
+				container.Spec.Hugepages = rv.HugepagesInfo.Hugepages
+				container.Spec.HugepagesOffset = rv.HugepagesInfo.HugepagesOffset
+			}
+
+			if rv.HugepagesInfo.ShouldPropagateHugepages() {
+				container.Spec.Hugepages = rv.HugepagesInfo.Hugepages
+			}
+
+			if rv.HugepagesInfo.ShouldPropagateHugepagesOffset() {
+				container.Spec.HugepagesOffset = rv.HugepagesInfo.HugepagesOffset
+			}
 		}
 
 		if container.Spec.DriversLoaderImage != updatableSpec.DriversLoaderImage {

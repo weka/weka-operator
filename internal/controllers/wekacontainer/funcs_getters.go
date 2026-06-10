@@ -19,6 +19,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
+	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -430,36 +431,24 @@ func (r *containerReconcilerLoop) getFrontendWekaContainerOnNode(ctx context.Con
 }
 
 func (r *containerReconcilerLoop) getFailureDomain(ctx context.Context) *string {
+	// clusterCapacity AUTO mode sets no FailureDomain — Weka assigns FD = host. Only the label-based
+	// FailureDomain (explicit mode, or a non-clusterCapacity cluster) resolves an FD value here; the
+	// operator no longer stamps a per-container failure-domain value.
 	fdConfig := r.container.Spec.FailureDomain
 	if fdConfig == nil {
 		return nil
 	}
 
-	if fdConfig.Label != nil {
-		if fd, ok := r.node.Labels[*fdConfig.Label]; ok {
-			fd = handleFailureDomainValue(fd)
-			return &fd
-		}
+	// Resolve the raw label value(s) via the shared resolver (the same logic the capacity planner
+	// uses), then apply the container-side normalization. An empty result means the node carries none
+	// of the configured FD labels — which also matches how the planner skips such nodes.
+	raw := allocator.ResolveNodeFDValue(r.node, fdConfig)
+	if raw == "" {
 		return nil
 	}
-	if len(fdConfig.CompositeLabels) > 0 {
-		fdDomainParts := make([]string, 0, len(fdConfig.CompositeLabels))
-		for _, fdLabel := range fdConfig.CompositeLabels {
-			if fd, ok := r.node.Labels[fdLabel]; ok {
-				fdDomainParts = append(fdDomainParts, fd)
-			}
-		}
 
-		if len(fdDomainParts) == 0 {
-			return nil
-		}
-		// concatenate failure domain parts with "-"
-		fdValue := strings.Join(fdDomainParts, "-")
-		fdValue = handleFailureDomainValue(fdValue)
-		return &fdValue
-	}
-
-	return nil
+	fd := handleFailureDomainValue(raw)
+	return &fd
 }
 
 func handleFailureDomainValue(fd string) string {

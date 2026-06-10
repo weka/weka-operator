@@ -1325,12 +1325,17 @@ func TestVirtualDriveReallocation(t *testing.T) {
 			},
 		},
 		{
-			name: "reallocation with 2:1 TLC/QLC ratio",
+			// Per-type targets are derived from the FULL containerCapacity × ratio, then existing
+			// per-type capacity is subtracted — NOT the missing total split by ratio. Full 4000 @ 2:1
+			// = 2666 TLC / 1334 QLC; existing holds 1000 TLC, so new = 1666 TLC + 1334 QLC (total 3000).
+			// (The old increment-split gave 2000 TLC + 1000 QLC, overshooting TLC to 3000 total and
+			// drifting the realized split away from 2:1 — the OP-329 migration grow bug.)
+			name: "reallocation with 2:1 TLC/QLC ratio converges total to ratio",
 			existingVirtualDrives: []weka.VirtualDrive{
 				{VirtualUUID: "existing-1", PhysicalUUID: "other-tlc", CapacityGiB: 1000, Serial: "TLC001", Type: "TLC"},
 			},
 			containerCapacity: 4000,
-			missingCapacity:   3000, // 2000 TLC + 1000 QLC based on 2:1 ratio
+			missingCapacity:   3000,
 			tlcRatio:          2,
 			qlcRatio:          1,
 			numCores:          3,
@@ -1339,8 +1344,36 @@ func TestVirtualDriveReallocation(t *testing.T) {
 				{PhysicalUUID: "qlc-primary", Serial: "QLC-SN-1", CapacityGiB: 20000, Type: "QLC"},
 			},
 			expectedNewDrives: []weka.VirtualDrive{
-				{PhysicalUUID: "tlc-primary", CapacityGiB: 2000, Serial: "TLC-SN-1", Type: "TLC"},
-				{PhysicalUUID: "qlc-primary", CapacityGiB: 1000, Serial: "QLC-SN-1", Type: "QLC"},
+				{PhysicalUUID: "tlc-primary", CapacityGiB: 1666, Serial: "TLC-SN-1", Type: "TLC"},
+				{PhysicalUUID: "qlc-primary", CapacityGiB: 1334, Serial: "QLC-SN-1", Type: "QLC"},
+			},
+		},
+		{
+			// OP-329 regression: a container that started TLC-only (driveTypesRatio {1,0}) is grown into
+			// a 1:2 mix. Splitting the increment by the new ratio and piling it on the all-TLC existing
+			// drives overshoots total TLC and pushes the TLC pool across a per-core boundary, so the
+			// realized layout needs more cores than the pod was sized for and the drive-add defers
+			// forever. Per-type targeting keeps total TLC at the ratio target (existing 8000 already
+			// covers part of it) so cores stay as planned.
+			name: "reallocation from TLC-only into 1:2 mix targets full per-type split",
+			existingVirtualDrives: []weka.VirtualDrive{
+				{VirtualUUID: "existing-1", PhysicalUUID: "other-tlc", CapacityGiB: 8000, Serial: "TLC001", Type: "TLC"},
+			},
+			containerCapacity: 47787, // full per-FD raw target
+			missingCapacity:   39787, // 47787 - 8000 existing
+			tlcRatio:          1,
+			qlcRatio:          2,
+			numCores:          5,
+			availableDrives: []domain.SharedDriveInfo{
+				{PhysicalUUID: "tlc-primary", Serial: "TLC-SN-1", CapacityGiB: 40000, Type: "TLC"},
+				{PhysicalUUID: "qlc-primary", Serial: "QLC-SN-1", CapacityGiB: 60000, Type: "QLC"},
+			},
+			// Full 47787 @ 1:2 = 15929 TLC / 31858 QLC. Existing holds 8000 TLC, so new =
+			// 7929 TLC + 31858 QLC. Realized total = 15929 TLC / 31858 QLC, matching the plan
+			// (not the buggy 21262 TLC / 26525 QLC that needed 6 cores instead of 5).
+			expectedNewDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "tlc-primary", CapacityGiB: 7929, Serial: "TLC-SN-1", Type: "TLC"},
+				{PhysicalUUID: "qlc-primary", CapacityGiB: 31858, Serial: "QLC-SN-1", Type: "QLC"},
 			},
 		},
 		{

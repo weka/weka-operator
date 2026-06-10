@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/exec"
 )
@@ -61,6 +62,10 @@ type wekaClusterReconcilerLoop struct {
 	Throttler       throttling.Throttler
 	// internal field used to store data in-memory between steps
 	readyContainers *ReadyForClusterizationContainers
+	// buildNodeInventoryFn overrides the node-inventory builder for tests (nil => use the real method).
+	// It exists only so a test can assert the expensive node-inventory rebuild is skipped on the
+	// steady-state fast path; production always leaves it nil.
+	buildNodeInventoryFn func(ctx context.Context) (map[string]string, []allocator.NodeCapacity, map[string]bool, error)
 }
 
 // GetAllSteps combines all reconciliation steps into a single ordered list

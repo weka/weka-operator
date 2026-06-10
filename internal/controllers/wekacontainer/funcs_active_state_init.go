@@ -47,6 +47,14 @@ func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 		changed = true
 	}
 
+	// per-drive-type capacity column for drive-sharing containers (clusterCapacity / containerCapacity)
+	if r.container.Spec.Mode == weka.WekaContainerModeDrive && r.container.HasContainerCapacity() {
+		if capCol := driveCapacityColumn(r.container); capCol != r.container.Status.PrinterColumns.Capacity {
+			r.container.Status.PrinterColumns.Capacity = capCol
+			changed = true
+		}
+	}
+
 	if changed {
 		if err := r.Status().Update(ctx, r.container); err != nil {
 			return errors.Wrap(err, "Failed to update status")
@@ -54,6 +62,14 @@ func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// driveCapacityColumn formats a drive container's per-type capacity for the Capacity printer column,
+// e.g. "T/Q 30.0/60.0 TiB", "T 7.3TiB" (TLC-only), or "Q 20.0TiB". Returns "" when neither
+// part is set.
+func driveCapacityColumn(c *weka.WekaContainer) string {
+	tlc, qlc := weka.GetTlcQlcCapacity(c.Spec.ContainerCapacity, c.Spec.DriveTypesRatio)
+	return util.FormatTlcQlcColumn(tlc, qlc)
 }
 
 // isTolerated checks if the container's tolerations match the node's taints.

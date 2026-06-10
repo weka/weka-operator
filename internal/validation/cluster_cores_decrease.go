@@ -11,8 +11,12 @@ import (
 )
 
 // clusterCoresDecrease rejects WekaCluster updates that reduce any cores
-// field in spec.dynamic. A decrease is any new < old (including unsetting
-// an explicit value back to 0).
+// field in spec.dynamic to a smaller EXPLICIT (positive) value. Unsetting a
+// field — new == 0 for plain ints, or nil for nullable *int — means "revert
+// to operator-derived sizing" and is ALLOWED (e.g. when migrating from
+// containerCapacity to clusterCapacity, where the planner derives cores).
+// Only an explicit positive decrease (e.g. 4 -> 2) is blocked, since that can
+// destabilize a running cluster.
 type clusterCoresDecrease struct{}
 
 func (clusterCoresDecrease) ID() string { return "cluster_cores_decrease" }
@@ -30,8 +34,8 @@ func (clusterCoresDecrease) ValidateUpdate(_ context.Context, _ client.Client, o
 		return nil // nothing to compare against
 	}
 	o := oldCluster.Spec.Dynamic
-	// When new.Dynamic is nil treat all cores as 0 — removing the block
-	// is equivalent to decreasing everything to operator defaults.
+	// When new.Dynamic is nil treat all cores as 0 (unset) — i.e. revert to
+	// operator-derived sizing, which is allowed by the new==0 rule below.
 	var emptyDynamic wekav1alpha1.WekaClusterTemplate
 	n := newCluster.Spec.Dynamic
 	if n == nil {
@@ -54,7 +58,9 @@ func (clusterCoresDecrease) ValidateUpdate(_ context.Context, _ client.Client, o
 
 	var errs field.ErrorList
 	for _, ch := range checks {
-		if ch.new < ch.old {
+		// new == 0 means the field is unset (revert to operator-derived
+		// sizing) — allowed. Only block an explicit positive decrease.
+		if ch.new != 0 && ch.new < ch.old {
 			errs = append(errs, field.Forbidden(
 				field.NewPath("spec", "dynamic", ch.fieldName),
 				fmt.Sprintf("decreasing %s from %d to %d is not allowed; "+
@@ -64,20 +70,16 @@ func (clusterCoresDecrease) ValidateUpdate(_ context.Context, _ client.Client, o
 		}
 	}
 
-	// Nullable *int: when old is set, compare against new (0 if new is nil).
-	if o.DataServicesFeCores != nil {
-		newFe := 0
-		if n.DataServicesFeCores != nil {
-			newFe = *n.DataServicesFeCores
-		}
-		if newFe < *o.DataServicesFeCores {
-			errs = append(errs, field.Forbidden(
-				field.NewPath("spec", "dynamic", "dataServicesFeCores"),
-				fmt.Sprintf("decreasing dataServicesFeCores from %d to %d is not allowed; "+
-					"reducing cores can destabilize a running cluster",
-					*o.DataServicesFeCores, newFe),
-			))
-		}
+	// Nullable *int: a nil new value means unset (revert to operator-derived)
+	// and is allowed. Only block an explicit smaller value.
+	if o.DataServicesFeCores != nil && n.DataServicesFeCores != nil &&
+		*n.DataServicesFeCores < *o.DataServicesFeCores {
+		errs = append(errs, field.Forbidden(
+			field.NewPath("spec", "dynamic", "dataServicesFeCores"),
+			fmt.Sprintf("decreasing dataServicesFeCores from %d to %d is not allowed; "+
+				"reducing cores can destabilize a running cluster",
+				*o.DataServicesFeCores, *n.DataServicesFeCores),
+		))
 	}
 
 	return errs

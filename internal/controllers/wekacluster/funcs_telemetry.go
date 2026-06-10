@@ -397,7 +397,7 @@ func (r *wekaClusterReconcilerLoop) disableAutoStartTelemetryContainer(ctx conte
 		return nil
 	}
 
-	if err := svc.AddOverride(ctx, key, val, true); err != nil {
+	if err := svc.AddOverride(ctx, key, val, "weka-operator: disable telemetry container auto-start", true); err != nil {
 		return errors.Wrap(err, "failed to disable auto-start telemetry container")
 	}
 	logger.Info("Auto-start telemetry container disabled successfully")

@@ -17,6 +17,7 @@ Key config categories:
 - Priority class names
 - Proxy settings (HTTP/HTTPS)
 - Port allocation settings (starting port for cluster port ranges)
+- `ClusterCapacityConfig` — clusterCapacity pod-resource constraints (`TlcCapacityPerCoreGiB`, `QlcCapacityPerCoreGiB`, `MaxComputeCoresPerNode`, `ImbalanceFactor`); Helm names in `cluster-capacity.md` Helm constraints table. (`Consts.UnschedulableDriveContainerGCTimeout` gates GC of long-unscheduled drive containers.)
 - Pod-level securityContext injection (`WEKA_POD_SECURITY_CONTEXT` — JSON-encoded `corev1.PodSecurityContext`) — applied to every privileged/hostPath pod produced by the operator: WekaContainer pods (`pod.go`), CSI node DaemonSet, CSI controller, and prepull/trace/cleanup/pvc-migrate Jobs. Mgmt-proxy and metrics pods are excluded (non-privileged, no hostPath). Today only `appArmorProfile` is propagated (used to satisfy Kyverno `require-apparmor-on-privileged-or-hostpath`); other PodSecurityContext fields parse but `mergePodSecurityContext` ignores them — add a line there to support more. Helper: `internal/controllers/resources/security_context.go` (`ApplySecurityProfile` + `mergePodSecurityContext`). Helm value: `podSecurityContext` (default `{}`).
 
 ## Helm Chart
@@ -32,6 +33,8 @@ Key config categories:
 | `templates/metrics_daemonset.yaml` | Metrics collection |
 | `resources/weka_runtime.py` | Python runtime for pods |
 | `resources/run-weka-cli.sh` | CLI wrapper script |
+
+`clusterCapacity` operator constraints (`maxComputeCoresPerNode`, `tlcCapacityPerCoreGiB`, `qlcCapacityPerCoreGiB`) are documented in `doc/operator/deployment/cluster-capacity.md` (Helm constraints table).
 
 ## API Types (CRDs)
 
@@ -50,6 +53,16 @@ Key config categories:
 | `condition/conditions.go` | Status conditions |
 
 Generated docs: `doc/api_dump/*.md`
+
+## Validation & Admission
+
+**Path**: `internal/validation/` + `internal/admission/`
+
+Admission-webhook validators implement the `Validator` interface (`validator.go`), are
+listed per-CRD in `registry.go`, and get a default severity in `admission/defaults.go`.
+Add a rule = implement + register + add to the defaults table. clusterCapacity validators:
+`cluster_capacity_chunk_feasibility.go` (greenfield per-FD TLC share ≥ 384 GiB; skipped once the
+cluster has TLC-bearing drive containers) and `cluster_capacity_protection.go` (min SW≥3, RL≥2, HS≥1).
 
 ## Adding Configuration
 
