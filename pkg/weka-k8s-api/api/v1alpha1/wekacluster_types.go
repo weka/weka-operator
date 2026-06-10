@@ -20,9 +20,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -211,6 +214,7 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0 || self.driveTypesRatio.qlc > 0",message="at least one of driveTypesRatio.tlc or driveTypesRatio.qlc must be greater than 0"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0",message="driveTypesRatio.tlc must be greater than 0 when driveTypesRatio is specified; TLC-only and mixed TLC/QLC configurations are supported, but QLC-only is not allowed"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity > 0",message="driveCapacity must be greater than 0 when specified"
+// +kubebuilder:validation:XValidation:rule="!has(self.clusterCapacity) || self.clusterCapacity.size() == 0 || ((!has(self.containerCapacity) || self.containerCapacity == 0) && (!has(self.numDrives) || self.numDrives == 0) && (!has(self.driveCapacity) || self.driveCapacity == 0))",message="clusterCapacity is mutually exclusive with containerCapacity, numDrives and driveCapacity"
 type WekaClusterTemplate struct {
 	// Number of compute containers per cluster node.
 	// +kubebuilder:validation:Minimum=0
@@ -300,6 +304,18 @@ type WekaClusterTemplate struct {
 	// This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.
 	// +kubebuilder:validation:Minimum=0
 	ContainerCapacity int `json:"containerCapacity,omitempty"`
+	// ClusterCapacity is a human-friendly target USABLE capacity for the whole cluster.
+	// Alternative to ContainerCapacity: instead of sizing each container, the operator
+	// translates this target into failure domains built from whole containers and grows
+	// toward it (capacity only ever increases). Mutually exclusive with ContainerCapacity,
+	// NumDrives and DriveCapacity.
+	//
+	// Unit handling: the suffix determines whether decimal (base-1000) or binary (base-1024)
+	// interpretation is used.
+	//   - Binary (IEC): "GiB"/"Gi", "TiB"/"Ti", "MiB"/"Mi", etc.  e.g. "8000GiB" = 8000 GiB
+	//   - Decimal (SI): "GB", "TB", "MB", etc.                      e.g. "8000GB"  ≈ 7450 GiB
+	//   - Bare unit (no "B"): "8000g", "300t" — treated as binary for backward compatibility
+	ClusterCapacity string `json:"clusterCapacity,omitempty"`
 	// DriveTypesRatio specifies the desired ratio of drive types (TLC vs QLC) when allocating drives for the cluster.
 	DriveTypesRatio *DriveTypesRatio `json:"driveTypesRatio,omitempty"`
 	// +kubebuilder:validation:Minimum=0
@@ -344,6 +360,63 @@ func GetTlcQlcCapacity(totalCapacity int, ratio *DriveTypesRatio) (tlc, qlc int)
 	tlc = (totalCapacity * ratio.Tlc) / totalParts
 	qlc = totalCapacity - tlc // Remainder goes to QLC to avoid rounding loss
 	return
+}
+
+// UsesClusterCapacity reports whether the template targets a whole-cluster capacity.
+func (d *WekaClusterTemplate) UsesClusterCapacity() bool {
+	return strings.TrimSpace(d.ClusterCapacity) != ""
+}
+
+// GetClusterCapacityGiB parses ClusterCapacity into whole GiB.
+// Decimal SI suffixes (GB/TB/PB/MB/KB) use powers of 1000; binary IEC suffixes
+// (GiB/Gi/TiB/Ti/…) use powers of 1024. Bare units without "B" (e.g. "8000g") are
+// treated as binary for backward compatibility. Returns an error for empty/invalid input.
+func (d *WekaClusterTemplate) GetClusterCapacityGiB() (int, error) {
+	s := strings.TrimSpace(strings.ToLower(d.ClusterCapacity))
+	if s == "" {
+		return 0, fmt.Errorf("clusterCapacity is empty")
+	}
+
+	const giB = 1024 * 1024 * 1024
+
+	// Decimal SI path: suffixes without "i" followed by "b" mean powers of 1000.
+	for _, u := range []struct {
+		suffix string
+		mult   int64
+	}{
+		{"pb", 1_000_000_000_000_000},
+		{"tb", 1_000_000_000_000},
+		{"gb", 1_000_000_000},
+		{"mb", 1_000_000},
+		{"kb", 1_000},
+	} {
+		if strings.HasSuffix(s, u.suffix) {
+			numStr := s[:len(s)-len(u.suffix)]
+			f, err := strconv.ParseFloat(strings.TrimSpace(numStr), 64)
+			if err != nil || f < 0 {
+				return 0, fmt.Errorf("invalid clusterCapacity %q", d.ClusterCapacity)
+			}
+			return int(f * float64(u.mult) / float64(giB)), nil
+		}
+	}
+
+	// Binary IEC path: strip optional trailing 'b' (GiB→Gi, TiB→Ti) then normalize
+	// to canonical k8s binary suffixes. Bare units (g/t/…) are treated as binary.
+	s = strings.TrimSuffix(s, "b")
+	for _, u := range []struct{ in, out string }{
+		{"pi", "Pi"}, {"ti", "Ti"}, {"gi", "Gi"}, {"mi", "Mi"}, {"ki", "Ki"},
+		{"p", "Pi"}, {"t", "Ti"}, {"g", "Gi"}, {"m", "Mi"}, {"k", "Ki"},
+	} {
+		if strings.HasSuffix(s, u.in) {
+			s = strings.TrimSuffix(s, u.in) + u.out
+			break
+		}
+	}
+	q, err := resource.ParseQuantity(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid clusterCapacity %q: %w", d.ClusterCapacity, err)
+	}
+	return int(q.Value() / giB), nil
 }
 
 type WekaHomeConfig struct {
@@ -927,6 +1000,7 @@ type WekaClusterStatus struct {
 // +kubebuilder:printcolumn:name="IOPS(R/W/M)",type="string",JSONPath=".status.printer.iops",description="IOPS Read/Write/Metadata",priority=1
 // +kubebuilder:printcolumn:name="THRPT(R/W)",type="string",JSONPath=".status.printer.throughput",description="Throughput Read/Write",priority=1
 // +kubebuilder:printcolumn:name="FS(Capacity)",type="string",JSONPath=".status.printer.filesystemCapacity",description="Filesystem Capacity",priority=1
+// +kubebuilder:printcolumn:name="Capacity",type="string",JSONPath=".status.printer.capacity",description="Raw provisioned drive-sharing capacity (TLC/QLC)",priority=1
 
 type WekaCluster struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -1024,6 +1098,15 @@ func (c *WekaCluster) IsReady() bool {
 
 func (c *WekaCluster) IsExpand() bool {
 	return len(c.Spec.ExpandEndpoints) != 0
+}
+
+func (c *WekaCluster) IsDriveSharing() bool {
+	if c.Spec.Dynamic == nil {
+		return false
+	}
+	return c.Spec.Dynamic.UsesClusterCapacity() ||
+		c.Spec.Dynamic.DriveCapacity > 0 ||
+		c.Spec.Dynamic.ContainerCapacity > 0
 }
 
 func (c *WekaCluster) GetGracefulDestroyDuration() time.Duration {

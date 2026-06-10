@@ -56,7 +56,13 @@ type ContainerMetrics struct {
 	CpuUtilization FloatMetric       `json:"cpuUtilization,omitempty"`
 }
 
+// String formats the counts for a printer column. When Desired is 0 (e.g.
+// clusterCapacity mode, where the target count is planner-driven and not known
+// in advance) the desired segment is omitted, yielding "active/created".
 func (c *EntityStatefulNum) String() string {
+	if c.Desired == 0 {
+		return fmt.Sprintf("%d/%d", c.Active, c.Created)
+	}
 	return fmt.Sprintf("%d/%d/%d", c.Active, c.Created, c.Desired)
 }
 
@@ -132,6 +138,8 @@ type ClusterPrinterColumns struct {
 	Iops              StringMetric `json:"iops,omitempty"`
 	// Information about filesystem capacity: Available/Used
 	FilesystemCapacity StringMetric `json:"filesystemCapacity,omitempty"`
+	// Aggregated raw provisioned drive-sharing capacity per type, e.g. "TLC 100TiB / QLC 200TiB"
+	Capacity StringMetric `json:"capacity,omitempty"`
 }
 
 type StatusThroughput struct {

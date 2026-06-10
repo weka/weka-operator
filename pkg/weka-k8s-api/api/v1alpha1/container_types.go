@@ -24,6 +24,7 @@ type NodeName types.NodeName
 // +kubebuilder:printcolumn:name="Node",type="string",JSONPath=".status.printer.nodeAffinity",description="Node affinity of container",priority=0
 // +kubebuilder:printcolumn:name="Processes",type="string",JSONPath=".status.printer.processes",description="Number of processes per state",priority=1
 // +kubebuilder:printcolumn:name="Drives",type="string",JSONPath=".status.printer.drives",description="Number of drives per state",priority=1
+// +kubebuilder:printcolumn:name="Capacity",type="string",JSONPath=".status.printer.capacity",description="Per-drive-type capacity (TLC/QLC)",priority=1
 // +kubebuilder:printcolumn:name="Mounts",type="string",JSONPath=".status.printer.activeMounts",description="Number of active mounts",priority=1
 // +kubebuilder:printcolumn:name="CPU",type="string",JSONPath=".status.stats.cpuUtilization",description="CPU Utilization",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time since creation",priority=0
@@ -194,7 +195,6 @@ type DataServicesConfig struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.numDrives) || self.numDrives == 0 || !has(self.containerCapacity) || self.containerCapacity == 0",message="numDrives and containerCapacity are mutually exclusive; use numDrives with driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio for mixed drive types"
 // +kubebuilder:validation:XValidation:rule="!has(self.containerCapacity) || self.containerCapacity > 0",message="containerCapacity must be greater than 0 when specified"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0 || self.driveTypesRatio.qlc > 0",message="at least one of driveTypesRatio.tlc or driveTypesRatio.qlc must be greater than 0"
-// +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0",message="driveTypesRatio.tlc must be greater than 0 when driveTypesRatio is specified; TLC-only and mixed TLC/QLC configurations are supported, but QLC-only is not allowed"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity > 0",message="driveCapacity must be greater than 0 when specified"
 type WekaContainerSpec struct {
 	// name of the node where the container should run on
@@ -378,6 +378,22 @@ func (c *ContainerAllocations) GetAllocatedVirtualDrivesCapacity() int {
 	return total
 }
 
+// GetAllocatedVirtualDrivesCapacityByType returns the capacity (GiB) allocated to virtual drives,
+// split by drive type. Anything not tagged "QLC" is counted as TLC (matching the planner's
+// convention, where the absence of a QLC tag means TLC). Used by the reallocation path to compute
+// per-type missing capacity so a grow converges the realized split toward driveTypesRatio instead of
+// piling the increment on top of a pre-existing, ratio-mismatched split.
+func (c *ContainerAllocations) GetAllocatedVirtualDrivesCapacityByType() (tlc, qlc int) {
+	for _, d := range c.VirtualDrives {
+		if d.Type == "QLC" {
+			qlc += d.CapacityGiB
+		} else {
+			tlc += d.CapacityGiB
+		}
+	}
+	return tlc, qlc
+}
+
 type Drive struct {
 	Uuid         string `json:"uuid"`
 	AddedTime    string `json:"added_time"`
@@ -403,6 +419,8 @@ type ContainerPrinterColumns struct {
 	ManagementIPs string `json:"managementIPs,omitempty"`
 	// node name where the container is running
 	NodeAffinity string `json:"nodeAffinity,omitempty"`
+	// per-drive-type capacity of a drive container, e.g. "TLC 30TiB / QLC 60TiB" (drive-sharing only)
+	Capacity string `json:"capacity,omitempty"`
 }
 
 func (c *ContainerPrinterColumns) SetManagementIps(ips []string) {
