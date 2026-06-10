@@ -82,7 +82,6 @@ func (o *EnsureNICsOperation) GetSteps() []lifecycle.Step {
 		&lifecycle.SimpleStep{Name: "GetContainers", Run: o.GetContainers},
 		&lifecycle.SimpleStep{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsDone}, FinishOnSuccess: true},
 		&lifecycle.SimpleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
-		&lifecycle.SimpleStep{Name: "PollResults", Run: o.PollResults},
 		&lifecycle.SimpleStep{Name: "ProcessResult", Run: o.ProcessResult},
 		&lifecycle.SimpleStep{Name: "SuccessUpdate", Run: o.SuccessUpdate},
 		&lifecycle.SimpleStep{Name: "DeleteOnFinish", Run: o.DeleteContainers},
@@ -170,65 +169,33 @@ func (o *EnsureNICsOperation) EnsureContainers(ctx context.Context) error {
 	return nil
 }
 
-func (o *EnsureNICsOperation) PollResults(ctx context.Context) error {
-	allReady := true
-	for _, container := range o.containers {
-		if container.Status.ExecutionResult == nil {
-			allReady = false
-			break
-		}
-	}
-
-	if !allReady {
-		return lifecycle.NewWaitError(fmt.Errorf("not all container execution results are ready"))
-	}
-
-	return nil
-}
-
 func (o *EnsureNICsOperation) ProcessResult(ctx context.Context) error {
 	results := make(map[string]ensureNICsResult)
 	errorCount := 0
+	allReady := true
 
 	for _, container := range o.containers {
+		if container.Status.ExecutionResult == nil {
+			allReady = false
+			continue
+		}
+
 		var opResult ensureNICsResult
 		err := json.Unmarshal([]byte(*container.Status.ExecutionResult), &opResult)
 		if err != nil {
-			errs := err.Error()
 			results[string(container.GetNodeAffinity())] = ensureNICsResult{
-				Err: fmt.Errorf("failed to unmarshal execution result: %s", errs),
+				Err: fmt.Errorf("failed to unmarshal execution result: %w", err),
 			}
 			continue
 		}
 		results[string(container.GetNodeAffinity())] = opResult
 		if opResult.Err != nil {
 			errorCount++
+			continue
 		}
 
-		node, err := o.kubeService.GetNode(ctx, types.NodeName(container.GetNodeAffinity()))
-		if err != nil {
-			return err
-		}
-		annotations := node.Annotations
-		if annotations == nil {
-			annotations = make(map[string]string)
-		}
-		nicsBytes, err := json.Marshal(opResult.NICs)
-		if err != nil {
-			return errors.Wrap(err, "Failed to marshal NICs to string")
-		}
-		annotations[domain.WEKANICs] = string(nicsBytes)
-		node.Annotations = annotations
-		err = o.client.Update(ctx, node)
-		if err != nil {
-			return lifecycle.NewWaitError(err)
-		}
-
-		node.Status.Capacity[domain.WEKANICs] = *resource.NewQuantity(int64(len(opResult.NICs)), resource.DecimalSI)
-		node.Status.Allocatable[domain.WEKANICs] = *resource.NewQuantity(int64(len(opResult.NICs)), resource.DecimalSI)
-		err = o.client.Status().Update(ctx, node)
-		if err != nil {
-			err = fmt.Errorf("error updating node status: %w", err)
+		// Patch node as soon as its container has results
+		if err := o.patchNodeNICs(ctx, container, opResult); err != nil {
 			return err
 		}
 	}
@@ -242,6 +209,60 @@ func (o *EnsureNICsOperation) ProcessResult(ctx context.Context) error {
 	}
 
 	o.results = finalResult
+
+	if !allReady {
+		return lifecycle.NewWaitError(fmt.Errorf("not all container execution results are ready"))
+	}
+
+	return nil
+}
+
+func (o *EnsureNICsOperation) patchNodeNICs(ctx context.Context, container *weka.WekaContainer, opResult ensureNICsResult) error {
+	node, err := o.kubeService.GetNode(ctx, types.NodeName(container.GetNodeAffinity()))
+	if err != nil {
+		return err
+	}
+
+	nicsBytes, err := json.Marshal(opResult.NICs)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal NICs")
+	}
+
+	// Patch node annotations with NICs, gated on the annotation diff to avoid
+	// unnecessary updates on re-polls. Use a merge patch (not a full-object
+	// Update) so the change is targeted at the annotation and less conflict-prone.
+	if node.Annotations[domain.WEKANICs] != string(nicsBytes) {
+		patch := client.MergeFrom(node.DeepCopy())
+		if node.Annotations == nil {
+			node.Annotations = make(map[string]string)
+		}
+		node.Annotations[domain.WEKANICs] = string(nicsBytes)
+		if err = o.client.Patch(ctx, node, patch); err != nil {
+			return lifecycle.NewWaitError(err)
+		}
+	}
+
+	// Reconcile node extended resources independently of the annotation. The
+	// annotation and status are written via separate, non-atomic API calls, so
+	// the annotation alone is not a safe "already patched" sentinel: a prior
+	// reconcile may have written the annotation but failed the status update.
+	desiredQty := *resource.NewQuantity(int64(len(opResult.NICs)), resource.DecimalSI)
+	if node.Status.Capacity == nil {
+		node.Status.Capacity = v1.ResourceList{}
+	}
+	if node.Status.Allocatable == nil {
+		node.Status.Allocatable = v1.ResourceList{}
+	}
+	capCur, capOk := node.Status.Capacity[domain.WEKANICs]
+	allocCur, allocOk := node.Status.Allocatable[domain.WEKANICs]
+	if !capOk || !allocOk || capCur.Cmp(desiredQty) != 0 || allocCur.Cmp(desiredQty) != 0 {
+		node.Status.Capacity[domain.WEKANICs] = desiredQty
+		node.Status.Allocatable[domain.WEKANICs] = desiredQty
+		if err = o.client.Status().Update(ctx, node); err != nil {
+			return lifecycle.NewWaitError(fmt.Errorf("error updating node status: %w", err))
+		}
+	}
+
 	return nil
 }
 
