@@ -192,9 +192,17 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 		}
 	}
 
-	// calculate desired counts
-	cluster.Status.Stats.Containers.Compute.Containers.Desired = weka.IntMetric(template.Containers.Compute)
-	cluster.Status.Stats.Containers.Drive.Containers.Desired = weka.IntMetric(template.Containers.Drive)
+	// calculate desired counts. In clusterCapacity mode the planner drives the
+	// container count dynamically, so a fixed "desired" is not known in advance —
+	// leave it 0 so the printer column omits it (active/created only).
+	usesClusterCapacity := cluster.Spec.Dynamic != nil && cluster.Spec.Dynamic.UsesClusterCapacity()
+	if usesClusterCapacity {
+		cluster.Status.Stats.Containers.Compute.Containers.Desired = 0
+		cluster.Status.Stats.Containers.Drive.Containers.Desired = 0
+	} else {
+		cluster.Status.Stats.Containers.Compute.Containers.Desired = weka.IntMetric(template.Containers.Compute)
+		cluster.Status.Stats.Containers.Drive.Containers.Desired = weka.IntMetric(template.Containers.Drive)
+	}
 	if template.Containers.S3 != 0 {
 		if cluster.Status.Stats.Containers.S3 == nil {
 			cluster.Status.Stats.Containers.S3 = &weka.ContainerMetrics{}
@@ -255,8 +263,30 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 	cluster.Status.PrinterColumns.ComputeContainers = weka.StringMetric(cluster.Status.Stats.Containers.Compute.Containers.String())
 	cluster.Status.PrinterColumns.DriveContainers = weka.StringMetric(cluster.Status.Stats.Containers.Drive.Containers.String())
 	cluster.Status.PrinterColumns.Drives = weka.StringMetric(cluster.Status.Stats.Drives.DriveCounters.String())
+	cluster.Status.PrinterColumns.Capacity = weka.StringMetric(clusterDriveCapacityColumn(containers))
 
 	return r.getClient().Status().Update(ctx, cluster)
+}
+
+// clusterDriveCapacityColumn aggregates the raw provisioned capacity (GiB) across the cluster's
+// drive-sharing drive containers, split per pool, and formats it for the Capacity printer column,
+// e.g. "T/Q 100.0/200.0 TiB". Mirrors the per-container logic in summarizeDriveContainers.
+// Returns "" for non-drive-sharing clusters.
+func clusterDriveCapacityColumn(containers []*weka.WekaContainer) string {
+	var tlcGiB, qlcGiB int
+	for _, c := range containers {
+		if c.Spec.Mode != weka.WekaContainerModeDrive || !c.UsesDriveSharing() {
+			continue
+		}
+		if c.Spec.DriveCapacity > 0 {
+			tlcGiB += c.Spec.DriveCapacity * c.Spec.NumDrives // legacy TLC-only
+		} else {
+			t, q := weka.GetTlcQlcCapacity(c.Spec.ContainerCapacity, c.Spec.DriveTypesRatio)
+			tlcGiB += t
+			qlcGiB += q
+		}
+	}
+	return util2.FormatTlcQlcColumn(tlcGiB, qlcGiB)
 }
 
 func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context) error {
@@ -529,6 +559,9 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 	}
 
 	container := discovery.SelectActiveContainer(r.containers)
+	if container == nil {
+		return lifecycle.NewWaitError(errors.New("No active container for cluster monitoring yet"))
+	}
 
 	timeout := time.Second * 30
 	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)

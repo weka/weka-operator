@@ -197,6 +197,17 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.cluster.IsDriveSharing,
+			},
+			Run: loop.EnsureWekaOverrides,
+			Throttling: &throttling.ThrottlingSettings{
+				Interval:          config.Consts.WekaOverridesUpdateInterval,
+				EnsureStepSuccess: true,
+			},
+			ContinueOnError: true,
+		},
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.WekaHomeConfigured,
 			},

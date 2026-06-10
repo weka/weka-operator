@@ -151,8 +151,9 @@ func GetWekaClusterTemplate(config *weka.WekaClusterTemplate) ClusterTemplate {
 		config = &weka.WekaClusterTemplate{}
 	}
 
-	// if we don't set numDrives or containerCapacity, default to 1 drive (full-drives mode with 1 drive per container)
-	if config.NumDrives == 0 && config.ContainerCapacity == 0 {
+	// if we don't set numDrives or containerCapacity, default to 1 drive (full-drives mode with 1 drive per container).
+	// Skip the fallback in clusterCapacity mode — drives are planner-assigned, not count-based.
+	if config.NumDrives == 0 && config.ContainerCapacity == 0 && !config.UsesClusterCapacity() {
 		config.NumDrives = 1
 	}
 

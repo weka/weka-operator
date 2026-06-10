@@ -301,6 +301,7 @@
 | activeMounts | StringMetric |  |
 | managementIPs | string | pretty-printed management IPs |
 | nodeAffinity | string | node name where the container is running |
+| capacity | string | per-drive-type capacity of a drive container, e.g. "TLC 30TiB / QLC 60TiB" (drive-sharing only) |
 
 ---
 

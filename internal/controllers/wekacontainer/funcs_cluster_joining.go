@@ -99,7 +99,13 @@ func (r *containerReconcilerLoop) setJoinIpsIfStuckInStemMode(ctx context.Contex
 
 	clusterCreationTime, err := services.ClustersCachedInfo.GetClusterCreationTime(ctx, clusterGuid)
 	if err != nil {
-		return fmt.Errorf("error getting cluster creation time: %w", err)
+		// The cluster hasn't been created yet (or its creation time isn't cached). This is the
+		// normal state for a founding container still waiting on cluster-create: there are no
+		// join IPs to inject, so skip silently and let the reconcile proceed to applyCurrentImage.
+		// This step now runs before applyCurrentImage, so we must NOT hard-fail here — that would
+		// halt founding containers during creation.
+		logger.Debug("cluster creation time unavailable yet, skipping join-ip injection", "error", err.Error())
+		return nil
 	}
 
 	// if cluster creation time is more than 1 minute, set join ips in the container spec

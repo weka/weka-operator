@@ -36,6 +36,18 @@ func calculateDynamicComputeHugepages(ctx context.Context, k8sClient client.Clie
 	var totalRawCapacityGiB int
 
 	switch {
+	case cluster.Spec.Dynamic != nil && cluster.Spec.Dynamic.UsesClusterCapacity():
+		// clusterCapacity mode: drive containers are heterogeneous (per-FD TLC/QLC
+		// capacities assigned by the planner), so there is no uniform ContainerCapacity
+		// or NumDrives to extrapolate from. The total raw capacity is known directly
+		// from the cluster-capacity target — the same value the FD planner uses.
+		clusterCapGiB, ccErr := cluster.Spec.Dynamic.GetClusterCapacityGiB()
+		if ccErr != nil {
+			return 0, fmt.Errorf("clusterCapacity compute hugepages: %w", ccErr)
+		}
+		totalRawCapacityGiB = RawCapacityGiB(
+			clusterCapGiB, cluster.Spec.StripeWidth, cluster.Spec.RedundancyLevel, cluster.Spec.HotSpare,
+		)
 	case template.ContainerCapacity > 0:
 		// Drive-sharing mode - full capacity per drive container is known
 		totalRawCapacityGiB = template.ContainerCapacity * template.Containers.Drive

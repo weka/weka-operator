@@ -74,14 +74,14 @@ spec:
 
 **What happens:**
 - Drives are signed with proxy system GUID (not a cluster-specific GUID)
-- Drive information stored in node annotation: `weka.io/shared-drives`
+- Drive information stored in node annotation: `weka.io/weka-shared-drives`
 - Extended resource created: `weka.io/shared-drives-capacity` (total GiB available)
 
 **Important:** Do NOT specify `spec.image` - the operator automatically uses the appropriate signing image.
 
 ### Step 2: Configure Cluster with Drive Sharing
 
-Enable drive sharing by setting capacity fields in `spec.dynamicTemplate`. Choose one of two allocation modes:
+Enable drive sharing by setting capacity fields in `spec.dynamicTemplate`. Choose one of three allocation modes — the two per-container modes below, or **Mode 3: a whole-cluster capacity target** (`clusterCapacity`), documented separately in the [Cluster Capacity Guide](../deployment/cluster-capacity.md).
 
 #### Mode 1: Fixed Capacity Per Virtual Drive (TLC Only)
 
@@ -622,16 +622,24 @@ driveSharing:
 **Behavior:**
 Controls whether containers automatically allocate additional virtual drives when `containerCapacity` is increased or `driveTypesRatio` is changed.
 
-- **When `false` (default):** Containers will not reallocate drives when capacity configuration changes. Only the initial allocation is performed. To get additional drives, you must delete and recreate containers.
+- **When `false` (default):** Existing containers are **never extended in place** — neither their
+  capacity nor their cores/hugepages are bumped, so there is no `CapacityGrowthApplied` Warning and no
+  manual pod deletion. Per-container this means a container keeps only its initial drive allocation; to
+  grow a single container you must delete and recreate it.
 
-- **When `true`:** Containers will automatically allocate additional virtual drives when:
+- **When `true` (opt-in):** Containers automatically allocate additional virtual drives when:
   - `containerCapacity` is increased
   - `driveTypesRatio` changes require additional capacity of a specific type
 
+This flag also governs whether `clusterCapacity` may grow existing drive containers in place; for
+that mode's full grow/no-grow behavior see the
+[Cluster Capacity Guide](../deployment/cluster-capacity.md#growth-with-dynamic-scaling-disabled).
+
 **Use cases:**
 
-- **Keep disabled (default)** when you want stable, predictable allocations that don't change after initial deployment
-- **Enable** when you need dynamic capacity scaling without recreating containers
+- **Keep enabled (default)** when you want capacity changes to take effect without manually recreating containers
+- **Disable** when you want stable, predictable allocations whose existing containers never change after
+  initial deployment
 
 **Important notes:**
 - This setting only affects drive sharing mode (`containerCapacity` or `driveCapacity` configured)
@@ -836,7 +844,7 @@ Insufficient TLC drives: need 6000 GiB, available 3000 GiB
 |--------|---------------|------------------|
 | **Multi-tenancy** | Multiple clusters per node | One cluster per node |
 | **Capacity allocation** | Flexible, on-demand | Pre-partitioned, fixed |
-| **Configuration** | `containerCapacity` or `driveCapacity` | `numDrives` only |
+| **Configuration** | `clusterCapacity`, `containerCapacity`, or `driveCapacity` | `numDrives` only |
 | **Drive signing** | `shared: true` (proxy mode) | Standard signing |
 | **Performance** | Small proxy overhead | Direct drive access |
 | **Complexity** | Higher (proxy + virtual drives) | Lower (direct mapping) |
@@ -844,8 +852,24 @@ Insufficient TLC drives: need 6000 GiB, available 3000 GiB
 
 ---
 
+## Cluster Capacity (clusterCapacity)
+
+`clusterCapacity` is a third capacity-allocation mode for drive sharing. Instead of sizing each
+container (`containerCapacity`) or each virtual drive (`driveCapacity`/`numDrives`), you set a
+single human-friendly **target usable capacity** for the whole cluster (e.g. `"300TiB"`) and the
+operator sizes drive and compute containers, spreads them across failure domains, and grows toward
+the target as it changes. It is **mutually exclusive** with `containerCapacity`, `numDrives`, and
+`driveCapacity`, and is **grow-only** (lowering it is a no-op).
+
+The capacity planner, its algorithm, worked examples (greenfield, growth with/without adding
+failure domains, container deletion and replanning, shrink, label-based failure domains, explicit
+sizing, validation), events, and constraints are documented in full in the dedicated guide:
+
+➡️ **[Cluster Capacity Guide](../deployment/cluster-capacity.md)**
+
 ## Related Documentation
 
+- [Cluster Capacity Guide](../deployment/cluster-capacity.md) - Whole-cluster `clusterCapacity` target: planner algorithm, worked examples, events, and constraints
 - [Drive Sharing Allocation Logic Summary](drive-sharing-summary.md) - Condensed technical summary with flowcharts and examples
 - [Drive Signing](drive-signing.md) - Standard (exclusive) drive signing for single-cluster deployments
 - [Cluster Provisioning](../deployment/cluster-provisioning.md) - General cluster configuration

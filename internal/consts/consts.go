@@ -6,6 +6,10 @@ const (
 	WekaFinalizer = "weka.weka.io/finalizer"
 )
 
+// WekaContainerName is the name of the main weka container within a weka pod (as opposed to init
+// containers or any injected sidecars). Resource requests must be read from this container by name.
+const WekaContainerName = "weka-container"
+
 // Node annotation keys for drive management
 const (
 	// AnnotationWekaDrives stores drive serial IDs for non-proxy mode.

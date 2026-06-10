@@ -33,7 +33,7 @@ This note summarizes the drive‑sharing allocation logic based on:
 - `driveSharing.enforceMinDrivesPerTypePerCore` (Helm)
 - `driveSharing.maxVirtualDrivesPerCore` (Helm)
 - `MinChunkSizeGiB = 384`
-- `driveSharing.enableDynamicDriveScalingForSharedDrives` (only for reallocation on spec change)
+- `driveSharing.enableDynamicDriveScalingForSharedDrives` (default `false`; governs reallocation on spec change / clusterCapacity grow)
 
 ## Flowchart
 
@@ -110,6 +110,9 @@ flowchart TD
 - Only when `containerCapacity` is set
 - Ignored in `numDrives + driveCapacity` mode
 
-### Affected by `enableDynamicDriveScalingForSharedDrives`
-- Only for post‑creation reallocation when spec changes
+### Affected by `enableDynamicDriveScalingForSharedDrives` (default `false`)
+- Governs whether EXISTING containers may be extended in place when the spec changes
+- When `false`: existing containers are never extended; `clusterCapacity` grow is met by creating new
+  containers only (or reported infeasible if no free FDs/nodes) — no `CapacityGrowthApplied`, no manual
+  pod deletion
 - No effect on initial allocation

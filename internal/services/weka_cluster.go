@@ -15,6 +15,7 @@ import (
 
 	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/go-steps-engine/lifecycle"
+	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
 )
@@ -139,6 +140,23 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetHotSpare", []string{"bash", "-ce", cmd})
 	if err != nil {
 		return errors.Wrapf(err, "Failed to set hot spare: %s", stderr.String())
+	}
+
+	// Single-parity (parity==1) requires the allow_1_parity override to be present on the freshly
+	// created, uninitialised cluster BEFORE the stripe is applied — weka rejects `--parity-drives 1`
+	// with ProtectionNotAllowed otherwise. EnsureWekaOverrides runs post start-io (too late), so the
+	// override is set here, between hot-spare and parity. Operator-gated by AllowSingleParity; QA/test
+	// only (a single parity chunk leaves a stripe unprotected during rebuild).
+	if globalconfig.Config.DriveSharing.AllowSingleParity && r.Cluster.Spec.RedundancyLevel > 0 && r.Cluster.Spec.RedundancyLevel < 2 {
+		wekaSvc := NewWekaService(r.ExecService, containers[0])
+		existing, lerr := wekaSvc.ListOverridesByKey(ctx, "allow_1_parity")
+		if lerr != nil || len(existing) == 0 {
+			logger.Info("Setting allow_1_parity override (single-parity protection)", "redundancyLevel", r.Cluster.Spec.RedundancyLevel)
+			comment := fmt.Sprintf("weka-operator AllowSingleParity: enable single parity for cluster %s (parity=%d)", r.Cluster.Name, r.Cluster.Spec.RedundancyLevel)
+			if err = wekaSvc.AddOverride(ctx, "allow_1_parity", "true", comment, true); err != nil {
+				return errors.Wrapf(err, "Failed to set allow_1_parity override: %s", err.Error())
+			}
+		}
 	}
 
 	if r.Cluster.Spec.RedundancyLevel != 0 {

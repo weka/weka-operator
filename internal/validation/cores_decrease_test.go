@@ -39,10 +39,10 @@ func TestClusterCoresDecrease(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "set to zero (revert to operator-derived) is denied",
+			name:    "set to zero (revert to operator-derived) is allowed",
 			old:     &wekav1alpha1.WekaClusterTemplate{DriveCores: 4},
 			new:     &wekav1alpha1.WekaClusterTemplate{DriveCores: 0},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:    "first explicit setting (0 -> N) is allowed",
@@ -69,16 +69,16 @@ func TestClusterCoresDecrease(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "dataServicesFeCores: unsetting non-nil to nil is denied",
+			name:    "dataServicesFeCores: unsetting non-nil to nil (revert to operator-derived) is allowed",
 			old:     &wekav1alpha1.WekaClusterTemplate{DataServicesFeCores: ptr(3)},
 			new:     &wekav1alpha1.WekaClusterTemplate{DataServicesFeCores: nil},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
-			name:    "removing dynamic block (non-nil to nil) is denied when old had cores",
+			name:    "removing dynamic block (non-nil to nil, revert to operator-derived) is allowed",
 			old:     &wekav1alpha1.WekaClusterTemplate{DriveCores: 4},
 			new:     nil,
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:    "multiple simultaneous decreases each produce an error",

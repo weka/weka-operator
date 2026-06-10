@@ -57,6 +57,43 @@ func TestComputeCapacityBasedHugepages_MaxCap(t *testing.T) {
 	}
 }
 
+func TestComputeCapacityBasedHugepages_DividesByComputeContainers(t *testing.T) {
+	// The capacity-share part of compute hugepages must be divided by the actual compute
+	// container count (planner-derived), not the min-default of 5. Regression guard for the
+	// over-provisioning bug where the divisor fell back to FormClusterMinComputeContainers (=5).
+	origTlc := globalconfig.Config.DriveSharing.HugepagesTlcRatio
+	origQlc := globalconfig.Config.DriveSharing.HugepagesQlcRatio
+	origMax := globalconfig.Config.ComputeMaxHugepagesMiB
+	defer func() {
+		globalconfig.Config.DriveSharing.HugepagesTlcRatio = origTlc
+		globalconfig.Config.DriveSharing.HugepagesQlcRatio = origQlc
+		globalconfig.Config.ComputeMaxHugepagesMiB = origMax
+	}()
+	globalconfig.Config.DriveSharing.HugepagesTlcRatio = 3500
+	globalconfig.Config.ComputeMaxHugepagesMiB = 0
+
+	// All-TLC, ~150 TiB raw. clusterMiB = 307200*1024/3500 = 89877; perCore = 1700*10 = 17000.
+	totalRawCapacityGiB := 307200
+	computeCores := 10
+
+	// derived count (6): 89877/6 = 14979 + 17000 = 31979 -> rounded up to even 31980
+	got6 := ComputeCapacityBasedHugepages(context.Background(), totalRawCapacityGiB, 6, computeCores, nil)
+	if got6 != 31980 {
+		t.Errorf("computeContainers=6: expected 31980, got %d", got6)
+	}
+
+	// buggy min-default (5): 89877/5 = 17975 + 17000 = 34975 -> rounded up to even 34976
+	got5 := ComputeCapacityBasedHugepages(context.Background(), totalRawCapacityGiB, 5, computeCores, nil)
+	if got5 != 34976 {
+		t.Errorf("computeContainers=5: expected 34976, got %d", got5)
+	}
+
+	// Dividing by the real (larger) count must yield strictly fewer hugepages.
+	if got6 >= got5 {
+		t.Errorf("expected divisor=6 result (%d) < divisor=5 result (%d)", got6, got5)
+	}
+}
+
 func TestCalculateDriveHugepages(t *testing.T) {
 	tests := []struct {
 		name       string

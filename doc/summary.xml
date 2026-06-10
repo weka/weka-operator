@@ -22,6 +22,10 @@
         <tags>cluster provision, wekacluster yaml, templates, gracefulDestroyDuration, dynamicTemplate, redundancyLevel, stripeWidth, raft, hotSpare</tags>
         <summary>Comprehensive guide for provisioning Weka clusters in Kubernetes, covering basic configuration, graceful termination settings, redundancy options, raft configuration, hot spare capacity, and IO conditions for optimal cluster performance.</summary>
     </file>
+    <file relpath="operator/deployment/cluster-capacity.md">
+        <tags>clusterCapacity, capacity planner, capacity target, failure domains, minFdNum, TLC, QLC, driveTypesRatio, drive sharing, grow, water-fill, compute sizing, container deletion, replanning, stripeWidth, redundancyLevel, hotSpare, enableDynamicDriveScalingForSharedDrives, ClusterCapacityInfeasible, ClusterCapacityDeferred</tags>
+        <summary>Dedicated guide for the whole-cluster clusterCapacity target (a drive-sharing capacity mode). Covers the stateless capacity-planner algorithm (orchestration, independent TLC/QLC pools, water-fill grow, compute 1:1 sizing, node-fit gate), worked examples for every case (greenfield, growth with and without adding failure domains, container deletion and replanning, shrink, label-based failure domains, contention, explicit drive/compute sizing, validation), events, hard/admission constraints, Helm settings, observability, and migration from containerCapacity.</summary>
+    </file>
     <file relpath="operator/deployment/cluster-aws-eks.md">
         <tags>AWS, EKS, provisioning, IAM role, subnet, security groups, node group, instance type, converged, separate, dataNICsNumber, quay.io secret, wekacluster ports, basePort, pre-requisites, ensure nics, sign drives, instance types</tags>
         <summary>Guide on provisioning Weka clusters in AWS EKS. Covers EKS setup requirements, IAM roles, node group configuration, secrets management, port configuration, and pre-requisite policies like ensure-nics and sign-drives.</summary>
@@ -72,7 +76,7 @@
     </file>
     <file relpath="operator/operations/drive-sharing.md">
         <tags>drive sharing, multi-tenant, shared drives, proxy mode, virtual drives, containerCapacity, driveCapacity, driveTypesRatio, ssdproxy, TLC, QLC, capacity allocation, multi-cluster</tags>
-        <summary>Comprehensive guide for configuring drive sharing to enable multiple Weka clusters to share physical NVMe drives. Covers proxy mode signing, three capacity allocation modes (fixed per drive, total container capacity, mixed drive type ratios), global configuration settings (driveTypesRatio, maxVirtualDrivesPerCore), multi-cluster configurations, capacity management, and troubleshooting.</summary>
+        <summary>Comprehensive guide for configuring drive sharing to enable multiple Weka clusters to share physical NVMe drives. Covers proxy mode signing, the per-container capacity allocation modes (fixed per drive, total container capacity, mixed drive type ratios), global configuration settings (driveTypesRatio, maxVirtualDrivesPerCore), multi-cluster configurations, capacity management, and troubleshooting. The whole-cluster clusterCapacity mode is documented separately in operator/deployment/cluster-capacity.md.</summary>
     </file>
 
     <!-- Operator Clients -->

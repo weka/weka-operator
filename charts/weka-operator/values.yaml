@@ -268,6 +268,9 @@ dnsPolicy:
 defaultIntervals:
   deleteEnvoyWithoutS3NeighborTimeout: 5m
   deleteUnschedulablePodsAfter: 1m
+  # How long a clusterCapacity drive container may stay unscheduled before the operator deletes it
+  # so the planner can re-place its capacity on a node that can host it.
+  unschedulableDriveContainerGCTimeout: 2m
 
 # NFS global configuration
 nfs:
@@ -283,6 +286,19 @@ smbw:
   # Size of /dev/shm for SMB-W containers (for corosync shared memory)
   # Default: 8Gi
   shmSize: "8Gi"
+
+# Cluster capacity configuration
+# Used when spec.dynamicTemplate.clusterCapacity is set on a WekaCluster.
+clusterCapacity:
+  # Maximum compute cores the operator will schedule on a single node.
+  maxComputeCoresPerNode: 16
+  # Max TLC capacity (GiB) one drive core can serve. Default: 5 TiB = 5120 GiB.
+  tlcCapacityPerCoreGiB: 5120
+  # Max QLC capacity (GiB) one drive core can serve. Default: 50 TiB = 51200 GiB.
+  qlcCapacityPerCoreGiB: 51200
+  # Grow imbalance factor: when each new drive container would be >= this factor x the existing
+  # containers' average capacity, the planner lays out a fresh balanced set instead. Default 8.0.
+  imbalanceFactor: 8.0
 
 # Drive sharing configuration
 driveSharing:
@@ -312,12 +328,24 @@ driveSharing:
   enforceMinDrivesPerTypePerCore: true
 
   # Enable dynamic drive scaling for shared drives mode.
-  # When false (default): containers won't automatically allocate additional drives when
-  # containerCapacity increases or driveTypesRatio changes. Initial allocation still works.
-  # When true: containers will automatically allocate additional drives to match new capacity/ratio.
+  # When false (default): containers are never extended in place on a spec change - existing drive
+  # containers won't automatically allocate additional drives when containerCapacity increases or
+  # driveTypesRatio changes, and clusterCapacity growth is satisfied by CREATING new containers on
+  # fresh failure domains only (reported infeasible if no free FDs/nodes can hold the delta). To
+  # grow a single container you must delete and recreate it. Initial allocation still works.
+  # When true (opt-in): containers automatically allocate additional drives to match the new
+  # capacity/ratio, and clusterCapacity may grow existing drive containers in place. Capacity-only
+  # grows are applied live (no pod restart); a grow that also needs more cores/hugepages is not
+  # applied automatically (the operator only emits a warning) - the pod must be terminated manually
+  # to pick up the new spec.
   # Note: This only affects shared drives mode (containerCapacity or driveCapacity configured).
   # Traditional mode (numDrives only) is not affected.
   enableDynamicDriveScalingForSharedDrives: false
+
+  # Max allowed ratio between the largest and smallest drive in the IndirectionUnitBig
+  # pool. Overrides weka's built-in limit (MAX_DRIVE_CAPACITY_RATIO=8). Relevant for
+  # drive-sharing clusters that mix very differently sized drives.
+  smallBigDiskSizesMaxProportionFactor: 100
 
   # SSD Proxy configuration (used in drive sharing mode)
   ssdProxy:
@@ -332,6 +360,13 @@ driveSharing:
 # TLC drives require more hugepages per GiB than QLC drives.
 hugepagesTlcRatio: 1000
 hugepagesQlcRatio: 6000
+
+# Lower the clusterCapacity protection floor from the production 3+2+1
+# (stripeWidth/data>=3, redundancyLevel/parity>=2, hotSpare>=1) to single-parity 2+1+0,
+# enabling QA/test clusters such as 2+1 (minFdNum=3). QA/TEST ONLY: a single parity chunk
+# leaves a stripe unprotected during rebuild. When true, the operator also sets the
+# allow_1_parity weka override at cluster formation (weka rejects parity=1 without it).
+allowSingleParity: false
 
 # Hugepages update propagation to existing compute/drive containers.
 # User-set hugepages values (spec.dynamic.computeHugepages / driveHugepages) are always
@@ -558,6 +593,11 @@ admissionPolicies:
   #   # When dataServicesContainers > 0, dataServicesFeCores must be 0.
   #   # Data services containers must not have frontend cores assigned.
   #   cluster_dataservices_fe_cores:        default  # strict: error  | relaxed: error
+  #
+  #   # When clusterCapacity is set, stripeWidth/redundancyLevel/hotSpare must
+  #   # meet the 3+2+1 minimum (sw>=3, rl>=2, hs>=1). A lower value produces a
+  #   # degenerate or unbootable cluster.
+  #   cluster_capacity_protection:          default  # strict: error  | relaxed: error
   #
   #   # WekaClient.spec.targetCluster must reference an existing
   #   # WekaCluster.

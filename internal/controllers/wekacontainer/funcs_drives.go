@@ -19,12 +19,97 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/consts"
+	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
 )
+
+// podHugepagesRequestMiB returns the pod's hugepages request in MiB. This is the same raw-hugepages
+// figure the cluster planner charges per container (Spec.Hugepages) and compares against, so it lines up
+// with reqHpMiB (cores × HugepagesPerCoreMiB). The MEMORY env (request minus the reserved offset) is a
+// different unit and would bias the check, so it is not used here.
+func podHugepagesRequestMiB(c *v1.Container) int {
+	for _, name := range []v1.ResourceName{"hugepages-2Mi", "hugepages-1Gi"} {
+		if q, ok := c.Resources.Requests[name]; ok {
+			return int(q.Value() / (1 << 20))
+		}
+	}
+	return 0
+}
+
+// wekaPodContainer returns the pod's main weka container spec (matched by name), or nil when the pod
+// has no such container. Resource requests must be read from this container specifically — assuming
+// index 0 would read an injected sidecar's requests if one is ever placed first.
+func wekaPodContainer(pod *v1.Pod) *v1.Container {
+	if pod == nil {
+		return nil
+	}
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name == consts.WekaContainerName {
+			return &pod.Spec.Containers[i]
+		}
+	}
+	return nil
+}
+
+// checkDriveResourceFeasibility verifies the live pod has enough cores, hugepages and RSS to host the
+// virtual-drive capacity about to be added, using the same per-core model as planClusterCapacity.
+// clusterCapacity grows containerCapacity live (it is excluded from the pod config hash), so the running
+// pod can lag the capacity it must serve. On a shortfall it emits an event and returns a WaitError to
+// defer the add until the pod is (re)sized.
+func (r *containerReconcilerLoop) checkDriveResourceFeasibility(ctx context.Context) error {
+	container := r.container
+	if !container.UsesDriveSharing() || container.Status.Allocations == nil {
+		return nil
+	}
+	c := wekaPodContainer(r.pod)
+	if c == nil {
+		return nil
+	}
+
+	_, logger := instrumentation.CreateLogSpan(ctx, "checkDriveResourceFeasibility")
+	defer logger.End()
+
+	var tlcGiB, qlcGiB int
+	for _, vd := range container.Status.Allocations.VirtualDrives {
+		if vd.Type == "QLC" {
+			qlcGiB += vd.CapacityGiB
+		} else {
+			tlcGiB += vd.CapacityGiB
+		}
+	}
+	if tlcGiB == 0 && qlcGiB == 0 {
+		return nil
+	}
+
+	cons := allocator.CapacityConstraintsFromConfig()
+	reqCores, reqHpMiB, reqMemMiB := allocator.RequiredDriveResources(tlcGiB, qlcGiB, cons)
+
+	availCores := int(c.Resources.Requests.Cpu().Value())
+	availHpMiB := podHugepagesRequestMiB(c)
+	availMemMiB := int(c.Resources.Requests.Memory().Value() / (1 << 20))
+
+	var shortfall string
+	switch {
+	case availCores < reqCores:
+		shortfall = fmt.Sprintf("cores: pod reserves %d, need %d for %d GiB TLC + %d GiB QLC", availCores, reqCores, tlcGiB, qlcGiB)
+	case availHpMiB < reqHpMiB:
+		shortfall = fmt.Sprintf("hugepages: pod requests %d MiB, need %d MiB (%d cores)", availHpMiB, reqHpMiB, reqCores)
+	case availMemMiB < reqMemMiB:
+		shortfall = fmt.Sprintf("memory: pod requests %d MiB, need %d MiB (%d cores)", availMemMiB, reqMemMiB, reqCores)
+	}
+	if shortfall == "" {
+		return nil
+	}
+
+	msg := fmt.Sprintf("deferring drive add: pod under-resourced for target capacity (%s)", shortfall)
+	_ = r.RecordEvent(v1.EventTypeWarning, "DriveCapacityResourceShortfall", msg) //nolint:errcheck // event recording is best effort
+
+	return lifecycle.NewWaitErrorWithDuration(errors.New(msg), time.Minute)
+}
 
 func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 	container := r.container
@@ -47,6 +132,12 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 	if len(container.Status.AddedDrives) == expectedDriveCount {
 		return r.updateContainerStatusIfNotEquals(ctx, weka.Running)
+	}
+
+	// Before adding more capacity, make sure the live pod can actually host it (cores/hugepages/RSS),
+	// using the same per-core model the cluster planner uses. Blocks with a WaitError otherwise.
+	if err := r.checkDriveResourceFeasibility(ctx); err != nil {
+		return err
 	}
 
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
@@ -84,13 +175,21 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			drivesAddedByVids[d.Uuid] = true
 		}
 
-		// Check if all virtual drives are of the same type
-		allSameType := true
-		var firstType string
-		if len(container.Status.Allocations.VirtualDrives) > 0 {
-			firstType = container.Status.Allocations.VirtualDrives[0].Type
+		cluster, err := r.getCluster(ctx)
+		if err != nil {
+			return fmt.Errorf("error getting cluster: %w", err)
+		}
+
+		// Decide whether all of this container's drives go to the single "legacy" pool, or are
+		// routed to type-specific pools (iubig for QLC, iu4k for TLC).
+		var allSameType bool
+		if cluster.Spec.Dynamic != nil && cluster.Spec.Dynamic.DriveTypesRatio != nil {
+			ratio := cluster.Spec.Dynamic.DriveTypesRatio
+			allSameType = ratio.Qlc == 0 || ratio.Tlc == 0
+		} else {
+			allSameType = true
 			for _, vd := range container.Status.Allocations.VirtualDrives {
-				if vd.Type != firstType {
+				if vd.Type != container.Status.Allocations.VirtualDrives[0].Type {
 					allSameType = false
 					break
 				}

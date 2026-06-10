@@ -21,6 +21,11 @@
             }
           },
           "required": ["tlc", "qlc"]
+        },
+        "smallBigDiskSizesMaxProportionFactor": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Max allowed ratio between the largest and smallest drive in the IndirectionUnitBig pool. Overrides weka's built-in limit (MAX_DRIVE_CAPACITY_RATIO=8)."
         }
       }
     },
