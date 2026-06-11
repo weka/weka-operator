@@ -180,6 +180,9 @@ jobs:
           echo "operator_helm_image=$operator_helm_image" >> $GITHUB_OUTPUT
 
       - name: Run Upgrade-extended Test via Testing Service
+        env:
+          # Passed via env (not inline ${{ }}) to avoid shell injection from a user-controlled PR title.
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           OPERATOR_VERSION=$(echo "${{ env.operator_image }}" | sed 's/.*://')
           OPERATOR_IMAGE_REPO=$(echo "${{ env.operator_image }}" | sed 's/:.*//')
@@ -211,16 +214,50 @@ jobs:
               }
             }')
 
-          RESPONSE=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sf \
+          HTTP_RESPONSE=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sS \
+            -w "\n%{http_code}" \
             -X POST "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions" \
             -H "Content-Type: application/json" \
             -d "$BODY")
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+          RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
+          if [[ "$HTTP_CODE" -lt 200 || "$HTTP_CODE" -ge 300 ]]; then
+            echo "::error::testing service POST /api/executions returned HTTP $HTTP_CODE. Response: $RESPONSE"
+            exit 1
+          fi
           EXECUTION_ID=$(echo "$RESPONSE" | jq -r '.execution_id // empty')
           if [ -z "$EXECUTION_ID" ]; then
             echo "::error::testing service did not return execution_id. Response: $RESPONSE"
             exit 1
           fi
           echo "::notice::Execution: ${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
+
+          # Send Slack notification with execution link
+          EXECUTION_URL="${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
+          SLACK_PAYLOAD=$(jq -n \
+            --arg url "$EXECUTION_URL" \
+            --arg pr_title "$PR_TITLE" \
+            --arg pr_number "${{ github.event.pull_request.number }}" \
+            --arg pr_url "${{ github.event.pull_request.html_url }}" \
+            --arg base "${{ github.base_ref }}" \
+            --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{
+              "text": ":rocket: upgrade-extended test started",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": (":rocket: *upgrade-extended test started*\n*PR:* <" + $pr_url + "|#" + $pr_number + " " + $pr_title + ">\n*Target:* `" + $base + "`\n*<" + $url + "|Execution Link>* | *<" + $run_url + "|GitHub Actions Run>*")
+                  }
+                }
+              ]
+            }')
+          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+            curl -sf -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+              -H "Content-Type: application/json" \
+              -d "$SLACK_PAYLOAD" || echo "::warning::Failed to send Slack notification"
+          fi
 
           SLEEP_SECONDS=60
           MAX_POLLS=60
@@ -240,7 +277,7 @@ jobs:
             fi
             sleep "$SLEEP_SECONDS"
           done
-  
+
   clients_only_test:
     needs: [optimize_ci, run_condition_check, upgrade_extended_test]
     if: |
@@ -327,10 +364,17 @@ jobs:
               }
             }')
 
-          RESPONSE=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sf \
+          HTTP_RESPONSE=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sS \
+            -w "\n%{http_code}" \
             -X POST "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions" \
             -H "Content-Type: application/json" \
             -d "$BODY")
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+          RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
+          if [[ "$HTTP_CODE" -lt 200 || "$HTTP_CODE" -ge 300 ]]; then
+            echo "::error::testing service POST /api/executions returned HTTP $HTTP_CODE. Response: $RESPONSE"
+            exit 1
+          fi
           EXECUTION_ID=$(echo "$RESPONSE" | jq -r '.execution_id // empty')
           if [ -z "$EXECUTION_ID" ]; then
             echo "::error::testing service did not return execution_id. Response: $RESPONSE"
