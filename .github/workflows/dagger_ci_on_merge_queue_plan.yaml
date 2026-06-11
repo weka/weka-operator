@@ -261,15 +261,40 @@ jobs:
 
           SLEEP_SECONDS=60
           MAX_POLLS=60
+          MAX_CONSECUTIVE_EMPTY=5
+          consecutive_empty=0
+          CURL_ERR=$(mktemp)
+          RESP_BODY=$(mktemp)
           for ((i=1; i<=MAX_POLLS; i++)); do
-            STATUS=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sf \
+            # -S keeps the error message on transient failures; -w captures the HTTP code so an
+            # empty status leaves a clue (network drop vs bad gateway vs unexpected body).
+            HTTP_CODE=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sS \
+              -o "$RESP_BODY" -w '%{http_code}' \
               "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions/$EXECUTION_ID" \
-              -H "Content-Type: application/json" | jq -r '.status')
-            echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [$i/$MAX_POLLS] Status: $STATUS"
+              -H "Content-Type: application/json" 2>"$CURL_ERR")
+            CURL_RC=$?
+            # `// empty` so a missing/null .status yields "" instead of the string "null"
+            STATUS=$(jq -r '.status // empty' < "$RESP_BODY" 2>/dev/null)
+            echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [$i/$MAX_POLLS] Status: ${STATUS:-<unreachable>}"
             if [[ "$STATUS" == "succeeded" ]]; then break; fi
-            if [[ "$STATUS" != "running" && "$STATUS" != "pending" ]]; then
+            # Empty status means the poll request failed (network blip) or returned no body,
+            # not that the test reached a bad state. Tolerate transient blips; only give up
+            # after several in a row in case the service is genuinely down.
+            if [[ -z "$STATUS" ]]; then
+              consecutive_empty=$((consecutive_empty + 1))
+              echo "::warning::could not read execution status (attempt $consecutive_empty/$MAX_CONSECUTIVE_EMPTY) - retrying"
+              echo "  curl exit=$CURL_RC http_code=${HTTP_CODE:-none}"
+              [[ -s "$CURL_ERR" ]] && echo "  curl error: $(cat "$CURL_ERR")"
+              [[ -s "$RESP_BODY" ]] && echo "  response body (truncated): $(head -c 300 "$RESP_BODY")"
+              if [[ $consecutive_empty -ge $MAX_CONSECUTIVE_EMPTY ]]; then
+                echo "::error::testing service unreachable for $MAX_CONSECUTIVE_EMPTY consecutive polls"
+                exit 1
+              fi
+            elif [[ "$STATUS" != "running" && "$STATUS" != "pending" ]]; then
               echo "::error::upgrade-extended test failed with status: $STATUS"
               exit 1
+            else
+              consecutive_empty=0
             fi
             if [[ $i -eq $MAX_POLLS ]]; then
               echo "::error::upgrade-extended test timed out after $((MAX_POLLS * SLEEP_SECONDS / 60)) minutes"
@@ -384,15 +409,40 @@ jobs:
 
           SLEEP_SECONDS=60
           MAX_POLLS=60
+          MAX_CONSECUTIVE_EMPTY=5
+          consecutive_empty=0
+          CURL_ERR=$(mktemp)
+          RESP_BODY=$(mktemp)
           for ((i=1; i<=MAX_POLLS; i++)); do
-            STATUS=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sf \
+            # -S keeps the error message on transient failures; -w captures the HTTP code so an
+            # empty status leaves a clue (network drop vs bad gateway vs unexpected body).
+            HTTP_CODE=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sS \
+              -o "$RESP_BODY" -w '%{http_code}' \
               "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions/$EXECUTION_ID" \
-              -H "Content-Type: application/json" | jq -r '.status')
-            echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [$i/$MAX_POLLS] Status: $STATUS"
+              -H "Content-Type: application/json" 2>"$CURL_ERR")
+            CURL_RC=$?
+            # `// empty` so a missing/null .status yields "" instead of the string "null"
+            STATUS=$(jq -r '.status // empty' < "$RESP_BODY" 2>/dev/null)
+            echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [$i/$MAX_POLLS] Status: ${STATUS:-<unreachable>}"
             if [[ "$STATUS" == "succeeded" ]]; then break; fi
-            if [[ "$STATUS" != "running" && "$STATUS" != "pending" ]]; then
+            # Empty status means the poll request failed (network blip) or returned no body,
+            # not that the test reached a bad state. Tolerate transient blips; only give up
+            # after several in a row in case the service is genuinely down.
+            if [[ -z "$STATUS" ]]; then
+              consecutive_empty=$((consecutive_empty + 1))
+              echo "::warning::could not read execution status (attempt $consecutive_empty/$MAX_CONSECUTIVE_EMPTY) - retrying"
+              echo "  curl exit=$CURL_RC http_code=${HTTP_CODE:-none}"
+              [[ -s "$CURL_ERR" ]] && echo "  curl error: $(cat "$CURL_ERR")"
+              [[ -s "$RESP_BODY" ]] && echo "  response body (truncated): $(head -c 300 "$RESP_BODY")"
+              if [[ $consecutive_empty -ge $MAX_CONSECUTIVE_EMPTY ]]; then
+                echo "::error::testing service unreachable for $MAX_CONSECUTIVE_EMPTY consecutive polls"
+                exit 1
+              fi
+            elif [[ "$STATUS" != "running" && "$STATUS" != "pending" ]]; then
               echo "::error::clients-only test failed with status: $STATUS"
               exit 1
+            else
+              consecutive_empty=0
             fi
             if [[ $i -eq $MAX_POLLS ]]; then
               echo "::error::clients-only test timed out after $((MAX_POLLS * SLEEP_SECONDS / 60)) minutes"
