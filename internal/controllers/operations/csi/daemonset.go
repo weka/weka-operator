@@ -2,6 +2,7 @@ package csi
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strconv"
 	"strings"
@@ -23,6 +24,8 @@ import (
 // that are relevant for determining if an update is needed
 type CsiNodeHashableSpec struct {
 	CsiDriverName         string
+	ClientName            string
+	ClientNamespace       string
 	CsiImage              string
 	CsiRegistrarImage     string
 	CsiLivenessProbeImage string
@@ -39,7 +42,7 @@ type CsiNodeHashableSpec struct {
 
 // GetCsiNodeDaemonSetHash generates a hash for the CSI Node DaemonSet
 // that includes only the fields that are relevant for updates
-func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient) (string, error) {
+func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, clientName, clientNamespace string) (string, error) {
 	csiDriverName := GetCsiDriverName(csiGroupName)
 	// CSI node plugins are infrastructure components and must run on all nodes
 	tolerations := []corev1.Toleration{
@@ -69,6 +72,8 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient) (
 
 	spec := CsiNodeHashableSpec{
 		CsiDriverName:         csiDriverName,
+		ClientName:            clientName,
+		ClientNamespace:       clientNamespace,
 		CsiImage:              config.Config.Csi.WekafsImage,
 		CsiRegistrarImage:     config.Config.Csi.RegistrarImage,
 		CsiLivenessProbeImage: config.Config.Csi.LivenessProbeImage,
@@ -90,11 +95,23 @@ func GetCSINodeDaemonSetName(csiGroupName string) string {
 	return strings.ReplaceAll(csiGroupName, ".", "-") + "-weka-csi-node"
 }
 
-func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient, nodes []corev1.Node) (*appsv1.DaemonSet, error) {
+func GetCSINodeDaemonSetNameForClient(csiGroupName, clientName, clientNamespace string) string {
+	base := strings.ReplaceAll(csiGroupName, ".", "-") + "-csi-node-" + clientNamespace + "-" + strings.ReplaceAll(clientName, ".", "-")
+	if len(base) > 63 {
+		// Use hash suffix to preserve uniqueness when truncating
+		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(base)))[:8]
+		base = base[:63-9] + "-" + hash
+	}
+	// Ensure name doesn't end with a hyphen
+	base = strings.TrimRight(base, "-")
+	return base
+}
+
+func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient, clientName, clientNamespace string, nodes []corev1.Node) (*appsv1.DaemonSet, error) {
 	_, logger := instrumentation.CreateLogSpan(ctx, "NewCsiNodeDaemonSet")
 	defer logger.End()
 
-	name := GetCSINodeDaemonSetName(csiGroupName)
+	name := GetCSINodeDaemonSetNameForClient(csiGroupName, clientName, clientNamespace)
 	csiDriverName := GetCsiDriverName(csiGroupName)
 	// CSI node plugins are infrastructure components and must run on all nodes
 	// Use wildcard toleration to ensure CSI runs everywhere, like node-agent
@@ -114,7 +131,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 	}
 	labels := GetCsiLabels(csiDriverName, CSINode, wekaClient.Labels, csiLabels)
 
-	targetHash, err := GetCsiNodeDaemonSetHash(csiGroupName, wekaClient)
+	targetHash, err := GetCsiNodeDaemonSetHash(csiGroupName, wekaClient, clientName, clientNamespace)
 	if err != nil {
 		logger.Error(err, "Failed to get CSI node daemonset hash")
 		return nil, fmt.Errorf("failed to get CSI node daemonset hash: %w", err)
