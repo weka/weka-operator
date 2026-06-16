@@ -201,6 +201,25 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				ContinueOnError: true,
 			},
 			&lifecycle.SimpleStep{
+				// CSI globally disabled: tear down the per-client node daemonset.
+				// Mirrors the deploy step above and is keyed on the same
+				// CondCsiNodeDaemonSetDeployed condition, so we only undeploy for
+				// clients that actually deployed one. The deploy step is skipped
+				// (predicate false) when CSI is off, and a predicate-skip does not
+				// clear the step's state condition - so the condition stays True
+				// and this step fires. This runs for every client, unlike the
+				// disable teardown in CheckCsiConfigChanged which is gated on
+				// CondCsiDeployed (only managing clients) and so would otherwise
+				// leak a non-managing client's node daemonset. NotFound is treated
+				// as success.
+				Run: loop.UndeployCsiNodeDaemonSetForClient,
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(!config.Config.Csi.Enabled),
+					lifecycle.IsTrueCondition(condition.CondCsiNodeDaemonSetDeployed, &wekaClient.Status.Conditions),
+				},
+				ContinueOnError: true,
+			},
+			&lifecycle.SimpleStep{
 				Run: loop.UpdateCsiNodeDaemonSet,
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsTrueCondition(condition.CondCsiNodeDaemonSetDeployed, &wekaClient.Status.Conditions),
@@ -1239,11 +1258,11 @@ func (c *clientReconcilerLoop) FetchTargetCluster(ctx context.Context) error {
 
 func (c *clientReconcilerLoop) CheckCsiConfigChanged(ctx context.Context) error {
 	if !config.Config.Csi.Enabled {
-		// if we are here, installation was switched off; tear down the
-		// per-client node daemonset as well as the shared CSI plugin
-		if err := c.UndeployCsiNodeDaemonSetForClient(ctx); err != nil {
-			return errors.Wrap(err, "failed to undeploy per-client CSI node daemonset")
-		}
+		// if we are here, installation was switched off; tear down the shared
+		// CSI node daemonset and plugin. This step only runs for managing
+		// clients (gated on CondCsiDeployed), so it owns the shared resources;
+		// the per-client node daemonset is torn down for every client by the
+		// dedicated UndeployCsiNodeDaemonSetForClient step.
 		if err := c.UndeploySharedCsiNodeDaemonSet(ctx); err != nil {
 			return errors.Wrap(err, "failed to undeploy shared CSI node daemonset")
 		}
@@ -1307,11 +1326,9 @@ func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context) error {
 	return nil
 }
 
+// GetCSIGroup resolves the CSI group for this client. See csi.ResolveGroup.
 func (c *clientReconcilerLoop) GetCSIGroup() string {
-	if c.targetCluster != nil {
-		return csi.GetGroupFromTargetCluster(c.targetCluster)
-	}
-	return csi.GetGroupFromClient(c.wekaClient)
+	return csi.ResolveGroup(c.targetCluster, c.wekaClient)
 }
 
 func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {

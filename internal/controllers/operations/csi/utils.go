@@ -41,6 +41,18 @@ func GetGroupFromClient(wekaClient *weka.WekaClient) string {
 	return wekaClient.Spec.CsiConfig.CsiGroup
 }
 
+// ResolveGroup picks the CSI group for a client: the target-cluster-derived
+// group when a target cluster is available, otherwise the client-derived
+// default. targetCluster may be nil — either no target cluster is referenced,
+// or it could not be fetched. In the latter case the group may differ from
+// the deploy-time group and an undeploy can miss the daemonset; accepted.
+func ResolveGroup(targetCluster *weka.WekaCluster, wekaClient *weka.WekaClient) string {
+	if targetCluster != nil {
+		return GetGroupFromTargetCluster(targetCluster)
+	}
+	return GetGroupFromClient(wekaClient)
+}
+
 func GetTracingFlag() string {
 	if config.Config.Otel.ExporterOtlpEndpoint != "" {
 		endpoint := strings.TrimPrefix(config.Config.Otel.ExporterOtlpEndpoint, "http://")

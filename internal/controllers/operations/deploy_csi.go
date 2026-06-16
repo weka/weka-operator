@@ -537,19 +537,20 @@ func (o *DeployCsiOperation) cleanupOldSharedCsiNodeDaemonSet(ctx context.Contex
 	return nil
 }
 
-// resolveClientCsiGroup mirrors clientReconcilerLoop.GetCSIGroup for an arbitrary client,
-// resolving the group from the target cluster when one is referenced.
+// resolveClientCsiGroup resolves the CSI group for an arbitrary client,
+// fetching the referenced target cluster when one is set. The group choice
+// itself lives in csi.ResolveGroup.
 func (o *DeployCsiOperation) resolveClientCsiGroup(ctx context.Context, wc *weka.WekaClient) (string, error) {
+	var cluster *weka.WekaCluster
 	if ref := wc.Spec.TargetCluster; ref.Name != "" {
 		ns := ref.Namespace
 		if ns == "" {
 			ns = wc.Namespace
 		}
-		cluster := &weka.WekaCluster{}
+		cluster = &weka.WekaCluster{}
 		if err := o.client.Get(ctx, client.ObjectKey{Name: ref.Name, Namespace: ns}, cluster); err != nil {
 			return "", err
 		}
-		return csi.GetGroupFromTargetCluster(cluster), nil
 	}
-	return csi.GetGroupFromClient(wc), nil
+	return csi.ResolveGroup(cluster, wc), nil
 }

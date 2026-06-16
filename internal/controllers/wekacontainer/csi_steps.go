@@ -33,10 +33,7 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 }
 
 func (r *containerReconcilerLoop) GetCSIGroup() string {
-	if r.targetCluster != nil {
-		return csi.GetGroupFromTargetCluster(r.targetCluster)
-	}
-	return csi.GetGroupFromClient(r.wekaClient)
+	return csi.ResolveGroup(r.targetCluster, r.wekaClient)
 }
 
 func (r *containerReconcilerLoop) getCsiDriverName() string {
