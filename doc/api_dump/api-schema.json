@@ -1354,8 +1354,21 @@
       ]
     },
     "InstructionType": {
-      "kind": "alias",
-      "baseType": "string"
+      "kind": "enum",
+      "enumValues": [
+        "sign-drives",
+        "discover-drives",
+        "force-resign-drives",
+        "ensure-nics",
+        "load-drivers",
+        "copy-weka-files-to-driver-loader",
+        "feature-flags-update",
+        "umount"
+      ],
+      "baseType": "string",
+      "usedBy": [
+        "WekaContainer"
+      ]
     },
     "Instructions": {
       "kind": "struct",
@@ -1363,7 +1376,9 @@
         {
           "name": "Type",
           "jsonName": "type",
-          "type": "string",
+          "type": {
+            "$ref": "#/definitions/InstructionType"
+          },
           "optional": false
         },
         {
@@ -5234,6 +5249,23 @@
         }
       ]
     },
+    "WekaManualOperationAction": {
+      "kind": "enum",
+      "description": "WekaManualOperationAction enumerates the supported WekaManualOperation actions.",
+      "enumValues": [
+        "sign-drives",
+        "discover-drives",
+        "force-resign-drives",
+        "block-drives",
+        "unblock-drives",
+        "ensure-nics",
+        "remote-traces-session"
+      ],
+      "baseType": "string",
+      "usedBy": [
+        "WekaManualOperation"
+      ]
+    },
     "WekaManualOperationList": {
       "kind": "struct",
       "description": "WekaManualOperationList contains a list of WekaManualOperation",
@@ -5265,7 +5297,9 @@
         {
           "name": "Action",
           "jsonName": "action",
-          "type": "string",
+          "type": {
+            "$ref": "#/definitions/WekaManualOperationAction"
+          },
           "optional": false
         },
         {
@@ -5454,7 +5488,9 @@
         {
           "name": "Type",
           "jsonName": "type",
-          "type": "string",
+          "type": {
+            "$ref": "#/definitions/WekaPolicyType"
+          },
           "optional": false
         },
         {
@@ -5537,6 +5573,21 @@
           "pointer": true
         }
       ],
+      "usedBy": [
+        "WekaPolicy"
+      ]
+    },
+    "WekaPolicyType": {
+      "kind": "enum",
+      "description": "WekaPolicyType enumerates the supported WekaPolicy types.",
+      "enumValues": [
+        "sign-drives",
+        "discover-drives",
+        "ensure-nics",
+        "enable-local-drivers-distribution",
+        "remote-traces-session"
+      ],
+      "baseType": "string",
       "usedBy": [
         "WekaPolicy"
       ]

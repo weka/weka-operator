@@ -87,7 +87,7 @@ func (o *UmountOperation) Cleanup(ctx context.Context) error {
 
 func (o *UmountOperation) EnsureContainer(ctx context.Context) error {
 	instructions := &weka.Instructions{
-		Type:    "umount",
+		Type:    weka.InstructionTypeUmount,
 		Payload: "{}",
 	}
 

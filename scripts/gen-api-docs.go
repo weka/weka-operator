@@ -91,6 +91,28 @@ func main() {
 
 // ---- Phase 1: Parse Go source and build schema ----
 
+// resolveConstString resolves a const value expression to its string literal,
+// following identifiers and single-argument type conversions (e.g.
+// `InstructionType(opSignDrives)`) via the collected constLiterals map.
+func resolveConstString(expr ast.Expr, constLiterals map[string]string) (string, bool) {
+	switch v := expr.(type) {
+	case *ast.BasicLit:
+		if v.Kind == token.STRING {
+			return strings.Trim(v.Value, `"`), true
+		}
+	case *ast.Ident:
+		if s, ok := constLiterals[v.Name]; ok {
+			return s, true
+		}
+	case *ast.CallExpr:
+		// Type conversion such as InstructionType(opSignDrives).
+		if len(v.Args) == 1 {
+			return resolveConstString(v.Args[0], constLiterals)
+		}
+	}
+	return "", false
+}
+
 func generateSchema(sourceDir string) *Schema {
 	fset := token.NewFileSet()
 	packages, err := parser.ParseDir(fset, sourceDir, nil, parser.ParseComments) //nolint:staticcheck
@@ -103,6 +125,39 @@ func generateSchema(sourceDir string) *Schema {
 	enums := make(map[string]*enumInfo)
 	structTypes := make(map[string]bool)
 	aliasTypes := make(map[string]string)
+
+	// Pre-pass: collect every string-literal const value (typed or untyped) by
+	// name, so enum consts defined via a shared identifier or a type conversion
+	// (e.g. `= opSignDrives` or `= InstructionType(opSignDrives)`) can be
+	// resolved back to their literal value rather than silently dropped.
+	constLiterals := make(map[string]string)
+	for _, pkg := range packages {
+		for filename, file := range pkg.Files {
+			if strings.HasSuffix(filename, "_test.go") || strings.HasSuffix(filename, "zz_generated.deepcopy.go") {
+				continue
+			}
+			for _, decl := range file.Decls {
+				genDecl, ok := decl.(*ast.GenDecl)
+				if !ok || genDecl.Tok != token.CONST {
+					continue
+				}
+				for _, spec := range genDecl.Specs {
+					vs, ok := spec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+					for i, name := range vs.Names {
+						if i >= len(vs.Values) {
+							continue
+						}
+						if lit, ok := vs.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+							constLiterals[name.Name] = strings.Trim(lit.Value, `"`)
+						}
+					}
+				}
+			}
+		}
+	}
 
 	for _, pkg := range packages {
 		for filename, file := range pkg.Files {
@@ -163,11 +218,10 @@ func generateSchema(sourceDir string) *Schema {
 						}
 
 						for _, val := range vs.Values {
-							lit, ok := val.(*ast.BasicLit)
+							v, ok := resolveConstString(val, constLiterals)
 							if !ok {
 								continue
 							}
-							v := strings.Trim(lit.Value, `"`)
 							if enums[typeName] == nil {
 								enums[typeName] = &enumInfo{}
 							}

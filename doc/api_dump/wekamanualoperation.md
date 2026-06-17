@@ -32,7 +32,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| action | string |  |
+| action | WekaManualOperationAction |  |
 | payload | ManualOperatorPayload |  |
 | image | *string |  |
 | imagePullSecret | *string |  |

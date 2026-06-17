@@ -104,7 +104,7 @@ func (o *EnsureNICsOperation) EnsureContainers(ctx context.Context) error {
 	}
 
 	instructions := &weka.Instructions{
-		Type:    "ensure-nics",
+		Type:    weka.InstructionTypeEnsureNICs,
 		Payload: string(payloadBytes),
 	}
 

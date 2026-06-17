@@ -237,7 +237,7 @@ func (o *GetFeatureFlagsOperation) EnsureAdhocContainer(ctx context.Context) err
 	defer logger.End()
 
 	instructions := &weka.Instructions{
-		Type: "feature-flags-update",
+		Type: weka.InstructionTypeFeatureFlagsUpdate,
 	}
 
 	labels := map[string]string{

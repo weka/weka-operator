@@ -34,7 +34,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| type | string |  |
+| type | WekaPolicyType |  |
 | payload | PolicyPayload |  |
 | image | *string |  |
 | imagePullSecret | *string |  |

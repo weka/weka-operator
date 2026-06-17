@@ -131,7 +131,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	switch wekaPolicy.Spec.Type {
-	case "sign-drives":
+	case weka.WekaPolicyTypeSignDrives:
 		signDrivesOp := operations.NewSignDrivesOperation(
 			r.Mgr,
 			wekaPolicy.Spec.Payload.SignDrives,
@@ -148,7 +148,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			false,
 		)
 		loop.Op = signDrivesOp
-	case "discover-drives":
+	case weka.WekaPolicyTypeDiscoverDrives:
 		discoverDrivesOp := operations.NewDiscoverDrivesOperation(
 			r.Mgr,
 			wekaPolicy.Spec.Payload.DiscoverDrives,
@@ -164,7 +164,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			false,
 		)
 		loop.Op = discoverDrivesOp
-	case "ensure-nics":
+	case weka.WekaPolicyTypeEnsureNICs:
 		ensureNICsOp := operations.NewEnsureNICsOperation(
 			r.Mgr,
 			wekaPolicy.Spec.Payload.EnsureNICs,
@@ -179,7 +179,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			onSuccess,
 		)
 		loop.Op = ensureNICsOp
-	case "enable-local-drivers-distribution":
+	case weka.WekaPolicyTypeEnableLocalDriversDistribution:
 		if wekaPolicy.Spec.Payload.DriverDistPayload == nil {
 			wekaPolicy.Spec.Payload.DriverDistPayload = &weka.DriverDistPayload{}
 		}
@@ -207,7 +207,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			onFailure,
 		)
 		loop.Op = enableLocalDriversDistOp
-	case "remote-traces-session":
+	case weka.WekaPolicyTypeRemoteTracesSession:
 		if wekaPolicy.Spec.Payload.RemoteTracesSession == nil {
 			wekaPolicy.Spec.Payload.RemoteTracesSession = &weka.RemoteTracesSessionConfig{}
 		}
