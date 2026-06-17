@@ -57,6 +57,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/wekacluster"
 	"github.com/weka/weka-operator/internal/controllers/wekacontainer"
 	"github.com/weka/weka-operator/internal/node_agent"
+	"github.com/weka/weka-operator/internal/reporter"
 )
 
 var scheme = runtime.NewScheme()
@@ -337,6 +338,33 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		}()
 	} else {
 		logger.Info("Evicted pod cleanup is disabled")
+	}
+
+	if config.Config.WekaHome.Reporter.Enabled {
+		idp := reporter.NewIdentityManager(
+			mgr.GetClient(),
+			config.Config.WekaHome,
+			config.Config.OperatorPodNamespace,
+			config.Config.WekaHome.Reporter.IdentitySecretName,
+			logger,
+		)
+		rep := reporter.New(
+			mgr.GetClient(),
+			config.Config.WekaHome,
+			config.Config.OperatorPodNamespace,
+			idp,
+			logger,
+		)
+		go func() {
+			// Wait for the manager cache to sync before starting.
+			if !mgr.GetCache().WaitForCacheSync(ctx) {
+				logger.Info("Weka Home reporter not started: cache sync did not complete (context cancelled)")
+				return
+			}
+			rep.Run(ctx)
+		}()
+	} else {
+		logger.Info("Weka Home reporter is disabled")
 	}
 
 	logger.Info("starting manager")

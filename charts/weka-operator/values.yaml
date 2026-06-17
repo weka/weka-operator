@@ -48,6 +48,11 @@ wekahome:
   # -- name of the secret specifying CA certificate chain. It is assumed that every target namespace will have such secret
   cacertSecret: ""
   enableStats: true
+  report:
+    # -- Periodically report operator CRs to Weka Home.
+    enabled: true
+    # -- Reporting interval.
+    interval: 60s
 
 reconcileTimeout: 30m
 kubeExecTimeout: 5m
