@@ -33,11 +33,18 @@ type Otel struct {
 	PythonPackagesInstallerImage string
 }
 
+type WekaHomeReporter struct {
+	Enabled            bool
+	Interval           time.Duration
+	IdentitySecretName string
+}
+
 type WekaHome struct {
 	Endpoint      string
 	AllowInsecure bool
 	CacertSecret  string
 	EnableStats   bool
+	Reporter      WekaHomeReporter
 }
 
 type OcpCompatibility struct {
@@ -407,6 +414,9 @@ func ConfigureEnv(ctx context.Context) {
 	Config.WekaHome.AllowInsecure = getBoolEnvOrDefault("WEKA_OPERATOR_WEKA_HOME_INSECURE", false)
 	Config.WekaHome.CacertSecret = os.Getenv("WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET")
 	Config.WekaHome.EnableStats = getBoolEnvOrDefault("WEKA_OPERATOR_WEKA_HOME_ENABLE_STATS", true)
+	Config.WekaHome.Reporter.Enabled = getBoolEnvOrDefault("WEKA_OPERATOR_REPORTER_ENABLED", true)
+	Config.WekaHome.Reporter.Interval = getDurationEnvOrDefault("WEKA_OPERATOR_REPORTER_INTERVAL", 60*time.Second)
+	Config.WekaHome.Reporter.IdentitySecretName = getEnvOrDefault("WEKA_OPERATOR_REPORTER_IDENTITY_SECRET", "weka-operator-wekahome-identity")
 	Config.DebugSleep = getIntEnvOrDefault("WEKA_OPERATOR_DEBUG_SLEEP", 3)
 	Config.MaintenanceImage = getEnvOrDefault("WEKA_MAINTENANCE_IMAGE", "quay.io/weka.io/busybox:1.37.0")
 	Config.EnvoyImage = getEnvOrDefault("ENVOY_IMAGE", "docker.io/envoyproxy/envoy:v1.31-latest")

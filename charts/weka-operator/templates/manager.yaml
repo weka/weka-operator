@@ -130,6 +130,10 @@ spec:
               value: "{{ .Values.wekahome.allowInsecureTLS }}"
             - name: WEKA_OPERATOR_WEKA_HOME_ENABLE_STATS
               value: "{{ .Values.wekahome.enableStats }}"
+            - name: WEKA_OPERATOR_REPORTER_ENABLED
+              value: "{{ .Values.wekahome.report.enabled }}"
+            - name: WEKA_OPERATOR_REPORTER_INTERVAL
+              value: "{{ .Values.wekahome.report.interval }}"
             - name: WEKA_OPERATOR_DEBUG_SLEEP
               value: "{{ .Values.debugSleep }}"
             - name: WEKA_OPERATOR_MAINTENANCE_SA_NAME
