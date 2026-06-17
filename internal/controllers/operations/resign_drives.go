@@ -159,7 +159,7 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 	}
 
 	instructions := &v1alpha1.Instructions{
-		Type:    "force-resign-drives",
+		Type:    v1alpha1.InstructionTypeForceResignDrives,
 		Payload: string(payloadBytes),
 	}
 

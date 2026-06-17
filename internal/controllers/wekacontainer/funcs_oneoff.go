@@ -88,13 +88,13 @@ func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) err
 func (r *containerReconcilerLoop) isFeatureFlagsOperation() bool {
 	return r.container.Spec.Mode == weka.WekaContainerModeAdhocOpWC &&
 		r.container.Spec.Instructions != nil &&
-		r.container.Spec.Instructions.Type == "feature-flags-update"
+		r.container.Spec.Instructions.Type == weka.InstructionTypeFeatureFlagsUpdate
 }
 
 func (r *containerReconcilerLoop) isSignOrDiscoverDrivesOperation(ctx context.Context) bool {
 	if r.container.Spec.Mode == weka.WekaContainerModeAdhocOp && r.container.Spec.Instructions != nil {
-		return r.container.Spec.Instructions.Type == "sign-drives" ||
-			r.container.Spec.Instructions.Type == "discover-drives"
+		return r.container.Spec.Instructions.Type == weka.InstructionTypeSignDrives ||
+			r.container.Spec.Instructions.Type == weka.InstructionTypeDiscoverDrives
 	}
 	return false
 }

@@ -1,6 +1,10 @@
 module github.com/weka/weka-operator
 
-go 1.26.3
+// NOTE: when bumping this go version, also bump the builder images that pin
+// it explicitly (GOTOOLCHAIN=local in CI means they cannot auto-upgrade):
+//   - Dockerfile (golang:<version>)
+//   - .dagger/src/containers/builders.py (_go_builder_container version=)
+go 1.26.4
 
 require (
 	github.com/ant0ine/go-json-rest v3.3.2+incompatible

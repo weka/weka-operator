@@ -1049,7 +1049,7 @@ func (f *PodFactory) getSsdUidForAdhocOp() *string {
 	if f.container.Spec.Instructions == nil {
 		return nil
 	}
-	if f.container.Spec.Instructions.Type != "sign-drives" {
+	if f.container.Spec.Instructions.Type != weka.InstructionTypeSignDrives {
 		return nil
 	}
 

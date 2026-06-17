@@ -1,5 +1,6 @@
 # Build the manager binary
-FROM docker.io/library/golang:1.26.3 as builder
+# Keep this version in sync with the `go` directive in go.mod (and .dagger builders.py).
+FROM docker.io/library/golang:1.26.4 as builder
 # right now this image is not in use, might be in future when whole release process runs as docker build
 # and when used probably will be heavily re-done
 

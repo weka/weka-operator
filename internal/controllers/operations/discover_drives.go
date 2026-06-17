@@ -113,7 +113,7 @@ func (o *DiscoverDrivesOperation) GetContainers(ctx context.Context) error {
 
 func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 	instructions := &v1alpha1.Instructions{
-		Type: "discover-drives",
+		Type: v1alpha1.InstructionTypeDiscoverDrives,
 	}
 
 	matchingNodes, err := o.kubeService.GetNodes(ctx, o.payload.NodeSelector)

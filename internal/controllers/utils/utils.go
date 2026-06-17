@@ -185,7 +185,7 @@ func ResolveDriversDistService(ctx context.Context, c client.Client, namespace, 
 	if err := c.List(ctx, policyList, &client.ListOptions{Namespace: namespace}); err == nil {
 		for i := range policyList.Items {
 			policy := &policyList.Items[i]
-			if policy.Spec.Type == "enable-local-drivers-distribution" &&
+			if policy.Spec.Type == weka.WekaPolicyTypeEnableLocalDriversDistribution &&
 				policy.Status.TypedStatus != nil &&
 				policy.Status.TypedStatus.DistService != nil &&
 				policy.Status.TypedStatus.DistService.ServiceUrl != "" {

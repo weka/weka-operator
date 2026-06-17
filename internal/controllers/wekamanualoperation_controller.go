@@ -105,7 +105,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	switch wekaManualOperation.Spec.Action {
-	case "sign-drives":
+	case weka.WekaManualOperationActionSignDrives:
 		signDrivesOp := operations.NewSignDrivesOperation(
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.SignDrives,
@@ -123,7 +123,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			true,
 		)
 		loop.Op = signDrivesOp
-	case "force-resign-drives":
+	case weka.WekaManualOperationActionForceResignDrives:
 		resignDrivesOp := operations.NewResignDrivesOperation(
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.ForceResignDrives,
@@ -139,7 +139,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			onFailure,
 		)
 		loop.Op = resignDrivesOp
-	case "block-drives":
+	case weka.WekaManualOperationActionBlockDrives:
 		blockDrivesOp := operations.NewBlockDrivesOperation(
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.BlockDrives,
@@ -148,7 +148,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			onFailure,
 		)
 		loop.Op = blockDrivesOp
-	case "unblock-drives":
+	case weka.WekaManualOperationActionUnblockDrives:
 		unblockDrivesOp := operations.NewUnblockDrivesOperation(
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.BlockDrives,
@@ -157,7 +157,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			onFailure,
 		)
 		loop.Op = unblockDrivesOp
-	case "discover-drives":
+	case weka.WekaManualOperationActionDiscoverDrives:
 		discoverDrivesOp := operations.NewDiscoverDrivesOperation(
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.DiscoverDrives,
@@ -173,7 +173,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			false,
 		)
 		loop.Op = discoverDrivesOp
-	case "remote-traces-session":
+	case weka.WekaManualOperationActionRemoteTracesSession:
 		// Apply default duration of 1 week for manual operations if not specified
 		payload := wekaManualOperation.Spec.Payload.RemoteTracesSessionConfig
 		if payload != nil && payload.Duration.Duration == 0 {
@@ -200,7 +200,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			false,
 		)
 		loop.Op = remoteTracesOp
-	case "ensure-nics":
+	case weka.WekaManualOperationActionEnsureNICs:
 		ensureNICsOp := operations.NewEnsureNICsOperation(
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.EnsureNICs,

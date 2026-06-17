@@ -441,7 +441,7 @@ func (o *SignDrivesOperation) createInstructions(extendedPayload *SignedDrivesEx
 	}
 
 	instructions := &weka.Instructions{
-		Type:    "sign-drives",
+		Type:    weka.InstructionTypeSignDrives,
 		Payload: string(payloadBytes),
 	}
 

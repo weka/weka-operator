@@ -192,7 +192,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| type | string |  |
+| type | InstructionType |  |
 | payload | string |  |
 
 ---
