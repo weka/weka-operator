@@ -5,9 +5,21 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// WekaPolicyType enumerates the supported WekaPolicy types.
+type WekaPolicyType string
+
+const (
+	WekaPolicyTypeSignDrives                     WekaPolicyType = opSignDrives
+	WekaPolicyTypeDiscoverDrives                 WekaPolicyType = opDiscoverDrives
+	WekaPolicyTypeEnsureNICs                     WekaPolicyType = opEnsureNICs
+	WekaPolicyTypeEnableLocalDriversDistribution WekaPolicyType = opEnableLocalDriversDist
+	WekaPolicyTypeRemoteTracesSession            WekaPolicyType = opRemoteTracesSession
+)
+
 // WekaPolicySpec defines the desired state of WekaPolicy
 type WekaPolicySpec struct {
-	Type               string          `json:"type"`
+	// +kubebuilder:validation:Enum=sign-drives;discover-drives;ensure-nics;enable-local-drivers-distribution;remote-traces-session
+	Type               WekaPolicyType  `json:"type"`
 	Payload            PolicyPayload   `json:"payload"`
 	Image              *string         `json:"image,omitempty"`
 	ImagePullSecret    *string         `json:"imagePullSecret,omitempty"`

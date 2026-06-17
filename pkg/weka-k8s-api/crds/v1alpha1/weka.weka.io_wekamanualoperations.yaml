@@ -59,6 +59,8 @@ spec:
             description: WekaManualOperationSpec defines the desired state of WekaManualOperation
             properties:
               action:
+                description: WekaManualOperationAction enumerates the supported WekaManualOperation
+                  actions.
                 enum:
                 - sign-drives
                 - discover-drives

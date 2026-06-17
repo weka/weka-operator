@@ -47,7 +47,7 @@ const (
 	CondClusterReady                 = "ClusterIsReady"
 	CondContainerMigratedOutFromPVC  = "MigratedOutFromPVC"
 	CondCsiDeployed                  = "CsiDeployed"
-	CondCsiNodeDaemonSetDeployed      = "CsiNodeDaemonSetDeployed"
+	CondCsiNodeDaemonSetDeployed     = "CsiNodeDaemonSetDeployed"
 	CondClusterKMSConfigured         = "KMSConfigured"
 	CondManagementServiceConfigured  = "ManagementServiceConfigured"
 	CondVirtualDrivesAdded           = "VirtualDrivesAdded"

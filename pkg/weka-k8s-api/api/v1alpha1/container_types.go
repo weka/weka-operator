@@ -181,8 +181,8 @@ type WekaContainerSpecOverrides struct {
 }
 
 type Instructions struct {
-	Type    string `json:"type"`
-	Payload string `json:"payload,omitempty"`
+	Type    InstructionType `json:"type"`
+	Payload string          `json:"payload,omitempty"`
 }
 
 type DataServicesConfig struct {

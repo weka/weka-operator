@@ -5,15 +5,28 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// WekaManualOperationAction enumerates the supported WekaManualOperation actions.
+type WekaManualOperationAction string
+
+const (
+	WekaManualOperationActionSignDrives          WekaManualOperationAction = opSignDrives
+	WekaManualOperationActionDiscoverDrives      WekaManualOperationAction = opDiscoverDrives
+	WekaManualOperationActionForceResignDrives   WekaManualOperationAction = opForceResignDrives
+	WekaManualOperationActionBlockDrives         WekaManualOperationAction = opBlockDrives
+	WekaManualOperationActionUnblockDrives       WekaManualOperationAction = opUnblockDrives
+	WekaManualOperationActionEnsureNICs          WekaManualOperationAction = opEnsureNICs
+	WekaManualOperationActionRemoteTracesSession WekaManualOperationAction = opRemoteTracesSession
+)
+
 // WekaManualOperationSpec defines the desired state of WekaManualOperation
 type WekaManualOperationSpec struct {
 	// +kubebuilder:validation:Enum=sign-drives;discover-drives;force-resign-drives;block-drives;unblock-drives;ensure-nics;remote-traces-session
-	Action             string                `json:"action"`
-	Payload            ManualOperatorPayload `json:"payload"`
-	Image              *string               `json:"image,omitempty"`
-	ImagePullSecret    *string               `json:"imagePullSecret,omitempty"`
-	Tolerations        []v1.Toleration       `json:"tolerations,omitempty"`
-	ServiceAccountName string                `json:"serviceAccountName,omitempty"`
+	Action             WekaManualOperationAction `json:"action"`
+	Payload            ManualOperatorPayload     `json:"payload"`
+	Image              *string                   `json:"image,omitempty"`
+	ImagePullSecret    *string                   `json:"imagePullSecret,omitempty"`
+	Tolerations        []v1.Toleration           `json:"tolerations,omitempty"`
+	ServiceAccountName string                    `json:"serviceAccountName,omitempty"`
 	// DeletionDelay specifies how long to wait after completion before deleting the resource.
 	// Defaults to 5m if not specified.
 	// +kubebuilder:default="5m"

@@ -302,6 +302,13 @@ spec:
                   type: object
                 type: array
               type:
+                description: WekaPolicyType enumerates the supported WekaPolicy types.
+                enum:
+                - sign-drives
+                - discover-drives
+                - ensure-nics
+                - enable-local-drivers-distribution
+                - remote-traces-session
                 type: string
             required:
             - payload
