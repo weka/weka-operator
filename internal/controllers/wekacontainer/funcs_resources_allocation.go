@@ -22,7 +22,6 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -47,11 +46,7 @@ func (r *containerReconcilerLoop) ShouldAllocateNICs() bool {
 		return false
 	}
 
-	if !discovery.IsSupportedCloudProvider(r.node.Spec.ProviderID) {
-		return false
-	}
-
-	if r.container.Spec.Network.AllocateVfPerIoNode != nil && !*r.container.Spec.Network.AllocateVfPerIoNode {
+	if !utils.ShouldAllocateVfPerIoNode(r.node, r.container) {
 		return false
 	}
 

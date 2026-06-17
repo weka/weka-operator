@@ -31,6 +31,13 @@ func getAWSGatewayIP(cidr string) (string, error) {
 	return ip.String(), nil
 }
 
+func ShouldAllocateVfPerIoNode(node *v1.Node, container *weka.WekaContainer) bool {
+	if container.Spec.Network.AllocateVfPerIoNode != nil {
+		return *container.Spec.Network.AllocateVfPerIoNode
+	}
+	return discovery.IsSupportedCloudProvider(node.Spec.ProviderID)
+}
+
 func GetNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaContainer) (netDevices []string, err error) {
 	_, logger := instrumentation.CreateLogSpan(ctx, "getNetDevices")
 	defer logger.End()
@@ -52,12 +59,7 @@ func GetNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaConta
 		return
 	}
 
-	allocateVfPerIoNode := false
-	if container.Spec.Network.AllocateVfPerIoNode != nil {
-		allocateVfPerIoNode = *container.Spec.Network.AllocateVfPerIoNode
-	} else if discovery.IsSupportedCloudProvider(node.Spec.ProviderID) {
-		allocateVfPerIoNode = true
-	}
+	allocateVfPerIoNode := ShouldAllocateVfPerIoNode(node, container)
 
 	if allocateVfPerIoNode && !container.Spec.Network.UdpMode && container.ShouldJoinCluster() {
 		var allocations domain.Allocations
