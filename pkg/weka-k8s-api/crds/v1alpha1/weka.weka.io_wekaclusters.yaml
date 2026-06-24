@@ -387,28 +387,23 @@ spec:
                     minimum: 0
                     type: integer
                   smbwContainers:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of SMB-W containers (3-8)'
+                    description: number of SMB-W containers (3-8)
                     minimum: 0
                     type: integer
                   smbwCores:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of SMB-W cores per container'
+                    description: number of SMB-W cores per container
                     minimum: 0
                     type: integer
                   smbwExtraCores:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of SMB-W extra cores per container'
+                    description: number of SMB-W extra cores per container
                     minimum: 0
                     type: integer
                   smbwFrontendHugepages:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: hugepage allocation for SMB-W frontend'
+                    description: hugepage allocation for SMB-W frontend
                     minimum: 0
                     type: integer
                   smbwFrontendHugepagesOffset:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: hugepage offset for SMB-W frontend'
+                    description: hugepage offset for SMB-W frontend
                     minimum: 0
                     type: integer
                 type: object

@@ -276,19 +276,19 @@ type WekaClusterTemplate struct {
 	// Offset in MiB for NFS frontend hugepage allocation.
 	// +kubebuilder:validation:Minimum=0
 	NfsFrontendHugepagesOffset int `json:"nfsFrontendHugepagesOffset,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W containers (3-8)
+	// number of SMB-W containers (3-8)
 	// +kubebuilder:validation:Minimum=0
 	SmbwContainers int `json:"smbwContainers,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W cores per container
+	// number of SMB-W cores per container
 	// +kubebuilder:validation:Minimum=0
 	SmbwCores int `json:"smbwCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W extra cores per container
+	// number of SMB-W extra cores per container
 	// +kubebuilder:validation:Minimum=0
 	SmbwExtraCores int `json:"smbwExtraCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for SMB-W frontend
+	// hugepage allocation for SMB-W frontend
 	// +kubebuilder:validation:Minimum=0
 	SmbwFrontendHugepages int `json:"smbwFrontendHugepages,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for SMB-W frontend
+	// hugepage offset for SMB-W frontend
 	// +kubebuilder:validation:Minimum=0
 	SmbwFrontendHugepagesOffset int `json:"smbwFrontendHugepagesOffset,omitempty"`
 	// DriveCapacity is the capacity in GiB to allocate per single virtual drive.
