@@ -5,6 +5,13 @@ cluster (e.g. `"300TiB"`, `"8000GB"`). Instead of sizing each container by hand,
 translates that one target into drive containers spread across failure domains, sizes compute to
 match, and **reconciles toward the target as it changes**.
 
+Concretely, it lets you **drop the detailed sizing knobs** you would otherwise set in
+`dynamicTemplate` — the container counts (`driveContainers`, `computeContainers`), per-container
+cores (`driveCores`, `computeCores`), and the per-role hugepages (`driveHugepages` /
+`driveHugepagesOffset`, `computeHugepages` / `computeHugepagesOffset`). The operator derives all of
+them from the one target. You can still pin any of these by hand when you need to; see
+[Explicit drive/compute sizing](#explicit-drivecompute-sizing).
+
 It is a **drive-sharing capacity mode** — an alternative to the per-container `containerCapacity`
 and the legacy `driveCapacity`/`numDrives` knobs described in the
 [Drive Sharing guide](../operations/drive-sharing.md). Physical drives must be signed for proxy
@@ -24,8 +31,9 @@ This document is organized so each fact lives in exactly one place:
 
 ## Key properties
 
-- **One target, not per-container.** You set `clusterCapacity`; the planner derives container
-  count, per-container capacity, cores, and compute sizing.
+- **One target, not per-container.** You set `clusterCapacity`; the planner derives the drive
+  container count (`driveContainers`), per-container capacity, cores (`driveCores`), and compute
+  sizing (`computeContainers` / `computeCores`) — none of which need to appear in `dynamicTemplate`.
 - **Two independent pools.** TLC and QLC are planned **independently**, so one pool can grow while
   the other is a no-op.
 - **Stateless planning.** Every reconcile rebuilds the node inventory and re-derives the plan from
@@ -62,11 +70,11 @@ spec:
   imagePullSecret: quay-io-secret
   driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
   template: dynamic
+  stripeWidth: 16
+  redundancyLevel: 4
+  hotSpare: 1
   dynamicTemplate:
     clusterCapacity: "300TiB"   # target usable capacity
-    stripeWidth: 16
-    redundancyLevel: 4
-    hotSpare: 1
     driveTypesRatio:
       tlc: 1
       qlc: 10
@@ -143,17 +151,28 @@ elsewhere you will see a pointer back to this section rather than a repeat.
   each return to `Running`, to keep enough live FDs; when a grow bumps both compute and drive cores,
   terminate the **compute** pod(s) first, then the drive pod(s).
 
-- **Never auto-shrink.** Lowering the target (or shifting `driveTypesRatio` away from a type) is a
-  **no-op** that emits `ClusterCapacityShrink` telling you to delete WekaContainers manually. The
-  operator never deletes or shrinks a container on its own.
+- **Usable capacity per pool is gated by the smallest failure domain.** A failure domain smaller
+  than the rest adds raw capacity but **zero usable capacity** — usable is bounded by the minimum
+  per-FD size across the pool. Therefore the planner only creates new failure domains at the
+  **uniform per-FD chunk `T`** (the smallest existing per-FD capacity, floored at MinChunk). A
+  candidate node whose headroom is below `T` is never opened as a new FD, and no sub-`T` FD is ever
+  created. The uniform-FD rule is unconditional.
 
-- **Balance is per FD, even by default.** The divisor is always the **distinct FD count**, never the
-  container count. A create/grow lands on the **fewest FDs that fit *evenly*** — `minFdNum` when
-  nodes are uniform, more only when heterogeneous ceilings would otherwise force an uneven fill, or
-  when `driveContainers` pins the count. No FD is ever deliberately filled to its ceiling; a ceiling
-  only *forces* deviation, and when it does the per-FD imbalance warning fires for the residual skew.
-  In **label-based mode** an FD groups several hosts: the planner sums their capacity toward one FD
-  target and grows them together (best-effort, gated by real headroom).
+- **Never auto-shrink.** Lowering the target (or shifting `driveTypesRatio` away from a type) is a
+  **no-op**; when the resulting over-provision exceeds `maxOverProvisionFraction` it emits
+  `ClusterCapacityShrink` telling you to delete WekaContainers manually (a smaller, in-cap overage —
+  e.g. the create-new rounding over-provision — stays silent). The operator never deletes or shrinks a
+  container on its own.
+
+- **Balance is per FD, always uniform.** The divisor is always the **distinct FD count**, never the
+  container count, and every FD is sized to the **same per-FD chunk `T`**. A create/grow lands on the
+  **fewest FDs that tile evenly** — `minFdNum` when nodes are uniform, more only when a smaller per-FD
+  share is needed to fit every chosen FD's ceiling, or when `driveContainers` pins the count. There is
+  no ceiling-capped uneven fill: if no uniform `(N, T)` reaches the target the pool is **infeasible**
+  (or, for a growth that a dwarfed legacy FD would cap, the [heterogeneous fallback](#the-algorithm)
+  lays a fresh uniform set and flags the old FDs deletable). In **label-based mode** an FD groups
+  several hosts: the planner sums their capacity toward one FD target and grows them together
+  (best-effort, gated by real headroom).
 
 ## The algorithm
 
@@ -183,61 +202,69 @@ planClusterCapacity():                         # stateless — recomputed from s
         apply(growInPlace + createNew); emit per-decision events   # ClusterCapacityPlanned on success
 ```
 
-### Per-pool planning (water-fill)
+### Per-pool planning
 
-A pool is planned by collecting its failure domains — those it already occupies plus the fresh ones
-available — into a single list and running **one water-fill pass** over them. Existing FDs grow in
-place and fresh FDs create new containers, but both kinds are sized by the *same* pass rather than by
-two separate grow/create algorithms:
+The whole pool plan reduces to one rule — **build uniform failure domains, or declare infeasible** —
+expressed with two primitives:
+
+- **`selectUniform`** picks the per-FD chunk `T` and FD count `N`. It is uniform-or-infeasible: if no
+  `(N, T)` tiles the candidate FDs evenly up to the target, the pool is infeasible.
+- **`placeUniform`** makes each chosen FD hold **exactly `T`**, split evenly across the FD's member
+  hosts. Per host it **grows** the existing container (same-pool top-up, or cross-pool TLC→mixed
+  conversion) or **creates** a new one. An FD that cannot reach `T` is rolled back and skipped — never
+  left sub-`T`.
 
 ```
-planPool(pool, desiredRaw, inventory):              # pool is TLC or QLC, planned independently
-    current = sum(pool capacity over this cluster's healthy drive containers)
+planPool(pool, desiredRaw, inventory):                 # pool is TLC or QLC, planned independently
+    current = Σ pool capacity over this cluster's healthy drive containers
     delta   = desiredRaw - current
-    if delta < 0:  emit ClusterCapacityShrink; return    # §Rules: never auto-shrink
-    if delta == 0: return                                # nothing to do
+    if delta < 0:  return  # never auto-shrink; emit ClusterCapacityShrink only if current-desiredRaw > maxOverProvisionFraction*desiredRaw (else silent)
+    if delta == 0: return  # nothing to do
 
-    # The pool's failure domains, one entry per FD — existing and fresh together in a single list.
-    # Each FD = (cap, ceiling, hosts); the kind only differs in how a host places its increment:
-    #   existing FD : cap = current pool capacity, ceiling = cap + node headroom, hosts GROW in place
-    #   fresh FD    : cap = 0,                     ceiling = node headroom,       hosts CREATE new
-    #   scaling OFF freezes existing FDs by setting ceiling = cap (they can absorb nothing).
-    fds = existingFdFills(pool) + freshFdFills(pool)   # concatenated into one list, existing FDs first
+    # Heterogeneous fallback (driveContainers NOT pinned): when a fresh per-FD chunk ceil(delta/minFdNum)
+    # would DWARF the existing FDs — chunk >= imbalanceFactor(8.0) × existing per-FD average — the tiny
+    # FDs would cap the uniform level. Abandon them: lay a fresh uniform set on nodes free of this pool
+    # (placeUniform over selectUniform), leave the old containers running, emit ClusterCapacityHeterogeneousGrowth
+    # ("delete them once data migrates"). Falls through to the cases below if no fresh set reaches target.
 
-    # Heterogeneous policy (scaling ON, driveContainers not pinned): if a fresh chunk would dwarf the
-    # tiny existing FDs — chunk = max(384GiB, ceil(delta/minFdNum)) >= imbalanceFactor(8.0) * existingAvg —
-    # DROP the existing FDs from the set (they become deletable) and water-fill the FRESH FDs only,
-    # emitting ClusterCapacityGrowth (Warning). Falls back to the full set if fresh-only is infeasible.
-
-    waterFill(pool, desiredRaw, minFdNum, fds)           # the single placement primitive (below)
-
-    if any capacity unplaced OR final layout spans < minFdNum distinct FDs:
-        plan.infeasible = "<binding reason>"             # fail fast — create/grow nothing
-
-
-waterFill(pool, desiredRaw, minFdNum, fds):              # fds = existing (grow) + fresh (create)
-    # 1. CHOOSE the FD count N — the "even rule" (same for greenfield and grow; §Rules):
-    #    smallest N >= max(minFdNum, #existing) for which filling every chosen FD to
-    #    min(target, ceiling) — never below its current cap — reaches desiredRaw, target = ceil(desiredRaw/N);
-    #    then OPEN one more fresh FD while a chosen FD would cap BELOW the even share AND the next fresh FD
-    #    can hold the lowered share. Stop when fresh FDs run out. (Explicit driveContainers pins N exactly.)
-    chosen = existing + the chosen fresh FDs             # existing FDs always participate
-
-    # 2. LEVEL to one common water level L: each chosen FD ends at clamp(L, cap, ceiling). Smallest-cap
-    #    FDs are raised first (levels pre-existing skew); no FD drops below its cap (never shrink); an FD
-    #    that hits its ceiling stops there. L is the largest level whose total <= current + delta (no overshoot).
-
-    # 3. FORCED OVERFLOW: any ceiling-bound / rounding remainder is handed round-robin to ANY chosen FD
-    #    still below its ceiling — existing AND fresh alike (SYMMETRIC). Frozen FDs (ceiling == cap) take
-    #    nothing, so with scaling OFF the whole remainder lands on fresh FDs.
-
-    # 4. PLACE each FD's increment across its hosts:
-    #      existing FD -> grow its container(s) (apply live or deferred per §Rules; TLC-only <-> mixed
-    #                     conversion happens here too).
-    #      fresh FD    -> create node-pinned container(s): base memory charged once; a brand-new container
-    #                     is floored at the 384 GiB MinChunk; a sub-MinChunk tail folds into a sibling
-    #                     rather than opening another FD.
+    # Otherwise place ONE uniform set — only the choice of T differs:
+    #   driveContainers pinned   → T = ceil(desiredRaw / driveContainers)         # over existing + new FDs
+    #   pool already has FDs      → planPoolUniformIncrease (pin T0 = smallest existing chunk; see below)
+    #   greenfield (no FD yet)    → selectUniform free-picks the smallest N >= minFdNum that tiles evenly
+    # placeUniform realizes T (grow existing below T, create the rest). On a shared node it CONVERTS an
+    # existing OTHER-pool container to mixed (e.g. adding QLC to a TLC-only node).
+    # No (N, T) tiles uniformly up to the target → ClusterCapacityInfeasible (create/grow nothing).
 ```
+
+**Uniform-increase policy** (pool already has ≥1 FD, count not pinned). To avoid resizing existing
+containers, the planner pins the uniform chunk to the **smallest existing per-FD capacity `T0`** (floored
+at MinChunk; over-sized anchors don't raise it) and prefers **creating whole new FDs at `T0`** over
+growing. New FDs are always sized at the uniform level — never sub-`T`.
+
+```
+planPoolUniformIncrease(pool, desiredRaw, existingDrives, cons):
+    T0 = max(MinChunk, smallest existing per-FD capacity)
+
+    # --- Step A: create-new-at-T0 (preferred, no spec edits) ---
+    kNeeded = ceil(delta / T0)
+    if kNeeded spare nodes each hold T0 AND kNeeded*T0 - delta <= maxOverProvisionFraction*desiredRaw:
+        create kNeeded new FDs at T0; emit ClusterCapacityOverProvisioned if kNeeded*T0 > delta; return
+
+    # --- Step B: raise the uniform level (ONLY when enableDynamicDriveScalingForSharedDrives is ON) ---
+    # smallest N >= max(minFdNum, numExisting) and level L >= T0 where: kFresh = N-numExisting spare nodes
+    # hold L, every existing FD can reach L, and existingReach(L) + kFresh*L covers desiredRaw within the
+    # over-provision cap. Grow every below-L existing FD to L and create kFresh new FDs at L.
+    # Gate: (L - T0)/T0 >= minGrowthFraction, else the grow is too small → infeasible.
+
+    # --- Step C: infeasible ---
+    # No spare node at T0 AND (scaling is OFF, or no (N, L) clears coverage + the minGrowthFraction gate)
+    # → ClusterCapacityInfeasible.
+```
+
+Existing FDs are never shrunk; over-sized anchors stay at their current level (only below-`L` FDs are
+raised in Step B). The grow step edits container specs — see [§Rules](#rules-that-apply-everywhere) for
+live-vs-deferred mechanics. With `enableDynamicDriveScalingForSharedDrives: false` (the default) Step B is
+unavailable, so a raise is met entirely by Step A (new FDs at `T0`) or is infeasible.
 
 ### Node feasibility (the fit gate)
 
@@ -334,22 +361,18 @@ planCompute(totalTlcDriveCores, inventory):           # t = totalTlcDriveCores
 
 ### Growth in the default config (dynamic scaling disabled)
 
-`enableDynamicDriveScalingForSharedDrives: false` is **the default**, and it is **not a separate
-algorithm** — it is the same water-fill with one input changed: each existing FD's **ceiling is
-pinned to its current capacity**. Because an FD can never be filled below its cap or above its
-ceiling, a frozen FD stays exactly where it is, so it absorbs nothing and the **entire** increase
-lands on fresh FDs. The heterogeneous policy is also skipped (it assumes the old containers are
-deletable, which would double-count the capacity we are keeping frozen).
+`enableDynamicDriveScalingForSharedDrives: false` is **the default**. With this setting, in-place
+growth of existing containers is not allowed, so the uniform-increase path (Step B) is unavailable.
+The planner covers a capacity increase exclusively via **Step A: creating new FDs at the uniform
+per-FD chunk `T`**. If no spare node has headroom `≥ T`, the plan is **infeasible** — `ClusterCapacityInfeasible`
+fires and nothing is created or grown. Add a node (or wait for a draining node to free), then the
+planner places a clean new FD.
 
-Frozen FDs still **count toward the per-FD even-target denominator**, so the planner sizes the fresh
-FDs to the common even share where it can. When the increase is small enough that fresh FDs can match
-the frozen ones, the layout stays even (no imbalance). When the frozen FDs are small relative to the
-growth, the fresh ones must absorb more than their share, so the layout is **intentionally uneven**
-and a
-`ClusterCapacityImbalance` advisory fires (usable is gated by the smallest FD). If the fresh FDs
-cannot hold the whole increase the plan is **infeasible** (nothing is created). To get an even,
-within-8× layout you must add enough fresh FDs that the per-FD share drops below
-`8 × smallest-frozen-FD`. Opt into `true` to instead grow the existing FDs in place.
+The [heterogeneous fallback](#the-algorithm) still applies in the default config (it only **creates**
+fresh FDs — it never grows existing containers): when a fresh per-FD chunk would dwarf the existing FDs
+it lays a fresh uniform set on spare nodes and flags the old FDs deletable. Opt into
+`enableDynamicDriveScalingForSharedDrives: true` to additionally allow Step B (the in-place uniform grow
+on the uniform-increase path).
 
 ## Worked examples
 
@@ -372,10 +395,9 @@ containers.
 |---|---|---|
 | n1…n6 | 100 TiB | **CREATE** TLC **30 TiB** each (180 / 6) |
 
-Uniform nodes ⇒ the even 30 TiB share clears every ceiling at `minFdNum` ⇒ exactly 6 FDs; no
-imbalance event.
+Uniform nodes ⇒ the even 30 TiB share clears every ceiling at `minFdNum` ⇒ exactly 6 FDs.
 
-**A′ — Heterogeneous, add an FD to stay even.**
+**A′ — Heterogeneous, add an FD to stay uniform.**
 
 *Input:* 2 nodes × 100 TiB + 5 nodes × 64 TiB. `clusterCapacity: 210TiB` ⇒ rawTLC 420. Greenfield.
 
@@ -386,9 +408,10 @@ imbalance event.
 | N = 6 | 70 TiB | ✗ (64 TiB nodes can't hold 70) | add an FD |
 | N = 7 | **60 TiB** | ✓ (≤ 64 and ≤ 100) | **CREATE** 7 × **60 TiB** |
 
-Stopping at 6 would cap the 64 TiB nodes and pile surplus onto the 100 TiB nodes (≈ 82 vs 64 — a
-per-FD imbalance + Warning). The 7th FD lets the common 60 TiB share clear every ceiling, so all 7
-FDs are equal and **no imbalance Warning** fires.
+`selectUniform` requires **every** chosen FD to hold the even share, so N = 6 (70 TiB share) is
+rejected — the 64 TiB nodes can't hold 70. Growing to N = 7 lowers the share to 60 TiB, which clears
+every ceiling, so all 7 FDs are equal. (Had no `N` produced a uniform fit, the pool would be
+**infeasible** — never a ceiling-capped uneven fill.)
 
 **B — TLC+QLC, fail-fast on too few QLC FDs.**
 
@@ -400,70 +423,58 @@ TLC) and only **5** QLC-capable nodes (100 TiB QLC). Greenfield.
 | Pool | Desired | FDs available | Plan |
 |---|---|---|---|
 | TLC | 60 (6 × 10 TiB) | 6 | would **CREATE** 6 × 10 TiB |
-| QLC | 120 (6 × 20 TiB) | **5** of 6 | **infeasible** ⇒ `ClusterCapacityInfeasible` ("QLC: 5 of 6 required FDs") |
+| QLC | 120 (6 × 20 TiB) | **5** of 6 | **infeasible** ⇒ `ClusterCapacityInfeasible` ("QLC: only 5 of 6 required failure domains have capacity") |
 
 Each pool needs 6 FDs = minFdNum; QLC is short one ⇒ fail-fast, **nothing created**.
 
 **B′ — Mixed as emergent overlap.**
 
 *Input:* `clusterCapacity: 120TiB`, ratio 1:3 ⇒ tlcRaw 60, qlcRaw 180; each pool wants 6 FDs.
-Hardware: **6 nodes carry both TLC+QLC**, **3 nodes are TLC-only**. A combo node's physical capacity
-is split between types, so it has *less TLC headroom* than a same-size TLC-only node. Greenfield.
+Hardware (9 nodes): **3 TLC-only** (100 TiB TLC), **3 QLC-only** (100 TiB QLC), and **3 "combo"
+nodes** whose physical drives include *both* types (100 TiB TLC + 100 TiB QLC), so each can host
+either drive type. Greenfield.
 
 *Expected output:*
 
-| Pool | Selection (6 FDs, best-headroom first) | Per-FD |
+| Pool | Candidate FDs (= minFdNum, so all are forced) | Per-FD |
 |---|---|---|
-| QLC | all 6 combo nodes (forced — only QLC-capable) | 180/6 = **30 TiB** |
-| TLC | 3 TLC-only + 3 combo (TLC-only ranked higher) | 60/6 = **10 TiB** |
+| TLC | 3 TLC-only + 3 combo (QLC-only nodes have no TLC) | 60/6 = **10 TiB** |
+| QLC | 3 QLC-only + 3 combo (TLC-only nodes have no QLC) | 180/6 = **30 TiB** |
 
-Overlap = the **3 combo nodes picked by both** ⇒ **3 mixed** (TLC 10 + QLC 30). The other 3 combo ⇒
-**3 pure-QLC** (30); the 3 TLC-only ⇒ **3 pure-TLC** (10). The split is incidental to headroom, not
-optimized.
+Each pool has exactly `minFdNum = 6` candidate FDs, so both passes are forced onto **all** of them —
+including the 3 combo nodes, which both select. Overlap = those **3 combo nodes** ⇒ **3 mixed**
+(TLC 10 + QLC 30). The 3 TLC-only ⇒ **3 pure-TLC** (10); the 3 QLC-only ⇒ **3 pure-QLC** (30). The
+mixed count is the *overlap* of the two independent selections — incidental to topology, never
+targeted.
 
 ### Grow WITHOUT adding failure domains (in place)
 
-> The examples C, C′, D, and H below **assume `enableDynamicDriveScalingForSharedDrives: true`** (the
-> opt-in). In the default config (`false`) existing containers are frozen and the same raises land on
-> **new** FDs instead — see [Grow with dynamic scaling disabled (default)](#grow-with-dynamic-scaling-disabled-default).
+> The examples C, D, and H below **assume `enableDynamicDriveScalingForSharedDrives: true`** (the
+> opt-in). In the default config (`false`) existing containers are frozen and a raise is covered by
+> new FDs instead — see [Grow with dynamic scaling disabled (default)](#grow-with-dynamic-scaling-disabled-default).
 
-**C — Grow in place (from A).**
+**C — Grow in place, no spare nodes (from A).**
 
-*Input:* state from A (6 FDs × 30 TiB, 6 cores each), each node has 70 TiB free. Raise
-`clusterCapacity` 90 → 120 TiB ⇒ rawTLC 180 → 240, delta 60 over 6 = +10/FD.
+*Input:* state from A (6 FDs × 30 TiB, 6 cores each), **no spare nodes** (all 6 nodes already host
+a container). Raise `clusterCapacity` 90 → 120 TiB ⇒ rawTLC 180 → 240, delta 60.
+
+Step A (create-new) cannot proceed — no spare node has 30 TiB free. Step B (uniform grow): target
+level `L = ceil(240 / 6) = 40 TiB`; grow fraction `(40 − 30) / 30 = 33%` ≥ 20% threshold ✓; each
+node has 70 TiB headroom.
 
 *Expected output:*
 
 | Node | Existing | Free | Plan |
 |---|---|---|---|
-| n1…n6 | 30 TiB (6 cores) | 70 TiB | **GROW in place** → **40 TiB**; cores `⌈30/5⌉=6 → ⌈40/5⌉=8` ⇒ deferred |
+| n1…n6 | 30 TiB (6 cores) | 70 TiB | **GROW in place** → **40 TiB** uniformly; cores `⌈30/5⌉=6 → ⌈40/5⌉=8` ⇒ deferred |
 
 A grow staying within the existing 6 cores (TLC ≤ 30 TiB) would apply **live** — see
 [§Rules](#rules-that-apply-everywhere).
 
-**C′ — Existing FDs absorb a full sibling's overflow (scaling-on symmetric overflow).**
-
-*Input:* 6 FDs × 10 TiB (rawTLC 60). n1…n5 have ample headroom (ceiling 100 TiB); n6 is nearly full
-(ceiling **12 TiB**). **No fresh nodes available.** Raise rawTLC 60 → **120** (delta 60) — naive even
-target 120/6 = 20, but n6 can only reach 12.
-
-*Expected output:*
-
-| Node | Existing | Ceiling | Plan |
-|---|---|---|---|
-| n1…n5 | 10 TiB | 100 TiB | **GROW** to ~**22 TiB** each (above the 20 TiB naive target) |
-| n6 | 10 TiB | 12 TiB | **GROW** to **12 TiB** (capped at its ceiling) |
-
-The 8 TiB n6 can't take is redistributed across the five FDs with headroom (forced overflow,
-symmetric — there are no fresh FDs to take it), lifting them to ~22. The even rule would normally open
-another FD, but with no fresh nodes it can't, so a `ClusterCapacityImbalance` advisory fires (12 vs
-22). (Before the unified water-fill, existing FDs were hard-capped at the 20 TiB target ⇒ 5 × 20 + 12
-= 112 < 120, leaving 8 TiB unplaceable → the plan failed infeasible even though the capacity fit.)
-
 **D — Grow with TLC→mixed conversion.**
 
 *Input:* 6 nodes carry both types, each running a **TLC-only** 10 TiB container, 100 TiB QLC free.
-QLC target rises: need +60 TiB QLC over 6 FDs = +10/FD.
+QLC target rises: need +60 TiB QLC over 6 FDs = +10/FD. (`enableDynamicDriveScalingForSharedDrives: true`)
 
 *Expected output:*
 
@@ -487,26 +498,71 @@ Result: 6 mixed TLC 20 + QLC 20 — one pool grows while the other is a no-op.
 
 ### Grow WITH adding failure domains
 
-> Examples J and E **assume `enableDynamicDriveScalingForSharedDrives: true`**: existing FDs grow
-> *and* new ones are added in one water-fill. In the default config (`false`) only the new FDs are
-> created — see [Grow with dynamic scaling disabled (default)](#grow-with-dynamic-scaling-disabled-default).
+> Examples J, J′, and E below involve adding new failure domains to an existing pool.
 
-**J — Grow that adds FDs, leveled even.**
+**J — Spare node available; new FD created, existing specs untouched.**
 
-*Input:* from A (6 FDs × 30 TiB) but each existing node now has only **+10 TiB** headroom (ceiling
-40 TiB). 6 fresh nodes (100 TiB) available. Raise 90 → **180 TiB** ⇒ rawTLC **360**, delta 180. The 6
-existing FDs alone (max 240) cannot hold 360, so the grow **must add FDs**.
+*Input:* 6 FDs × 10 TiB (rawTLC 60). 1 spare node (100 TiB free). Raise rawTLC 60 → 70, delta 10.
 
-*Expected output:* water-fill picks the smallest `N ≥ 6` whose target `360/N` fits every ceiling.
-`N = 9` ⇒ **target 40 TiB** (≤ 40 existing ceiling, ≤ 100 fresh ceilings):
+Step A: `kNeeded = ceil(10 / 10) = 1`, spare node has 100 TiB ≥ T = 10 TiB, overshoot = 0.
 
-| Node | Existing TLC | Headroom | Plan |
-|---|---|---|---|
-| n1…n6 | 30 TiB | +10 TiB | **GROW in place** → **40 TiB** (cores 6→8 ⇒ deferred) |
-| fresh1…fresh3 | — | 100 TiB | **CREATE** TLC **40 TiB** each (one per fresh FD) |
+*Expected output:*
 
-Result: **9 FDs all at 40 TiB** (6 grown + 3 new) = 360 ✓ — even, no per-FD imbalance Warning.
-Existing FDs are grown only to the common 40 TiB target, **not** to their ceilings.
+| Node | Existing | Plan |
+|---|---|---|
+| n1…n6 | 10 TiB | **unchanged** — no spec edits |
+| spare | — | **CREATE** TLC **10 TiB** (1 new FD at T) |
+
+Result: **7 FDs all at 10 TiB** = 70 ✓. No existing container is resized.
+
+**J′ — Increase not a clean multiple (over-provision by one chunk).**
+
+*Input:* 6 FDs × 10 TiB (rawTLC 60). 1 spare node (100 TiB free). Raise rawTLC 60 → 66, delta 6.
+
+Step A: `kNeeded = ceil(6 / 10) = 1`, spare node available, overshoot = 1 × 10 − 6 = 4 TiB.
+Over-provision cap = 0.20 × 66 ≈ 13.2 TiB; 4 TiB is within cap.
+
+*Expected output:*
+
+| Node | Existing | Plan |
+|---|---|---|
+| n1…n6 | 10 TiB | **unchanged** |
+| spare | — | **CREATE** TLC **10 TiB** |
+
+Total: 70 TiB raw (over-provisioned by 4 TiB). `ClusterCapacityOverProvisioned` fires:
+
+> *"TLC: covering +6144 GiB by 1 new failure domain(s) of 10240 GiB (over-provisioned by 4096 GiB,
+> within maxOverProvisionFraction=0.20) to avoid resizing existing containers"*
+
+**J″ — Both create AND grow (large increase, partial spare coverage).**
+
+> **Requires `enableDynamicDriveScalingForSharedDrives: true`** for the grow leg.
+
+*Input:* 6 FDs × 10 TiB (rawTLC 60). **2 spare nodes** (100 TiB free each). Raise rawTLC 60 → 120,
+delta 60.
+
+Step A: `kNeeded = ceil(60 / 10) = 6` new FDs needed at T = 10 TiB, but only **2 spare nodes** are
+available — not enough. Step A cannot fully cover delta.
+
+Step B: search the smallest `N ≥ 6` and level `L ≥ T` where 2 spare nodes + 6 existing FDs grown to
+`L` cover 120 GiB (all sized uniformly at `L`). At `N = 8`, `L = ceil(120/8) = 15 TiB`;
+grow fraction `(15 − 10) / 10 = 50%` ≥ 20% threshold ✓; each existing node has ≥ 5 TiB headroom.
+
+*Expected output:*
+
+| Node | Existing | Plan |
+|---|---|---|
+| n1…n6 | 10 TiB | **GROW in place** → **15 TiB** uniformly (cores recalculated ⇒ deferred) |
+| spare1…spare2 | — | **CREATE** TLC **15 TiB** each (at the raised uniform level) |
+
+Result: **8 FDs all at 15 TiB** = 120 ✓.
+
+Why both happen: the planner first tries to cover the full delta by adding new FDs at T = 10 TiB
+(Step A — no spec edits). With only 2 spare nodes it can place 20 TiB, leaving a 40 TiB shortfall
+that no spare node can host. Step B then raises the uniform level to 15 TiB and grows every existing
+FD to that level while also creating the 2 new FDs at the same level — keeping all FDs uniform. The
+existing FDs are grown only because create-new alone could not cover the delta, and only to the
+minimum level required.
 
 **E — Heterogeneous / balanced-fresh fallback (`imbalanceFactor` = 8.0 default).**
 
@@ -519,61 +575,46 @@ Existing FDs are grown only to the common 40 TiB target, **not** to their ceilin
 
 | Node | Existing | Plan |
 |---|---|---|
-| small1…small6 (15 TiB) | TLC 10 TiB | left running; **`ClusterCapacityGrowth` (Warning): delete these** |
+| small1…small6 (15 TiB) | TLC 10 TiB | left running; **`ClusterCapacityHeterogeneousGrowth` (Warning): delete these** |
 | big1…big6 (120 TiB) | — | **CREATE** TLC 600/6 = **100 TiB** each (balanced fresh; existing ignored) |
+
+The fresh chunk would be ~90 TiB but the small nodes can grow to at most 15 TiB, so a uniform grow that
+*kept* them is infeasible — the heterogeneous fallback abandons them and tiles the 6 big nodes uniformly
+at 100 TiB instead. Note the fallback only **creates** (it never grows the small FDs), so it applies
+even in the default config (`enableDynamicDriveScalingForSharedDrives: false`).
 
 ### Grow with dynamic scaling disabled (default)
 
-These are the **default** config (`enableDynamicDriveScalingForSharedDrives: false`): existing FDs
-are **frozen** (ceiling pinned to current cap) and the whole delta lands on **fresh** FDs. The
-mechanics are in [Growth in the default config](#growth-in-the-default-config-dynamic-scaling-disabled).
-**C-off** is the same raise as flag-on example C, to show the contrast; **X-off** and **Y-off** use a
-larger raise to show the imbalance and infeasible paths.
+These are the **default** config (`enableDynamicDriveScalingForSharedDrives: false`): in-place growth
+is not allowed, so a capacity increase is covered by **new FDs at the uniform chunk T** (Step A only).
+If no spare node has headroom ≥ T, the plan is infeasible.
 
-**C-off — Even fit, growth on fresh FDs (contrast with C).**
+**C-off — Spare node available, growth on a new FD.**
 
-*Input:* state from A (6 FDs × 30 TiB, frozen). Raise `clusterCapacity` 90 → 120 TiB ⇒ rawTLC 180 →
-240, delta 60. **2 fresh nodes** (100 TiB) available.
+*Input:* state from A (6 FDs × 30 TiB). T = 30 TiB. Raise `clusterCapacity` 90 → 120 TiB ⇒
+rawTLC 180 → 240, delta 60. **2 spare nodes** (100 TiB) available.
 
-*Expected output:* the 6 existing FDs stay at 30 TiB; the even target (240 / 8 = 30) lets the delta
-land as **2 fresh FDs × 30 TiB**.
+Step A: `kNeeded = ceil(60/30) = 2`, both spare nodes have ≥ 30 TiB, overshoot = 0.
 
-| Node | Existing | Plan |
-|---|---|---|
-| n1…n6 | 30 TiB | **frozen** — unchanged |
-| fresh1…fresh2 | — | **CREATE** TLC **30 TiB** each |
-
-Result: **8 FDs all at 30 TiB** = 240 ✓ — even, **no imbalance**. (Example C, flag on, instead grows
-the 6 existing FDs to 40 each.)
-
-**X-off — Frozen-small forces imbalance.**
-
-*Input:* state from A (6 FDs × 30 TiB, frozen). Raise 90 → **300 TiB** ⇒ rawTLC 600, delta 420. **6
-fresh nodes** (100 TiB) available.
-
-*Expected output:* the frozen 30 TiB FDs can't match the fresh share, so the 6 fresh FDs absorb the
-full 420:
+*Expected output:*
 
 | Node | Existing | Plan |
 |---|---|---|
-| n1…n6 | 30 TiB | **frozen** — unchanged |
-| fresh1…fresh6 | — | **CREATE** TLC 420/6 = **70 TiB** each |
+| n1…n6 | 30 TiB | **unchanged** |
+| spare1…spare2 | — | **CREATE** TLC **30 TiB** each |
 
-Result: **12 FDs** = 6 × 30 + 6 × 70 = 600 ✓, but **30 vs 70** ⇒ `ClusterCapacityImbalance` advisory
-(usable gated by the 30 TiB FDs). To even it out, add fresh FDs until the per-FD share drops below
-`8 × 30`.
+Result: **8 FDs all at 30 TiB** = 240 ✓ — uniform.
 
-**Y-off — Infeasible: fresh FDs can't hold the delta.**
+**Y-off — Infeasible: no spare node at T.**
 
-*Input:* same 90 → 300 TiB raise (delta 420), but only **3 fresh nodes** (100 TiB) ⇒ 300 TiB of fresh
-headroom < 420.
+*Input:* state from A (6 FDs × 30 TiB). T = 30 TiB. Raise 90 → 300 TiB ⇒ rawTLC 600, delta 420.
+**No spare nodes** (dynamic scaling `false`, so growing existing is not an option).
 
-*Expected output:* **`ClusterCapacityInfeasible`**, nothing created — the unplaceable remainder is the
-delta minus the fresh headroom (here 420 − 300 = 120 TiB; the event reports it in GiB):
+*Expected output:* **`ClusterCapacityInfeasible`**, nothing created:
 
-> *"TLC: dynamic drive scaling for shared drives is disabled; cannot place &lt;remaining&gt; GiB of
-> growth on new failure domains and existing containers are not extended — add nodes/capacity or
-> enable enableDynamicDriveScalingForSharedDrives"*
+> *"TLC: cannot satisfy clusterCapacity (+430080 GiB) — dynamic drive scaling for shared drives is
+> disabled, so existing containers cannot grow, and no spare node has 30720 GiB free to add a failure
+> domain. Add nodes or enable enableDynamicDriveScalingForSharedDrives"*
 
 With the flag **on**, the same raise would grow the 6 existing FDs in place to cover the shortfall.
 
@@ -587,17 +628,19 @@ goes away — see [§Rules](#rules-that-apply-everywhere).
 *Input:* from A (6 FDs × 30 TiB, target 90 TiB, rawTLC 180). Delete the **CR** on n1.
 
 *Expected output:* next reconcile sees `current = 5 × 30 = 150`, `delta = 180 − 150 = 30 > 0`. The
-planner never shrinks survivors and re-enforces `minFdNum = 6`:
+planner's Step A looks for a spare node with ≥ T = 30 TiB free:
 
 | Node | Existing | Plan |
 |---|---|---|
-| n2…n6 | 30 TiB | **unchanged** (already ≥ the recomputed per-FD target; never shrunk) |
-| fresh (or reused n1) | — | **CREATE** TLC **30 TiB** to restore the 6th FD |
+| n2…n6 | 30 TiB | **unchanged** — no spec edits |
+| n1 (freed) or other spare | — | **CREATE** TLC **30 TiB** to restore the 6th FD |
 
-If there is **no** fresh FD with headroom to restore the spread, the plan is
-**`ClusterCapacityInfeasible`** ("only 5 of 6 required FDs have capacity") — nothing changes until you
-add a node. (Survivors grow instead of a new FD being created only when they sit **below** the
-recomputed target and have node headroom — e.g. a delete that also raised the target.)
+If n1 is still **draining** (its CR is deleted but the node hasn't freed its capacity yet), it is not
+counted as a spare — so no spare node is available at T. The plan is
+**`ClusterCapacityInfeasible`** ("cannot satisfy clusterCapacity — no spare node has 30720 GiB free"),
+and the operator retries. Once the drain completes, n1 becomes a spare and Step A places the
+replacement FD cleanly. **Delete one container at a time and let each settle** before the next delete
+— that ensures a spare node is always available for the replacement.
 
 **R2 — A newly-created container still landing (deferred planning).**
 
@@ -608,6 +651,28 @@ one the planner just created during a grow whose pod hasn't landed, or one whose
 until it lands (self-healing guard during create/grow churn). This is **not** a response to routine
 pod deletion, which leaves the CR's node affinity and the plan untouched
 ([§Rules](#rules-that-apply-everywhere)).
+
+**R3 — Tiny increase, no spare nodes (below grow threshold).**
+
+> **Requires `enableDynamicDriveScalingForSharedDrives: true`** — with `false`, the same scenario
+> emits the "dynamic scaling disabled, no spare" message instead.
+
+*Input:* 6 FDs × 30 TiB (rawTLC 180). **No spare nodes**. Raise rawTLC 180 → 186, delta 6 TiB.
+
+Step A: no spare nodes at T = 30 TiB. Step B: the uniform level needed is
+`L = ceil(186/6) = 31 TiB`; grow fraction `(31 − 30) / 30 ≈ 3%` — **below the 20% MinGrowthFraction
+threshold**. The grow is skipped, and no spare node can host a new FD.
+
+*Expected output:* **`ClusterCapacityInfeasible`**:
+
+> *"TLC: cannot satisfy clusterCapacity — need +6144 GiB. Adding a failure domain requires a spare
+> node with >=30720 GiB free (the uniform per-FD size); none is available. Growing existing
+> containers in place would raise each by only 3% (below minGrowthFraction=0.20), so it is skipped.
+> Resolve by: adding a node, or raising clusterCapacity by at least one 30720 GiB failure-domain
+> chunk, or lowering minGrowthFraction"*
+
+To resolve: add a node (so Step A can place a full T = 30 TiB FD), raise `clusterCapacity` by at
+least one 30 TiB chunk (so the grow fraction clears 20%), or lower `minGrowthFraction`.
 
 ### Label-based failure domains
 
@@ -634,30 +699,32 @@ FD**.
 
 | FD (rack) | Hosts | Current | Plan |
 |---|---|---|---|
-| rack1 | 2 | 20 TiB | **GROW** to **30 TiB/FD** (e.g. n1a 10→20, n1b unchanged) |
+| rack1 | 2 | 20 TiB | **GROW** to **30 TiB/FD**, split evenly across its hosts (n1a 10→15, n1b 10→15) |
 | rack2…rack6 | 1 each | 10 TiB | **GROW** each 10 → **30 TiB** |
 
 The divisor is the **distinct FD count (6)**, not the container count (7); rack1 reaches the same
-30 TiB total as a single-host FD. Each grown host crosses its core ceiling ⇒ deferred. (This GROW
+30 TiB total as a single-host FD, with its `T = 30` split **evenly** across its 2 hosts (15 each —
+`placeUniform` never front-loads one host). Each grown host crosses its core ceiling ⇒ deferred. (This GROW
 assumes `enableDynamicDriveScalingForSharedDrives: true`; in the default config the existing hosts
 are frozen and the increase would instead create capacity on fresh FDs.)
 
 ### Contention with other clusters
 
-**G — Capacity partly taken by other clusters.**
+**G — Capacity partly taken by other clusters (can't tile uniformly ⇒ infeasible).**
 
 *Input:* 6 nodes × 100 TiB; cluster-B already uses 75 TiB on n4…n6 ⇒ 25 TiB free there.
 `clusterCapacity: 90TiB` ⇒ rawTLC 180. Greenfield (for us).
 
-*Expected output:*
+*Expected output:* `minFdNum = 6` and there are exactly 6 candidate FDs, so N = 6 is forced and the
+even share is `⌈180/6⌉ = 30 TiB` — but n4…n6 have only 25 TiB free, below that share. No `N` tiles
+uniformly (there is no 7th node to lower the share), so the plan is **`ClusterCapacityInfeasible`**:
 
-| Node | Phys TLC | Avail to us | Plan |
-|---|---|---|---|
-| n1…n3 | 100 TiB | 100 TiB | **CREATE** TLC **35 TiB** (absorb more) |
-| n4…n6 | 100 TiB | 25 TiB (−75 other) | **CREATE** TLC **25 TiB** (capped by headroom) |
+> *"TLC: cannot place 184320 GiB uniformly across 6 failure domains — the smallest usable FD holds
+> 25600 GiB, below the 30720 GiB per-FD share; add capacity or lower clusterCapacity"*
 
-35×3 + 25×3 = 180 ✓. Balances toward equal per-FD where headroom allows; `ClusterCapacityImbalance`
-on residual skew.
+The fix is to free contended capacity (or lower the target to ≤ 75 TiB ⇒ rawTLC 150 ⇒ 25 TiB/FD, which
+all 6 nodes hold). The planner never does an uneven 35/25 fill — usable would be gated by the 25 TiB
+FDs anyway, so the extra raw on n1…n3 would be wasted.
 
 ### Explicit sizing and separate compute pool
 
@@ -748,9 +815,9 @@ drive containers (the planner then only grows).
 ## Explicit drive/compute sizing
 
 By default the planner derives drive sizing from capacity and compute sizing from the TLC drive
-cores. You may instead pin any of these in `dynamicTemplate`: `driveContainers`, `driveCores`,
-`computeContainers`, `computeCores`, and the per-role `*Hugepages`/`*HugepagesOffset` fields. **All
-are honored exactly**, and any value that violates a constraint makes the plan **fail fast**
+cores. You may instead pin any of the four **planner sizing fields** in `dynamicTemplate`:
+`driveContainers`, `driveCores`, `computeContainers`, `computeCores`. **These four are honored
+exactly**, and any value that violates a constraint makes the plan **fail fast**
 (`ClusterCapacityInfeasible`, nothing created/grown) rather than being clamped:
 
 - **`driveContainers`** — exact total drive-container count (in AUTO mode, container == FD). For
@@ -762,8 +829,14 @@ are honored exactly**, and any value that violates a constraint makes the plan *
   node has room.
 - **`computeContainers` / `computeCores`** — per the [compute truth table](#compute-sizing); an
   explicit value exceeding per-node headroom, the compute-node count, or breaking 1:1 fails fast.
-- **`*Hugepages` / `*HugepagesOffset`** — used as-is; a fixed value applies to every container of
-  that role regardless of cores, so prefer leaving it auto.
+
+**Hugepages are not planner pins.** The per-role hugepages fields — `driveHugepages` /
+`driveHugepagesOffset`, `computeHugepages` / `computeHugepagesOffset` — are applied later by the
+container allocator, not consulted by the capacity planner. The planner sizes hugepages from cores;
+if you set these they apply **as-is** to every container of that role regardless of cores, and they
+never cause `ClusterCapacityInfeasible`. Prefer leaving them auto. The same goes for the per-role
+`*ExtraCores` fields (`driveExtraCores`, `computeExtraCores`, …): container-level overrides outside
+clusterCapacity planning.
 
 ## Constraints
 
@@ -775,6 +848,7 @@ are honored exactly**, and any value that violates a constraint makes the plan *
 | fewer than `minFdNum` reachable failure domains for a needed pool (TLC or QLC) |
 | per-FD share would fall below 384 GiB (MinChunk) |
 | total node headroom across candidate FDs `< delta` (capacity/cores/hugepages/memory) |
+| no spare node has ≥ `T` (uniform per-FD chunk) free AND in-place growth is disabled (or the required grow is below `minGrowthFraction`, or the overshoot would exceed `maxOverProvisionFraction`) |
 | compute:drive 1:1 cannot fit one-per-node on the compute nodes' headroom (or `computeContainers` exceeds the compute-node count) |
 | explicit `computeCores` exceeds per-node compute headroom, or `computeContainers × computeCores < totalTlcDriveCores` |
 | explicit `driveContainers < minFdNum`, `> available FDs`, or per-container share `< 384 GiB`; for mixed pools, the raw-ratio split drops a pool below `minFdNum` |
@@ -797,14 +871,18 @@ Every planning decision is surfaced as a Kubernetes event on the WekaCluster (th
 minute per reason). The conditions are defined in [§Rules](#rules-that-apply-everywhere) and the
 [constraints](#constraints) above; this table is just the reason→type→trigger index.
 
+An **infeasible** plan is the sole signal: when the plan is infeasible only
+`ClusterCapacityInfeasible` is emitted, and the shrink / heterogeneous-growth / over-provision
+advisories are suppressed for that reconcile (they describe placement that does not happen).
+
 | Reason | Type | When it fires |
 |--------|------|---------------|
-| `ClusterCapacityPlanned` | Normal | A feasible plan that actually places capacity (≥1 create or grow) — a positive signal, e.g. after recovering from infeasible by adding a node. Steady-state reconciles stay silent. |
+| `ClusterCapacityPlanned` | Normal | A feasible plan that actually places capacity (≥1 create or grow) — a positive signal, e.g. after recovering from infeasible by adding a node. Steady-state reconciles stay silent. Example: *"clusterCapacity plan applied: creating 3 drive container(s) [2 mixed, 1 TLC] across 3 node(s) / 3 failure domain(s) @ ~10.7TiB/FD, placing T/Q 24.0/8.0 TiB; growing 1 existing container(s) (+T 2.0TiB, cores 6→8); compute 3 container(s), 24 cores on 3 node(s); minFdNum 11; target raw T/Q 24.0/12.0 TiB (placed 34.0TiB), protection 8+2+1"*. |
 | `ClusterCapacityDeferred` | Normal | A drive container is alive but never scheduled — planning deferred and retried (see [§Rules](#rules-that-apply-everywhere)). Routine pod deletion does **not** cause this. |
-| `ClusterCapacityShrink` | Normal | A pool's desired capacity is below current. **Never auto-applied** — delete WekaContainers manually to shrink. |
-| `ClusterCapacityGrowth` | Warning | A non-fatal growth placement warning — currently the heterogeneous-fallback notice (fresh balanced set created; old small containers can be deleted). |
-| `ClusterCapacityImbalance` | Warning | Realized per-FD capacity differs by more than 10% — "usable capacity is gated by the smallest FD". Fires only when real per-node headroom genuinely forces uneven placement. |
-| `ClusterCapacityInfeasible` | Warning | The plan is infeasible (a Hard error above). The operator waits (1-minute requeue) and creates/grows nothing. |
+| `ClusterCapacityShrink` | Normal | A pool's current capacity exceeds desired by **more than `maxOverProvisionFraction` × desired**. **Never auto-applied** — delete WekaContainers manually to shrink. (An in-cap over-provision from create-new rounding stays silent — see `ClusterCapacityOverProvisioned`.) |
+| `ClusterCapacityHeterogeneousGrowth` | Warning | The heterogeneous-fallback notice: a fresh balanced (uniform) set was created on spare nodes because a fresh per-FD chunk would dwarf the existing FDs; the old smaller drive containers can be deleted manually once data has migrated. |
+| `ClusterCapacityOverProvisioned` | Normal | A pool was over-provisioned by up to one uniform chunk (`T`) to avoid resizing existing containers. The total placed exceeds the desired raw by at most `maxOverProvisionFraction` × desired. The message names the pool and reports the overshoot: `"<pool>: covering +N GiB by K new failure domain(s) of T GiB (over-provisioned by M GiB, within maxOverProvisionFraction=0.20) to avoid resizing existing containers"`. |
+| `ClusterCapacityInfeasible` | Warning | The plan is infeasible — no spare node has ≥ T free for a new FD, and either in-place growth is disabled, or the required grow is below `minGrowthFraction`, or the overshoot would exceed `maxOverProvisionFraction`. The operator waits (1-minute requeue) and creates/grows nothing. The message states the binding reason (e.g. "no spare node has N GiB free … Growing … would raise each by only X% (below minGrowthFraction=0.20)"). When a pool has **fewer than `minFdNum` candidate failure domains**, the message also appends a **breakdown** naming why each rejected node doesn't qualify — `no <pool> drive capacity`, `already hosts a <pool> container`, or `<drive capacity / cores / hugepages / memory> limits usable <pool> to N GiB (below the 384 GiB minimum chunk)` — with **nodes sharing a reason grouped into one clause** (e.g. `n4, n5, n6: no QLC drive capacity`; capped with `(+N more)` tails). |
 | `CapacityGrowthApplied` | Warning **or** Normal | Growth committed to an **existing** container. **Warning** when a core/hugepage change needs a manual pod termination; **Normal** when applied live (drive *capacity*-only increase). Emitted only while `enableDynamicDriveScalingForSharedDrives` is `true` — **never in the default config** (`false`), where no container is grown in place. |
 
 (Explicit compute/drive sizing that can't be satisfied is **not** a warning — it is a Hard error
@@ -817,7 +895,9 @@ that fails fast via `ClusterCapacityInfeasible`.)
 | `maxComputeCoresPerNode` | `16` | `CLUSTER_CAPACITY_MAX_COMPUTE_CORES_PER_NODE` | Policy cap on compute cores per node (0 disables the *policy* cap; real per-node headroom still binds) |
 | `tlcCapacityPerCoreGiB` | `5120` (5 TiB) | `CLUSTER_CAPACITY_TLC_CAPACITY_PER_CORE_GIB` | TLC raw capacity per drive core |
 | `qlcCapacityPerCoreGiB` | `51200` (50 TiB) | `CLUSTER_CAPACITY_QLC_CAPACITY_PER_CORE_GIB` | QLC raw capacity per drive core |
-| `imbalanceFactor` | `8.0` | `CLUSTER_CAPACITY_IMBALANCE_FACTOR` | New per-FD chunk ≥ factor × existing avg triggers the balanced-fresh fallback (0 = default 8.0) |
+| `imbalanceFactor` | `8.0` | `CLUSTER_CAPACITY_IMBALANCE_FACTOR` | A fresh per-FD chunk `≥ factor × existing per-FD average` triggers the heterogeneous (balanced-fresh) fallback. `0` (or below) disables the fallback. |
+| `driveSharing.minGrowthFraction` | `0.2` | `MIN_GROWTH_FRACTION` | Minimum relative per-container grow required to trigger an in-place grow: `(newCap − cur) / cur >= minGrowthFraction`. A grow below this fraction is skipped; if that is the only option and no spare node is available → `ClusterCapacityInfeasible`. |
+| `driveSharing.maxOverProvisionFraction` | `0.2` | `MAX_OVER_PROVISION_FRACTION` | Maximum fraction by which a pool may be over-provisioned (above its raw desired) when creating new FDs rounds up to a full chunk. If the overshoot from a ceil-rounded new-FD count exceeds `maxOverProvisionFraction × desiredRaw`, the create-new step is skipped and the planner falls back to grow or infeasible. |
 
 `enableDynamicDriveScalingForSharedDrives` (default `false`) governs whether existing containers may
 be extended in place. **In the default config (`false`) existing drive containers are frozen and all
@@ -846,10 +926,24 @@ level — grep the `planClusterCapacity` span to see why capacity did or didn't 
 An existing `containerCapacity` cluster can migrate to `clusterCapacity` **in place — no containers
 are recreated**.
 
+**Prerequisite — the cluster must already have protection.** `stripeWidth`, `redundancyLevel`, and
+`hotSpare` must already be set on the WekaCluster (`spec`-level, matching the protection the cluster
+was formed with) **before** you migrate. `clusterCapacity` derives `minFdNum` and the failure-domain
+spread from them, and the `clusterCapacityProtection` webhook **rejects** the switch unless
+`stripeWidth >= 3`, `redundancyLevel >= 2`, `hotSpare >= 1`. These are cluster-formation parameters —
+migration **adopts** the protection the cluster already runs with; it does not introduce or change it.
+
 **Steps** (edit the same WekaCluster, keeping its name/namespace):
 1. Remove `containerCapacity` (the two fields are mutually exclusive).
-2. Add `clusterCapacity` plus `stripeWidth`, `redundancyLevel`, `hotSpare`, and keep or adjust
-   `driveTypesRatio`.
+2. Add `clusterCapacity` and keep or adjust `driveTypesRatio`. Leave `stripeWidth`,
+   `redundancyLevel`, `hotSpare` as already configured — do not change them during migration.
+
+On migration you can **remove** the explicit sizing fields — `driveContainers`, `driveCores`,
+`computeContainers`, and `computeCores` — unless you want to keep overriding the auto-calculated
+values. With them removed, the operator derives container count, cores, hugepages, and memory
+automatically from `clusterCapacity` (drive sizing from the target, compute sizing from the TLC
+drive cores). Leave any of them set only to pin that dimension; see
+[Explicit drive/compute sizing](#explicit-drivecompute-sizing).
 
 On the first reconcile the operator computes `current` as the sum of the existing drive containers'
 capacity and compares it to the new target. If `current` already covers the target, the plan is
@@ -857,18 +951,21 @@ capacity and compares it to the new target. If `current` already covers the targ
 the target is higher, the normal grow algorithm applies (grow in place, then create new).
 
 ```yaml
-# Before — 6 mixed (TLC+QLC) drive containers
+# Before — 6 mixed (TLC+QLC) drive containers; protection already set at spec level
+# spec.stripeWidth: 3, spec.redundancyLevel: 2, spec.hotSpare: 1 (already set on the cluster)
 dynamicTemplate:
   driveContainers: 6
   driveCores: 4
+  computeContainers: 6
+  computeCores: 3
   containerCapacity: 8000      # per container: TLC 1600 GiB, QLC 6400 GiB at 1:4
   driveTypesRatio: {tlc: 1, qlc: 4}
 
 # After — in-place edit (same name); TLC grows in place, QLC grows where nodes have headroom
+# spec.stripeWidth: 3, spec.redundancyLevel: 2, spec.hotSpare: 1 (unchanged — already set) → minFdNum = 6
 dynamicTemplate:
   clusterCapacity: "90TiB"     # raised target
   driveTypesRatio: {tlc: 1, qlc: 20}
-# stripeWidth: 3, redundancyLevel: 2, hotSpare: 1 (unchanged) → minFdNum = 6
 ```
 
 Verify with the `WekaContainer` Capacity column:

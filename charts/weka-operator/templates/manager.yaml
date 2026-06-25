@@ -420,6 +420,10 @@ spec:
               value: "{{ .Values.driveSharing.enforceMinDrivesPerTypePerCore }}"
             - name: ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES
               value: "{{ .Values.driveSharing.enableDynamicDriveScalingForSharedDrives }}"
+            - name: MIN_GROWTH_FRACTION
+              value: "{{ .Values.driveSharing.minGrowthFraction }}"
+            - name: MAX_OVER_PROVISION_FRACTION
+              value: "{{ .Values.driveSharing.maxOverProvisionFraction }}"
             - name: SMALL_BIG_DISK_SIZES_MAX_PROPORTION_FACTOR
               value: "{{ .Values.driveSharing.smallBigDiskSizesMaxProportionFactor }}"
             - name: ALLOW_SINGLE_PARITY

@@ -3,6 +3,7 @@ package allocator
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 
@@ -70,7 +71,10 @@ type CapacityConstraints struct {
 	TlcCapacityPerCoreGiB int
 	QlcCapacityPerCoreGiB int
 	MinChunkSizeGiB       int
-	// ImbalanceFactor gates the heterogeneous "balanced fresh" fallback: 8.0 == 8.0x (default).
+	// ImbalanceFactor gates the heterogeneous "balanced fresh" growth fallback (detectImbalance): when a
+	// fresh per-FD chunk would be >= ImbalanceFactor × the existing per-FD average, the dwarfed existing FDs
+	// are abandoned and a fresh uniform set is laid out instead (the old containers are flagged deletable).
+	// 8.0 == 8.0x (default); <= 0 disables the fallback (planner then tiles uniformly or reports infeasible).
 	ImbalanceFactor float64
 	// Drive-pod resource coefficients (MiB) for the per-node resource headroom gate.
 	HugepagesPerCoreMiB int
@@ -98,6 +102,12 @@ type CapacityConstraints struct {
 	// container-level NeedsDrivesToAllocate() gate, which already refuses live virtual-drive allocation
 	// when the flag is off.
 	AllowInPlaceGrowth bool
+	// MinGrowthFraction is the minimum relative per-container grow (target-cur)/cur to grow an existing
+	// drive FD in place; below it the grow is skipped. 0 means treat as the 0.2 default at use sites —
+	// but prefer it always set.
+	MinGrowthFraction float64
+	// MaxOverProvisionFraction is the max fraction a pool's create-new may overshoot desiredRaw.
+	MaxOverProvisionFraction float64
 }
 
 // Drive-pod resource coefficients (MiB). They mirror the drive-container sizing in resources/pod.go
@@ -177,12 +187,14 @@ type CapacityPlan struct {
 	// (non-clusterCapacity) reads and as a dominant-value summary. Empty on no-op/steady-state fast paths.
 	ComputeLayout []ComputeContainerSpec
 	Warnings      []string
-	// Imbalances carries per-FD imbalance advisories ("usable capacity gated by the smallest FD"). These
-	// are NOT growth — they can fire even on a pure create — so the controller emits them under their own
-	// ClusterCapacityImbalance event reason, separate from the growth Warnings above.
-	Imbalances   []string
-	ShrinkEvents []string
-	Infeasible   string
+	ShrinkEvents  []string
+	// OverProvisions carries per-pool over-provision advisories: the create-new-before-grow path covered an
+	// increase with whole uniform-T failure domains that overshoot the pool's desiredRaw (within
+	// MaxOverProvisionFraction) to avoid resizing existing containers. Emitted under their own
+	// ClusterCapacityOverProvisioned (Normal) event reason, separate from the growth Warnings and shrink
+	// advisories above.
+	OverProvisions []string
+	Infeasible     string
 }
 
 // ComputeContainerSpec is one compute container in the planner's per-container layout: the node it is
@@ -274,6 +286,10 @@ type nodeState struct {
 	coresFree    int
 	hugepagesMiB int
 	memoryMiB    int
+	// hasDeletingDriveContainer mirrors NodeCapacity.HasDeletingDriveContainer: the node still hosts a
+	// this-cluster drive container being deleted. Used only to deprioritize the node in
+	// orderFreshFdGroups so a replacement FD prefers a node with no deleting container.
+	hasDeletingDriveContainer bool
 }
 
 func (ns *nodeState) poolFree(p poolKind) int {
@@ -288,17 +304,26 @@ func (ns *nodeState) poolFree(p poolKind) int {
 // per-container base memory (true for a NEW container, false for growing an existing one whose base
 // memory is already accounted for in the node's available figure).
 func (ns *nodeState) nodeHeadroom(p poolKind, cons *CapacityConstraints, includeBase bool) int {
+	h, _ := ns.nodeHeadroomBinding(p, cons, includeBase)
+	return h
+}
+
+// nodeHeadroomBinding is nodeHeadroom plus the name of the binding (tightest) dimension that determines
+// the result — "drive capacity", "cores", "hugepages" or "memory". It mirrors nodeHeadroom's
+// min-of-budgets logic exactly, so the dimension it reports is the one that caps the headroom. Used to
+// explain WHY a node was rejected as a failure-domain candidate (headroom below the minimum chunk).
+func (ns *nodeState) nodeHeadroomBinding(p poolKind, cons *CapacityConstraints, includeBase bool) (headroom int, binding string) {
 	perCap := perCoreCap(p, cons)
 	if perCap <= 0 {
-		return 0
+		return 0, "pool disabled"
 	}
-	headroom := ns.poolFree(p)
+	headroom, binding = ns.poolFree(p), "drive capacity"
 	if coreCap := ns.coresFree * perCap; coreCap < headroom {
-		headroom = coreCap
+		headroom, binding = coreCap, "cores"
 	}
 	if hpPerCore := cons.driveHugepagesPerCoreMiB(); hpPerCore > 0 {
 		if hpCap := (ns.hugepagesMiB / hpPerCore) * perCap; hpCap < headroom {
-			headroom = hpCap
+			headroom, binding = hpCap, "hugepages"
 		}
 	}
 	if cons.MemoryPerCoreMiB > 0 {
@@ -307,13 +332,13 @@ func (ns *nodeState) nodeHeadroom(p poolKind, cons *CapacityConstraints, include
 			mem -= cons.MemoryBaseMiB
 		}
 		if memCap := (mem / cons.MemoryPerCoreMiB) * perCap; memCap < headroom {
-			headroom = memCap
+			headroom, binding = memCap, "memory"
 		}
 	}
 	if headroom < 0 {
-		return 0
+		headroom = 0
 	}
-	return headroom
+	return headroom, binding
 }
 
 // consume decrements the node's budgets for placing gGiB of pool p. includeBase charges the
@@ -330,6 +355,24 @@ func (ns *nodeState) consume(p poolKind, gGiB int, cons *CapacityConstraints, in
 	ns.memoryMiB -= cores * cons.MemoryPerCoreMiB
 	if includeBase {
 		ns.memoryMiB -= cons.MemoryBaseMiB
+	}
+}
+
+// unconsume reverses a consume of gGiB of pool p (used to roll back a fresh-FD placement that could not
+// reach the uniform level). It must mirror consume exactly, including the per-container base memory when
+// includeBase was charged.
+func (ns *nodeState) unconsume(p poolKind, gGiB int, cons *CapacityConstraints, includeBase bool) {
+	cores := util.CeilDiv(gGiB, perCoreCap(p, cons))
+	if p == poolTLC {
+		ns.tlcFree += gGiB
+	} else {
+		ns.qlcFree += gGiB
+	}
+	ns.coresFree += cores
+	ns.hugepagesMiB += cores * cons.driveHugepagesPerCoreMiB()
+	ns.memoryMiB += cores * cons.MemoryPerCoreMiB
+	if includeBase {
+		ns.memoryMiB += cons.MemoryBaseMiB
 	}
 }
 
@@ -350,17 +393,6 @@ func (ns *nodeState) reserveCores(cores int, cons *CapacityConstraints) bool {
 	ns.hugepagesMiB -= cores * hpPerCore
 	ns.memoryMiB -= cores * cons.MemoryPerCoreMiB
 	return true
-}
-
-// detectImbalance reports whether laying out new containers of size newPerFD alongside existing
-// containers of average size existingAvg would be too skewed — true when newPerFD >= factor ×
-// existingAvg (factor from ImbalanceFactor). Returns false when there are no existing
-// containers to compare against.
-func detectImbalance(newPerFD, existingAvg int, cons *CapacityConstraints) bool {
-	if existingAvg <= 0 || cons.ImbalanceFactor <= 0 {
-		return false
-	}
-	return float64(newPerFD) >= float64(existingAvg)*cons.ImbalanceFactor
 }
 
 // PlanCapacity computes the grow/create plan for both pools. It never shrinks or deletes; a pool whose
@@ -401,12 +433,13 @@ func PlanCapacity(
 	states := make(map[string]*nodeState, len(inventory))
 	for _, nc := range inventory {
 		states[nc.NodeName] = &nodeState{
-			nc:           nc,
-			tlcFree:      nc.TlcGiB,
-			qlcFree:      nc.QlcGiB,
-			coresFree:    nc.AllocatableCPU,
-			hugepagesMiB: nc.AvailableHugepagesMiB,
-			memoryMiB:    nc.AvailableMemoryMiB,
+			nc:                   nc,
+			tlcFree:              nc.TlcGiB,
+			qlcFree:              nc.QlcGiB,
+			coresFree:            nc.AllocatableCPU,
+			hugepagesMiB:         nc.AvailableHugepagesMiB,
+			memoryMiB:            nc.AvailableMemoryMiB,
+			hasDeletingDriveContainer: nc.HasDeletingDriveContainer,
 		}
 	}
 
@@ -500,17 +533,6 @@ func PlanCapacity(
 				"driveContainers=%d cannot be honored: the plan resolves to %d drive containers across the available failure domains",
 				desired.DriveContainers, got)
 			return plan
-		}
-	}
-
-	// Per-FD imbalance advisory (non-fatal): usable capacity is gated by the smallest FD. Emitted under
-	// the ClusterCapacityImbalance reason — it is not a growth and can fire even on a pure create.
-	if plan.Infeasible == "" {
-		if w := imbalanceWarning(poolTLC, existingDrives, growth, newByNode); w != "" {
-			plan.Imbalances = append(plan.Imbalances, w)
-		}
-		if w := imbalanceWarning(poolQLC, existingDrives, growth, newByNode); w != "" {
-			plan.Imbalances = append(plan.Imbalances, w)
 		}
 	}
 
@@ -1005,33 +1027,6 @@ func computeContainerHugepagesMiB(tlcRawGiB, qlcRawGiB, count, cores int, cons *
 	return hp
 }
 
-// imbalanceWarning sums realized per-FD capacity of a pool across the final state (existing as grown +
-// new) and returns a non-fatal warning when the smallest and largest FD differ by more than 10%.
-func imbalanceWarning(
-	p poolKind,
-	existingDrives []ExistingContainer,
-	growth map[string]*ContainerGrowth,
-	newByNode map[string]*NewContainer,
-) string {
-	perFD := finalPerFD(p, existingDrives, growth, newByNode)
-	if len(perFD) < 2 {
-		return ""
-	}
-	lo, hi := 0, 0
-	for _, v := range perFD {
-		if lo == 0 || v < lo {
-			lo = v
-		}
-		if v > hi {
-			hi = v
-		}
-	}
-	if imbalanceExceeds(lo, hi) {
-		return fmt.Sprintf("%s failure-domain imbalance: smallest FD holds %d GiB, largest %d GiB; usable capacity is gated by the smallest", p, lo, hi)
-	}
-	return ""
-}
-
 // finalPoolCap returns an existing container's post-growth capacity for pool p (its planned
 // NewTlcGiB/NewQlcGiB when a growth record exists, else its current capacity).
 func finalPoolCap(c *ExistingContainer, growth map[string]*ContainerGrowth, p poolKind) int {
@@ -1104,6 +1099,41 @@ func addPoolNew(n *NewContainer, p poolKind, add int) {
 	}
 }
 
+// poolAvg returns the average per-container pool-p capacity over this cluster's existing pool-p containers
+// (0 when none). Used as the existing baseline for the heterogeneous-growth fallback trigger (detectImbalance).
+func poolAvg(existingDrives []ExistingContainer, p poolKind) int {
+	sum, n := 0, 0
+	for i := range existingDrives {
+		if v := poolCap(&existingDrives[i], p); v > 0 {
+			sum += v
+			n++
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / n
+}
+
+// growChunk is the even per-FD chunk a delta would add across minFd failure domains, floored at MinChunk.
+// It is the "fresh chunk" compared against the existing per-FD average in the heterogeneous trigger.
+func growChunk(delta, minFd int, cons *CapacityConstraints) int {
+	return max(cons.MinChunkSizeGiB, util.CeilDiv(delta, minFd))
+}
+
+// detectImbalance reports whether laying a fresh per-FD chunk of newPerFD alongside existing FDs of
+// average size existingAvg would be too skewed — true when newPerFD >= ImbalanceFactor × existingAvg.
+// False when there is no existing baseline (existingAvg <= 0) or the factor is disabled (<= 0). This gates
+// the heterogeneous fallback (planPoolFreshUniform): a fresh chunk that dwarfs the tiny existing FDs means growing them into a
+// uniform set is either infeasible (their low ceiling caps the uniform level) or would gate the pool's
+// usable capacity, so a fresh uniform set is laid out instead and the small FDs are flagged deletable.
+func detectImbalance(newPerFD, existingAvg int, cons *CapacityConstraints) bool {
+	if existingAvg <= 0 || cons.ImbalanceFactor <= 0 {
+		return false
+	}
+	return float64(newPerFD) >= float64(existingAvg)*cons.ImbalanceFactor
+}
+
 func planPool(
 	p poolKind,
 	desiredRaw int,
@@ -1116,10 +1146,12 @@ func planPool(
 	newByNode map[string]*NewContainer,
 	plan *CapacityPlan,
 ) {
+	// Step 1: nothing to do when no capacity requested.
 	if desiredRaw <= 0 {
 		return
 	}
 
+	// Step 2: closures that create-or-fetch the mutable records for existing-grow and new-container paths.
 	growFor := func(c ExistingContainer) *ContainerGrowth {
 		g, ok := growth[c.Name]
 		if !ok {
@@ -1137,43 +1169,689 @@ func planPool(
 		return n
 	}
 
+	// Step 3: compute the signed delta; shrink and no-change are terminal.
 	current := poolCurrent(existingDrives, p)
 	delta := desiredRaw - current
 	if delta < 0 {
-		plan.ShrinkEvents = append(plan.ShrinkEvents, shrinkMsg(p, desiredRaw, current))
+		// Over-provisioned: advise a manual shrink only when the overage exceeds the intentional
+		// over-provision cap (an in-cap overage is our own create-new rounding — stay silent).
+		if current-desiredRaw > OverProvisionCapGiB(desiredRaw, cons) {
+			plan.ShrinkEvents = append(plan.ShrinkEvents, shrinkMsg(p, desiredRaw, current))
+		}
 		return
 	}
 	if delta == 0 {
 		return
 	}
 
-	// Heterogeneous fallback: when a fresh per-FD chunk would dwarf the existing tiny FDs, lay out a fresh
-	// balanced set instead and mark the old containers deletable (preserves usable capacity). Skipped with
-	// pinned driveContainers or in-place growth off; falls through to the incremental water-fill when a
-	// fresh balanced set is not feasible.
-	if cons.AllowInPlaceGrowth && targetFds == 0 &&
+	// Step 3.5: Heterogeneous-growth fallback. When the FD count is not pinned and a fresh per-FD chunk
+	// would DWARF the existing tiny FDs (detectImbalance: chunk >= ImbalanceFactor × existing per-FD
+	// average), the existing FDs are too small to grow into a uniform set without gating the pool's usable
+	// capacity or forcing an infeasible uniform level. Lay out a fresh UNIFORM set on nodes not already
+	// hosting this pool and flag the small containers deletable, instead of letting them veto the plan. This
+	// is a CREATE-on-fresh-nodes operation (it abandons the dwarfed FDs, never grows them), so it is NOT
+	// gated on AllowInPlaceGrowth — consistent with the default config covering increases by creating new
+	// FDs. Falls through to the incremental uniform-increase path (state untouched) when no fresh uniform
+	// set reaches the target.
+	if targetFds == 0 &&
 		detectImbalance(growChunk(delta, minFd, cons), poolAvg(existingDrives, p), cons) {
-		if balancedFresh(p, desiredRaw, minFd, existingDrives, states, cons, newByNode, newFor, plan) {
+		if planPoolFreshUniform(p, desiredRaw, minFd, existingDrives, states, cons, growFor, growth, newByNode, newFor, plan, true /*isFallback*/) {
 			return
 		}
 	}
 
-	// Build the failure-domain model (existing FDs grow in place; fresh FDs create) and place delta with a
-	// single water-fill over the combined set. freeze (in-place growth off) pins existing ceilings to cap,
-	// so the whole delta lands on fresh FDs. Balance is per FAILURE DOMAIN, not per container.
-	existing := existingFdFills(p, existingDrives, states, cons, !cons.AllowInPlaceGrowth)
-	fresh := freshFdFills(p, existing, states, poolNodeUsed(existingDrives, p), cons)
+	// Step 4: Explicit driveContainers — caller pinned the exact total FD count for this pool. Place
+	// exactly targetFds FDs at the even per-FD chunk T=ceil(desiredRaw/targetFds) via placeUniform (grow
+	// existing below-T FDs, create the rest), then check feasibility.
+	if targetFds > 0 {
+		planPoolExplicit(p, desiredRaw, minFd, targetFds, existingDrives, states, cons, growth, growFor, newByNode, newFor, plan)
+		return
+	}
 
+	// Step 5: Uniform-FD increase — auto FD count, genuine increase, pool already has existing FDs. The
+	// existing per-FD chunk T is well-defined; replicate it rather than recomputing a greenfield level.
+	if delta > 0 && poolExistingFds(p, existingDrives) > 0 {
+		planPoolUniformIncrease(p, desiredRaw, minFd, current, existingDrives, states, cons, growFor, growth, newByNode, newFor, plan)
+		return
+	}
+
+	// Step 6: greenfield (this pool has no FD yet — though other-pool containers may exist on shared nodes).
+	// Free-select the best uniform (N, T) and place it; cross-pool conversion happens via placeUniform's
+	// grow path when a chosen FD already hosts an other-pool container. Infeasible if no uniform tiling fits.
+	planPoolFreshUniform(p, desiredRaw, minFd, existingDrives, states, cons, growFor, growth, newByNode, newFor, plan, false /*isFallback*/)
+}
+
+// finalizePoolFeasibility verifies that placement actually realized desiredRaw for pool p and that the
+// final state carries >= minFd failure domains, setting plan.Infeasible on a shortfall. placeUniform may
+// roll back an FD whose hosts can't hold their even share (the (N,T) scan reasons over aggregate FD
+// headroom), so a post-placement recheck is required on every placement branch. Realized pool-p capacity =
+// existing as grown (finalPoolCap) + new (poolCapNew). When excludePoolPExisting is set (the greenfield /
+// balanced-fresh fresh-only paths) the existing pool-p FDs are NOT counted — they are being abandoned, or
+// none exist — so only fresh placements (new containers + other-pool→mixed conversions) count toward coverage.
+func finalizePoolFeasibility(
+	p poolKind,
+	desiredRaw, minFd int,
+	existingDrives []ExistingContainer,
+	growth map[string]*ContainerGrowth,
+	newByNode map[string]*NewContainer,
+	cons *CapacityConstraints,
+	plan *CapacityPlan,
+	excludePoolPExisting bool,
+) {
+	placed := 0
+	for _, n := range newByNode {
+		placed += poolCapNew(n, p)
+	}
+	for i := range existingDrives {
+		c := &existingDrives[i]
+		if excludePoolPExisting && poolExistingFds(p, []ExistingContainer{*c}) > 0 {
+			continue // pool-p FD being abandoned (heterogeneous fallback) — does not count toward coverage
+		}
+		placed += finalPoolCap(c, growth, p)
+	}
+	if reason := poolFeasibility(p, minFd, max(0, desiredRaw-placed), existingDrives, growth, newByNode, cons); reason != "" {
+		plan.Infeasible = reason
+	}
+}
+
+// planPoolFreshUniform lays a fresh, internally-UNIFORM set of failure domains for pool p across nodes NOT
+// already hosting pool p (a node carrying an other-pool container is still a candidate — placeUniform
+// converts it to mixed via its grow path). Coverage is measured over the fresh set ALONE
+// (excludePoolPExisting). Two callers, distinguished by isFallback:
+//   - greenfield (false): the pool has no FD yet. If no uniform (N, T) tiles the candidates, the pool is
+//     ClusterCapacityInfeasible. (excludePoolPExisting is a no-op — no pool-p FDs exist.)
+//   - heterogeneous fallback (true): a fresh per-FD chunk would dwarf the existing FDs, so they are
+//     ABANDONED — left running but flagged deletable via a ClusterCapacityHeterogeneousGrowth Warning. Returns false
+//     WITHOUT mutating state when no fresh set reaches the target (selectUniform is non-mutating), so
+//     planPool falls through to the uniform-increase path on untouched state.
+//
+// Returns true when a fresh set was placed (committed; plan.Infeasible may still be set if a per-host even
+// split fell short — pathological label FDs).
+func planPoolFreshUniform(
+	p poolKind,
+	desiredRaw, minFd int,
+	existingDrives []ExistingContainer,
+	states map[string]*nodeState,
+	cons *CapacityConstraints,
+	growFor func(ExistingContainer) *ContainerGrowth,
+	growth map[string]*ContainerGrowth,
+	newByNode map[string]*NewContainer,
+	newFor func(node, fd string) *NewContainer,
+	plan *CapacityPlan,
+	isFallback bool,
+) bool {
+	candidates := orderFreshFdGroups(p, states, poolNodeUsed(existingDrives, p), cons)
+	chosen, T, ok := selectUniform(desiredRaw, minFd, candidates, cons)
+	if !ok {
+		if !isFallback {
+			plan.Infeasible = uniformInfeasibleMsg(p, desiredRaw, minFd, candidates, states, poolNodeUsed(existingDrives, p), cons)
+		}
+		return false // greenfield: infeasible (set above); fallback: fall through on untouched state
+	}
+	placeUniform(p, T, chosen, existingDrives, states, cons, growFor, newByNode, newFor)
+	finalizePoolFeasibility(p, desiredRaw, minFd, existingDrives, growth, newByNode, cons, plan, true)
+	if isFallback && plan.Infeasible == "" {
+		// Every chosen FD reached T (finalize passed), so len(chosen) is the fresh FD count for the advisory.
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf(
+			"%s capacity grew heterogeneously: created a fresh balanced set of ~%d GiB across %d failure domain(s). "+
+				"The older, smaller drive containers can be deleted manually once data has migrated.",
+			p, T, len(chosen)))
+	}
+	return true
+}
+
+// planPoolExplicit places exactly targetFds failure domains for pool p when the user pinned the
+// driveContainers count. The per-FD chunk is the uniform T = ceil(desiredRaw / targetFds). placeUniform
+// grows existing below-T FDs to T and creates the remaining fresh FDs at T. resolveExactNewFds runs first
+// for its fail-fast guards.
+func planPoolExplicit(
+	p poolKind,
+	desiredRaw, minFd, targetFds int,
+	existingDrives []ExistingContainer,
+	states map[string]*nodeState,
+	cons *CapacityConstraints,
+	growth map[string]*ContainerGrowth,
+	growFor func(ExistingContainer) *ContainerGrowth,
+	newByNode map[string]*NewContainer,
+	newFor func(node, fd string) *NewContainer,
+	plan *CapacityPlan,
+) {
+	current := poolCurrent(existingDrives, p)
+	delta := desiredRaw - current
+
+	// Fail-fast checks: pinned count vs existing count, per-container minimum chunk, etc.
 	exactNewFds, reason := resolveExactNewFds(p, targetFds, existingDrives, delta, cons)
 	if reason != "" {
 		plan.Infeasible = reason
 		return
 	}
 
-	remaining := waterFill(p, desiredRaw, minFd, exactNewFds, existing, fresh, cons, growFor, newByNode, newFor)
+	T := util.CeilDiv(desiredRaw, targetFds)
 
-	if reason := poolFeasibility(p, minFd, remaining, existingDrives, growth, newByNode, cons); reason != "" {
-		plan.Infeasible = reason
+	// Assemble the exactly-targetFds chosen FDs: every existing pool-p FD (as a grow target) plus exactly
+	// exactNewFds fresh FDs at the front of the headroom-desc candidate list. placeUniform grows the
+	// existing FDs below T up to T and creates the fresh FDs at T.
+	chosen := existingFdsAsChosen(p, existingDrives, states, cons)
+	fresh := orderFreshFdGroups(p, states, poolNodeUsed(existingDrives, p), cons)
+	chosen = append(chosen, takeFreshAtLevel(fresh, exactNewFds, T)...)
+
+	placeUniform(p, T, chosen, existingDrives, states, cons, growFor, newByNode, newFor)
+
+	// Existing pool-p FDs are grown in place, so they count toward coverage (excludePoolPExisting=false).
+	finalizePoolFeasibility(p, desiredRaw, minFd, existingDrives, growth, newByNode, cons, plan, false)
+}
+
+// planPoolUniformIncrease realizes the uniform-FD increase policy (§4 of the FEAT plan): on a genuine
+// increase for a pool that already has at least one failure domain, it prefers CREATING whole new FDs at
+// the existing uniform per-FD chunk T over editing existing container specs, capped at
+// MaxOverProvisionFraction. If create-new cannot cover the delta (no spare nodes at T) it raises the
+// uniform level T -> Lmin and grows every below-Lmin existing FD up to Lmin while placing the fresh FDs
+// AT Lmin (uniformity) — but only if the relative grow clears MinGrowthFraction and in-place growth is
+// allowed; otherwise the plan is marked infeasible with a tailored message. New FDs are never sub-T.
+//
+// Both the create-new fresh FDs and the uniform grow go through placeUniform, so an other-pool container
+// on a candidate node is CONVERTED to mixed (its grow-path) just like greenfield — consistent cross-pool
+// conversion on the increase path too.
+func planPoolUniformIncrease(
+	p poolKind,
+	desiredRaw, minFd, current int,
+	existingDrives []ExistingContainer,
+	states map[string]*nodeState,
+	cons *CapacityConstraints,
+	growFor func(ExistingContainer) *ContainerGrowth,
+	growth map[string]*ContainerGrowth,
+	newByNode map[string]*NewContainer,
+	newFor func(node, fd string) *NewContainer,
+	plan *CapacityPlan,
+) {
+	delta := desiredRaw - current
+
+	// NOTE on Unscheduled: perFd/numExisting/T0 below do NOT filter Unscheduled containers while reach/
+	// existingReach/existingFdsAsChosen DO. That asymmetry is harmless because a capacity-bearing
+	// unscheduled drive container can never reach this function: planClusterCapacity defers planning
+	// upstream while any alive drive container is unscheduled (see firstUnscheduledDriveContainer). The
+	// Unscheduled checks here are therefore purely defensive.
+	//
+	// --- T0: the uniform per-FD chunk (the chunk we replicate). Aggregate existing per-FD pool capacity,
+	// then T0 = max(MinChunk, smallest per-FD sum). Over-sized anchors stay above T0; fragments cannot
+	// lower it below MinChunk. ---
+	perFd := map[string]int{}
+	for i := range existingDrives {
+		c := &existingDrives[i]
+		if c.FDValue == "" {
+			continue
+		}
+		if v := poolCap(c, p); v > 0 {
+			perFd[c.FDValue] += v
+		}
+	}
+	numExisting := len(perFd)
+	minFdCap := 0
+	for _, v := range perFd {
+		if minFdCap == 0 || v < minFdCap {
+			minFdCap = v
+		}
+	}
+	T0 := max(cons.MinChunkSizeGiB, minFdCap)
+
+	// --- Fresh candidate FDs (FDs not hosting pool p, per-node headroom >= MinChunk), best-headroom first.
+	freshGroups := orderFreshFdGroups(p, states, poolNodeUsed(existingDrives, p), cons)
+	freshCountAtLeast := func(L int) int {
+		n := 0
+		for _, g := range freshGroups {
+			if g.headroom >= L {
+				n++
+			}
+		}
+		return n
+	}
+
+	// existingReach sums the per-FD pool capacity reachable at level L over THIS POOL's existing FDs (cap>0):
+	// an anchor already >= L contributes its full cap; a growable FD (ceiling >= L) contributes L; an FD that
+	// cannot reach L makes level L infeasible (ok=false). Per FD: cap = Σ current pool-p capacity over its
+	// containers; ceiling = cap + Σ host headroom (the level it could grow to). Cap-0 FDs (other-pool
+	// containers, e.g. TLC-only when planning QLC) are SKIPPED: those nodes do not host pool p, so they are
+	// counted as FRESH candidates (freshGroups / kFresh) and CONVERTED to mixed by placeUniform's grow path —
+	// counting them here too would double-count against kFresh*L and over-estimate the plan.
+	type fdReach struct{ cap, ceiling int }
+	reach := map[string]*fdReach{}
+	for i := range existingDrives {
+		c := &existingDrives[i]
+		if c.FDValue == "" || c.Unscheduled || c.Node == "" || states[c.Node] == nil {
+			continue
+		}
+		r := reach[c.FDValue]
+		if r == nil {
+			r = &fdReach{}
+			reach[c.FDValue] = r
+		}
+		v := poolCap(c, p)
+		r.cap += v
+		r.ceiling += v + states[c.Node].nodeHeadroom(p, cons, false)
+	}
+	existingReach := func(L int) (sum int, ok bool) {
+		for _, r := range reach {
+			if r.cap <= 0 {
+				continue // other-pool FD — counted via freshGroups/kFresh, not here (avoid double-count)
+			}
+			switch {
+			case r.cap >= L:
+				sum += r.cap
+			case r.ceiling >= L:
+				sum += L
+			default:
+				return 0, false
+			}
+		}
+		return sum, true
+	}
+
+	overshootCap := int(cons.MaxOverProvisionFraction * float64(desiredRaw))
+	overProvisionMsg := func(kFresh, level, total int) string {
+		return fmt.Sprintf(
+			"%s: covering +%d GiB by %d new failure domain(s) of %d GiB (over-provisioned by %d GiB, within maxOverProvisionFraction=%.2f) to avoid resizing existing containers",
+			p, delta, kFresh, level, total-desiredRaw, cons.MaxOverProvisionFraction)
+	}
+
+	// freshChosen returns the first k fresh candidate FDs that can host `level` (clean-first then
+	// headroom-desc, per orderFreshFdGroups) as a chosen set for placeUniform. The level filter keeps
+	// the clean-first ordering from picking a node too small for the uniform chunk over a capable one.
+	freshChosen := func(k, level int) []*fdGroup {
+		return takeFreshAtLevel(freshGroups, k, level)
+	}
+
+	// finalizeFeasibility verifies what placeUniform ACTUALLY placed (it may roll back an FD whose hosts
+	// can't hold their even share, or land below minFd) — the scan reasons over aggregate FD headroom, so a
+	// post-placement check is needed, same as the other placement branches. Existing pool-p FDs are grown
+	// in place here, so they count toward coverage (excludePoolPExisting=false).
+	finalizeFeasibility := func() {
+		finalizePoolFeasibility(p, desiredRaw, minFd, existingDrives, growth, newByNode, cons, plan, false)
+	}
+
+	// --- Step 4: no-grow attempt (preferred) — cover delta with whole T0 FDs on spare nodes. ---
+	kNeeded := util.CeilDiv(delta, T0)
+	kAvail := freshCountAtLeast(T0)
+	if kAvail >= kNeeded && kNeeded*T0-delta <= overshootCap {
+		placeUniform(p, T0, freshChosen(kNeeded, T0), existingDrives, states, cons, growFor, newByNode, newFor)
+		finalizeFeasibility()
+		if plan.Infeasible == "" && kNeeded*T0 > delta {
+			plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(kNeeded, T0, current+kNeeded*T0))
+		}
+		return
+	}
+
+	// --- Step 5: grow phase — search the final FD count N for the smallest feasible uniform level L. ---
+	type feasN struct {
+		N, L, total int
+	}
+	var best *feasN
+	for N := max(minFd, numExisting); N <= numExisting+len(freshGroups); N++ {
+		L := max(T0, util.CeilDiv(desiredRaw, N))
+		kFresh := N - numExisting
+		if freshCountAtLeast(L) < kFresh {
+			continue // not enough spare nodes at level L
+		}
+		sumE, ok := existingReach(L)
+		if !ok {
+			continue
+		}
+		total := sumE + kFresh*L
+		if total < desiredRaw {
+			continue
+		}
+		if total-desiredRaw > overshootCap {
+			continue // would over-provision this pool beyond MaxOverProvisionFraction
+		}
+		// Smallest L; ties broken by smallest total (least over-provision).
+		if best == nil || L < best.L || (L == best.L && total < best.total) {
+			best = &feasN{N: N, L: L, total: total}
+		}
+	}
+
+	if best == nil {
+		plan.Infeasible = fmt.Sprintf(
+			"%s: cannot satisfy clusterCapacity (+%d GiB) at the uniform per-failure-domain size of %d GiB. Even after growing the %d existing failure domain(s) to their nodes' limits and adding failure domains on all %d candidate node(s) (nodes not already running a %s drive container, with enough free capacity/cores/hugepages/memory), the target is still out of reach. Add more nodes (or nodes with more free resources), or lower clusterCapacity.",
+			p, delta, T0, numExisting, len(freshGroups), p)
+		return
+	}
+
+	if best.L == T0 {
+		// Defensive: a within-cap L==T0 candidate implies kAvail>=kNeeded within cap, which Step 4 already
+		// returned on — so this is effectively unreachable. Handle it as a plain create-at-T0 anyway.
+		kFresh := best.N - numExisting
+		placeUniform(p, T0, freshChosen(kFresh, T0), existingDrives, states, cons, growFor, newByNode, newFor)
+		finalizeFeasibility()
+		if plan.Infeasible == "" && best.total > desiredRaw {
+			plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(kFresh, T0, best.total))
+		}
+		return
+	}
+
+	// best.L > T0: a uniform grow is required.
+	if !cons.AllowInPlaceGrowth {
+		if shortfall := kNeeded - kAvail; shortfall > 0 {
+			// The binding constraint is the NUMBER of failure domains, not bytes-per-node: existing FDs are
+			// frozen (growth disabled) and uniform distribution forces every new FD to equal the smallest
+			// existing one (T0), so the only way to add capacity is one new T0-sized FD per spare node.
+			plan.Infeasible = fmt.Sprintf(
+				"%s: cannot satisfy clusterCapacity (+%d GiB). The %d existing failure domain(s) are frozen at %d GiB each and cannot grow because dynamic drive scaling for shared drives is disabled, so new capacity can only be added as more %d GiB failure domains — one per node not already running a %s drive container and with %d GiB of free capacity/cores/hugepages/memory. This needs %d such node(s) but only %d is/are available, so %d more node(s) are required. Either add %d more node(s), or enable enableDynamicDriveScalingForSharedDrives to grow the existing containers in place instead (aggregate free capacity elsewhere does not help — capacity on a node already hosting this pool's FD cannot be reused while growth is disabled).",
+				p, delta, numExisting, T0, T0, p, T0, kNeeded, kAvail, shortfall, shortfall)
+			return
+		}
+		// Enough candidate nodes exist, but covering the delta with only T0-sized FDs would over-provision
+		// beyond maxOverProvisionFraction; the balanced plan therefore needs to grow existing FDs, which is
+		// disabled. Either allow growth or align the request to a whole number of T0 chunks.
+		plan.Infeasible = fmt.Sprintf(
+			"%s: cannot satisfy clusterCapacity (+%d GiB) without growing the %d existing failure domain(s) beyond their current %d GiB each, but dynamic drive scaling for shared drives is disabled. Enable enableDynamicDriveScalingForSharedDrives, or set clusterCapacity to a value that the %d GiB failure-domain size divides evenly.",
+			p, delta, numExisting, T0, T0)
+		return
+	}
+	if float64(best.L-T0) < cons.MinGrowthFraction*float64(T0) {
+		pct := int((100*float64(best.L-T0))/float64(T0) + 0.5)
+		plan.Infeasible = fmt.Sprintf(
+			"%s: cannot satisfy clusterCapacity — need +%d GiB. Adding failure domains requires %d node(s) not already running a %s drive container with >=%d GiB free each (the uniform per-FD size), but only %d is/are available. The alternative — growing existing containers in place — would raise each by only %d%% (below minGrowthFraction=%.2f), so it is skipped. Resolve by: adding %d more node(s), or raising clusterCapacity by at least one %d GiB failure-domain chunk, or lowering minGrowthFraction.",
+			p, delta, kNeeded, p, T0, kAvail, pct, cons.MinGrowthFraction, kNeeded-kAvail, T0)
+		return
+	}
+
+	// Grow allowed: realize at (N, Lmin) via ONE placeUniform over existing FDs (grown to Lmin) + the kFresh
+	// fresh FDs (created at Lmin). New FDs are sized at Lmin (uniformity), not T0.
+	chosen := existingFdsAsChosen(p, existingDrives, states, cons)
+	kFresh := best.N - numExisting
+	chosen = append(chosen, freshChosen(kFresh, best.L)...)
+	placeUniform(p, best.L, chosen, existingDrives, states, cons, growFor, newByNode, newFor)
+	finalizeFeasibility()
+	if plan.Infeasible == "" && best.total > desiredRaw {
+		plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(kFresh, best.L, best.total))
+	}
+}
+
+// selectUniform free-selects the best uniform (N, T) for a greenfield pool: the smallest N >= minFd such
+// that the N highest-headroom candidate FDs each have aggregate headroom >= T = ceil(desiredRaw/N). It
+// grows N (which lowers T) until either the top-N candidates all clear T (returns them + T) or candidates
+// run out (ok=false -> caller reports infeasible). candidates are headroom-desc (orderFreshFdGroups), so
+// the front N are always the highest-headroom N FDs.
+func selectUniform(desiredRaw, minFd int, candidates []*fdGroup, cons *CapacityConstraints) (chosen []*fdGroup, target int, ok bool) {
+	for N := max(minFd, 1); N <= len(candidates); N++ {
+		target = max(cons.MinChunkSizeGiB, util.CeilDiv(desiredRaw, N))
+		fits := true
+		for i := 0; i < N; i++ {
+			if candidates[i].headroom < target {
+				fits = false
+				break
+			}
+		}
+		if fits {
+			return candidates[:N], target, true
+		}
+	}
+	return nil, 0, false
+}
+
+// uniformInfeasibleMsg explains why no uniform tiling fits: the smallest usable FD caps below the per-FD
+// share. It reports the per-FD share at the largest feasible N (the most forgiving tiling) and the smallest
+// candidate FD headroom that falls short.
+func uniformInfeasibleMsg(p poolKind, desiredRaw, minFd int, candidates []*fdGroup, states map[string]*nodeState, poolUsed map[string]struct{}, cons *CapacityConstraints) string {
+	if len(candidates) < minFd {
+		msg := fmt.Sprintf(
+			"%s: only %d of %d required failure domains have capacity (need at least stripeWidth+redundancyLevel+hotSpare)",
+			p, len(candidates), minFd)
+		if breakdown := rejectedNodesBreakdown(p, states, poolUsed, cons); breakdown != "" {
+			msg += " — " + breakdown
+		}
+		return msg
+	}
+	// At the largest N (all candidates) the per-FD share is smallest; the smallest candidate still caps below
+	// it, so no N can tile uniformly.
+	N := len(candidates)
+	T := max(cons.MinChunkSizeGiB, util.CeilDiv(desiredRaw, N))
+	smallest := candidates[N-1].headroom
+	return fmt.Sprintf(
+		"%s: cannot place %d GiB uniformly across %d failure domains — the smallest usable FD holds %d GiB, below the %d GiB per-FD share; add capacity or lower clusterCapacity",
+		p, desiredRaw, N, smallest, T)
+}
+
+// rejectedNodesBreakdown explains why the candidate failure-domain set fell short: every node that is NOT
+// a usable pool-p candidate is bucketed by its binding reason — it already hosts a pool-p container, or the
+// dimension (drive capacity / cores / hugepages / memory) that caps its usable headroom below the MinChunk
+// floor — and nodes sharing a reason are listed together (e.g. "n4, n5, n6: no QLC drive capacity"). Names
+// are sorted for determinism; both the names per reason and the number of distinct reasons are capped with
+// "+N more" tails to keep the event readable. Returns "" when nothing was rejected.
+func rejectedNodesBreakdown(p poolKind, states map[string]*nodeState, poolUsed map[string]struct{}, cons *CapacityConstraints) string {
+	const maxNamesPerReason = 6
+	const maxReasons = 8
+
+	names := make([]string, 0, len(states))
+	for name := range states {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	type reasonGroup struct {
+		nodes []string // member names (sorted, capped at maxNamesPerReason)
+		total int       // total nodes with this reason (may exceed len(nodes))
+	}
+	byReason := map[string]*reasonGroup{}
+	order := make([]string, 0) // reason text in first-seen (name-sorted) order
+	rejected := 0
+
+	add := func(node, reason string) {
+		rejected++
+		g := byReason[reason]
+		if g == nil {
+			g = &reasonGroup{}
+			byReason[reason] = g
+			order = append(order, reason)
+		}
+		g.total++
+		if len(g.nodes) < maxNamesPerReason {
+			g.nodes = append(g.nodes, node)
+		}
+	}
+
+	for _, name := range names {
+		ns := states[name]
+		if _, used := poolUsed[name]; used {
+			add(name, fmt.Sprintf("already hosts a %s container", p))
+			continue
+		}
+		h, binding := ns.nodeHeadroomBinding(p, cons, true)
+		if h >= cons.MinChunkSizeGiB {
+			continue // usable candidate — not rejected
+		}
+		if binding == "drive capacity" && h == 0 {
+			add(name, fmt.Sprintf("no %s drive capacity", p))
+		} else {
+			add(name, fmt.Sprintf("%s limits usable %s to %d GiB (below the %d GiB minimum chunk)", binding, p, h, cons.MinChunkSizeGiB))
+		}
+	}
+	if rejected == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(order))
+	for i, reason := range order {
+		if i >= maxReasons {
+			parts = append(parts, fmt.Sprintf("(+%d more reason(s))", len(order)-maxReasons))
+			break
+		}
+		g := byReason[reason]
+		list := strings.Join(g.nodes, ", ")
+		if g.total > len(g.nodes) {
+			list += fmt.Sprintf(" (+%d more)", g.total-len(g.nodes))
+		}
+		parts = append(parts, fmt.Sprintf("%s: %s", list, reason))
+	}
+	return fmt.Sprintf("%d node(s) cannot host a %s failure domain: %s", rejected, p, strings.Join(parts, "; "))
+}
+
+// existingFdsAsChosen builds one *fdGroup per existing pool-bearing failure domain (its member node states,
+// headroom desc), so the existing FDs can participate in placeUniform alongside fresh FDs. placeUniform's
+// per-host grow-or-create resolves whether each host grows an existing container or creates a new one and
+// reads only g.nodes (not g.headroom — left zero here). Cap-0 (other-pool) containers are included so an
+// existing TLC-only FD participates in the QLC pool and is converted to mixed.
+func existingFdsAsChosen(p poolKind, existingDrives []ExistingContainer, states map[string]*nodeState, cons *CapacityConstraints) []*fdGroup {
+	byFd := map[string]*fdGroup{}
+	order := make([]*fdGroup, 0)
+	seen := map[string]struct{}{}
+	for i := range existingDrives {
+		c := &existingDrives[i]
+		if c.FDValue == "" || c.Unscheduled || c.Node == "" || states[c.Node] == nil {
+			continue
+		}
+		// A pool-p FD is one that already carries pool p anywhere. An other-pool-only FD is NOT pre-existing
+		// for this pool — it belongs to the fresh/greenfield candidate path, not here.
+		if poolExistingFds(p, []ExistingContainer{*c}) == 0 {
+			continue
+		}
+		g := byFd[c.FDValue]
+		if g == nil {
+			g = &fdGroup{}
+			byFd[c.FDValue] = g
+			order = append(order, g)
+		}
+		if _, dup := seen[c.Node]; dup {
+			continue
+		}
+		seen[c.Node] = struct{}{}
+		g.nodes = append(g.nodes, states[c.Node])
+	}
+	for _, g := range order {
+		sortNodesByHeadroomDesc(g.nodes, p, cons)
+	}
+	return order
+}
+
+// sortNodesByHeadroomDesc orders an FD group's member node states by pool-p headroom desc (node name asc to
+// tie-break), so an even split that rounds an extra GiB onto the first hosts lands them on the fattest nodes.
+func sortNodesByHeadroomDesc(nodes []*nodeState, p poolKind, cons *CapacityConstraints) {
+	sort.SliceStable(nodes, func(i, j int) bool {
+		hi, hj := nodes[i].nodeHeadroom(p, cons, false), nodes[j].nodeHeadroom(p, cons, false)
+		if hi != hj {
+			return hi > hj
+		}
+		return nodes[i].nc.NodeName < nodes[j].nc.NodeName
+	})
+}
+
+// placeUniform is the ONE placement primitive: make each chosen FD hold exactly `T` of pool p, split EVENLY
+// across the FD's member hosts (not greedy — the label-FD per-host balance requirement). Per host: if a
+// container already exists on that node it is GROWN (cross-pool conversion TLC-only -> mixed AND same-pool
+// top-up); else a new container is CREATED. One grow-or-create path. Brand-new containers honor the MinChunk
+// floor and charge per-container base memory once; grows never charge base memory. An FD that cannot reach
+// `T` is rolled back and skipped (poolFeasibility then flags the shortfall) rather than left sub-T.
+func placeUniform(
+	p poolKind,
+	target int,
+	chosen []*fdGroup,
+	existingDrives []ExistingContainer,
+	states map[string]*nodeState,
+	cons *CapacityConstraints,
+	growFor func(ExistingContainer) *ContainerGrowth,
+	newByNode map[string]*NewContainer,
+	newFor func(node, fd string) *NewContainer,
+) {
+	// existingOnNode maps a node to the pool-bearing-OR-other-pool existing container it hosts (for the grow
+	// path). A node carrying any existing drive container grows in place; one without creates a new container.
+	existingOnNode := map[string]ExistingContainer{}
+	for i := range existingDrives {
+		c := existingDrives[i]
+		if c.Node != "" && !c.Unscheduled {
+			existingOnNode[c.Node] = c
+		}
+	}
+	existedNode := func(node string) bool { _, ok := newByNode[node]; return ok }
+	hasNew := func(node string) bool {
+		nn, ok := newByNode[node]
+		return ok && poolCapNew(nn, p) > 0
+	}
+
+	for _, g := range chosen {
+		if len(g.nodes) == 0 {
+			continue
+		}
+		fdValue := g.nodes[0].nc.FDValue
+
+		// Per-host target: the FD's T split as evenly as possible across its member hosts (first `rem` hosts
+		// get one extra GiB). Each host's target is the ADDITIONAL pool-p capacity it must end up holding from
+		// this placement (its even share); existing same-pool capacity on the node already counts toward the
+		// FD total, so subtract it from the host's share.
+		nHosts := len(g.nodes)
+		base := target / nHosts
+		rem := target % nHosts
+
+		// Roll back the whole FD if it cannot reach T (mirror consume/grow exactly).
+		type undo struct {
+			ns      *nodeState
+			add     int
+			inc     bool
+			grow    bool
+			grewFor ExistingContainer
+		}
+		var moves []undo
+		placedFD := 0
+		for hi, ns := range g.nodes {
+			share := base
+			if hi < rem {
+				share++
+			}
+			node := ns.nc.NodeName
+			// Existing same-pool capacity on this node already contributes; only the deficit toward `share`.
+			ec, hasExisting := existingOnNode[node]
+			cur := 0
+			if hasExisting {
+				cur = poolCap(&ec, p)
+			}
+			need := share - cur
+			if need <= 0 {
+				placedFD += min(cur, share)
+				continue
+			}
+			if hasExisting {
+				// GROW path (same-pool top-up OR cross-pool conversion of an other-pool container to mixed).
+				room := ns.nodeHeadroom(p, cons, false)
+				add := min(need, room)
+				if add <= 0 {
+					continue
+				}
+				addPoolGrowth(growFor(ec), p, add)
+				ns.consume(p, add, cons, false)
+				moves = append(moves, undo{ns: ns, add: add, grow: true, grewFor: ec})
+				placedFD += cur + add
+				continue
+			}
+			// CREATE path.
+			includeBase := !existedNode(node)
+			room := ns.nodeHeadroom(p, cons, includeBase)
+			if room <= 0 {
+				continue
+			}
+			minAdd := cons.MinChunkSizeGiB
+			if hasNew(node) {
+				minAdd = 1 // top-up to an already-created this-pool container may be small
+			}
+			add := min(need, room)
+			if add < minAdd {
+				continue
+			}
+			addPoolNew(newFor(node, fdValue), p, add)
+			ns.consume(p, add, cons, includeBase)
+			moves = append(moves, undo{ns: ns, add: add, inc: includeBase})
+			placedFD += add
+		}
+		if placedFD < target {
+			// Could not reach the uniform level on this FD; roll back and skip it.
+			for _, m := range moves {
+				if m.grow {
+					addPoolGrowth(growFor(m.grewFor), p, -m.add)
+					ns := m.ns
+					ns.unconsume(p, m.add, cons, false)
+				} else {
+					addPoolNew(newFor(m.ns.nc.NodeName, fdValue), p, -m.add)
+					m.ns.unconsume(p, m.add, cons, m.inc)
+				}
+			}
+		}
 	}
 }
 
@@ -1198,22 +1876,6 @@ func poolCurrent(existingDrives []ExistingContainer, p poolKind) int {
 	return sum
 }
 
-// poolAvg is the mean per-container capacity for pool p over the containers that carry it (0 if none).
-// It is the baseline the heterogeneous-fallback trigger compares a fresh grow chunk against.
-func poolAvg(existingDrives []ExistingContainer, p poolKind) int {
-	sum, n := 0, 0
-	for i := range existingDrives {
-		if v := poolCap(&existingDrives[i], p); v > 0 {
-			sum += v
-			n++
-		}
-	}
-	if n == 0 {
-		return 0
-	}
-	return sum / n
-}
-
 // poolNodeUsed is the set of nodes already hosting a pool-p container; they are grown in place, never
 // given a sibling (one container of a type per host in AUTO mode), so fresh placement skips them.
 func poolNodeUsed(existingDrives []ExistingContainer, p poolKind) map[string]struct{} {
@@ -1226,10 +1888,17 @@ func poolNodeUsed(existingDrives []ExistingContainer, p poolKind) map[string]str
 	return used
 }
 
-// growChunk is the per-FD capacity a grow would add if delta were spread evenly across minFd FDs, floored
-// at MinChunk — the magnitude the heterogeneous-fallback trigger weighs against the existing average.
-func growChunk(delta, minFd int, cons *CapacityConstraints) int {
-	return max(cons.MinChunkSizeGiB, util.CeilDiv(delta, minFd))
+// OverProvisionCapGiB is the GiB a pool may exceed its desired raw capacity WITHOUT triggering the
+// ClusterCapacityShrink advisory. The create-new-before-grow path over-provisions by up to one uniform
+// chunk (bounded by MaxOverProvisionFraction) on purpose, so that intentional overage stays silent rather
+// than nag the operator to delete containers (it would otherwise contradict the ClusterCapacityOverProvisioned
+// event). NOTE: this also suppresses the advisory for a deliberate clusterCapacity DOWNSIZE smaller than
+// this fraction — acceptable since such an overage is minor and visible via capacity inspection.
+func OverProvisionCapGiB(desiredRaw int, cons *CapacityConstraints) int {
+	if desiredRaw <= 0 {
+		return 0
+	}
+	return int(cons.MaxOverProvisionFraction * float64(desiredRaw))
 }
 
 // shrinkMsg is the ClusterCapacityShrink advisory for an over-provisioned pool (never auto-applied).
@@ -1240,7 +1909,7 @@ func shrinkMsg(p poolKind, desiredRaw, current int) string {
 }
 
 // resolveExactNewFds maps an explicit driveContainers count (targetFds) onto the EXACT number of fresh FDs
-// this pool must add, or -1 when driveContainers is unset (auto — waterFill selects N via the even rule).
+// this pool must add, or -1 when driveContainers is unset (auto — selectUniform picks N via the uniform rule).
 // It enforces the fail-fast checks: the pinned count cannot be below the FDs already present, cannot require
 // placement with no room left, and cannot drive a per-container share below MinChunk. delta is the capacity
 // still to place.
@@ -1267,102 +1936,47 @@ func resolveExactNewFds(p poolKind, targetFds int, existingDrives []ExistingCont
 	return exactNewFds, ""
 }
 
-// balancedFresh is the heterogeneous-fallback POLICY: lay out a fresh, internally-balanced set of new
-// containers holding the FULL desiredRaw across the capable FRESH failure domains (those without an
-// existing this-pool container), ignoring the existing containers entirely (they are presumed deletable
-// once data migrates). It is a thin wrapper over the unified waterFill — it builds the fresh-only
-// participating set and water-fills desiredRaw over it with NO existing FDs — plus the delete-old advisory
-// warning. Returns true when the full desiredRaw was placed across at least minFd FDs.
-func balancedFresh(
-	p poolKind,
-	desiredRaw, minFd int,
-	existingDrives []ExistingContainer,
-	states map[string]*nodeState,
-	cons *CapacityConstraints,
-	newByNode map[string]*NewContainer,
-	newFor func(node, fd string) *NewContainer,
-	plan *CapacityPlan,
-) bool {
-	// FDs that already host an existing this-pool container are NOT fresh — the fresh balanced set stands
-	// on its own across NEW failure domains. poolNodeUsed (keyed by node) likewise keeps freshFdFills from
-	// re-using a node that already carries this pool.
-	poolNodeUsed := map[string]struct{}{}
-	existingFD := map[string]struct{}{}
-	for _, c := range existingDrives {
-		if poolCap(&c, p) > 0 {
-			if c.Node != "" {
-				poolNodeUsed[c.Node] = struct{}{}
-			}
-			if c.FDValue != "" {
-				existingFD[c.FDValue] = struct{}{}
-			}
-		}
-	}
-
-	// Fresh-only participating set: every genuinely-fresh FD with placeable headroom, excluding the FDs the
-	// existing containers occupy. (freshFdFills already drops FDs present in its `existing` arg; pass an
-	// existing-FD stub set so a fresh slot never describes a held FD.)
-	excludeExisting := make([]*fdFill, 0, len(existingFD))
-	for fd := range existingFD {
-		excludeExisting = append(excludeExisting, &fdFill{fd: fd})
-	}
-	fresh := freshFdFills(p, excludeExisting, states, poolNodeUsed, cons)
-	if len(fresh) < minFd {
-		return false // cannot form a fresh balanced set; fall back to the incremental path
-	}
-
-	// All-or-nothing pre-check (no mutation): the fresh set's aggregate ceiling must hold the FULL
-	// desiredRaw, otherwise fall through to the incremental path with states untouched. waterFill only
-	// mutates as it places, so this necessary-condition guard keeps a partial fresh layout from corrupting
-	// the fallback. (The per-FD MinChunk floor is satisfied because the heterogeneous trigger implies
-	// desiredRaw/minFd >= MinChunk.)
-	totalCeiling := 0
-	for _, f := range fresh {
-		totalCeiling += f.ceiling
-	}
-	if totalCeiling < desiredRaw {
-		return false
-	}
-
-	// Water-fill the FULL desiredRaw over the fresh-only set (no existing FDs participate). remaining ==
-	// desiredRaw because every fresh FD starts at cap 0.
-	left := waterFill(p, desiredRaw, minFd, -1 /*auto N*/, nil /*no existing*/, fresh, cons, nil /*never grows*/, newByNode, newFor)
-	if left > 0 {
-		return false
-	}
-
-	// Count distinct fresh FDs that actually received capacity, for the advisory.
-	placedFds := map[string]struct{}{}
-	for _, f := range fresh {
-		for _, ns := range f.hosts {
-			if n, ok := newByNode[ns.nc.NodeName]; ok && poolCapNew(n, p) > 0 {
-				placedFds[f.fd] = struct{}{}
-			}
-		}
-	}
-	n := len(placedFds)
-	if n < minFd {
-		return false
-	}
-	plan.Warnings = append(plan.Warnings, fmt.Sprintf(
-		"%s capacity grew heterogeneously: created a fresh balanced set of ~%d GiB across %d failure domains. "+
-			"The older, smaller drive containers can be deleted manually once data has migrated.",
-		p, util.CeilDiv(desiredRaw, n), n))
-	return true
-}
-
 // fdGroup is a failure domain's candidate nodes for new-container placement: its member node states
 // (headroom desc) and aggregate headroom (sum over members) for the fit check. Built by orderFreshFdGroups.
 type fdGroup struct {
 	nodes    []*nodeState // nodes in this FD, headroom desc (inherited from cands' order)
 	headroom int          // aggregate FD headroom (sum over its candidate nodes), for the fit check
+	// hasDeletingDriveContainer is true when any member node still hosts a this-cluster drive container being
+	// deleted. takeFreshAtLevel deprioritizes such FDs so a replacement is not recreated on the node it
+	// was just deleted from while a free FD exists.
+	hasDeletingDriveContainer bool
+}
+
+// takeFreshAtLevel returns up to k fresh candidate FDs that can host `level`, preferring FDs with no
+// deleting container over those that have one (each tier kept in the headroom-desc order from
+// orderFreshFdGroups). A node still hosting a this-cluster drive container being deleted re-enters the
+// fresh pool the instant that container leaves existingDrives, and once its capacity frees it is the
+// emptiest (highest-headroom) FD — so by raw headroom it would win and the replacement FD would be
+// recreated on the node it was just deleted from. Taking not-deleting FDs first avoids that, while the
+// `level` filter keeps a too-small not-deleting FD from being chosen over a capable deleting one — the
+// deleting FD stays eligible as a fallback (e.g. the only node with scarce QLC drives). When no FD
+// hosts a deleting container this is simply the front-k of the headroom-desc list.
+func takeFreshAtLevel(fresh []*fdGroup, k, level int) []*fdGroup {
+	out := make([]*fdGroup, 0, k)
+	for _, wantDeleting := range []bool{false, true} {
+		for _, g := range fresh {
+			if len(out) >= k {
+				return out
+			}
+			if g.headroom >= level && g.hasDeletingDriveContainer == wantDeleting {
+				out = append(out, g)
+			}
+		}
+	}
+	return out
 }
 
 // orderFreshFdGroups returns the failure domains with placeable headroom for pool p — candidate nodes not
 // already hosting a this-pool container (poolNodeUsed), each with >= MinChunk headroom — grouped by FDValue
-// and ordered by best-node headroom desc (first-seen). Shared by freshFdFills (which feeds the unified
-// waterFill) so selection and fill agree on the candidate FD set and its order. In AUTO mode (FDValue ==
-// node name) each group holds one node, so the order is identical to the plain node-headroom-desc sort.
+// and ordered by best-node headroom desc (first-seen). Shared by selectUniform / placeUniform (and the
+// uniform-increase fresh-candidate scan) so selection and placement agree on the candidate FD set and its
+// order. In AUTO mode (FDValue == node name) each group holds one node, so the order is identical to the
+// plain node-headroom-desc sort.
 func orderFreshFdGroups(p poolKind, states map[string]*nodeState, poolNodeUsed map[string]struct{}, cons *CapacityConstraints) []*fdGroup {
 	var cands []*nodeState
 	for _, ns := range states {
@@ -1391,379 +2005,11 @@ func orderFreshFdGroups(p poolKind, states map[string]*nodeState, poolNodeUsed m
 		}
 		g.nodes = append(g.nodes, ns)
 		g.headroom += ns.nodeHeadroom(p, cons, true)
+		if ns.hasDeletingDriveContainer {
+			g.hasDeletingDriveContainer = true
+		}
 	}
 	return order
-}
-
-// fdFill is one failure domain the planner fills for a pool: its candidate hosts in fill order, the
-// running this-pool capacity (seeded with the FD's current capacity for an existing FD, 0 for a fresh
-// one), the ceiling it can be filled to (current + Σ host headroom), and — for an existing FD — the
-// containers to grow, index-aligned with hosts. A nil grow slice marks a fresh FD (create new containers).
-type fdFill struct {
-	fd      string
-	cap     int
-	ceiling int
-	hosts   []*nodeState
-	grow    []ExistingContainer
-}
-
-// existingFdFills builds one fdFill per failure domain that this cluster already occupies — every
-// scheduled container grouped by FDValue. Each FD's hosts and grow targets are its containers' nodes
-// ordered smallest-this-pool-capacity first, cap = Σ current this-pool capacity, ceiling = cap + Σ host
-// headroom; FDs are returned smallest-cap first so the grow phase tops up the smallest FDs first, leveling
-// pre-existing skew. A TLC-only container appears here for the QLC pool with cap 0, so growing its QLC
-// converts it to mixed in place (and vice-versa).
-//
-// When freezeExisting is set (enableDynamicDriveScalingForSharedDrives=false), each FD's ceiling is
-// pinned to its current cap — no host headroom is added — so waterFill still counts the FD toward the
-// per-FD target denominator (keeping new FDs sized to the common even target) but can never grow it: with
-// ceiling == cap the FD's water-fill increment is forced to zero, so the whole delta lands on fresh FDs.
-func existingFdFills(p poolKind, existingDrives []ExistingContainer, states map[string]*nodeState, cons *CapacityConstraints, freezeExisting bool) []*fdFill {
-	growable := make([]ExistingContainer, 0, len(existingDrives))
-	for _, c := range existingDrives {
-		if c.Unscheduled || c.Node == "" || states[c.Node] == nil {
-			continue
-		}
-		growable = append(growable, c)
-	}
-	sort.Slice(growable, func(i, j int) bool {
-		ci, cj := poolCap(&growable[i], p), poolCap(&growable[j], p)
-		if ci != cj {
-			return ci < cj // smallest this-pool capacity first
-		}
-		if growable[i].FDValue != growable[j].FDValue {
-			return growable[i].FDValue < growable[j].FDValue
-		}
-		if growable[i].Node != growable[j].Node {
-			return growable[i].Node < growable[j].Node
-		}
-		return growable[i].Name < growable[j].Name
-	})
-	byFd := map[string]*fdFill{}
-	order := make([]*fdFill, 0, len(growable))
-	for _, c := range growable {
-		f := byFd[c.FDValue]
-		if f == nil {
-			f = &fdFill{fd: c.FDValue}
-			byFd[c.FDValue] = f
-			order = append(order, f)
-		}
-		ns := states[c.Node]
-		capc := poolCap(&c, p)
-		f.hosts = append(f.hosts, ns)
-		f.grow = append(f.grow, c)
-		f.cap += capc
-		f.ceiling += capc
-		if !freezeExisting {
-			f.ceiling += ns.nodeHeadroom(p, cons, false) // headroom this FD could grow into
-		}
-	}
-	// Smallest FD first (then FDValue) so the grow phase levels the smallest FDs up toward the target.
-	sort.SliceStable(order, func(i, j int) bool {
-		if order[i].cap != order[j].cap {
-			return order[i].cap < order[j].cap
-		}
-		return order[i].fd < order[j].fd
-	})
-	return order
-}
-
-// freshFdFills returns the genuinely-fresh failure domains for pool p — those not already represented in
-// `existing` — as single fill slots (cap 0, ceiling = aggregate host headroom), in orderFreshFdGroups
-// order (best-node headroom desc). Excluding the existing FDs keeps a fresh slot and an existing slot from
-// ever describing the same FD (a TLC-only node's FD, fresh for QLC but already grown there).
-func freshFdFills(p poolKind, existing []*fdFill, states map[string]*nodeState, poolNodeUsed map[string]struct{}, cons *CapacityConstraints) []*fdFill {
-	existingFd := make(map[string]struct{}, len(existing))
-	for _, f := range existing {
-		existingFd[f.fd] = struct{}{}
-	}
-	var out []*fdFill
-	for _, g := range orderFreshFdGroups(p, states, poolNodeUsed, cons) {
-		fd := g.nodes[0].nc.FDValue
-		if _, dup := existingFd[fd]; dup {
-			continue
-		}
-		out = append(out, &fdFill{fd: fd, ceiling: g.headroom, hosts: g.nodes})
-	}
-	return out
-}
-
-// waterFill is the UNIFIED drive-pool water-fill: one pass over the COMBINED existing + fresh failure-domain
-// set that selects the FD count, levels every chosen FD toward one common per-FD target, redistributes any
-// ceiling-forced overflow across all FDs with headroom, and places each FD's increment across its hosts
-// (growing existing containers / creating new ones). It subsumes the former selectFdTarget +
-// growExistingToTarget + distributeFreshEven trio.
-//
-// exactNewFds: -1 == auto (select N via the even rule below); >= 0 == pin the fresh-FD count exactly
-// (explicit driveContainers — existing FDs always all participate, plus exactly exactNewFds fresh FDs).
-// growFor may be nil only when there are no existing FDs (the fresh-only balancedFresh policy). `remaining`
-// is the GiB still to place (delta for a grow, desiredRaw for a fresh-only set). Returns the GiB it could
-// not place; the caller's poolFeasibility flags any genuine shortfall.
-func waterFill(
-	p poolKind,
-	desiredRaw, minFd, exactNewFds int,
-	existing, fresh []*fdFill,
-	cons *CapacityConstraints,
-	growFor func(ExistingContainer) *ContainerGrowth,
-	newByNode map[string]*NewContainer,
-	newFor func(node, fd string) *NewContainer,
-) int {
-	if desiredRaw <= 0 {
-		return 0
-	}
-	nExisting := len(existing)
-
-	// reach sums the per-FD fill at target T over the existing FDs and the first nFresh fresh FDs: each FD
-	// fills to min(T, ceiling) but never below its current cap (existing never shrink; fresh cap == 0).
-	reach := func(nFresh, T int) int {
-		sum := 0
-		fill := func(cur, ceil int) {
-			c := max(min(T, ceil), cur)
-			sum += c
-		}
-		for _, f := range existing {
-			fill(f.cap, f.ceiling)
-		}
-		for i := 0; i < nFresh && i < len(fresh); i++ {
-			fill(0, fresh[i].ceiling)
-		}
-		return sum
-	}
-	// anyChosenBelow reports whether any chosen FD (existing or first nFresh fresh) has a ceiling strictly
-	// below T — i.e. it would cap below the even share, the trigger for opening one more fresh FD.
-	anyChosenBelow := func(nFresh, T int) bool {
-		for _, f := range existing {
-			if f.ceiling < T && f.ceiling > f.cap { // a growable existing FD that can't reach the share
-				return true
-			}
-		}
-		for i := 0; i < nFresh && i < len(fresh); i++ {
-			if fresh[i].ceiling < T {
-				return true
-			}
-		}
-		return false
-	}
-
-	// --- Step 1: select the FD count N and the common per-FD target T. ---
-	var nFresh int
-	if exactNewFds >= 0 {
-		nFresh = min(exactNewFds, len(fresh)) // pinned count (explicit driveContainers)
-	} else {
-		// Auto: smallest N >= max(minFd, nExisting) such that the chosen set, filled to min(T, ceiling)
-		// (existing floored at cap), reaches desiredRaw — AND the unified EVEN rule: prefer opening another
-		// fresh FD over capping a chosen FD below the even share T, but only while the next fresh FD can
-		// hold the lowered share (its ceiling >= the lowered T). When fresh FDs run out, stop.
-		startN := max(minFd, nExisting)
-		startN = max(startN, 1)
-		nFresh = min(startN-nExisting, len(fresh))
-		for {
-			n := nExisting + nFresh
-			T := util.CeilDiv(desiredRaw, max(1, n))
-			if nFresh >= len(fresh) {
-				break // fresh pool exhausted — place what fits, poolFeasibility flags any shortfall
-			}
-			if reach(nFresh, T) < desiredRaw {
-				nFresh++ // can't hold the capacity yet — must extend
-				continue
-			}
-			// Capacity is satisfied. Open one more fresh FD only if it keeps the layout even: a chosen FD
-			// currently caps below the share AND the next fresh FD can hold the (lowered) share.
-			nextT := util.CeilDiv(desiredRaw, n+1)
-			if anyChosenBelow(nFresh, T) && fresh[nFresh].ceiling >= nextT {
-				nFresh++
-				continue
-			}
-			break
-		}
-	}
-	// --- Step 2 & 3: per-FD allocation by EVEN water-fill to a common LEVEL. Each chosen FD ends at
-	// clamp(level, cap, ceiling): FDs below the level are raised toward it (so a smaller pre-existing FD
-	// catches up first), FDs at/above their cap never shrink, and FDs that hit their ceiling hand their
-	// deficit to the rest — symmetric forced overflow across existing AND fresh. The water level is the
-	// largest L for which Σ clamp(L, cap, ceiling) <= desiredRaw; the residual (not absorbed at L because of
-	// integer rounding) is then handed out round-robin to FDs still under ceiling. Smallest-cap FDs come
-	// first in `chosen` (existing smallest-first, fresh after), so the residual lands on them first. ---
-	chosen := make([]*fdFill, 0, nExisting+nFresh)
-	chosen = append(chosen, existing...)
-	chosen = append(chosen, fresh[:nFresh]...)
-
-	// budget = the NEW capacity to place: the desired total minus what the chosen FDs already hold (existing
-	// caps; fresh start at 0). want is simply desiredRaw. An empty chosen set leaves budget unplaced, which
-	// poolFeasibility then reports.
-	curTotal := 0
-	for _, f := range chosen {
-		curTotal += f.cap
-	}
-	budget := desiredRaw - curTotal
-	want := desiredRaw
-
-	// fillTo(L) = Σ clamp(L, cap, ceiling) over chosen FDs.
-	fillTo := func(L int) int {
-		sum := 0
-		for _, f := range chosen {
-			v := min(L, f.ceiling)
-			if v < f.cap {
-				v = f.cap
-			}
-			sum += v
-		}
-		return sum
-	}
-	// Binary-search the largest level L with fillTo(L) <= want. Upper bound = the largest ceiling.
-	hiL := 0
-	for _, f := range chosen {
-		if f.ceiling > hiL {
-			hiL = f.ceiling
-		}
-	}
-	level := 0
-	for lo, hi := 0, hiL; lo <= hi; {
-		mid := (lo + hi) / 2
-		if fillTo(mid) <= want {
-			level = mid
-			lo = mid + 1
-		} else {
-			hi = mid - 1
-		}
-	}
-	alloc := make([]int, len(chosen)) // target this-pool capacity per chosen FD (>= cap)
-	for i, f := range chosen {
-		alloc[i] = min(level, f.ceiling)
-		if alloc[i] < f.cap {
-			alloc[i] = f.cap
-		}
-	}
-	// Hand out the residual (want - fillTo(level)) round-robin to FDs still below their ceiling, smallest
-	// chosen first, so the totals stay as even as the ceilings allow without overshooting `want`.
-	residual := want - fillTo(level)
-	for residual > 0 {
-		progressed := false
-		for i, f := range chosen {
-			if residual <= 0 {
-				break
-			}
-			if alloc[i] >= f.ceiling {
-				continue
-			}
-			alloc[i]++
-			residual--
-			progressed = true
-		}
-		if !progressed {
-			break
-		}
-	}
-
-	// --- Step 4: place each FD's increment across its hosts. Existing FDs grow their index-aligned
-	// containers (no base memory); fresh FDs create new containers (base charged once per node, brand-new
-	// floored at MinChunk). The per-FD increment is split across the FD's live hosts, preserving the
-	// per-FD (not per-container) balance. Returns the GiB still unplaced. ---
-	left := budget
-	// existedNode: the node already carries SOME new container (any pool) from an earlier pass — its
-	// per-container base memory is charged already, so a merged add here must not charge it again.
-	existedNode := func(node string) bool { _, ok := newByNode[node]; return ok }
-	// hasNew: the node already carries a THIS-POOL new container — a follow-up top-up to it may be below
-	// MinChunk (the brand-new floor only applies to the first this-pool drive on the node).
-	hasNew := func(node string) bool {
-		nn, ok := newByNode[node]
-		return ok && poolCapNew(nn, p) > 0
-	}
-	for i, f := range chosen {
-		inc := alloc[i] - f.cap // this FD's planned increment
-		if inc <= 0 {
-			continue
-		}
-		if f.grow != nil {
-			// Existing FD: grow its containers (smallest first; hosts are pre-ordered), capped at headroom.
-			for hi, ns := range f.hosts {
-				if inc <= 0 {
-					break
-				}
-				room := ns.nodeHeadroom(p, cons, false)
-				if room <= 0 {
-					continue
-				}
-				add := min3(inc, left, room)
-				if add <= 0 {
-					continue
-				}
-				addPoolGrowth(growFor(f.grow[hi]), p, add)
-				ns.consume(p, add, cons, false)
-				inc -= add
-				left -= add
-			}
-			continue
-		}
-		// Fresh FD: create new containers, splitting `inc` evenly across the FD's live hosts. A multi-host
-		// FD receives the same per-FD capacity as a single-host one, just in more drives.
-		fdRound := min(inc, left)
-		for {
-			live := 0
-			for _, ns := range f.hosts {
-				if ns.nodeHeadroom(p, cons, !existedNode(ns.nc.NodeName)) > 0 {
-					live++
-				}
-			}
-			if live == 0 || fdRound <= 0 {
-				break
-			}
-			perNode := max(cons.MinChunkSizeGiB, util.CeilDiv(fdRound, live))
-			progressed := false
-			for _, ns := range f.hosts {
-				if fdRound <= 0 {
-					break
-				}
-				includeBase := !existedNode(ns.nc.NodeName)
-				hr := ns.nodeHeadroom(p, cons, includeBase)
-				if hr <= 0 {
-					continue
-				}
-				minAdd := cons.MinChunkSizeGiB
-				if hasNew(ns.nc.NodeName) {
-					minAdd = 1 // top-up to an already-created this-pool container may be small
-				}
-				add := min3(min(perNode, fdRound), left, hr)
-				if add < minAdd {
-					continue
-				}
-				addPoolNew(newFor(ns.nc.NodeName, ns.nc.FDValue), p, add)
-				ns.consume(p, add, cons, includeBase)
-				fdRound -= add
-				left -= add
-				progressed = true
-			}
-			if !progressed {
-				break
-			}
-		}
-	}
-
-	// Fold a sub-MinChunk tail into the highest-headroom node that already carries a new this-pool
-	// container, instead of opening another FD. Only for the auto path (explicit driveContainers pins the
-	// FD set exactly). Mirrors the former distributeFreshEven foldTail.
-	if exactNewFds < 0 && left > 0 && left < cons.MinChunkSizeGiB {
-		var best *nodeState
-		for _, f := range chosen {
-			if f.grow != nil {
-				continue
-			}
-			for _, ns := range f.hosts {
-				if !hasNew(ns.nc.NodeName) {
-					continue
-				}
-				if best == nil || ns.nodeHeadroom(p, cons, false) > best.nodeHeadroom(p, cons, false) {
-					best = ns
-				}
-			}
-		}
-		if best != nil && best.nodeHeadroom(p, cons, false) >= left {
-			addPoolNew(newFor(best.nc.NodeName, best.nc.FDValue), p, left)
-			best.consume(p, left, cons, false)
-			left = 0
-		}
-	}
-	return left
 }
 
 // orderNodesByFDSpread reorders `nodes` so that a prefix of the result spans as many distinct failure
@@ -1857,8 +2103,6 @@ func poolFeasibility(
 	}
 	return ""
 }
-
-func min3(a, b, c int) int { return min(min(a, b), c) }
 
 // splitDriveContainers maps an explicit total DriveContainers onto per-pool EXACT FD targets. With both
 // pools active it splits the total by raw-capacity ratio (rounded to nearest); a total below minFd, or a

@@ -126,18 +126,21 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*a
 			"hugepagesMiB", n.AvailableHugepagesMiB, "memoryMiB", n.AvailableMemoryMiB)
 	}
 
+	// An infeasible plan is the sole signal: emit only ClusterCapacityInfeasible and return, skipping
+	// the shrink/heterogeneous-growth/over-provision advisories (they would just be noise on a plan
+	// that creates/grows nothing).
+	if plan.Infeasible != "" {
+		_ = r.RecordEventThrottled(corev1.EventTypeWarning, "ClusterCapacityInfeasible", plan.Infeasible, time.Minute) //nolint:errcheck // best effort
+		return nil, lifecycle.NewWaitErrorWithDuration(fmt.Errorf("clusterCapacity infeasible: %s", plan.Infeasible), time.Minute)
+	}
 	for _, msg := range plan.ShrinkEvents {
 		_ = r.RecordEventThrottled(corev1.EventTypeNormal, "ClusterCapacityShrink", msg, time.Minute) //nolint:errcheck // best effort
 	}
 	for _, msg := range plan.Warnings {
-		_ = r.RecordEventThrottled(corev1.EventTypeWarning, "ClusterCapacityGrowth", msg, time.Minute) //nolint:errcheck // best effort
+		_ = r.RecordEventThrottled(corev1.EventTypeWarning, "ClusterCapacityHeterogeneousGrowth", msg, time.Minute) //nolint:errcheck // best effort
 	}
-	for _, msg := range plan.Imbalances {
-		_ = r.RecordEventThrottled(corev1.EventTypeWarning, "ClusterCapacityImbalance", msg, time.Minute) //nolint:errcheck // best effort
-	}
-	if plan.Infeasible != "" {
-		_ = r.RecordEventThrottled(corev1.EventTypeWarning, "ClusterCapacityInfeasible", plan.Infeasible, time.Minute) //nolint:errcheck // best effort
-		return nil, lifecycle.NewWaitErrorWithDuration(fmt.Errorf("clusterCapacity infeasible: %s", plan.Infeasible), time.Minute)
+	for _, msg := range plan.OverProvisions {
+		_ = r.RecordEventThrottled(corev1.EventTypeNormal, "ClusterCapacityOverProvisioned", msg, time.Minute) //nolint:errcheck // best effort
 	}
 	// Feasible plan that actually places capacity (creates/grows containers): emit a Normal event with a
 	// plan summary so operators get a positive signal (e.g. after recovering from ClusterCapacityInfeasible
@@ -145,51 +148,174 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*a
 	// spam across the repeated reconciles while the new containers materialize.
 	if len(plan.Create) > 0 || len(plan.Grow) > 0 {
 		_ = r.RecordEventThrottled(corev1.EventTypeNormal, "ClusterCapacityPlanned", //nolint:errcheck // best effort
-			formatCapacityPlanSummary(&plan, desired, s), time.Minute)
+			formatCapacityPlanSummary(&plan, desired, s, existingDrives), time.Minute)
 	}
 	return &plan, nil
 }
 
 // formatCapacityPlanSummary renders a one-line human summary of a feasible clusterCapacity plan for the
-// ClusterCapacityPlanned event: what the planner is placing (creates across nodes/FDs + grows), compute
-// sizing, and the cluster's target raw capacity / protection.
-func formatCapacityPlanSummary(plan *allocator.CapacityPlan, desired allocator.DesiredCapacity, s allocator.ProtectionScheme) string {
-	nodes := map[string]struct{}{}
-	fds := map[string]struct{}{}
-	var tlc, qlc int
-	for _, c := range plan.Create {
-		nodes[c.Node] = struct{}{}
-		if c.FDValue != "" {
-			fds[c.FDValue] = struct{}{}
-		}
-		tlc += c.TlcGiB
-		qlc += c.QlcGiB
-	}
+// ClusterCapacityPlanned event. Beyond bare counts it reports: the create breakdown by pool type
+// (mixed/TLC/QLC), the per-FD chunk and the capacity placed by creates; the grow leg's added capacity
+// and from→to cores (looked up against existingDrives); the compute node spread; minFdNum; and the
+// placed-vs-target raw capacity / protection.
+func formatCapacityPlanSummary(plan *allocator.CapacityPlan, desired allocator.DesiredCapacity, s allocator.ProtectionScheme, existingDrives []allocator.ExistingContainer) string {
 	var parts []string
+
+	// --- Create leg: type breakdown, per-FD chunk, and capacity placed ---
+	var createTlc, createQlc int
 	if len(plan.Create) > 0 {
-		parts = append(parts, fmt.Sprintf("creating %d drive container(s) across %d node(s) / %d failure domain(s) (%s)",
-			len(plan.Create), len(nodes), len(fds), util.FormatTlcQlcColumn(tlc, qlc)))
+		nodes := map[string]struct{}{}
+		fds := map[string]struct{}{}
+		var mixed, tlcOnly, qlcOnly int
+		for _, c := range plan.Create {
+			nodes[c.Node] = struct{}{}
+			if c.FDValue != "" {
+				fds[c.FDValue] = struct{}{}
+			}
+			createTlc += c.TlcGiB
+			createQlc += c.QlcGiB
+			switch {
+			case c.TlcGiB > 0 && c.QlcGiB > 0:
+				mixed++
+			case c.QlcGiB > 0:
+				qlcOnly++
+			default:
+				tlcOnly++
+			}
+		}
+		fdCount := len(fds)
+		// When the creates are all one type, fold the type into the noun ("creating 3 QLC drive
+		// container(s)"); a bracketed breakdown only adds information when they span types ("[2 mixed,
+		// 1 TLC]"), so "3 drive container(s) [3 QLC]" — which just restates the count — never appears.
+		var create string
+		if mixedKinds := nonZeroKinds(mixed, tlcOnly, qlcOnly); len(mixedKinds) == 1 {
+			create = fmt.Sprintf("creating %d %s drive container(s) across %d node(s) / %d failure domain(s)",
+				len(plan.Create), soleKindLabel(mixed, tlcOnly, qlcOnly), len(nodes), fdCount)
+		} else {
+			create = fmt.Sprintf("creating %d drive container(s) [%s] across %d node(s) / %d failure domain(s)",
+				len(plan.Create), strings.Join(mixedKinds, ", "), len(nodes), fdCount)
+		}
+		if fdCount > 0 {
+			create += fmt.Sprintf(" @ ~%s/FD", util.HumanReadableGiB((createTlc+createQlc)/fdCount))
+		}
+		create += fmt.Sprintf(", placing %s", util.FormatTlcQlcColumn(createTlc, createQlc))
+		parts = append(parts, create)
 	}
+
+	// --- Grow leg: added capacity and from→to cores (vs existingDrives) ---
+	var growTlc, growQlc int
 	if len(plan.Grow) > 0 {
-		parts = append(parts, fmt.Sprintf("growing %d existing container(s)", len(plan.Grow)))
+		oldByName := make(map[string]allocator.ExistingContainer, len(existingDrives))
+		for _, e := range existingDrives {
+			oldByName[e.Name] = e
+		}
+		var addedTlc, addedQlc, addedCores int
+		uniformCores := true
+		var fromCores, toCores int
+		shown := 0 // Grow entries with a matching existingDrives record (the only ones we can describe)
+		for _, g := range plan.Grow {
+			old, ok := oldByName[g.Name]
+			if !ok {
+				// A Grow always corresponds to an existing container, so a miss is a logic error. Skip it
+				// rather than subtract a zero baseline, which would inflate the reported added cores/capacity.
+				continue
+			}
+			addedTlc += g.NewTlcGiB - old.TlcGiB
+			addedQlc += g.NewQlcGiB - old.QlcGiB
+			addedCores += g.NewCores - old.NumCores
+			if shown == 0 {
+				fromCores, toCores = old.NumCores, g.NewCores
+			} else if old.NumCores != fromCores || g.NewCores != toCores {
+				uniformCores = false
+			}
+			shown++
+		}
+		if shown > 0 {
+			growTlc, growQlc = addedTlc, addedQlc
+			grow := fmt.Sprintf("growing %d existing container(s) (+%s", shown, util.FormatTlcQlcColumn(addedTlc, addedQlc))
+			if uniformCores {
+				grow += fmt.Sprintf(", cores %d→%d)", fromCores, toCores)
+			} else {
+				grow += fmt.Sprintf(", cores +%d)", addedCores)
+			}
+			parts = append(parts, grow)
+		}
 	}
-	if plan.ComputeContainers > 0 {
-		parts = append(parts, fmt.Sprintf("compute %d×%d cores", plan.ComputeContainers, plan.ComputeCores))
+
+	// --- Compute leg: container count, total cores, node spread ---
+	if len(plan.ComputeLayout) > 0 {
+		computeNodes := map[string]struct{}{}
+		var totalCores int
+		for _, c := range plan.ComputeLayout {
+			computeNodes[c.Node] = struct{}{}
+			totalCores += c.NumCores
+		}
+		parts = append(parts, fmt.Sprintf("compute %d container(s), %d cores on %d node(s)",
+			len(plan.ComputeLayout), totalCores, len(computeNodes)))
+	} else if plan.ComputeContainers > 0 {
+		computeNodeCount := plan.ComputeContainers
+		if len(plan.ComputeNodes) > 0 {
+			computeNodeCount = len(plan.ComputeNodes)
+		}
+		parts = append(parts, fmt.Sprintf("compute %d×%d cores on %d node(s)",
+			plan.ComputeContainers, plan.ComputeCores, computeNodeCount))
 	}
-	return fmt.Sprintf("clusterCapacity plan applied: %s; target raw %s, protection %d+%d+%d",
+
+	placed := createTlc + createQlc + growTlc + growQlc
+	return fmt.Sprintf("clusterCapacity plan applied: %s; minFdNum %d; target raw %s (placed %s), protection %d+%d+%d",
 		strings.Join(parts, "; "),
+		s.MinFdNum(),
 		util.FormatTlcQlcColumn(desired.TlcRawGiB, desired.QlcRawGiB),
+		util.HumanReadableGiB(placed),
 		s.StripeWidth, s.RedundancyLevel, s.HotSpare)
+}
+
+// nonZeroKinds renders the "%d <type>" clauses for the create type breakdown, in the order mixed, TLC,
+// QLC, omitting any type with no containers.
+func nonZeroKinds(mixed, tlcOnly, qlcOnly int) []string {
+	var kinds []string
+	if mixed > 0 {
+		kinds = append(kinds, fmt.Sprintf("%d mixed", mixed))
+	}
+	if tlcOnly > 0 {
+		kinds = append(kinds, fmt.Sprintf("%d TLC", tlcOnly))
+	}
+	if qlcOnly > 0 {
+		kinds = append(kinds, fmt.Sprintf("%d QLC", qlcOnly))
+	}
+	return kinds
+}
+
+// soleKindLabel returns the bare type label ("mixed"/"TLC"/"QLC") of whichever bucket is the only non-zero
+// one. Callers must guarantee exactly one of the three is non-zero (the homogeneous create case).
+func soleKindLabel(mixed, tlcOnly, qlcOnly int) string {
+	switch {
+	case tlcOnly > 0:
+		return "TLC"
+	case qlcOnly > 0:
+		return "QLC"
+	default:
+		return "mixed"
+	}
 }
 
 // firstUnscheduledDriveContainer returns the name of the first owned drive container that is alive
 // (not marked-for-deletion / deleting / destroying) yet has no scheduled node — its pod is being
 // (re)created (Status.NodeAffinity == ""). Containers that are leaving are skipped on purpose: they
 // must not stall planning. Returns ok=false when every alive drive container is scheduled.
+//
+// Capacity is gauged via driveContainerCapacities (not HasContainerCapacity) so that a container
+// expressing capacity through Spec.DriveCapacity/NumDrives — not only Spec.ContainerCapacity — also
+// forces deferral. This keeps the planner's invariant honest: no capacity-bearing unscheduled drive
+// container ever reaches the capacity planner, which is what makes the planner's Unscheduled skips
+// safe (they stay purely defensive).
 func firstUnscheduledDriveContainer(containers []*weka.WekaContainer) (string, bool) {
 	for _, c := range containers {
-		if c.Spec.Mode != weka.WekaContainerModeDrive || !c.HasContainerCapacity() {
+		if c.Spec.Mode != weka.WekaContainerModeDrive {
 			continue
+		}
+		if tlc, qlc := driveContainerCapacities(c); tlc == 0 && qlc == 0 {
+			continue // carries no planner capacity — its (un)scheduling cannot distort capacity math
 		}
 		if c.IsMarkedForDeletion() || c.IsDeletingState() || c.IsDestroyingState() {
 			continue // leaving — do not let it stall planning
@@ -310,7 +436,9 @@ func (r *wekaClusterReconcilerLoop) steadyStatePlan(ctx context.Context, desired
 	// Over-provisioned pools: emit the shrink advisory (throttled, identical to the full path) but never
 	// auto-shrink. Drives are still "covered", so we skip inventory.
 	emitShrink := func(pool string, cur, want int) {
-		if cur <= want {
+		// Suppress the advisory for an in-cap overage — the create-new-before-grow path over-provisions by
+		// up to one uniform chunk on purpose (see allocator.OverProvisionCapGiB).
+		if cur-want <= allocator.OverProvisionCapGiB(want, cons) {
 			return
 		}
 		msg := fmt.Sprintf("%s capacity is over-provisioned by %d GiB (desired %d, current %d); delete WekaContainers manually to shrink — the operator never auto-shrinks",
@@ -378,6 +506,20 @@ func (r *wekaClusterReconcilerLoop) buildNodeInventory(ctx context.Context) (fds
 
 	fdConfig := cluster.Spec.FailureDomain
 
+	// Nodes still hosting THIS cluster's drive container being deleted. Such a container is excluded from
+	// existingDrives (buildExistingDriveContainers skips marked-for-deletion via utils.IsUnhealthy), so the
+	// node re-enters the fresh-candidate pool while its footprint is still charged here. Flagging the drive
+	// entry lets the planner deprioritize the node for fresh drive placement — otherwise a replacement FD is
+	// recreated on the node it was just deleted from. Keyed on the deletion timestamp only (IsMarkedForDeletion).
+	deletingDriveNodes := map[string]bool{}
+	for _, c := range r.containers {
+		if c.Spec.Mode == weka.WekaContainerModeDrive && c.IsMarkedForDeletion() {
+			if n := string(c.GetNodeAffinity()); n != "" {
+				deletingDriveNodes[n] = true
+			}
+		}
+	}
+
 	// Per-node compute resource headroom (cores/hugepages/memory), net of drive containers on the node.
 	headroom := func(node *corev1.Node) (cpu, hugepagesMiB, memoryMiB int) {
 		cpu = max(0, int(node.Status.Allocatable.Cpu().Value())-consumed.cores[node.Name])
@@ -419,13 +561,14 @@ func (r *wekaClusterReconcilerLoop) buildNodeInventory(ctx context.Context) (fds
 		qlcGiB := max(0, physQLC-consumed.qlc[node.Name])
 		cpu, hugepagesMiB, memoryMiB := headroom(node)
 		driveInv = append(driveInv, allocator.NodeCapacity{
-			NodeName:              node.Name,
-			FDValue:               fdValue,
-			TlcGiB:                tlcGiB,
-			QlcGiB:                qlcGiB,
-			AllocatableCPU:        cpu,
-			AvailableHugepagesMiB: hugepagesMiB,
-			AvailableMemoryMiB:    memoryMiB,
+			NodeName:                  node.Name,
+			FDValue:                   fdValue,
+			TlcGiB:                    tlcGiB,
+			QlcGiB:                    qlcGiB,
+			AllocatableCPU:            cpu,
+			AvailableHugepagesMiB:     hugepagesMiB,
+			AvailableMemoryMiB:        memoryMiB,
+			HasDeletingDriveContainer: deletingDriveNodes[node.Name],
 		})
 	}
 
