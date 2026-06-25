@@ -145,6 +145,21 @@ func (d *DiscoveryNodeInfo) GetContainerSharedDataPath(uid types.UID) string {
 	return fmt.Sprintf("%s/containers/%s", d.GetHostsideSharedData(), uid)
 }
 
+// GetHostsideEphemeralShare returns the host-side, node-level directory under
+// /run (ephemeral — cleared on reboot) that is shared across all pods and
+// clusters on this node. It is the generic parent for node-scoped ephemeral
+// state; not tied to persistent storage or to any single cluster.
+func (d *DiscoveryNodeInfo) GetHostsideEphemeralShare() string {
+	return "/run/weka/ephemeral"
+}
+
+// GetHostsideSharedNetnsPath returns the host-side netns directory under the
+// node ephemeral share. Shared across all pods and clusters on this node so
+// network namespaces created on the host propagate to weka containers and back.
+func (d *DiscoveryNodeInfo) GetHostsideSharedNetnsPath() string {
+	return d.GetHostsideEphemeralShare() + "/shared-netns"
+}
+
 func (d *DiscoveryNodeInfo) GetHostsideClusterPersistence() string {
 	return d.GetHostsidePersistenceBaseLocation() + "/clusters"
 }

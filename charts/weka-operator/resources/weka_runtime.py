@@ -2917,7 +2917,7 @@ async def configure_persistency():
     command = dedent(f"""
         # Main persistent storage setup (only if /host-binds/opt-weka exists)
         if [ -d /host-binds/opt-weka ]; then
-            # --- the /run/netns Bidirectional volume causes runc to set
+            # --- the shared-netns Bidirectional volume causes runc to set
             # --- rootfsPropagation=rshared, placing /opt/weka in a shared peer group.
             # --- this always happens on CRI-O; on containerd it happens when containers
             # --- land in the same peer group (e.g. on nodes whose containerd DB was reset).
@@ -2960,6 +2960,12 @@ async def configure_persistency():
             mkdir -p /host-binds/shared/local-sockets
             mkdir -p /opt/weka/external-mounts/local-sockets
             mount -o bind /host-binds/shared/local-sockets /opt/weka/external-mounts/local-sockets
+        fi
+
+        if [ -d /host-binds/shared-netns ]; then
+            mkdir -p /opt/weka/external-mounts/shared-netns
+            mount -o bind /host-binds/shared-netns /opt/weka/external-mounts/shared-netns
+            mount --make-rshared /opt/weka/external-mounts/shared-netns
         fi
 
         if [ -f /var/run/secrets/weka-operator/wekahome-cacert/cert.pem ]; then
