@@ -78,16 +78,23 @@ spec:
                 description: additional memory to allocate for weka containers
                 properties:
                   compute:
+                    description: Additional memory in MiB for compute containers (positive
+                      or negative offset from auto-calculated baseline).
                     type: integer
                   dataServices:
                     type: integer
                   drive:
+                    description: Additional memory in MiB for drive containers.
                     type: integer
                   envoy:
+                    description: Additional memory in MiB for Envoy proxy containers
+                      (used by S3 gateway).
                     type: integer
                   nfs:
+                    description: Additional memory in MiB for NFS protocol containers.
                     type: integer
                   s3:
+                    description: Additional memory in MiB for S3 gateway containers.
                     type: integer
                   smbw:
                     type: integer
@@ -124,8 +131,12 @@ spec:
                 - manual
                 type: string
               csiConfig:
+                description: Configuration for the Weka CSI Driver integration. Controls
+                  how the CSI driver discovers and connects to this cluster.
                 properties:
                   advanced:
+                    description: Advanced CSI driver settings. Should not be changed
+                      unless explicitly instructed by Weka support.
                     properties:
                       controllerLabels:
                         additionalProperties:
@@ -217,8 +228,12 @@ spec:
                         type: boolean
                     type: object
                   csiGroup:
+                    description: CSI driver group name. Scopes CSI resources when
+                      multiple Weka clusters coexist in the same namespace.
                     type: string
                   endpointsSubnets:
+                    description: CIDR subnets to filter which management IPs are advertised
+                      to the CSI driver. Leave empty to advertise all.
                     items:
                       type: string
                     type: array
@@ -231,18 +246,24 @@ spec:
                 description: weka cluster topology configuration
                 properties:
                   computeContainers:
+                    description: Number of compute containers per cluster node.
                     minimum: 0
                     type: integer
                   computeCores:
+                    description: Number of cores allocated to each compute container.
                     minimum: 0
                     type: integer
                   computeExtraCores:
                     minimum: 0
                     type: integer
                   computeHugepages:
+                    description: Hugepage allocation in MiB for compute containers.
+                      0 means auto-calculated.
                     minimum: 0
                     type: integer
                   computeHugepagesOffset:
+                    description: Offset in MiB applied to the auto-calculated hugepage
+                      allocation for compute containers.
                     minimum: 0
                     type: integer
                   containerCapacity:
@@ -276,18 +297,24 @@ spec:
                     minimum: 0
                     type: integer
                   driveContainers:
+                    description: Number of drive containers per cluster node.
                     minimum: 0
                     type: integer
                   driveCores:
+                    description: Number of cores allocated to each drive container.
                     minimum: 0
                     type: integer
                   driveExtraCores:
                     minimum: 0
                     type: integer
                   driveHugepages:
+                    description: Hugepage allocation in MiB for drive containers.
+                      0 means auto-calculated.
                     minimum: 0
                     type: integer
                   driveHugepagesOffset:
+                    description: Offset in MiB applied to the auto-calculated hugepage
+                      allocation for drive containers.
                     minimum: 0
                     type: integer
                   driveTypesRatio:
@@ -307,39 +334,56 @@ spec:
                     - tlc
                     type: object
                   envoyCores:
+                    description: Number of cores allocated to the Envoy proxy process
+                      used by the S3 gateway.
                     minimum: 0
                     type: integer
                   nfsContainers:
+                    description: Number of NFS protocol containers per cluster node.
                     minimum: 0
                     type: integer
                   nfsCores:
+                    description: Number of cores allocated to each NFS container.
                     minimum: 0
                     type: integer
                   nfsExtraCores:
+                    description: Additional non-DPDK cores for NFS containers.
                     minimum: 0
                     type: integer
                   nfsFrontendHugepages:
+                    description: Hugepage allocation in MiB for NFS frontend threads.
                     minimum: 0
                     type: integer
                   nfsFrontendHugepagesOffset:
+                    description: Offset in MiB for NFS frontend hugepage allocation.
                     minimum: 0
                     type: integer
                   numDrives:
+                    description: Number of virtual or physical drives per drive container.
+                      Mutually exclusive with containerCapacity.
                     minimum: 0
                     type: integer
                   s3Containers:
+                    description: Number of S3 gateway containers per cluster node.
                     minimum: 0
                     type: integer
                   s3Cores:
+                    description: Number of cores allocated to each S3 gateway container.
                     minimum: 0
                     type: integer
                   s3ExtraCores:
+                    description: Additional non-DPDK cores for S3 gateway containers,
+                      used for background tasks.
                     minimum: 0
                     type: integer
                   s3FrontendHugepages:
+                    description: Hugepage allocation in MiB for S3 gateway frontend
+                      threads.
                     minimum: 0
                     type: integer
                   s3FrontendHugepagesOffset:
+                    description: Offset in MiB applied to the auto-calculated hugepage
+                      allocation for S3 frontend threads.
                     minimum: 0
                     type: integer
                   smbwContainers:
@@ -398,6 +442,8 @@ spec:
                 - message: driveCapacity must be greater than 0 when specified
                   rule: '!has(self.driveCapacity) || self.driveCapacity > 0'
               encryption:
+                description: Encryption configuration for data at rest. Configure
+                  a HashiCorp Vault KMS for production use.
                 properties:
                   internal:
                     description: InternalConfig defines internal encryption settings,
@@ -411,6 +457,8 @@ spec:
                     - enabled
                     type: object
                   vault:
+                    description: Configures a HashiCorp Vault KMS for encryption key
+                      management. Recommended for production.
                     properties:
                       address:
                         description: Vault address, e.g. "https://vault.example.com:8200".
@@ -474,10 +522,16 @@ spec:
                     type: integer
                 type: object
               globalPVC:
+                description: Reference to a PVC shared by all Weka containers. Use
+                  to persist container state on nodes lacking local NVMe storage.
                 properties:
                   name:
+                    description: Name of the PersistentVolumeClaim to mount into all
+                      Weka containers.
                     type: string
                   path:
+                    description: Mount path inside the Weka container. Defaults to
+                      /opt/k8s-weka when empty.
                     type: string
                 required:
                 - name
@@ -552,6 +606,8 @@ spec:
                       If you have a flat, non-routed backend network, you can leave this field empty.
                     type: string
                   managementIpsSelectors:
+                    description: Selectors for management IPs used for cluster API
+                      and agent communication.
                     items:
                       properties:
                         deviceNames:
@@ -561,12 +617,19 @@ spec:
                         disableRdma:
                           type: boolean
                         max:
+                          description: Maximum number of interfaces to select per
+                            node matching this selector.
                           type: integer
                         min:
+                          description: Minimum number of interfaces required from
+                            nodes matching this selector.
                           type: integer
                         rdmaOnly:
                           type: boolean
                         subnet:
+                          description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                            interfaces. Only interfaces with an IP in this subnet
+                            are eligible.
                           type: string
                       type: object
                     type: array
@@ -576,6 +639,8 @@ spec:
                       When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
                     type: boolean
                   selectors:
+                    description: Selectors define how backend data-path network interfaces
+                      are chosen on each node.
                     items:
                       properties:
                         deviceNames:
@@ -585,12 +650,19 @@ spec:
                         disableRdma:
                           type: boolean
                         max:
+                          description: Maximum number of interfaces to select per
+                            node matching this selector.
                           type: integer
                         min:
+                          description: Minimum number of interfaces required from
+                            nodes matching this selector.
                           type: integer
                         rdmaOnly:
                           type: boolean
                         subnet:
+                          description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                            interfaces. Only interfaces with an IP in this subnet
+                            are eligible.
                           type: string
                       type: object
                     type: array
@@ -625,8 +697,12 @@ spec:
                   used by operator, used in flow of migration
                 type: string
               overrides:
+                description: Advanced override settings for cluster operations. Only
+                  use when explicitly instructed by Weka support.
                 properties:
                   allowS3ClusterDestroy:
+                    description: When true, permits cluster deletion even when an
+                      active S3 cluster exists. Destructive — will erase all S3 data.
                     type: boolean
                   allowSmbwClusterDestroy:
                     type: boolean
@@ -943,6 +1019,8 @@ spec:
                           If you have a flat, non-routed backend network, you can leave this field empty.
                         type: string
                       managementIpsSelectors:
+                        description: Selectors for management IPs used for cluster
+                          API and agent communication.
                         items:
                           properties:
                             deviceNames:
@@ -952,12 +1030,19 @@ spec:
                             disableRdma:
                               type: boolean
                             max:
+                              description: Maximum number of interfaces to select
+                                per node matching this selector.
                               type: integer
                             min:
+                              description: Minimum number of interfaces required from
+                                nodes matching this selector.
                               type: integer
                             rdmaOnly:
                               type: boolean
                             subnet:
+                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                                interfaces. Only interfaces with an IP in this subnet
+                                are eligible.
                               type: string
                           type: object
                         type: array
@@ -967,6 +1052,8 @@ spec:
                           When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
                         type: boolean
                       selectors:
+                        description: Selectors define how backend data-path network
+                          interfaces are chosen on each node.
                         items:
                           properties:
                             deviceNames:
@@ -976,12 +1063,19 @@ spec:
                             disableRdma:
                               type: boolean
                             max:
+                              description: Maximum number of interfaces to select
+                                per node matching this selector.
                               type: integer
                             min:
+                              description: Minimum number of interfaces required from
+                                nodes matching this selector.
                               type: integer
                             rdmaOnly:
                               type: boolean
                             subnet:
+                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                                interfaces. Only interfaces with an IP in this subnet
+                                are eligible.
                               type: string
                           type: object
                         type: array
@@ -1033,6 +1127,8 @@ spec:
                           If you have a flat, non-routed backend network, you can leave this field empty.
                         type: string
                       managementIpsSelectors:
+                        description: Selectors for management IPs used for cluster
+                          API and agent communication.
                         items:
                           properties:
                             deviceNames:
@@ -1042,12 +1138,19 @@ spec:
                             disableRdma:
                               type: boolean
                             max:
+                              description: Maximum number of interfaces to select
+                                per node matching this selector.
                               type: integer
                             min:
+                              description: Minimum number of interfaces required from
+                                nodes matching this selector.
                               type: integer
                             rdmaOnly:
                               type: boolean
                             subnet:
+                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                                interfaces. Only interfaces with an IP in this subnet
+                                are eligible.
                               type: string
                           type: object
                         type: array
@@ -1057,6 +1160,8 @@ spec:
                           When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
                         type: boolean
                       selectors:
+                        description: Selectors define how backend data-path network
+                          interfaces are chosen on each node.
                         items:
                           properties:
                             deviceNames:
@@ -1066,12 +1171,19 @@ spec:
                             disableRdma:
                               type: boolean
                             max:
+                              description: Maximum number of interfaces to select
+                                per node matching this selector.
                               type: integer
                             min:
+                              description: Minimum number of interfaces required from
+                                nodes matching this selector.
                               type: integer
                             rdmaOnly:
                               type: boolean
                             subnet:
+                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                                interfaces. Only interfaces with an IP in this subnet
+                                are eligible.
                               type: string
                           type: object
                         type: array
@@ -1123,6 +1235,8 @@ spec:
                           If you have a flat, non-routed backend network, you can leave this field empty.
                         type: string
                       managementIpsSelectors:
+                        description: Selectors for management IPs used for cluster
+                          API and agent communication.
                         items:
                           properties:
                             deviceNames:
@@ -1132,12 +1246,19 @@ spec:
                             disableRdma:
                               type: boolean
                             max:
+                              description: Maximum number of interfaces to select
+                                per node matching this selector.
                               type: integer
                             min:
+                              description: Minimum number of interfaces required from
+                                nodes matching this selector.
                               type: integer
                             rdmaOnly:
                               type: boolean
                             subnet:
+                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                                interfaces. Only interfaces with an IP in this subnet
+                                are eligible.
                               type: string
                           type: object
                         type: array
@@ -1147,6 +1268,8 @@ spec:
                           When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
                         type: boolean
                       selectors:
+                        description: Selectors define how backend data-path network
+                          interfaces are chosen on each node.
                         items:
                           properties:
                             deviceNames:
@@ -1156,12 +1279,19 @@ spec:
                             disableRdma:
                               type: boolean
                             max:
+                              description: Maximum number of interfaces to select
+                                per node matching this selector.
                               type: integer
                             min:
+                              description: Minimum number of interfaces required from
+                                nodes matching this selector.
                               type: integer
                             rdmaOnly:
                               type: boolean
                             subnet:
+                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                                interfaces. Only interfaces with an IP in this subnet
+                                are eligible.
                               type: string
                           type: object
                         type: array
@@ -1213,6 +1343,8 @@ spec:
                           If you have a flat, non-routed backend network, you can leave this field empty.
                         type: string
                       managementIpsSelectors:
+                        description: Selectors for management IPs used for cluster
+                          API and agent communication.
                         items:
                           properties:
                             deviceNames:
@@ -1222,12 +1354,19 @@ spec:
                             disableRdma:
                               type: boolean
                             max:
+                              description: Maximum number of interfaces to select
+                                per node matching this selector.
                               type: integer
                             min:
+                              description: Minimum number of interfaces required from
+                                nodes matching this selector.
                               type: integer
                             rdmaOnly:
                               type: boolean
                             subnet:
+                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                                interfaces. Only interfaces with an IP in this subnet
+                                are eligible.
                               type: string
                           type: object
                         type: array
@@ -1237,6 +1376,8 @@ spec:
                           When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
                         type: boolean
                       selectors:
+                        description: Selectors define how backend data-path network
+                          interfaces are chosen on each node.
                         items:
                           properties:
                             deviceNames:
@@ -1246,12 +1387,19 @@ spec:
                             disableRdma:
                               type: boolean
                             max:
+                              description: Maximum number of interfaces to select
+                                per node matching this selector.
                               type: integer
                             min:
+                              description: Minimum number of interfaces required from
+                                nodes matching this selector.
                               type: integer
                             rdmaOnly:
                               type: boolean
                             subnet:
+                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                                interfaces. Only interfaces with an IP in this subnet
+                                are eligible.
                               type: string
                           type: object
                         type: array
@@ -1303,6 +1451,8 @@ spec:
                           If you have a flat, non-routed backend network, you can leave this field empty.
                         type: string
                       managementIpsSelectors:
+                        description: Selectors for management IPs used for cluster
+                          API and agent communication.
                         items:
                           properties:
                             deviceNames:
@@ -1312,12 +1462,19 @@ spec:
                             disableRdma:
                               type: boolean
                             max:
+                              description: Maximum number of interfaces to select
+                                per node matching this selector.
                               type: integer
                             min:
+                              description: Minimum number of interfaces required from
+                                nodes matching this selector.
                               type: integer
                             rdmaOnly:
                               type: boolean
                             subnet:
+                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                                interfaces. Only interfaces with an IP in this subnet
+                                are eligible.
                               type: string
                           type: object
                         type: array
@@ -1327,6 +1484,8 @@ spec:
                           When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
                         type: boolean
                       selectors:
+                        description: Selectors define how backend data-path network
+                          interfaces are chosen on each node.
                         items:
                           properties:
                             deviceNames:
@@ -1336,12 +1495,19 @@ spec:
                             disableRdma:
                               type: boolean
                             max:
+                              description: Maximum number of interfaces to select
+                                per node matching this selector.
                               type: integer
                             min:
+                              description: Minimum number of interfaces required from
+                                nodes matching this selector.
                               type: integer
                             rdmaOnly:
                               type: boolean
                             subnet:
+                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                                interfaces. Only interfaces with an IP in this subnet
+                                are eligible.
                               type: string
                           type: object
                         type: array
@@ -1393,6 +1559,8 @@ spec:
                           If you have a flat, non-routed backend network, you can leave this field empty.
                         type: string
                       managementIpsSelectors:
+                        description: Selectors for management IPs used for cluster
+                          API and agent communication.
                         items:
                           properties:
                             deviceNames:
@@ -1402,12 +1570,19 @@ spec:
                             disableRdma:
                               type: boolean
                             max:
+                              description: Maximum number of interfaces to select
+                                per node matching this selector.
                               type: integer
                             min:
+                              description: Minimum number of interfaces required from
+                                nodes matching this selector.
                               type: integer
                             rdmaOnly:
                               type: boolean
                             subnet:
+                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                                interfaces. Only interfaces with an IP in this subnet
+                                are eligible.
                               type: string
                           type: object
                         type: array
@@ -1417,6 +1592,8 @@ spec:
                           When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
                         type: boolean
                       selectors:
+                        description: Selectors define how backend data-path network
+                          interfaces are chosen on each node.
                         items:
                           properties:
                             deviceNames:
@@ -1426,12 +1603,19 @@ spec:
                             disableRdma:
                               type: boolean
                             max:
+                              description: Maximum number of interfaces to select
+                                per node matching this selector.
                               type: integer
                             min:
+                              description: Minimum number of interfaces required from
+                                nodes matching this selector.
                               type: integer
                             rdmaOnly:
                               type: boolean
                             subnet:
+                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
+                                interfaces. Only interfaces with an IP in this subnet
+                                are eligible.
                               type: string
                           type: object
                         type: array
@@ -1522,6 +1706,8 @@ spec:
                     type: array
                 type: object
               serviceAccountName:
+                description: Name of the Kubernetes ServiceAccount for Weka container
+                  pods. Operator default is used if empty.
                 type: string
               smbw:
                 properties:
@@ -1707,12 +1893,20 @@ spec:
                 description: weka home configuration
                 properties:
                   allowInsecure:
+                    description: When true, disables TLS certificate verification
+                      for the WekaHome endpoint.
                     type: boolean
                   cacertSecret:
+                    description: Name of a Kubernetes secret containing a PEM CA certificate
+                      for the WekaHome TLS connection.
                     type: string
                   enableStats:
+                    description: When true, performance statistics are sent to WekaHome
+                      in addition to connectivity and event data. Defaults to true.
                     type: boolean
                   endpoint:
+                    description: URL of the WekaHome telemetry endpoint. Defaults
+                      to the Weka-managed cloud endpoint if empty.
                     type: string
                 type: object
             required:

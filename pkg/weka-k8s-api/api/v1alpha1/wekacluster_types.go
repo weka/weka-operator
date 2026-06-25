@@ -43,8 +43,11 @@ const (
 )
 
 type NetworkSelector struct {
-	Subnet      string   `json:"subnet,omitempty"`
-	Min         int      `json:"min,omitempty"`
+	// CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+	Subnet string `json:"subnet,omitempty"`
+	// Minimum number of interfaces required from nodes matching this selector.
+	Min int `json:"min,omitempty"`
+	// Maximum number of interfaces to select per node matching this selector.
 	Max         int      `json:"max,omitempty"`
 	DeviceNames []string `json:"deviceNames,omitempty"`
 	RdmaOnly    bool     `json:"rdmaOnly,omitempty"`
@@ -98,8 +101,10 @@ type Network struct {
 	// A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
 	// The operator assigns IP addresses from these subnets to the backend containers for their data path network
 	// +kubebuilder:validation:items:Pattern="^([0-9]{1,3}\\.){3}[0-9]{1,3}\\/[0-9]{1,2}$"
-	DeviceSubnets          []string          `json:"deviceSubnets,omitempty"`
-	Selectors              []NetworkSelector `json:"selectors,omitempty"`
+	DeviceSubnets []string `json:"deviceSubnets,omitempty"`
+	// Selectors define how backend data-path network interfaces are chosen on each node.
+	Selectors []NetworkSelector `json:"selectors,omitempty"`
+	// Selectors for management IPs used for cluster API and agent communication.
 	ManagementIPsSelectors []NetworkSelector `json:"managementIpsSelectors,omitempty"`
 	// BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
 	// When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).
@@ -164,10 +169,15 @@ func (n *Network) Equal(o *Network) bool {
 }
 
 type AdditionalMemory struct {
-	Compute      int `json:"compute,omitempty"`
-	Drive        int `json:"drive,omitempty"`
-	S3           int `json:"s3,omitempty"`
-	Nfs          int `json:"nfs,omitempty"`
+	// Additional memory in MiB for compute containers (positive or negative offset from auto-calculated baseline).
+	Compute int `json:"compute,omitempty"`
+	// Additional memory in MiB for drive containers.
+	Drive int `json:"drive,omitempty"`
+	// Additional memory in MiB for S3 gateway containers.
+	S3 int `json:"s3,omitempty"`
+	// Additional memory in MiB for NFS protocol containers.
+	Nfs int `json:"nfs,omitempty"`
+	// Additional memory in MiB for Envoy proxy containers (used by S3 gateway).
 	Envoy        int `json:"envoy,omitempty"`
 	Smbw         int `json:"smbw,omitempty"`
 	DataServices int `json:"dataServices,omitempty"`
@@ -202,48 +212,68 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0",message="driveTypesRatio.tlc must be greater than 0 when driveTypesRatio is specified; TLC-only and mixed TLC/QLC configurations are supported, but QLC-only is not allowed"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity > 0",message="driveCapacity must be greater than 0 when specified"
 type WekaClusterTemplate struct {
+	// Number of compute containers per cluster node.
 	// +kubebuilder:validation:Minimum=0
 	ComputeContainers int `json:"computeContainers,omitempty"`
+	// Number of drive containers per cluster node.
 	// +kubebuilder:validation:Minimum=0
 	DriveContainers int `json:"driveContainers,omitempty"`
+	// Number of S3 gateway containers per cluster node.
 	// +kubebuilder:validation:Minimum=0
 	S3Containers int `json:"s3Containers,omitempty"`
+	// Number of cores allocated to each compute container.
 	// +kubebuilder:validation:Minimum=0
 	ComputeCores int `json:"computeCores,omitempty"`
+	// Number of cores allocated to each drive container.
 	// +kubebuilder:validation:Minimum=0
 	DriveCores int `json:"driveCores,omitempty"`
+	// Number of cores allocated to each S3 gateway container.
 	// +kubebuilder:validation:Minimum=0
 	S3Cores int `json:"s3Cores,omitempty"`
+	// Number of virtual or physical drives per drive container. Mutually exclusive with containerCapacity.
 	// +kubebuilder:validation:Minimum=0
 	NumDrives int `json:"numDrives,omitempty"`
 	// +kubebuilder:validation:Minimum=0
 	ComputeExtraCores int `json:"computeExtraCores,omitempty"`
 	// +kubebuilder:validation:Minimum=0
 	DriveExtraCores int `json:"driveExtraCores,omitempty"`
+	// Additional non-DPDK cores for S3 gateway containers, used for background tasks.
 	// +kubebuilder:validation:Minimum=0
 	S3ExtraCores int `json:"s3ExtraCores,omitempty"`
+	// Hugepage allocation in MiB for drive containers. 0 means auto-calculated.
 	// +kubebuilder:validation:Minimum=0
 	DriveHugepages int `json:"driveHugepages,omitempty"`
+	// Offset in MiB applied to the auto-calculated hugepage allocation for drive containers.
 	// +kubebuilder:validation:Minimum=0
 	DriveHugepagesOffset int `json:"driveHugepagesOffset,omitempty"`
+	// Hugepage allocation in MiB for compute containers. 0 means auto-calculated.
 	// +kubebuilder:validation:Minimum=0
 	ComputeHugepages int `json:"computeHugepages,omitempty"`
+	// Offset in MiB applied to the auto-calculated hugepage allocation for compute containers.
 	// +kubebuilder:validation:Minimum=0
 	ComputeHugepagesOffset int `json:"computeHugepagesOffset,omitempty"`
+	// Hugepage allocation in MiB for S3 gateway frontend threads.
 	// +kubebuilder:validation:Minimum=0
 	S3FrontendHugepages int `json:"s3FrontendHugepages,omitempty"`
+	// Offset in MiB applied to the auto-calculated hugepage allocation for S3 frontend threads.
 	// +kubebuilder:validation:Minimum=0
 	S3FrontendHugepagesOffset int `json:"s3FrontendHugepagesOffset,omitempty"`
+	// Number of cores allocated to the Envoy proxy process used by the S3 gateway.
 	// +kubebuilder:validation:Minimum=0
 	EnvoyCores int `json:"envoyCores,omitempty"`
+	// Number of NFS protocol containers per cluster node.
 	// +kubebuilder:validation:Minimum=0
 	NfsContainers int `json:"nfsContainers,omitempty"`
+	// Number of cores allocated to each NFS container.
 	// +kubebuilder:validation:Minimum=0
 	NfsCores int `json:"nfsCores,omitempty"`
+	// Additional non-DPDK cores for NFS containers.
 	// +kubebuilder:validation:Minimum=0
 	NfsExtraCores int `json:"nfsExtraCores,omitempty"`
+	// Hugepage allocation in MiB for NFS frontend threads.
 	// +kubebuilder:validation:Minimum=0
 	NfsFrontendHugepages int `json:"nfsFrontendHugepages,omitempty"`
+	// Offset in MiB for NFS frontend hugepage allocation.
 	// +kubebuilder:validation:Minimum=0
 	NfsFrontendHugepagesOffset int `json:"nfsFrontendHugepagesOffset,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W containers (3-8)
@@ -317,10 +347,14 @@ func GetTlcQlcCapacity(totalCapacity int, ratio *DriveTypesRatio) (tlc, qlc int)
 }
 
 type WekaHomeConfig struct {
-	Endpoint      string `json:"endpoint,omitempty"`
-	AllowInsecure bool   `json:"allowInsecure,omitempty"`
-	CacertSecret  string `json:"cacertSecret,omitempty"`
-	EnableStats   *bool  `json:"enableStats,omitempty"`
+	// URL of the WekaHome telemetry endpoint. Defaults to the Weka-managed cloud endpoint if empty.
+	Endpoint string `json:"endpoint,omitempty"`
+	// When true, disables TLS certificate verification for the WekaHome endpoint.
+	AllowInsecure bool `json:"allowInsecure,omitempty"`
+	// Name of a Kubernetes secret containing a PEM CA certificate for the WekaHome TLS connection.
+	CacertSecret string `json:"cacertSecret,omitempty"`
+	// When true, performance statistics are sent to WekaHome in addition to connectivity and event data. Defaults to true.
+	EnableStats *bool `json:"enableStats,omitempty"`
 }
 
 type RoleNodeSelector struct {
@@ -508,9 +542,12 @@ type FailureDomain struct {
 }
 
 type CsiConfig struct {
-	EndpointsSubnets []string           `json:"endpointsSubnets,omitempty"`
-	CsiGroup         string             `json:"csiGroup,omitempty"`
-	Advanced         *AdvancedCsiConfig `json:"advanced,omitempty"`
+	// CIDR subnets to filter which management IPs are advertised to the CSI driver. Leave empty to advertise all.
+	EndpointsSubnets []string `json:"endpointsSubnets,omitempty"`
+	// CSI driver group name. Scopes CSI resources when multiple Weka clusters coexist in the same namespace.
+	CsiGroup string `json:"csiGroup,omitempty"`
+	// Advanced CSI driver settings. Should not be changed unless explicitly instructed by Weka support.
+	Advanced *AdvancedCsiConfig `json:"advanced,omitempty"`
 }
 
 type VaultConfig struct {
@@ -543,6 +580,7 @@ type InternalEncryptionConfig struct {
 }
 
 type EncryptionConfig struct {
+	// Configures a HashiCorp Vault KMS for encryption key management. Recommended for production.
 	VaultConfig *VaultConfig `json:"vault,omitempty"`
 	// InternalConfig defines internal encryption settings, encryption key stored in weka configuration, for production systems use real KMS, however this mode can be useful to evaluate performance of encrypted filesystems
 	InternalConfig *InternalEncryptionConfig `json:"internal,omitempty"`
@@ -724,11 +762,15 @@ type WekaClusterSpec struct {
 	// https://bugzilla.redhat.com/show_bug.cgi?id=2050332
 	// https://github.com/kubernetes/apimachinery/issues/131
 	// https://github.com/kubernetes/apiextensions-apiserver/issues/56
-	GracefulDestroyDuration metav1.Duration           `json:"gracefulDestroyDuration,omitempty"`
-	Overrides               *WekaClusterSpecOverrides `json:"overrides,omitempty"`
-	CsiConfig               CsiConfig                 `json:"csiConfig,omitempty"`
-	GlobalPVC               *PVCConfig                `json:"globalPVC,omitempty"`
-	ServiceAccountName      string                    `json:"serviceAccountName,omitempty"`
+	GracefulDestroyDuration metav1.Duration `json:"gracefulDestroyDuration,omitempty"`
+	// Advanced override settings for cluster operations. Only use when explicitly instructed by Weka support.
+	Overrides *WekaClusterSpecOverrides `json:"overrides,omitempty"`
+	// Configuration for the Weka CSI Driver integration. Controls how the CSI driver discovers and connects to this cluster.
+	CsiConfig CsiConfig `json:"csiConfig,omitempty"`
+	// Reference to a PVC shared by all Weka containers. Use to persist container state on nodes lacking local NVMe storage.
+	GlobalPVC *PVCConfig `json:"globalPVC,omitempty"`
+	// Name of the Kubernetes ServiceAccount for Weka container pods. Operator default is used if empty.
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 	// RoleCoreIds defines a list of CPU core IDs (as seen by the host) that should
 	// be assigned to containers of the specific role when CpuPolicy is set to
 	// "manual". If the slice for the given role is empty, core ids will not be
@@ -751,11 +793,12 @@ type WekaClusterSpec struct {
 	// when CpuPolicy is "manual" or "shared".
 	// When set, weka pins management processes to these cores instead of deriving them automatically.
 	// +kubebuilder:validation:Type=object
-	RoleNonDatapathCoreIds RoleCoreIds       `json:"roleNonDatapathCoreIds,omitempty"`
-	Encryption             *EncryptionConfig `json:"encryption,omitempty"`
-	NFSConfig              *NfsConfig        `json:"nfs,omitempty"`
-	S3Config               *S3Config         `json:"s3,omitempty"`
-	SmbwConfig             *SmbwConfig       `json:"smbw,omitempty"`
+	RoleNonDatapathCoreIds RoleCoreIds `json:"roleNonDatapathCoreIds,omitempty"`
+	// Encryption configuration for data at rest. Configure a HashiCorp Vault KMS for production use.
+	Encryption *EncryptionConfig `json:"encryption,omitempty"`
+	NFSConfig  *NfsConfig        `json:"nfs,omitempty"`
+	S3Config   *S3Config         `json:"s3,omitempty"`
+	SmbwConfig *SmbwConfig       `json:"smbw,omitempty"`
 	// Telemetry configuration for exporting audit logs and other telemetry data
 	Telemetry *TelemetryConfig `json:"telemetry,omitempty"`
 	// Catalog configuration for data catalog service
@@ -779,7 +822,9 @@ func (c *WekaClusterSpec) GetStartIoConditions() *StartIoConditions {
 }
 
 type PVCConfig struct {
+	// Name of the PersistentVolumeClaim to mount into all Weka containers.
 	Name string `json:"name"`
+	// Mount path inside the Weka container. Defaults to /opt/k8s-weka when empty.
 	Path string `json:"path,omitempty"`
 }
 
@@ -796,6 +841,7 @@ type DpdkBaseMemoryMbOverride struct {
 }
 
 type WekaClusterSpecOverrides struct {
+	// When true, permits cluster deletion even when an active S3 cluster exists. Destructive — will erase all S3 data.
 	AllowS3ClusterDestroy   bool `json:"allowS3ClusterDestroy,omitempty"`
 	AllowSmbwClusterDestroy bool `json:"allowSmbwClusterDestroy,omitempty"`
 	// disregard redundancy constraints, useful for testing, should not be used in production as misaligns failure domains
