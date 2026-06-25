@@ -347,6 +347,16 @@ driveSharing:
   # Traditional mode (numDrives only) is not affected.
   enableDynamicDriveScalingForSharedDrives: false
 
+  # Minimum relative per-container growth (target-cur)/cur to grow an existing drive container in
+  # place; smaller grows are skipped (prefer creating a new FD at the uniform chunk size T instead,
+  # or emit infeasible if no spare node is available).
+  minGrowthFraction: 0.2
+
+  # Max fraction by which creating new failure domains may over-provision a drive pool's desired
+  # capacity. A create-new that would exceed desiredRaw * (1 + maxOverProvisionFraction) is not
+  # allowed (falls back to grow or infeasible).
+  maxOverProvisionFraction: 0.2
+
   # Max allowed ratio between the largest and smallest drive in the IndirectionUnitBig
   # pool. Overrides weka's built-in limit (MAX_DRIVE_CAPACITY_RATIO=8). Relevant for
   # drive-sharing clusters that mix very differently sized drives.

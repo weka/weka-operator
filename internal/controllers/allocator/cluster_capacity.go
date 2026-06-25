@@ -12,10 +12,6 @@ import (
 // per-core capacity caps and drive-pod resource coefficients.
 func CapacityConstraintsFromConfig() *CapacityConstraints {
 	cfg := globalconfig.Config.ClusterCapacity
-	imbalance := cfg.ImbalanceFactor
-	if imbalance <= 0 {
-		imbalance = 8.0
-	}
 	// Compute hugepage ratios mirror ComputeCapacityBasedHugepages' defaults when unset.
 	tlcRatio := globalconfig.Config.DriveSharing.HugepagesTlcRatio
 	if tlcRatio == 0 {
@@ -25,11 +21,17 @@ func CapacityConstraintsFromConfig() *CapacityConstraints {
 	if qlcRatio == 0 {
 		qlcRatio = 6000
 	}
+	// MinGrowthFraction / MaxOverProvisionFraction are taken verbatim: env.go supplies the 0.2 default
+	// when their env vars are unset, so 0 only appears when an operator sets it explicitly and is a
+	// meaningful value — 0 growth-fraction means "always allow in-place grow", 0 over-provision means
+	// "never overshoot desiredRaw". No in-code coercion (mirrors ImbalanceFactor, where 0 disables).
+	minGrowthFraction := globalconfig.Config.DriveSharing.MinGrowthFraction
+	maxOverProvisionFraction := globalconfig.Config.DriveSharing.MaxOverProvisionFraction
 	return &CapacityConstraints{
 		TlcCapacityPerCoreGiB:    cfg.TlcCapacityPerCoreGiB,
 		QlcCapacityPerCoreGiB:    cfg.QlcCapacityPerCoreGiB,
 		MinChunkSizeGiB:          MinChunkSizeGiB,
-		ImbalanceFactor:          imbalance,
+		ImbalanceFactor:          cfg.ImbalanceFactor, // env defaults to 8.0; <= 0 disables the heterogeneous fallback
 		HugepagesPerCoreMiB:      HugepagesPerCoreMiB,
 		MemoryBaseMiB:            MemoryBaseMiB,
 		MemoryPerCoreMiB:         MemoryPerCoreMiB,
@@ -40,7 +42,9 @@ func CapacityConstraintsFromConfig() *CapacityConstraints {
 		// enableDynamicDriveScalingForSharedDrives gates in-place growth of existing containers. When
 		// disabled, the planner creates new containers instead of extending existing ones (see
 		// CapacityConstraints.AllowInPlaceGrowth).
-		AllowInPlaceGrowth: globalconfig.Config.DriveSharing.EnableDynamicDriveScaling,
+		AllowInPlaceGrowth:       globalconfig.Config.DriveSharing.EnableDynamicDriveScaling,
+		MinGrowthFraction:        minGrowthFraction,
+		MaxOverProvisionFraction: maxOverProvisionFraction,
 	}
 }
 
@@ -62,20 +66,16 @@ type NodeCapacity struct {
 	// FDValue is the node's failure-domain key: the resolved label value in label-based mode, or the
 	// node name in AUTO mode (FD = host). The planner groups and balances capacity by this key.
 	FDValue string
+	// HasDeletingDriveContainer is true when this node still hosts a this-cluster drive container with a
+	// DeletionTimestamp set. Such a container is excluded from existingDrives (so the node re-enters
+	// the fresh-candidate pool) yet still charged in the inventory. The flag deprioritizes the node
+	// for fresh placement so a replacement FD prefers a node with no deleting container; it is never excluded
+	// outright (the node may be the only eligible FD for the pool — e.g. scarce QLC drives).
+	HasDeletingDriveContainer bool
 }
 
 // RawCapacityGiB converts a usable cluster-capacity target into raw capacity including parity
 // and hot-spare overhead: raw = usable * (sw+rl+hs) / sw.
 func RawCapacityGiB(clusterCapGiB, sw, rl, hs int) int {
 	return clusterCapGiB * (sw + rl + hs) / sw
-}
-
-// imbalanceWarnPercent is the per-FD capacity skew (larger vs smaller) above which the planner warns:
-// WEKA usable capacity is gated by the smallest FD, so a skew beyond this wastes capacity.
-const imbalanceWarnPercent = 10
-
-// imbalanceExceeds reports whether the larger of two per-FD capacities exceeds the smaller by more
-// than imbalanceWarnPercent. Callers pass lo <= hi.
-func imbalanceExceeds(lo, hi int) bool {
-	return lo > 0 && hi*100 > lo*(100+imbalanceWarnPercent)
 }

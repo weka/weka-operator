@@ -665,6 +665,30 @@ func TestFirstUnscheduledDriveContainer(t *testing.T) {
 			t.Errorf("want (drive-unsched,true), got (%q,%v)", name, ok)
 		}
 	})
+
+	t.Run("unscheduled drive-capacity container (no containerCapacity) -> reported", func(t *testing.T) {
+		// Capacity via Spec.DriveCapacity×NumDrives, NOT Spec.ContainerCapacity, so HasContainerCapacity()
+		// is false. The guard must still defer on it (it carries planner capacity).
+		dc := ownedDriveContainer("me", "n5", 0, 0, 0)
+		dc.Name = "drive-capacity-unsched"
+		dc.Spec.ContainerCapacity = 0
+		dc.Spec.DriveCapacity = 2 * tib
+		dc.Spec.NumDrives = 3
+		dc.Spec.DriveTypesRatio = nil // driveCapacity path is TLC-only
+		name, ok := firstUnscheduledDriveContainer([]*weka.WekaContainer{&dc})
+		if !ok || name != "drive-capacity-unsched" {
+			t.Errorf("want (drive-capacity-unsched,true), got (%q,%v)", name, ok)
+		}
+	})
+
+	t.Run("unscheduled but zero-capacity drive -> not reported", func(t *testing.T) {
+		zero := ownedDriveContainer("me", "n6", 0, 0, 0)
+		zero.Name = "drive-zero-cap" // no containerCapacity, no driveCapacity -> contributes nothing
+		zero.Spec.DriveTypesRatio = nil
+		if name, ok := firstUnscheduledDriveContainer([]*weka.WekaContainer{&zero}); ok {
+			t.Errorf("want ok=false for zero-capacity drive, got (%q,true)", name)
+		}
+	})
 }
 
 // TestPlanClusterCapacityDefersOnTransientChurn asserts the transient-churn guard: when an owned drive
@@ -728,17 +752,22 @@ func TestFormatCapacityPlanSummary(t *testing.T) {
 	t.Run("create across nodes and FDs with compute", func(t *testing.T) {
 		plan := &allocator.CapacityPlan{
 			Create: []allocator.NewContainer{
-				{Node: "n1", FDValue: "fd-a", TlcGiB: 8 * tib},
-				{Node: "n2", FDValue: "fd-b", TlcGiB: 8 * tib},
-				{Node: "n3", FDValue: "fd-c", TlcGiB: 8 * tib},
+				{Node: "n1", FDValue: "fd-a", TlcGiB: 8 * tib, QlcGiB: 4 * tib}, // mixed
+				{Node: "n2", FDValue: "fd-b", TlcGiB: 8 * tib, QlcGiB: 4 * tib}, // mixed
+				{Node: "n3", FDValue: "fd-c", TlcGiB: 8 * tib},                  // TLC-only
 			},
 			ComputeContainers: 3,
 			ComputeCores:      8,
+			ComputeNodes:      []string{"n1", "n2", "n3"},
 		}
-		got := formatCapacityPlanSummary(plan, desired, scheme)
+		got := formatCapacityPlanSummary(plan, desired, scheme, nil)
 		for _, want := range []string{
-			"creating 3 drive container(s) across 3 node(s) / 3 failure domain(s)",
-			"compute 3×8 cores",
+			"creating 3 drive container(s) [2 mixed, 1 TLC] across 3 node(s) / 3 failure domain(s)",
+			"@ ~",          // per-FD chunk
+			"placing T/Q ", // mixed create capacity
+			"compute 3×8 cores on 3 node(s)",
+			"minFdNum 11",
+			"placed ",
 			"protection 8+2+1",
 		} {
 			if !strings.Contains(got, want) {
@@ -750,16 +779,79 @@ func TestFormatCapacityPlanSummary(t *testing.T) {
 		}
 	})
 
+	t.Run("homogeneous create folds type into the noun (no redundant bracket)", func(t *testing.T) {
+		plan := &allocator.CapacityPlan{
+			Create: []allocator.NewContainer{
+				{Node: "n1", FDValue: "fd-a", QlcGiB: 20 * tib},
+				{Node: "n2", FDValue: "fd-b", QlcGiB: 20 * tib},
+				{Node: "n3", FDValue: "fd-c", QlcGiB: 20 * tib},
+			},
+		}
+		got := formatCapacityPlanSummary(plan, desired, scheme, nil)
+		if !strings.Contains(got, "creating 3 QLC drive container(s) across 3 node(s) / 3 failure domain(s)") {
+			t.Errorf("want folded homogeneous phrasing, got %q", got)
+		}
+		if strings.Contains(got, "[") {
+			t.Errorf("homogeneous create must not emit a bracketed breakdown, got %q", got)
+		}
+	})
+
 	t.Run("grow only", func(t *testing.T) {
 		plan := &allocator.CapacityPlan{
-			Grow: []allocator.ContainerGrowth{{Name: "c1"}, {Name: "c2"}},
+			Grow: []allocator.ContainerGrowth{
+				{Name: "c1", NewTlcGiB: 8 * tib, NewCores: 8},
+				{Name: "c2", NewTlcGiB: 8 * tib, NewCores: 8},
+			},
 		}
-		got := formatCapacityPlanSummary(plan, desired, scheme)
-		if !strings.Contains(got, "growing 2 existing container(s)") {
-			t.Errorf("summary %q missing grow phrasing", got)
+		existing := []allocator.ExistingContainer{
+			{Name: "c1", TlcGiB: 6 * tib, NumCores: 6},
+			{Name: "c2", TlcGiB: 6 * tib, NumCores: 6},
+		}
+		got := formatCapacityPlanSummary(plan, desired, scheme, existing)
+		for _, want := range []string{
+			"growing 2 existing container(s) (+",
+			"cores 6→8)",
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("summary %q missing %q", got, want)
+			}
 		}
 		if strings.Contains(got, "creating") {
 			t.Errorf("summary %q should not mention creating when Create is empty", got)
+		}
+	})
+
+	t.Run("grow entry missing from existing -> excluded, no inflated numbers", func(t *testing.T) {
+		// "phantom" is a logic error (a Grow must map to an existing container). It must be skipped,
+		// not subtracted from a zero baseline (which would inflate the reported added cores/capacity).
+		plan := &allocator.CapacityPlan{
+			Grow: []allocator.ContainerGrowth{
+				{Name: "c1", NewTlcGiB: 8 * tib, NewCores: 8},
+				{Name: "phantom", NewTlcGiB: 100 * tib, NewCores: 99}, // no matching existingDrives entry
+			},
+		}
+		existing := []allocator.ExistingContainer{
+			{Name: "c1", TlcGiB: 6 * tib, NumCores: 6},
+		}
+		got := formatCapacityPlanSummary(plan, desired, scheme, existing)
+		if !strings.Contains(got, "growing 1 existing container(s) (+") {
+			t.Errorf("summary %q should count only the real grow (1), excluding the phantom", got)
+		}
+		if !strings.Contains(got, "cores 6→8)") {
+			t.Errorf("summary %q should report c1's 6→8 cores, not the phantom's", got)
+		}
+		if strings.Contains(got, "99") || strings.Contains(got, "100") {
+			t.Errorf("summary %q must not render the phantom's inflated numbers", got)
+		}
+	})
+
+	t.Run("all grow entries missing -> no grow leg", func(t *testing.T) {
+		plan := &allocator.CapacityPlan{
+			Grow: []allocator.ContainerGrowth{{Name: "ghost", NewTlcGiB: 8 * tib, NewCores: 8}},
+		}
+		got := formatCapacityPlanSummary(plan, desired, scheme, nil)
+		if strings.Contains(got, "growing") {
+			t.Errorf("summary %q should omit the grow leg when no entry resolves", got)
 		}
 	})
 }

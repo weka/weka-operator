@@ -174,6 +174,8 @@ type DriveSharingConfig struct {
 	MaxVirtualDrivesPerCore              int
 	EnforceMinDrivesPerTypePerCore       bool
 	EnableDynamicDriveScaling            bool
+	MinGrowthFraction                    float64
+	MaxOverProvisionFraction             float64
 	SsdProxyHugepagesOffsetMiB           int
 	SsdProxyImageOverride                string
 	HugepagesTlcRatio                    int
@@ -559,6 +561,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DriveSharing.MaxVirtualDrivesPerCore = getIntEnvOrDefault("MAX_VIRTUAL_DRIVES_PER_CORE", 8)
 	Config.DriveSharing.EnforceMinDrivesPerTypePerCore = getBoolEnvOrDefault("ENFORCE_MIN_DRIVES_PER_TYPE_PER_CORE", true)
 	Config.DriveSharing.EnableDynamicDriveScaling = getBoolEnvOrDefault("ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES", false)
+	Config.DriveSharing.MinGrowthFraction = getFloatEnvOrDefault("MIN_GROWTH_FRACTION", 0.2)
+	Config.DriveSharing.MaxOverProvisionFraction = getFloatEnvOrDefault("MAX_OVER_PROVISION_FRACTION", 0.2)
 	Config.DriveSharing.SsdProxyHugepagesOffsetMiB = getIntEnvOrDefault("SSD_PROXY_HUGEPAGES_OFFSET_MIB", 200)
 	Config.DriveSharing.SsdProxyImageOverride = getEnvOrDefault("SSD_PROXY_IMAGE_OVERRIDE", "")
 	Config.DriveSharing.HugepagesTlcRatio = getIntEnvOrDefault("HUGEPAGES_TLC_RATIO", 1000)
