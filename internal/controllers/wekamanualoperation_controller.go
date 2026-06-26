@@ -12,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -27,6 +28,7 @@ type WekaManualOperationReconciler struct {
 	Scheme     *runtime.Scheme
 	Mgr        ctrl.Manager
 	RestClient rest.Interface
+	Recorder   record.EventRecorder
 }
 
 func NewWekaManualOperationController(mgr ctrl.Manager, restClient rest.Interface) *WekaManualOperationReconciler {
@@ -35,6 +37,7 @@ func NewWekaManualOperationController(mgr ctrl.Manager, restClient rest.Interfac
 		RestClient: restClient,
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
+		Recorder:   mgr.GetEventRecorderFor("wekaManualOperation-controller"),
 	}
 }
 
@@ -93,6 +96,22 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 		wekaManualOperation.Status.Result = loop.Op.GetJsonResult()
 		wekaManualOperation.Status.CompletedAt = metav1.Now()
 		wekaManualOperation.Status.Status = "Failed"
+		return r.Status().Update(ctx, wekaManualOperation)
+	}
+
+	// onProgress persists the current result without completing the operation, so a subsequent
+	// reconcile cycle can read it back (used by the stale-virtual-drives stability gate).
+	onProgress := func(ctx context.Context) error {
+		if wekaManualOperation.Status.Status == "" {
+			wekaManualOperation.Status.Status = "Running"
+		}
+		// CompletedAt is a required status field, so it must be set on any status write; stamp it
+		// once here and let onSuccess/onFailure overwrite it with the real completion time, so the
+		// auto-delete delay is measured from actual completion rather than each progress write.
+		if wekaManualOperation.Status.CompletedAt.IsZero() {
+			wekaManualOperation.Status.CompletedAt = metav1.Now()
+		}
+		wekaManualOperation.Status.Result = loop.Op.GetJsonResult()
 		return r.Status().Update(ctx, wekaManualOperation)
 	}
 
@@ -215,6 +234,16 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			onSuccess,
 		)
 		loop.Op = ensureNICsOp
+	case weka.WekaManualOperationActionCleanStaleVirtualDrives:
+		staleVidsOp := operations.NewStaleVirtualDrivesOperation(
+			r.Mgr,
+			wekaManualOperation.Spec.Payload.CleanStaleVirtualDrives,
+			wekaManualOperation,
+			r.Recorder,
+			onProgress,
+			onSuccess,
+		)
+		loop.Op = staleVidsOp
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown operation type: %s", wekaManualOperation.Spec.Action)
 	}

@@ -13,6 +13,7 @@
 - [EnsureNICsPayload](#ensurenicspayload)
 - [ForceResignDrivesPayload](#forceresigndrivespayload)
 - [RemoteTracesSessionConfig](#remotetracessessionconfig)
+- [CleanStaleVirtualDrivesPayload](#cleanstalevirtualdrivespayload)
 - [PCIDevices](#pcidevices)
 - [SignOptions](#signoptions)
 - [ObjectReference](#objectreference)
@@ -70,6 +71,7 @@
 | ensureNICsPayload | *EnsureNICsPayload |  |
 | forceResignDrivesPayload | *ForceResignDrivesPayload |  |
 | remoteTracesSessionPayload | *RemoteTracesSessionConfig |  |
+| cleanStaleVirtualDrivesPayload | *CleanStaleVirtualDrivesPayload |  |
 
 ---
 
@@ -136,6 +138,16 @@
 | allowHttpWekahomeEndpoint | bool |  |
 | allowInsecureWekahomeEndpoint | bool |  |
 | wekahomeCaSecret | string |  |
+
+---
+
+## CleanStaleVirtualDrivesPayload
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| nodeSelector | map[string]string | NodeSelector limits the scan to ssdproxies on nodes matching these labels.<br>Empty = all nodes that have an ssdproxy. |
+| onlyNonExistingClusters | bool | OnlyNonExistingClusters restricts the stale set to VIDs whose owner cluster GUID has NO<br>WekaCluster CR at all (category dead_cluster) — the safe-by-construction subset (no live<br>cluster could be mid-allocating them). Excludes live_cluster_unclaimed. Recommended ON<br>when pairing with deletion. |
+| deleteStaleVids | bool | DeleteStaleVids enables ACTUAL removal of detected stale VIDs. DANGEROUS — disabled by<br>default. Even when true, a VID is only removed if it was reported stale and UNCHANGED on<br>the previous cycle (fingerprint match) and is still unclaimed at removal time. Acts as the<br>user's confirmation. |
 
 ---
 

@@ -16,6 +16,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/weka/weka-operator/internal/node_agent"
+	"github.com/weka/weka-operator/internal/services/ssdproxy"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -377,74 +378,7 @@ func (r *containerReconcilerLoop) removeVirtualDrive(ctx context.Context, virtua
 
 // removeVirtualDriveViaJSONRPC removes a virtual drive by calling ssd_proxy_remove_virtual_drive via node agent
 func (r *containerReconcilerLoop) removeVirtualDriveViaJSONRPC(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token, virtualUUID string) error {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "removeVirtualDriveViaJSONRPC")
-	defer logger.End()
-
-	logger.Info("Calling ssd_proxy_remove_virtual_drive via JSONRPC", "virtual_uuid", virtualUUID)
-
-	method := "ssd_proxy_remove_virtual_drive"
-	params := map[string]any{
-		"virtualUuid": virtualUUID,
-	}
-
-	payload := node_agent.JSONRPCProxyPayload{
-		ContainerId: ssdproxyContainerUuid,
-		Method:      method,
-		Params:      params,
-	}
-
-	// Marshal payload to JSON
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSONRPC payload: %w", err)
-	}
-
-	// Call node agent's /jsonrpc endpoint
-	url := "http://" + agentPod.Status.PodIP + ":8090/jsonrpc"
-	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
-	if err != nil {
-		return fmt.Errorf("failed to call node agent /jsonrpc endpoint: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
-
-	// Read response body
-	respBody, readErr := io.ReadAll(resp.Body)
-	if readErr != nil {
-		return fmt.Errorf("failed to read JSONRPC response body: %w", readErr)
-	}
-
-	// Log the JSONRPC response for debugging
-	logger.Info("JSONRPC response received", "status_code", resp.StatusCode, "response", string(respBody))
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("node agent returned non-OK status: %s, body: %s", resp.Status, string(respBody))
-	}
-
-	// Parse response to check for JSONRPC errors
-	var jsonrpcResp struct {
-		Result interface{} `json:"result"`
-		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-
-	err = json.Unmarshal(respBody, &jsonrpcResp)
-	if err != nil {
-		return fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))
-	}
-
-	if jsonrpcResp.Error != nil {
-		return fmt.Errorf("JSONRPC error [%d]: %s", jsonrpcResp.Error.Code, jsonrpcResp.Error.Message)
-	}
-
-	// Check if result is false
-	if resultBool, ok := jsonrpcResp.Result.(bool); ok && !resultBool {
-		return fmt.Errorf("JSONRPC call failed: result is false")
-	}
-
-	logger.Info("Virtual drive removed successfully via JSONRPC", "virtual_uuid", virtualUUID, "result", jsonrpcResp.Result)
-	return nil
+	return ssdproxy.NewClient(r.KubeService).RemoveVirtualDrive(ctx, agentPod, token, ssdproxyContainerUuid, virtualUUID)
 }
 
 // ssd_proxy_list_virtual_drives JRPC endpoint output
@@ -476,205 +410,13 @@ type VirtualDriveInfo struct {
 	SizeGB      int    `json:"size_gb"`
 }
 
-// SSDProxyVirtualDrive represents a virtual drive returned by ssd_proxy JSONRPC
-type SSDProxyVirtualDrive struct {
-	VirtualUUID  string `json:"uuid"`
-	PhysicalUUID string `json:"-"` // Not in JSON response, populated from request context
-	ClusterGUID  string `json:"clusterGuid"`
-	SizeGB       int    `json:"sizeGB"`
+// ssdProxyListVirtualDrives lists all virtual drives across all physical drives.
+func (r *containerReconcilerLoop) ssdProxyListVirtualDrives(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string) ([]ssdproxy.VirtualDrive, error) {
+	return ssdproxy.NewClient(r.KubeService).ListVirtualDrives(ctx, agentPod, token, ssdproxyContainerUuid)
 }
 
-// NodeAgentJSONRPCResponse represents the wrapper response from node agent
-type NodeAgentJSONRPCResponse struct {
-	Message string                 `json:"message"`
-	Result  []SSDProxyVirtualDrive `json:"result"`
-}
-
-// SSDProxyPhysicalDrive represents a physical drive returned by ssd_proxy_list_physical_drives JSONRPC
-type SSDProxyPhysicalDrive struct {
-	NumVirtualDrives int    `json:"numVirtualDrives"`
-	PhysicalUUID     string `json:"physicalUuid"`
-	SizeGB           int    `json:"sizeGB"`
-	Model            string `json:"model"`
-	PCIAddress       string `json:"pciAddress"`
-}
-
-// SSDProxyPhysicalDrivesResponse represents the response from ssd_proxy_list_physical_drives
-type SSDProxyPhysicalDrivesResponse struct {
-	Result  []SSDProxyPhysicalDrive `json:"result"`
-	ID      int                     `json:"id"`
-	JSONRPC string                  `json:"jsonrpc"`
-}
-
-func (r *containerReconcilerLoop) ssdProxyListPhysicalDrives(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string) ([]SSDProxyPhysicalDrive, error) {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "ssdProxyListPhysicalDrives", "node", r.container.GetNodeAffinity())
-	defer logger.End()
-
-	method := "ssd_proxy_list_physical_drives"
-	params := map[string]any{}
-
-	payload := node_agent.JSONRPCProxyPayload{
-		ContainerId: ssdproxyContainerUuid,
-		Method:      method,
-		Params:      params,
-	}
-
-	logger.Info("Calling ssdproxy JSONRPC via node agent",
-		"method", method,
-		"ssdproxy_container_id", ssdproxyContainerUuid,
-	)
-
-	// Marshal payload to JSON
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal JSONRPC payload: %w", err)
-	}
-
-	// Call node agent's /jsonrpc endpoint
-	url := "http://" + agentPod.Status.PodIP + ":8090/jsonrpc"
-	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
-	if err != nil {
-		return nil, fmt.Errorf("failed to call node agent /jsonrpc endpoint: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
-
-	// Read response body
-	respBody, readErr := io.ReadAll(resp.Body)
-	if readErr != nil {
-		return nil, fmt.Errorf("failed to read JSONRPC response body: %w", readErr)
-	}
-
-	// Log the JSONRPC response for debugging
-	logger.Info("JSONRPC response received", "status_code", resp.StatusCode, "response", string(respBody))
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("node agent returned non-OK status: %s, body: %s", resp.Status, string(respBody))
-	}
-
-	// Parse response
-	var jsonrpcResp SSDProxyPhysicalDrivesResponse
-	err = json.Unmarshal(respBody, &jsonrpcResp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))
-	}
-
-	logger.Info("Physical drives retrieved successfully via JSONRPC",
-		"count", len(jsonrpcResp.Result))
-
-	return jsonrpcResp.Result, nil
-}
-
-// ssdProxyListVirtualDrives lists all virtual drives across all physical drives
-// by first querying physical drives and then querying virtual drives for each physical drive that has them
-func (r *containerReconcilerLoop) ssdProxyListVirtualDrives(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string) ([]SSDProxyVirtualDrive, error) {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "ssdProxyListVirtualDrives", "node", r.container.GetNodeAffinity())
-	defer logger.End()
-
-	// First, get all physical drives
-	physicalDrives, err := r.ssdProxyListPhysicalDrives(ctx, ssdproxyContainerUuid, agentPod, token)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list physical drives: %w", err)
-	}
-
-	logger.Info("Retrieved physical drives, querying for virtual drives",
-		"physical_drives_count", len(physicalDrives))
-
-	// Collect all virtual drives from physical drives that have them
-	var allVirtualDrives []SSDProxyVirtualDrive
-
-	for _, physicalDrive := range physicalDrives {
-		// Skip physical drives with no virtual drives
-		if physicalDrive.NumVirtualDrives == 0 {
-			logger.Debug("Physical drive has no virtual drives, skipping",
-				"physical_uuid", physicalDrive.PhysicalUUID,
-				"model", physicalDrive.Model)
-			continue
-		}
-
-		ctx, l := logger.WithValues(
-			"physical_uuid", physicalDrive.PhysicalUUID,
-			"num_virtual_drives", physicalDrive.NumVirtualDrives)
-		l.Info("Querying virtual drives for physical drive")
-
-		// Query virtual drives for this physical drive
-		virtualDrives, err := r.ssdProxyListVirtualDrivesByPhysicalUuid(ctx, ssdproxyContainerUuid, physicalDrive.PhysicalUUID, agentPod, token)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list virtual drives for physical drive %s: %w", physicalDrive.PhysicalUUID, err)
-		}
-
-		l.Info("Retrieved virtual drives for physical drive", "count", len(virtualDrives))
-		allVirtualDrives = append(allVirtualDrives, virtualDrives...)
-	}
-
-	logger.Info("Retrieved all virtual drives across all physical drives",
-		"total_virtual_drives", len(allVirtualDrives),
-		"physical_drives_queried", len(physicalDrives))
-
-	return allVirtualDrives, nil
-}
-
-func (r *containerReconcilerLoop) ssdProxyListVirtualDrivesByPhysicalUuid(ctx context.Context, ssdproxyContainerUuid, physicalDriveUuid string, agentPod *v1.Pod, token string) ([]SSDProxyVirtualDrive, error) {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "ssdProxyListVirtualDrivesByPhysicalUuid", "node", r.container.GetNodeAffinity())
-	defer logger.End()
-
-	method := "ssd_proxy_list_virtual_drives"
-	params := map[string]any{
-		"physicalUuid": physicalDriveUuid,
-	}
-
-	payload := node_agent.JSONRPCProxyPayload{
-		ContainerId: ssdproxyContainerUuid,
-		Method:      method,
-		Params:      params,
-	}
-
-	logger.Info("Calling ssdproxy JSONRPC via node agent",
-		"method", method,
-		"physical_uuid", physicalDriveUuid,
-		"ssdproxy_container_id", ssdproxyContainerUuid,
-	)
-
-	// Marshal payload to JSON
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal JSONRPC payload: %w", err)
-	}
-
-	// Call node agent's /jsonrpc endpoint
-	url := "http://" + agentPod.Status.PodIP + ":8090/jsonrpc"
-	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
-	if err != nil {
-		return nil, fmt.Errorf("failed to call node agent /jsonrpc endpoint for physical drive %s: %w", physicalDriveUuid, err)
-	}
-	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
-
-	// Read response body
-	respBody, readErr := io.ReadAll(resp.Body)
-	if readErr != nil {
-		return nil, fmt.Errorf("failed to read JSONRPC response body: %w", readErr)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("node agent returned non-OK status: %s, body: %s", resp.Status, string(respBody))
-	}
-
-	// Parse the wrapped response from node agent
-	var response NodeAgentJSONRPCResponse
-	err = json.Unmarshal(respBody, &response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))
-	}
-
-	// Populate PhysicalUUID for each virtual drive (not in the JSONRPC response)
-	for i := range response.Result {
-		response.Result[i].PhysicalUUID = physicalDriveUuid
-	}
-
-	logger.Info("Virtual drives retrieved successfully via JSONRPC",
-		"count", len(response.Result),
-		"physical_uuid", physicalDriveUuid)
-
-	return response.Result, nil
+func (r *containerReconcilerLoop) ssdProxyListVirtualDrivesByPhysicalUuid(ctx context.Context, ssdproxyContainerUuid, physicalDriveUuid string, agentPod *v1.Pod, token string) ([]ssdproxy.VirtualDrive, error) {
+	return ssdproxy.NewClient(r.KubeService).ListVirtualDrivesByPhysicalUUID(ctx, agentPod, token, ssdproxyContainerUuid, physicalDriveUuid)
 }
 
 // getAddedVirtualDrives returns a map of virtual UUIDs that are added to proxy devices

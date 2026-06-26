@@ -78,6 +78,10 @@
         <tags>drive sharing, multi-tenant, shared drives, proxy mode, virtual drives, containerCapacity, driveCapacity, driveTypesRatio, ssdproxy, TLC, QLC, capacity allocation, multi-cluster</tags>
         <summary>Comprehensive guide for configuring drive sharing to enable multiple Weka clusters to share physical NVMe drives. Covers proxy mode signing, the per-container capacity allocation modes (fixed per drive, total container capacity, mixed drive type ratios), global configuration settings (driveTypesRatio, maxVirtualDrivesPerCore), multi-cluster configurations, capacity management, and troubleshooting. The whole-cluster clusterCapacity mode is documented separately in operator/deployment/cluster-capacity.md.</summary>
     </file>
+    <file relpath="operator/operations/clean-stale-virtual-drives.md">
+        <tags>clean-stale-virtual-drives, stale VIDs, virtual drives, leaked virtual drives, drive sharing, ssdproxy, WekaManualOperation, WekaPolicy, cleanStaleVirtualDrivesPayload, deleteStaleVids, onlyNonExistingClusters, dead_cluster, live_cluster_unclaimed, fingerprint stability gate, OP-339, garbage collection</tags>
+        <summary>Fleet-level reconciliation that detects and optionally removes stale virtual drives (VIDs) leaked on shared ssdproxy drives in drive-sharing deployments. Documents the WekaManualOperation (one-shot) and WekaPolicy (periodic) entry points, the shared cleanStaleVirtualDrivesPayload (nodeSelector, onlyNonExistingClusters, deleteStaleVids), the scan/diff/categorize algorithm (dead_cluster vs live_cluster_unclaimed), the double-gated safety model (opt-in deletion, two-cycle fingerprint stability, final uncached re-validation), the result JSON with real examples, events and logs, and recommended usage.</summary>
+    </file>
 
     <!-- Operator Clients -->
     <file relpath="operator/clients/wekaclient-and-workload.md">

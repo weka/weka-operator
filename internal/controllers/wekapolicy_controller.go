@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -29,6 +30,7 @@ type WekaPolicyReconciler struct {
 	Scheme     *runtime.Scheme
 	Mgr        ctrl.Manager
 	RestClient rest.Interface
+	Recorder   record.EventRecorder
 }
 
 func NewWekaPolicyController(mgr ctrl.Manager, restClient rest.Interface) *WekaPolicyReconciler {
@@ -37,6 +39,7 @@ func NewWekaPolicyController(mgr ctrl.Manager, restClient rest.Interface) *WekaP
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
 		RestClient: restClient,
+		Recorder:   mgr.GetEventRecorderFor("wekaPolicy-controller"),
 	}
 }
 
@@ -230,6 +233,16 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			isExpired,
 		)
 		loop.Op = remoteTracesSessionOp
+	case weka.WekaPolicyTypeCleanStaleVirtualDrives:
+		staleVidsOp := operations.NewStaleVirtualDrivesOperation(
+			r.Mgr,
+			wekaPolicy.Spec.Payload.CleanStaleVirtualDrives,
+			wekaPolicy,
+			r.Recorder,
+			nil, // policy: each Interval run is its own cycle; the gate spans runs via LastResult
+			onSuccess,
+		)
+		loop.Op = staleVidsOp
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown policy type: %s", wekaPolicy.Spec.Type)
 	}

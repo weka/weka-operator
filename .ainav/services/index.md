@@ -35,6 +35,9 @@ Related files:
 **Path**: `internal/services/discovery/`
 - Service discovery logic
 
+**Path**: `internal/services/ssdproxy/`
+- Reusable node-agent JSONRPC client for ssdproxy virtual drives (list physical/virtual drives, remove VID) + node-agent pod/token lookup.
+
 ## Node Agent
 
 **Path**: `internal/node_agent/node_agent.go`
