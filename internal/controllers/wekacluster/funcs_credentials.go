@@ -174,7 +174,7 @@ func (r *wekaClusterReconcilerLoop) applyCsiLoginCredentials(ctx context.Context
 	}
 
 	wekaService := services.NewWekaService(r.ExecService, container)
-	err = wekaService.EnsureUser(ctx, username, password, "clusteradmin")
+	err = wekaService.EnsureUser(ctx, username, password, "csi")
 	if err != nil {
 		logger.Error(err, "Failed to ensure user")
 		return err
