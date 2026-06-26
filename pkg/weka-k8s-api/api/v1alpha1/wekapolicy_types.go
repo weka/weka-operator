@@ -14,11 +14,12 @@ const (
 	WekaPolicyTypeEnsureNICs                     WekaPolicyType = opEnsureNICs
 	WekaPolicyTypeEnableLocalDriversDistribution WekaPolicyType = opEnableLocalDriversDist
 	WekaPolicyTypeRemoteTracesSession            WekaPolicyType = opRemoteTracesSession
+	WekaPolicyTypeCleanStaleVirtualDrives        WekaPolicyType = opCleanStaleVirtualDrives
 )
 
 // WekaPolicySpec defines the desired state of WekaPolicy
 type WekaPolicySpec struct {
-	// +kubebuilder:validation:Enum=sign-drives;discover-drives;ensure-nics;enable-local-drivers-distribution;remote-traces-session
+	// +kubebuilder:validation:Enum=sign-drives;discover-drives;ensure-nics;enable-local-drivers-distribution;remote-traces-session;clean-stale-virtual-drives
 	Type               WekaPolicyType  `json:"type"`
 	Payload            PolicyPayload   `json:"payload"`
 	Image              *string         `json:"image,omitempty"`
@@ -74,12 +75,13 @@ type WekaPolicyList struct {
 }
 
 type PolicyPayload struct {
-	SignDrives          *SignDrivesPayload         `json:"signDrivesPayload,omitempty"`
-	SchedulingConfig    *SchedulingConfigPayload   `json:"schedulingConfigPayload,omitempty"`
-	DiscoverDrives      *DiscoverDrivesPayload     `json:"discoverDrivesPayload,omitempty"`
-	EnsureNICs          *EnsureNICsPayload         `json:"ensureNICsPayload,omitempty"`
-	DriverDistPayload   *DriverDistPayload         `json:"driverDistPayload,omitempty"`
-	RemoteTracesSession *RemoteTracesSessionConfig `json:"remoteTracesSessionPayload,omitempty"`
+	SignDrives              *SignDrivesPayload              `json:"signDrivesPayload,omitempty"`
+	SchedulingConfig        *SchedulingConfigPayload        `json:"schedulingConfigPayload,omitempty"`
+	DiscoverDrives          *DiscoverDrivesPayload          `json:"discoverDrivesPayload,omitempty"`
+	EnsureNICs              *EnsureNICsPayload              `json:"ensureNICsPayload,omitempty"`
+	DriverDistPayload       *DriverDistPayload              `json:"driverDistPayload,omitempty"`
+	RemoteTracesSession     *RemoteTracesSessionConfig      `json:"remoteTracesSessionPayload,omitempty"`
+	CleanStaleVirtualDrives *CleanStaleVirtualDrivesPayload `json:"cleanStaleVirtualDrivesPayload,omitempty"`
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(s|m|h))+)$"
 	// +kubebuilder:default="5m"

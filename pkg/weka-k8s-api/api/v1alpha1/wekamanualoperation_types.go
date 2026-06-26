@@ -9,18 +9,19 @@ import (
 type WekaManualOperationAction string
 
 const (
-	WekaManualOperationActionSignDrives          WekaManualOperationAction = opSignDrives
-	WekaManualOperationActionDiscoverDrives      WekaManualOperationAction = opDiscoverDrives
-	WekaManualOperationActionForceResignDrives   WekaManualOperationAction = opForceResignDrives
-	WekaManualOperationActionBlockDrives         WekaManualOperationAction = opBlockDrives
-	WekaManualOperationActionUnblockDrives       WekaManualOperationAction = opUnblockDrives
-	WekaManualOperationActionEnsureNICs          WekaManualOperationAction = opEnsureNICs
-	WekaManualOperationActionRemoteTracesSession WekaManualOperationAction = opRemoteTracesSession
+	WekaManualOperationActionSignDrives              WekaManualOperationAction = opSignDrives
+	WekaManualOperationActionDiscoverDrives          WekaManualOperationAction = opDiscoverDrives
+	WekaManualOperationActionForceResignDrives       WekaManualOperationAction = opForceResignDrives
+	WekaManualOperationActionBlockDrives             WekaManualOperationAction = opBlockDrives
+	WekaManualOperationActionUnblockDrives           WekaManualOperationAction = opUnblockDrives
+	WekaManualOperationActionEnsureNICs              WekaManualOperationAction = opEnsureNICs
+	WekaManualOperationActionRemoteTracesSession     WekaManualOperationAction = opRemoteTracesSession
+	WekaManualOperationActionCleanStaleVirtualDrives WekaManualOperationAction = opCleanStaleVirtualDrives
 )
 
 // WekaManualOperationSpec defines the desired state of WekaManualOperation
 type WekaManualOperationSpec struct {
-	// +kubebuilder:validation:Enum=sign-drives;discover-drives;force-resign-drives;block-drives;unblock-drives;ensure-nics;remote-traces-session
+	// +kubebuilder:validation:Enum=sign-drives;discover-drives;force-resign-drives;block-drives;unblock-drives;ensure-nics;remote-traces-session;clean-stale-virtual-drives
 	Action             WekaManualOperationAction `json:"action"`
 	Payload            ManualOperatorPayload     `json:"payload"`
 	Image              *string                   `json:"image,omitempty"`
@@ -68,12 +69,13 @@ type WekaManualOperationList struct {
 }
 
 type ManualOperatorPayload struct {
-	SignDrives                *SignDrivesPayload         `json:"signDrivesPayload,omitempty"`
-	BlockDrives               *BlockDrivesPayload        `json:"blockDrivesPayload,omitempty"`
-	DiscoverDrives            *DiscoverDrivesPayload     `json:"discoverDrivesPayload,omitempty"`
-	EnsureNICs                *EnsureNICsPayload         `json:"ensureNICsPayload,omitempty"`
-	ForceResignDrives         *ForceResignDrivesPayload  `json:"forceResignDrivesPayload,omitempty"`
-	RemoteTracesSessionConfig *RemoteTracesSessionConfig `json:"remoteTracesSessionPayload,omitempty"`
+	SignDrives                *SignDrivesPayload              `json:"signDrivesPayload,omitempty"`
+	BlockDrives               *BlockDrivesPayload             `json:"blockDrivesPayload,omitempty"`
+	DiscoverDrives            *DiscoverDrivesPayload          `json:"discoverDrivesPayload,omitempty"`
+	EnsureNICs                *EnsureNICsPayload              `json:"ensureNICsPayload,omitempty"`
+	ForceResignDrives         *ForceResignDrivesPayload       `json:"forceResignDrivesPayload,omitempty"`
+	RemoteTracesSessionConfig *RemoteTracesSessionConfig      `json:"remoteTracesSessionPayload,omitempty"`
+	CleanStaleVirtualDrives   *CleanStaleVirtualDrivesPayload `json:"cleanStaleVirtualDrivesPayload,omitempty"`
 }
 
 type PCIDevices struct {
@@ -164,6 +166,66 @@ type RemoteTracesSessionConfig struct {
 	AllowHttpWekahomeEndpoint     bool            `json:"allowHttpWekahomeEndpoint,omitempty"`
 	AllowInsecureWekahomeEndpoint bool            `json:"allowInsecureWekahomeEndpoint,omitempty"`
 	WekahomeCaSecret              string          `json:"wekahomeCaSecret,omitempty"`
+}
+
+// CleanStaleVirtualDrivesPayload is the shared payload for the clean-stale-virtual-drives
+// operation, used by both WekaManualOperation (one-shot) and WekaPolicy (periodic).
+//
+// The operation scans every ssdproxy's virtual drives (VIDs) and diffs them against
+// the union of all live WekaContainer allocations to find stale VIDs. Detection always
+// runs and reports; deletion is opt-in and double-gated (see DeleteStaleVids).
+type CleanStaleVirtualDrivesPayload struct {
+	// NodeSelector limits the scan to ssdproxies on nodes matching these labels.
+	// Empty = all nodes that have an ssdproxy.
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// OnlyNonExistingClusters restricts the stale set to VIDs whose owner cluster GUID has NO
+	// WekaCluster CR at all (category dead_cluster) — the safe-by-construction subset (no live
+	// cluster could be mid-allocating them). Excludes live_cluster_unclaimed. Recommended ON
+	// when pairing with deletion.
+	// +kubebuilder:default=false
+	OnlyNonExistingClusters bool `json:"onlyNonExistingClusters,omitempty"`
+	// DeleteStaleVids enables ACTUAL removal of detected stale VIDs. DANGEROUS — disabled by
+	// default. Even when true, a VID is only removed if it was reported stale and UNCHANGED on
+	// the previous cycle (fingerprint match) and is still unclaimed at removal time. Acts as the
+	// user's confirmation.
+	// +kubebuilder:default=false
+	DeleteStaleVids bool `json:"deleteStaleVids,omitempty"`
+}
+
+// StaleVirtualDriveInfo describes a single stale virtual drive detected on a proxy.
+type StaleVirtualDriveInfo struct {
+	Node             string `json:"node"`
+	PhysicalUUID     string `json:"physicalUUID"`
+	Serial           string `json:"serial,omitempty"`
+	VirtualUUID      string `json:"virtualUUID"`
+	OwnerClusterGUID string `json:"ownerClusterGUID"`
+	SizeGB           int    `json:"sizeGB"`
+	// Category is "dead_cluster" (no WekaCluster CR has the owner GUID) or
+	// "live_cluster_unclaimed" (a WekaCluster CR exists but no container claims the VID).
+	Category string `json:"category"`
+}
+
+// Stale VID categories.
+const (
+	StaleVidCategoryDeadCluster          = "dead_cluster"
+	StaleVidCategoryLiveClusterUnclaimed = "live_cluster_unclaimed"
+)
+
+// StaleVirtualDrivesResult is written to the manual op Status.Result / policy Status.LastResult
+// as JSON each cycle. It is inspectable and the Fingerprint drives the two-cycle stability gate.
+type StaleVirtualDrivesResult struct {
+	ScannedNodes int     `json:"scannedNodes"`
+	StaleCount   int     `json:"staleCount"`
+	StaleTiB     float64 `json:"staleTiB"`
+	// Fingerprint is a stable hash over the sorted (node+virtualUuid) of the stale set.
+	Fingerprint string `json:"fingerprint"`
+	// DeletionEligible is true when Fingerprint == the previous run's fingerprint (set unchanged).
+	DeletionEligible bool                    `json:"deletionEligible"`
+	StaleVids        []StaleVirtualDriveInfo `json:"staleVids,omitempty"`
+	// Deleted holds the virtualUuids removed this run.
+	Deleted []string `json:"deleted,omitempty"`
+	// Err carries a scan/operation error message, if any.
+	Err string `json:"err,omitempty"`
 }
 
 func init() {
