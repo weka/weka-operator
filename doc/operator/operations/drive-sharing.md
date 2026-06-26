@@ -871,6 +871,7 @@ sizing, validation), events, and constraints are documented in full in the dedic
 
 - [Cluster Capacity Guide](../deployment/cluster-capacity.md) - Whole-cluster `clusterCapacity` target: planner algorithm, worked examples, events, and constraints
 - [Drive Sharing Allocation Logic Summary](drive-sharing-summary.md) - Condensed technical summary with flowcharts and examples
+- [Clean Stale Virtual Drives](clean-stale-virtual-drives.md) - Fleet-level detection and gated removal of leaked virtual drives (VIDs) on shared proxies
 - [Drive Signing](drive-signing.md) - Standard (exclusive) drive signing for single-cluster deployments
 - [Cluster Provisioning](../deployment/cluster-provisioning.md) - General cluster configuration
 - [WekaCluster API Reference](../../api_dump/wekacluster.md) - Complete field reference

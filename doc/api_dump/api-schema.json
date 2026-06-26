@@ -247,6 +247,41 @@
         "WekaCluster"
       ]
     },
+    "CleanStaleVirtualDrivesPayload": {
+      "kind": "struct",
+      "description": "CleanStaleVirtualDrivesPayload is the shared payload for the clean-stale-virtual-drives\noperation, used by both WekaManualOperation (one-shot) and WekaPolicy (periodic).\nThe operation scans every ssdproxy's virtual drives (VIDs) and diffs them against\nthe union of all live WekaContainer allocations to find stale VIDs. Detection always\nruns and reports; deletion is opt-in and double-gated (see DeleteStaleVids).",
+      "fields": [
+        {
+          "name": "NodeSelector",
+          "jsonName": "nodeSelector",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "NodeSelector limits the scan to ssdproxies on nodes matching these labels.\nEmpty = all nodes that have an ssdproxy.",
+          "optional": true
+        },
+        {
+          "name": "OnlyNonExistingClusters",
+          "jsonName": "onlyNonExistingClusters",
+          "type": "bool",
+          "description": "OnlyNonExistingClusters restricts the stale set to VIDs whose owner cluster GUID has NO\nWekaCluster CR at all (category dead_cluster) — the safe-by-construction subset (no live\ncluster could be mid-allocating them). Excludes live_cluster_unclaimed. Recommended ON\nwhen pairing with deletion.",
+          "optional": true
+        },
+        {
+          "name": "DeleteStaleVids",
+          "jsonName": "deleteStaleVids",
+          "type": "bool",
+          "description": "DeleteStaleVids enables ACTUAL removal of detected stale VIDs. DANGEROUS — disabled by\ndefault. Even when true, a VID is only removed if it was reported stale and UNCHANGED on\nthe previous cycle (fingerprint match) and is still unclaimed at removal time. Acts as the\nuser's confirmation.",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation",
+        "WekaPolicy"
+      ]
+    },
     "ClientContainerSpec": {
       "kind": "struct",
       "fields": [
@@ -1511,6 +1546,15 @@
           },
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "CleanStaleVirtualDrives",
+          "jsonName": "cleanStaleVirtualDrivesPayload",
+          "type": {
+            "$ref": "#/definitions/CleanStaleVirtualDrivesPayload"
+          },
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -1945,6 +1989,15 @@
           "jsonName": "remoteTracesSessionPayload",
           "type": {
             "$ref": "#/definitions/RemoteTracesSessionConfig"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "CleanStaleVirtualDrives",
+          "jsonName": "cleanStaleVirtualDrivesPayload",
+          "type": {
+            "$ref": "#/definitions/CleanStaleVirtualDrivesPayload"
           },
           "optional": true,
           "pointer": true
@@ -2744,6 +2797,121 @@
       ],
       "usedBy": [
         "WekaCluster"
+      ]
+    },
+    "StaleVirtualDriveInfo": {
+      "kind": "struct",
+      "description": "StaleVirtualDriveInfo describes a single stale virtual drive detected on a proxy.",
+      "fields": [
+        {
+          "name": "Node",
+          "jsonName": "node",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "PhysicalUUID",
+          "jsonName": "physicalUUID",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "Serial",
+          "jsonName": "serial",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "VirtualUUID",
+          "jsonName": "virtualUUID",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "OwnerClusterGUID",
+          "jsonName": "ownerClusterGUID",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "SizeGB",
+          "jsonName": "sizeGB",
+          "type": "int",
+          "optional": false
+        },
+        {
+          "name": "Category",
+          "jsonName": "category",
+          "type": "string",
+          "description": "Category is \"dead_cluster\" (no WekaCluster CR has the owner GUID) or\n\"live_cluster_unclaimed\" (a WekaCluster CR exists but no container claims the VID).",
+          "optional": false
+        }
+      ]
+    },
+    "StaleVirtualDrivesResult": {
+      "kind": "struct",
+      "description": "StaleVirtualDrivesResult is written to the manual op Status.Result / policy Status.LastResult\nas JSON each cycle. It is inspectable and the Fingerprint drives the two-cycle stability gate.",
+      "fields": [
+        {
+          "name": "ScannedNodes",
+          "jsonName": "scannedNodes",
+          "type": "int",
+          "optional": false
+        },
+        {
+          "name": "StaleCount",
+          "jsonName": "staleCount",
+          "type": "int",
+          "optional": false
+        },
+        {
+          "name": "StaleTiB",
+          "jsonName": "staleTiB",
+          "type": "float64",
+          "optional": false
+        },
+        {
+          "name": "Fingerprint",
+          "jsonName": "fingerprint",
+          "type": "string",
+          "description": "Fingerprint is a stable hash over the sorted (node+virtualUuid) of the stale set.",
+          "optional": false
+        },
+        {
+          "name": "DeletionEligible",
+          "jsonName": "deletionEligible",
+          "type": "bool",
+          "description": "DeletionEligible is true when Fingerprint == the previous run's fingerprint (set unchanged).",
+          "optional": false
+        },
+        {
+          "name": "StaleVids",
+          "jsonName": "staleVids",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/StaleVirtualDriveInfo"
+            }
+          },
+          "optional": true
+        },
+        {
+          "name": "Deleted",
+          "jsonName": "deleted",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "Deleted holds the virtualUuids removed this run.",
+          "optional": true
+        },
+        {
+          "name": "Err",
+          "jsonName": "err",
+          "type": "string",
+          "description": "Err carries a scan/operation error message, if any.",
+          "optional": true
+        }
       ]
     },
     "StartIoConditions": {
@@ -5282,7 +5450,8 @@
         "block-drives",
         "unblock-drives",
         "ensure-nics",
-        "remote-traces-session"
+        "remote-traces-session",
+        "clean-stale-virtual-drives"
       ],
       "baseType": "string",
       "usedBy": [
@@ -5608,7 +5777,8 @@
         "discover-drives",
         "ensure-nics",
         "enable-local-drivers-distribution",
-        "remote-traces-session"
+        "remote-traces-session",
+        "clean-stale-virtual-drives"
       ],
       "baseType": "string",
       "usedBy": [

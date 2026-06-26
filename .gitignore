@@ -63,3 +63,4 @@ test_artifacts/
 manager
 .temp
 .worktrees
+.work/

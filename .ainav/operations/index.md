@@ -24,6 +24,7 @@ Manual operations, policies, CSI, and driver management.
 | `block_drives.go` | Block drives operation |
 | `discover_drives.go` | Drive discovery via node-agent |
 | `resign_drives.go` | Force drive re-signing |
+| `stale_virtual_drives.go` | Stale virtual drives detection + gated cleanup. |
 
 ## Driver Operations
 
