@@ -160,6 +160,10 @@ type ClusterCapacityConfig struct {
 	// container would be at least this factor (8.0 = 8.0x) of the existing containers' average
 	// capacity, the planner lays out a fresh balanced set instead. 0 falls back to the default (8.0).
 	ImbalanceFactor float64
+	// CapacityDeadbandFraction is the relative shortfall (desired-current)/desired below which a pool
+	// growth is ignored, to avoid re-planning/thrashing on trivial clusterCapacity bumps. 0 disables
+	// the deadband (exact-match: any positive delta grows).
+	CapacityDeadbandFraction float64
 }
 
 type DriveSharingConfig struct {
@@ -566,6 +570,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.ClusterCapacity.TlcCapacityPerCoreGiB = getIntEnvOrDefault("CLUSTER_CAPACITY_TLC_CAPACITY_PER_CORE_GIB", 5*1024)
 	Config.ClusterCapacity.QlcCapacityPerCoreGiB = getIntEnvOrDefault("CLUSTER_CAPACITY_QLC_CAPACITY_PER_CORE_GIB", 50*1024)
 	Config.ClusterCapacity.ImbalanceFactor = getFloatEnvOrDefault("CLUSTER_CAPACITY_IMBALANCE_FACTOR", 8.0)
+	Config.ClusterCapacity.CapacityDeadbandFraction = getFloatEnvOrDefault("CLUSTER_CAPACITY_DEADBAND_FRACTION", 0.05)
 
 	// Builder images configuration
 	Config.BuilderImages.Default = getEnvOrDefault("BUILDER_IMAGE_DEFAULT", "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22")

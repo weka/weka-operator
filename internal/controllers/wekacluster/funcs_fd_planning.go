@@ -418,8 +418,9 @@ func (r *wekaClusterReconcilerLoop) steadyStatePlan(ctx context.Context, desired
 	defer logger.End()
 
 	drv := summarizeDriveContainers(ctx, r.containers, cons)
-	if drv.tlcGiB < desired.TlcRawGiB || drv.qlcGiB < desired.QlcRawGiB {
-		return nil, false // a pool needs growth → full plan places it
+	if allocator.CapacityShort(drv.tlcGiB, desired.TlcRawGiB, cons) ||
+		allocator.CapacityShort(drv.qlcGiB, desired.QlcRawGiB, cons) {
+		return nil, false // a pool needs growth beyond the deadband → full plan places it
 	}
 
 	cmp := summarizeComputeContainers(ctx, r.containers)
