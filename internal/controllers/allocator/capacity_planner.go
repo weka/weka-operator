@@ -32,15 +32,16 @@ type ProtectionScheme struct {
 func (p ProtectionScheme) MinFdNum() int { return p.StripeWidth + p.RedundancyLevel + p.HotSpare }
 
 // MinProtectionFloor returns the minimum accepted data(stripeWidth)/parity(redundancyLevel)/hotSpare
-// for a clusterCapacity cluster. Production durability requires 3+2+1 (parity>=2). When the
-// operator-level AllowSingleParity flag is set, the floor drops to single-parity 2+1+0 so QA/test
-// schemes such as 2+1 (minFdNum=3) are accepted. QA/test only — a single parity chunk leaves a stripe
-// unprotected during rebuild. The same flag drives the allow_1_parity weka override at formation.
+// for a clusterCapacity cluster. Production requires stripeWidth>=3 and redundancyLevel>=2
+// (parity>=2 is the durability guarantee); hotSpare is optional (>=0). When the operator-level
+// AllowSingleParity flag is set, the floor drops to single-parity 2+1+0 so QA/test schemes such as
+// 2+1 (minFdNum=3) are accepted. QA/test only — a single parity chunk leaves a stripe unprotected
+// during rebuild. The same flag drives the allow_1_parity weka override at formation.
 func MinProtectionFloor() (stripeWidth, redundancyLevel, hotSpare int) {
 	if globalconfig.Config.DriveSharing.AllowSingleParity {
 		return 2, 1, 0
 	}
-	return 3, 2, 1
+	return 3, 2, 0
 }
 
 // DesiredCapacity is the per-pool RAW target (usable already inflated by RawCapacityGiB and split by

@@ -13,11 +13,11 @@ import (
 )
 
 // clusterCapacityProtection rejects WekaCluster specs that use clusterCapacity
-// with a protection scheme below the production 3+2+1 minimum (stripeWidth>=3,
-// redundancyLevel>=2, hotSpare>=1). Any lower value produces a degenerate or
-// unbootable cluster. The floor is relaxed to single-parity 2+1+0 when the
-// operator-level AllowSingleParity flag is set (QA/test only) — see
-// allocator.MinProtectionFloor.
+// with a protection scheme below the production 3+2+0 minimum (stripeWidth>=3,
+// redundancyLevel>=2, hotSpare>=0 / hot spare optional). Any lower stripeWidth or
+// redundancyLevel produces a degenerate or unbootable cluster. The floor is relaxed
+// to single-parity 2+1+0 when the operator-level AllowSingleParity flag is set
+// (QA/test only) — see allocator.MinProtectionFloor.
 type clusterCapacityProtection struct{}
 
 func (clusterCapacityProtection) ID() string { return "cluster_capacity_protection" }

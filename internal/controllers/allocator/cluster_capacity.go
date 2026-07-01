@@ -77,5 +77,5 @@ type NodeCapacity struct {
 // RawCapacityGiB converts a usable cluster-capacity target into raw capacity including parity
 // and hot-spare overhead: raw = usable * (sw+rl+hs) / sw.
 func RawCapacityGiB(clusterCapGiB, sw, rl, hs int) int {
-	return clusterCapGiB * (sw + rl + hs) / sw
+	return int(float64(clusterCapGiB*(sw+rl+hs)/sw) / 0.9)
 }

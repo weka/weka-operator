@@ -34,7 +34,7 @@ func (clusterCapacityChunkFeasibility) Validate(ctx context.Context, c client.Cl
 	}
 
 	sw, rl, hs := cluster.Spec.StripeWidth, cluster.Spec.RedundancyLevel, cluster.Spec.HotSpare
-	// The protection floor (3+2+1, or single-parity 2+1+0 when AllowSingleParity is set) is reported by
+	// The protection floor (3+2+0, or single-parity 2+1+0 when AllowSingleParity is set) is reported by
 	// clusterCapacityProtection; below it the chunk math is degenerate.
 	minSW, minRL, minHS := allocator.MinProtectionFloor()
 	if sw < minSW || rl < minRL || hs < minHS {
