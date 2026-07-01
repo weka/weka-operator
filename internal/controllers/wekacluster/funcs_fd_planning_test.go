@@ -855,3 +855,52 @@ func TestFormatCapacityPlanSummary(t *testing.T) {
 		}
 	})
 }
+
+// TestAggregateContainerResources_SkipsMarkedForDeletion validates that aggregateContainerResources
+// ignores containers where IsMarkedForDeletion() is true (DeletionTimestamp set + at least one
+// finalizer), for both drive and compute modes. Only the live container's footprint must appear.
+func TestAggregateContainerResources_SkipsMarkedForDeletion(t *testing.T) {
+	cons := testCons()
+
+	// Live drive container on "n1" (100 GiB total, tlc:qlc ratio 1:4 → 20 TiB TLC, 80 TiB QLC).
+	live := ownedDriveContainer("cluster-me", "n1", 100*tib, 1, 4)
+
+	// Deleting drive container on "n1" — same capacity but marked for deletion.
+	deleting := ownedDriveContainer("cluster-me", "n1", 100*tib, 1, 4)
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	deleting.Finalizers = []string{"x"}
+
+	// Deleting compute container on "n1" — proves ALL modes are skipped, not just drive.
+	delCompute := modeContainer(weka.WekaContainerModeCompute, "n1", 8, 19572)
+	delCompute.DeletionTimestamp = &now
+	delCompute.Finalizers = []string{"x"}
+
+	res := aggregateContainerResources([]weka.WekaContainer{live, deleting, delCompute}, cons)
+
+	// Build a reference result from ONLY the live container and compare map-by-map.
+	// This avoids hardcoding derived numbers and directly proves that the two deleting
+	// containers contribute exactly zero to every resource dimension.
+	resLiveOnly := aggregateContainerResources([]weka.WekaContainer{live}, cons)
+
+	if res.tlc["n1"] != resLiveOnly.tlc["n1"] {
+		t.Errorf("n1 TLC: got %d, want %d (only live container; deleting drive must be skipped)",
+			res.tlc["n1"], resLiveOnly.tlc["n1"])
+	}
+	if res.qlc["n1"] != resLiveOnly.qlc["n1"] {
+		t.Errorf("n1 QLC: got %d, want %d (only live container; deleting drive must be skipped)",
+			res.qlc["n1"], resLiveOnly.qlc["n1"])
+	}
+	if res.cores["n1"] != resLiveOnly.cores["n1"] {
+		t.Errorf("n1 cores: got %d, want %d (deleting drive's cores + deleting compute's 8 cores must be skipped)",
+			res.cores["n1"], resLiveOnly.cores["n1"])
+	}
+	if res.hugepages["n1"] != resLiveOnly.hugepages["n1"] {
+		t.Errorf("n1 hugepages: got %d, want %d (deleting containers must not charge hugepages)",
+			res.hugepages["n1"], resLiveOnly.hugepages["n1"])
+	}
+	if res.memory["n1"] != resLiveOnly.memory["n1"] {
+		t.Errorf("n1 memory: got %d, want %d (deleting containers must not charge memory)",
+			res.memory["n1"], resLiveOnly.memory["n1"])
+	}
+}

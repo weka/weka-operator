@@ -1253,7 +1253,8 @@ func finalizePoolFeasibility(
 		}
 		placed += finalPoolCap(c, growth, p)
 	}
-	if reason := poolFeasibility(p, minFd, max(0, desiredRaw-placed), existingDrives, growth, newByNode, cons); reason != "" {
+	// remaining shortfall is measured to the deadband floor (CapacityCoverTarget), so a within-deadband gap isn't reported infeasible.
+	if reason := poolFeasibility(p, minFd, max(0, CapacityCoverTarget(desiredRaw, cons)-placed), existingDrives, growth, newByNode, cons); reason != "" {
 		plan.Infeasible = reason
 	}
 }
@@ -1472,16 +1473,49 @@ func planPoolUniformIncrease(
 		finalizePoolFeasibility(p, desiredRaw, minFd, existingDrives, growth, newByNode, cons, plan, false)
 	}
 
-	// --- Step 4: no-grow attempt (preferred) — cover delta with whole T0 FDs on spare nodes. ---
-	kNeeded := util.CeilDiv(delta, T0)
-	kAvail := freshCountAtLeast(T0)
-	if kAvail >= kNeeded && kNeeded*T0-delta <= overshootCap {
-		placeUniform(p, T0, freshChosen(kNeeded, T0), existingDrives, states, cons, growFor, newByNode, newFor)
-		finalizeFeasibility()
-		if plan.Infeasible == "" && kNeeded*T0 > delta {
-			plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(kNeeded, T0, current+kNeeded*T0))
+	// --- Step 4: no-grow attempt (preferred) — cover the missing capacity with new failure domains sized to
+	// the shortfall itself (CeilDiv(delta, k)) rather than cloning the full existing FD size (T0). Sizing to
+	// delta/k makes the new FDs sum to ~delta, so the pool reaches desiredRaw without over-provisioning —
+	// neither the count-rounding overshoot of cloning T0 nor the sub-T0 quantization overshoot when
+	// delta < T0. The PREFERRED count is kBase = CeilDiv(delta, T0): the same count T0-cloning would use, and
+	// its per-FD size CeilDiv(delta, kBase) is always <= T0, so new FDs are <= the existing frozen FDs (never
+	// bigger) and clean multiples of T0 stay uniform at exactly T0. Only when there aren't enough spare nodes
+	// for kBase FDs may the count drop and per-FD size grow (up to maxPerFdCap = desiredRaw/minFd).
+	maxPerFdCap := 0
+	if minFd > 0 {
+		maxPerFdCap = desiredRaw / minFd
+	}
+	if maxPerFdCap > 0 {
+		existingAvg := poolAvg(existingDrives, p)
+		kBase := util.CeilDiv(delta, T0) // count T0-cloning would use — preferred (per-FD comes out <= T0)
+		// Prefer the preferred count (most FDs, smallest per-FD <= T0, uniform with existing); only when there
+		// aren't enough spare nodes for that many fall to fewer, LARGER new FDs (up to maxPerFdCap). Sizing to
+		// delta/k makes the new FDs sum to ~delta, so we hit desiredRaw without over-provisioning.
+		for k := min(kBase, len(freshGroups)); k >= 1; k-- {
+			perFd := util.CeilDiv(delta, k)
+			if perFd < cons.MinChunkSizeGiB {
+				perFd = cons.MinChunkSizeGiB
+			}
+			if perFd > maxPerFdCap {
+				break // fewer FDs only make perFd larger — cannot satisfy the cap; leave to grow/infeasible
+			}
+			if detectImbalance(perFd, existingAvg, cons) {
+				break // fewer FDs only make perFd larger — imbalance won't improve
+			}
+			if freshCountAtLeast(perFd) < k {
+				continue // not enough spare nodes for k FDs this size; try fewer (larger) FDs
+			}
+			total := current + k*perFd
+			if total-desiredRaw > overshootCap {
+				continue
+			}
+			placeUniform(p, perFd, freshChosen(k, perFd), existingDrives, states, cons, growFor, newByNode, newFor)
+			finalizeFeasibility()
+			if plan.Infeasible == "" && total > desiredRaw {
+				plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(k, perFd, total))
+			}
+			return
 		}
-		return
 	}
 
 	// --- Step 5: grow phase — search the final FD count N for the smallest feasible uniform level L. ---
@@ -1520,7 +1554,8 @@ func planPoolUniformIncrease(
 	}
 
 	if best.L == T0 {
-		// Defensive: a within-cap L==T0 candidate implies kAvail>=kNeeded within cap, which Step 4 already
+		// Defensive: an L==T0 grow candidate means the delta can be covered by T0-sized fresh FDs, which
+		// Step 4's even-split (perFd <= maxPerFdCap, and T0 <= maxPerFdCap) would already have placed and
 		// returned on — so this is effectively unreachable. Handle it as a plain create-at-T0 anyway.
 		kFresh := best.N - numExisting
 		placeUniform(p, T0, freshChosen(kFresh, T0), existingDrives, states, cons, growFor, newByNode, newFor)
@@ -1533,49 +1568,18 @@ func planPoolUniformIncrease(
 
 	// best.L > T0: a uniform grow is required.
 	if !cons.AllowInPlaceGrowth {
-		// maxPerFdCap is the largest a single failure domain may be: the pool's raw target spread across the
-		// minimum failure-domain count minFd (= stripeWidth+redundancy+hotSpare). It sizes new FDs below and
-		// is reported as the per-FD ceiling in the infeasible messages.
+		// Growth is disabled, so the preferred no-grow cover (Step 4's even-split-to-delta on fresh FDs
+		// sized up to maxPerFdCap) has ALREADY been attempted above and found no feasible k — otherwise it
+		// would have placed and returned. There is therefore no additional placement to try here: fall
+		// straight through to the tailored infeasible message. maxPerFdCap (the per-FD ceiling =
+		// desiredRaw/minFd) and the T0-clone framing (kNeeded T0-sized FDs, kAvail available) are recomputed
+		// locally to describe WHY the frozen layout cannot reach the target.
 		maxPerFdCap := 0
 		if minFd > 0 {
 			maxPerFdCap = desiredRaw / minFd
 		}
-		// Frozen existing FDs cannot grow, but a NEW failure domain may legitimately be LARGER than T0 —
-		// up to maxPerFdCap = desiredRaw/minFd, the most any single FD should hold given data must spread
-		// across at least minFd (= stripeWidth+redundancy+hotSpare) failure domains. Sizing new FDs from
-		// this cap (not by replicating the smallest existing FD) lets the delta be covered by fewer, larger
-		// new FDs — hence fewer spare nodes — without touching the frozen existing FDs. The imbalance factor
-		// still binds: a new FD may not dwarf the existing ones (detectImbalance), and the per-FD floor
-		// (MinChunkSizeGiB) and over-provision cap still apply. Prefer the fewest new FDs (smallest k), which
-		// yields the largest per-FD size the spare nodes can actually host.
-		if maxPerFdCap > 0 {
-			existingAvg := poolAvg(existingDrives, p)
-			for k := 1; k <= len(freshGroups); k++ {
-				perFd := util.CeilDiv(delta, k)
-				if perFd < cons.MinChunkSizeGiB {
-					perFd = cons.MinChunkSizeGiB
-				}
-				if perFd > maxPerFdCap {
-					continue // too large for k FDs; a larger k lowers the per-FD size
-				}
-				if detectImbalance(perFd, existingAvg, cons) {
-					continue // a new FD this large relative to existing trips the imbalance factor
-				}
-				if freshCountAtLeast(perFd) < k {
-					continue // not enough spare nodes can host a perFd-sized FD
-				}
-				total := current + k*perFd
-				if total-desiredRaw > overshootCap {
-					continue // would over-provision beyond maxOverProvisionFraction
-				}
-				placeUniform(p, perFd, freshChosen(k, perFd), existingDrives, states, cons, growFor, newByNode, newFor)
-				finalizeFeasibility()
-				if plan.Infeasible == "" && total > desiredRaw {
-					plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(k, perFd, total))
-				}
-				return
-			}
-		}
+		kNeeded := util.CeilDiv(delta, T0)
+		kAvail := freshCountAtLeast(T0)
 		if shortfall := kNeeded - kAvail; shortfall > 0 {
 			// The binding constraint is the NUMBER of failure domains, not bytes-per-node: existing FDs are
 			// frozen (growth disabled) and uniform distribution forces every new FD to equal the smallest
@@ -1594,6 +1598,10 @@ func planPoolUniformIncrease(
 		return
 	}
 	if float64(best.L-T0) < cons.MinGrowthFraction*float64(T0) {
+		// Grow is allowed but too small (below minGrowthFraction); the T0-clone framing (kNeeded T0-sized
+		// FDs across kAvail spare nodes) explains the create-new alternative that also fell short.
+		kNeeded := util.CeilDiv(delta, T0)
+		kAvail := freshCountAtLeast(T0)
 		pct := int((100*float64(best.L-T0))/float64(T0) + 0.5)
 		plan.Infeasible = fmt.Sprintf(
 			"%s: cannot satisfy clusterCapacity — need +%d GiB. Adding failure domains requires %d node(s) not already running a %s drive container with >=%d GiB free each (the uniform per-FD size), but only %d is/are available. The alternative — growing existing containers in place — would raise each by only %d%% (below minGrowthFraction=%.2f), so it is skipped. Resolve by: adding %d more node(s), or raising clusterCapacity by at least one %d GiB failure-domain chunk, or lowering minGrowthFraction.",

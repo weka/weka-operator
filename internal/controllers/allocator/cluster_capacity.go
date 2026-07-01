@@ -93,3 +93,16 @@ func CapacityShort(current, desired int, cons *CapacityConstraints) bool {
 	band := int(math.Ceil(float64(desired) * cons.CapacityDeadbandFraction))
 	return desired-current > band
 }
+
+// CapacityCoverTarget is the minimum realized capacity that satisfies `desired` without being
+// CapacityShort — i.e. `desired` reduced by the shortfall deadband. Placement and feasibility target
+// this, not exact `desired`, so a shortfall already within the deadband never forces an extra failure
+// domain nor a spurious infeasible verdict. Mirrors CapacityShort's band exactly (not-short iff
+// current >= CapacityCoverTarget). A fraction <= 0 returns `desired` (strict exact-match, unchanged).
+func CapacityCoverTarget(desired int, cons *CapacityConstraints) int {
+	if cons.CapacityDeadbandFraction <= 0 {
+		return desired
+	}
+	band := int(math.Ceil(float64(desired) * cons.CapacityDeadbandFraction))
+	return desired - band
+}

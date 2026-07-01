@@ -508,10 +508,11 @@ func (r *wekaClusterReconcilerLoop) buildNodeInventory(ctx context.Context) (fds
 	fdConfig := cluster.Spec.FailureDomain
 
 	// Nodes still hosting THIS cluster's drive container being deleted. Such a container is excluded from
-	// existingDrives (buildExistingDriveContainers skips marked-for-deletion via utils.IsUnhealthy), so the
-	// node re-enters the fresh-candidate pool while its footprint is still charged here. Flagging the drive
-	// entry lets the planner deprioritize the node for fresh drive placement — otherwise a replacement FD is
-	// recreated on the node it was just deleted from. Keyed on the deletion timestamp only (IsMarkedForDeletion).
+	// existingDrives (buildExistingDriveContainers skips marked-for-deletion via utils.IsUnhealthy) AND from
+	// the node resource charge (aggregateContainerResources now skips marked-for-deletion), so the node
+	// re-enters the fresh-candidate pool with its footprint freed. Flagging the drive entry still lets the
+	// planner deprioritize the node for fresh drive placement — otherwise a replacement FD is recreated on
+	// the node it was just deleted from. Keyed on the deletion timestamp only (IsMarkedForDeletion).
 	deletingDriveNodes := map[string]bool{}
 	for _, c := range r.containers {
 		if c.Spec.Mode == weka.WekaContainerModeDrive && c.IsMarkedForDeletion() {
@@ -641,8 +642,9 @@ func (r *wekaClusterReconcilerLoop) consumedNodeResources(ctx context.Context) (
 	return aggregateContainerResources(containers, allocator.CapacityConstraintsFromConfig()), nil
 }
 
-// aggregateContainerResources sums, per node, the resource footprint of EVERY weka container by mode, so
-// headroom() can subtract one unified figure (allocatable − consumed) and the planner needs no separate
+// aggregateContainerResources sums, per node, the resource footprint of weka containers by mode
+// (skipping containers marked for deletion — their resources are about to be freed), so headroom()
+// can subtract one unified figure (allocatable − consumed) and the planner needs no separate
 // per-mode charging:
 //   - drive (drive-sharing only): cores/hugepages/memory are derived from per-pool CAPACITY via the
 //     single shared sizing model (allocator.RequiredDriveResources) rather than read from its (possibly
@@ -663,6 +665,9 @@ func aggregateContainerResources(containers []weka.WekaContainer, cons *allocato
 	}
 	for i := range containers {
 		c := &containers[i]
+		if c.IsMarkedForDeletion() { // resources of a container being torn down are about to be freed — don't charge them against node headroom (mirrors buildExistingDriveContainers dropping it from the existing view)
+			continue
+		}
 		node := string(c.GetNodeAffinity())
 		if node == "" {
 			continue

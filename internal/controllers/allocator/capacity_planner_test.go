@@ -1023,12 +1023,15 @@ func Test_Heterogeneous_BalancedFresh_FiresWithScalingDisabled(t *testing.T) {
 	}
 }
 
-// NEW behavior: create-new-at-T (uniform). 6 full existing FDs at T0=20 TiB + 6 fresh nodes; delta=90 TiB
-// is covered by ceil(90/20)=5 new full-T0 (20 TiB) FDs = 100 TiB, over-provisioning by 10 TiB (within
-// maxOverProvisionFraction). Existing specs are untouched and no sub-T fragment is created
-// (was: 90 TiB spread thin across new nodes).
+// NEW behavior: even-split-to-delta at the PREFERRED count. 6 full existing FDs at T0=20 TiB + 6 fresh
+// nodes; delta=90 TiB. The preferred count is kBase=CeilDiv(delta,T0)=CeilDiv(90,20)=5 — the same count
+// T0-cloning would use — and the per-FD size CeilDiv(90,5)=18 TiB comes out <= T0 (never bigger than the
+// frozen existing FDs). 6 fresh nodes cover the 5 FDs, so 5 new FDs of 18 TiB = 90 TiB EXACTLY (no
+// over-provision). Existing specs are untouched. This replaces the old T0-clone behavior (5 FDs of the full
+// T0=20 TiB = 100 TiB, over-provisioning by 10 TiB): sizing each new FD to delta/kBase reaches desired
+// exactly while keeping the new FDs <= the existing ones.
 func Test_Grow_PartialInPlace_RemainderCreatesNew(t *testing.T) {
-	s := testScheme()
+	s := testScheme() // minFdNum = 6
 	// 6 existing TLC containers on full nodes (no headroom) + 6 fresh empty nodes available.
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
@@ -1037,7 +1040,7 @@ func Test_Grow_PartialInPlace_RemainderCreatesNew(t *testing.T) {
 	}
 	// Old nodes are full on DRIVE capacity (0 GiB free) but retain CPU cores for compute containers.
 	inv := append(nodes(6, 0, 0, 64, "old"), nodes(6, 100*tib, 0, 64, "new")...) // old nodes drive-full
-	// current 120 TiB; raise to 210 TiB raw -> delta 90 must land on the 6 new nodes as full-T0 FDs.
+	// current 120 TiB; raise to 210 TiB raw -> delta 90 TiB lands on the fresh nodes as 5 even-split FDs.
 	desired := DesiredCapacity{TlcRawGiB: 210 * tib}
 	plan := planCap(desired, s, existingDrives, inv, testCons())
 	if plan.Infeasible != "" {
@@ -1046,19 +1049,19 @@ func Test_Grow_PartialInPlace_RemainderCreatesNew(t *testing.T) {
 	if len(plan.Grow) != 0 {
 		t.Fatalf("old nodes are full; want 0 grows, got %d", len(plan.Grow))
 	}
-	if len(plan.Create) != 5 { // ceil(90/20) full-T0 (20 TiB) FDs
-		t.Fatalf("want 5 new full-T0 FDs, got %d: %v", len(plan.Create), plan.Create)
+	if len(plan.Create) != 5 { // preferred count kBase=CeilDiv(90,20)=5; perFd=CeilDiv(90,5)=18 TiB (<= T0)
+		t.Fatalf("want 5 new even-split FDs (18 TiB each), got %d: %v", len(plan.Create), plan.Create)
 	}
 	for _, c := range plan.Create {
-		if c.TlcGiB != 20*tib {
-			t.Fatalf("want each new FD at uniform T0=20 TiB, got %+v", c)
+		if c.TlcGiB != 18*tib {
+			t.Fatalf("want each new FD at CeilDiv(delta=90 TiB, kBase=5)=18 TiB, got %+v", c)
 		}
 	}
-	if got := sumCreateTlc(plan); got != 100*tib { // 5 × 20 TiB, over-provisioned by 10 TiB
-		t.Fatalf("want 100 TiB created (uniform full-T0 FDs), got %d", got)
+	if got := sumCreateTlc(plan); got != 90*tib { // 5 × 18 TiB = the delta EXACTLY
+		t.Fatalf("want 90 TiB created (even-split to delta), got %d", got)
 	}
-	if len(plan.OverProvisions) == 0 {
-		t.Fatalf("want a ClusterCapacityOverProvisioned advisory for the 10 TiB overshoot")
+	if len(plan.OverProvisions) != 0 {
+		t.Fatalf("even-split reaches desired exactly; want no over-provision advisory, got %v", plan.OverProvisions)
 	}
 }
 
@@ -1153,11 +1156,15 @@ func Test_Grow_RebalancesPreExistingSkew_TowardAverage(t *testing.T) {
 	}
 }
 
-// NEW behavior: uniform level + create-new-before-grow. Only 3 existing FDs (T0=30 TiB) + 6 fresh nodes;
-// delta=270 TiB. No-grow needs 9 fresh FDs but only 6 are available, so the grow phase raises the uniform
-// level to the smallest feasible L over N=9 FDs: L=40 TiB. Existing FDs grow 30->40 TiB (a 33% bump,
-// above minGrowthFraction) and 6 NEW FDs are created AT the uniform L=40 TiB (not T0) — every final FD is
-// 40 TiB (was: existing topped to 60 TiB and the rest spread thin).
+// NEW behavior: even-split-to-delta covers the increase on FRESH FDs WITHOUT growing the existing ones.
+// Only 3 existing FDs (T0=30 TiB) + 6 fresh nodes; delta=270 TiB. maxPerFdCap = 360 TiB/minFd(6) = 60 TiB.
+// The preferred count is kBase=CeilDiv(delta,T0)=CeilDiv(270,30)=9, but only 6 fresh nodes are available, so
+// node scarcity caps the count at 6: perFd=CeilDiv(270,6)=45 TiB (<= maxPerFdCap 60, below the imbalance
+// boundary existingAvg=30 TiB × 2.0 = 60) → 6 new FDs of 45 TiB = 270 TiB EXACTLY, 0 grows. The new FDs are
+// LARGER than T0 here only because there aren't enough spare nodes for the preferred 9-FD (30 TiB each)
+// layout. Final layout = 3 existing (untouched) + 6 new = 9 FDs (>= minFd). This replaces the old behavior
+// (grow existing 30->40 TiB + 6 new at 40 TiB): the preferred no-grow cover reaches desired exactly with no
+// in-place growth.
 func Test_Grow_ExistingFewerThanMinFd_TopsUpExistingAndCreatesNew(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	var existingDrives []ExistingContainer
@@ -1165,31 +1172,26 @@ func Test_Grow_ExistingFewerThanMinFd_TopsUpExistingAndCreatesNew(t *testing.T) 
 		n := "old" + itoa(i)
 		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 30 * tib, NumCores: 6})
 	}
-	// Existing nodes have ample headroom (can reach the uniform level); 6 fresh nodes host the new FDs.
+	// Existing nodes have ample headroom; 6 fresh nodes host the new even-split FDs.
 	inv := append(nodes(3, 30*tib, 0, 64, "old"), nodes(6, 100*tib, 0, 64, "new")...)
-	// current 90 TiB; raise to 360 TiB -> delta 270 TiB.
+	// current 90 TiB; raise to 360 TiB -> delta 270 TiB, covered by fresh FDs only.
 	desired := DesiredCapacity{TlcRawGiB: 360 * tib}
 	plan := planCap(desired, s, existingDrives, inv, testCons())
 	if plan.Infeasible != "" {
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
 	}
-	if len(plan.Grow) != 3 {
-		t.Fatalf("want all 3 existing FDs grown to the uniform level, got %d grows", len(plan.Grow))
+	if len(plan.Grow) != 0 {
+		t.Fatalf("even-split covers the delta on fresh FDs; want 0 grows, got %d: %+v", len(plan.Grow), plan.Grow)
 	}
-	for _, g := range plan.Grow {
-		if g.NewTlcGiB != 40*tib { // 30 -> 40 TiB (uniform level L over 9 FDs)
-			t.Fatalf("want existing FDs grown to the uniform 40 TiB, got %+v", g)
-		}
-	}
-	if len(plan.Create) != 6 {
-		t.Fatalf("want 6 new FDs at the uniform level, got %d", len(plan.Create))
+	if len(plan.Create) != 6 { // preferred kBase=9 capped by 6 spare nodes -> k=6, CeilDiv(270,6)=45 TiB
+		t.Fatalf("want 6 new even-split FDs (45 TiB each), got %d: %v", len(plan.Create), plan.Create)
 	}
 	for _, c := range plan.Create {
-		if c.TlcGiB != 40*tib { // new FDs placed AT the uniform level, not T0
-			t.Fatalf("want new FDs at the uniform 40 TiB (not T0=30 TiB), got %+v", c)
+		if c.TlcGiB != 45*tib { // CeilDiv(delta=270 TiB, k=6) = 45 TiB
+			t.Fatalf("want new FDs at CeilDiv(delta=270 TiB, k=6)=45 TiB, got %+v", c)
 		}
 	}
-	// Distinct FDs across grown + created must reach minFdNum.
+	// Distinct FDs across the (untouched) existing + created must reach minFdNum.
 	fds := map[string]struct{}{}
 	for i := 1; i <= 3; i++ {
 		fds["old"+itoa(i)] = struct{}{}
@@ -1200,12 +1202,8 @@ func Test_Grow_ExistingFewerThanMinFd_TopsUpExistingAndCreatesNew(t *testing.T) 
 	if len(fds) < 6 {
 		t.Fatalf("want >= minFdNum (6) distinct FDs, got %d", len(fds))
 	}
-	grownTotal := 0
-	for _, g := range plan.Grow {
-		grownTotal += g.NewTlcGiB
-	}
-	if got := grownTotal + sumCreateTlc(plan); got != 360*tib { // grown 3×40=120 + created 6×40=240
-		t.Fatalf("want total raw 360 TiB placed, got %d (grown %d, created %d)", got, grownTotal, sumCreateTlc(plan))
+	if got := 90*tib + sumCreateTlc(plan); got != 360*tib { // current 90 + created 6×45=270 = 360 exactly
+		t.Fatalf("want total raw 360 TiB placed, got %d (created %d)", got, sumCreateTlc(plan))
 	}
 }
 
@@ -2757,8 +2755,9 @@ func Test_Compute_DynamicScalingDisabled_FreezesExistingCreatesNew(t *testing.T)
 // --- uniform-FD increase path (planPoolUniformIncrease) ---
 
 // Test_UniformIncrease_PrefersNewFds_OverGrow: an existing pool with spare nodes and a small bump covers
-// the delta with whole new full-T0 FDs and leaves every existing container's spec untouched (no grow),
-// over-provisioning by the rounding remainder.
+// the delta with a single new FD sized to the SHORTFALL (not a full-T0 clone) and leaves every existing
+// container's spec untouched (no grow). Sizing the new FD to the delta reaches desired EXACTLY, so there is
+// no rounding over-provision (was: 1 new full-T0=30 TiB FD, over-provisioning by 10 TiB).
 func Test_UniformIncrease_PrefersNewFds_OverGrow(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
@@ -2769,8 +2768,8 @@ func Test_UniformIncrease_PrefersNewFds_OverGrow(t *testing.T) {
 		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 30 * tib, NumCores: 6})
 	}
 	inv := append(nodes(6, 70*tib, 0, 64, "n"), nodes(2, 100*tib, 0, 64, "spare")...)
-	// current 180 TiB; target 200 TiB -> delta 20 TiB. T0 = 30 TiB -> ceil(20/30) = 1 new FD at 30 TiB,
-	// over-provisioning by 10 TiB (within maxOverProvisionFraction = 0.2 * 200 = 40 TiB).
+	// current 180 TiB; target 200 TiB -> delta 20 TiB. maxPerFdCap = 200/6 = 33 TiB, so k=1 -> one 20 TiB
+	// FD fits (20 <= 33, >= MinChunk, below the imbalance boundary 2×30 TiB), reaching desired exactly.
 	plan := planCap(DesiredCapacity{TlcRawGiB: 200 * tib}, s, existingDrives, inv, cons)
 	if plan.Infeasible != "" {
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
@@ -2779,13 +2778,13 @@ func Test_UniformIncrease_PrefersNewFds_OverGrow(t *testing.T) {
 		t.Fatalf("create-new must be preferred over grow: want 0 grows, got %d", len(plan.Grow))
 	}
 	if len(plan.Create) != 1 {
-		t.Fatalf("want exactly 1 new full-T0 FD, got %d: %v", len(plan.Create), plan.Create)
+		t.Fatalf("want exactly 1 new even-split FD, got %d: %v", len(plan.Create), plan.Create)
 	}
-	if plan.Create[0].TlcGiB != 30*tib {
-		t.Fatalf("want the new FD at the uniform T0=30 TiB, got %+v", plan.Create[0])
+	if plan.Create[0].TlcGiB != 20*tib {
+		t.Fatalf("want the new FD sized to the delta (20 TiB), got %+v", plan.Create[0])
 	}
-	if len(plan.OverProvisions) == 0 {
-		t.Fatalf("want a ClusterCapacityOverProvisioned advisory for the 10 TiB rounding overshoot")
+	if len(plan.OverProvisions) != 0 {
+		t.Fatalf("even-split reaches desired exactly; want no over-provision advisory, got %v", plan.OverProvisions)
 	}
 }
 
@@ -2844,6 +2843,147 @@ func Test_UniformIncrease_NoSpare_MinGrowthFractionZero_GrowsUniformly(t *testin
 		if g.NewTlcGiB != 31*tib {
 			t.Fatalf("want every FD grown to the uniform 31 TiB, got %+v", g)
 		}
+	}
+}
+
+// Test_CapacityCoverTarget verifies the CapacityCoverTarget helper directly:
+//   - fraction 0 (unset) → returns desired unchanged (strict mode).
+//   - desired=6395, fraction=0.05 → band=ceil(319.75)=320 → 6075.
+//   - desired=100, fraction=0.011 → band=ceil(1.1)=2 → 98.
+func Test_CapacityCoverTarget(t *testing.T) {
+	cases := []struct {
+		desired  int
+		fraction float64
+		want     int
+		desc     string
+	}{
+		{6395, 0, 6395, "fraction=0 returns desired unchanged"},
+		{6395, 0.05, 6075, "6395*0.05=319.75, ceil=320, 6395-320=6075"},
+		{100, 0.011, 98, "100*0.011=1.1, ceil=2, 100-2=98"},
+	}
+	for _, tc := range cases {
+		cons := &CapacityConstraints{CapacityDeadbandFraction: tc.fraction}
+		got := CapacityCoverTarget(tc.desired, cons)
+		if got != tc.want {
+			t.Errorf("CapacityCoverTarget(%d, fraction=%.3f): got %d, want %d (%s)", tc.desired, tc.fraction, got, tc.want, tc.desc)
+		}
+	}
+}
+
+// Test_UniformIncrease_EvenSplitToDelta_SizesNewFdsToShortfall validates the no-grow Step 4 even-split:
+// replacement/increase FDs are sized to SUM to the missing capacity (delta) using the FEWEST new FDs whose
+// even share stays within maxPerFdCap (= desiredRaw/minFd), NOT by cloning the smallest existing FD (T0) and
+// rounding the count up.
+//
+// Scenario arithmetic (all values in GiB) — worked example (a):
+//
+//	scheme: stripeWidth=3 / redundancy=2 / hotSpare=0 → minFd=5
+//	existing TLC pool: 3 FDs × 1250 GiB = 3750 GiB current
+//	desired TLC raw: 6395 GiB → delta = 6395 - 3750 = 2645
+//	maxPerFdCap = desiredRaw/minFd = 6395/5 = 1279  (no single FD may exceed this)
+//	Choose fewest new FDs k with even share CeilDiv(delta,k) <= maxPerFdCap:
+//	  k=1 → 2645 (>1279, no); k=2 → 1323 (>1279, no); k=3 → 882 (<=1279, yes)
+//	→ 3 new FDs of 882, total = 3750 + 3×882 = 6396 ≈ desired (no over-provision beyond +1).
+//
+//	The old T0-clone behavior would instead have created ceil(2645/1250)=3 FDs of 1250 (total 7500),
+//	over-provisioning by 1105 GiB. The new FDs (882) are SMALLER than the frozen existing FDs (1250) —
+//	a heterogeneous but valid layout (largest FD 1250 <= 1279). AllowInPlaceGrowth=false freezes the
+//	existing FDs so the only capacity added is the fresh even-split set.
+func Test_UniformIncrease_EvenSplitToDelta_SizesNewFdsToShortfall(t *testing.T) {
+	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
+	cons := testCons()
+	cons.CapacityDeadbandFraction = 0.05 // present but does NOT change Step 4 (which targets exact delta)
+	cons.AllowInPlaceGrowth = false      // freeze existing FDs; all new capacity is fresh even-split FDs
+
+	// 3 existing FDs of 1250 GiB each → current = 3750, T0 = 1250.
+	existingDrives := []ExistingContainer{
+		{Name: "c1", Node: "n1", FDValue: "n1", TlcGiB: 1250, NumCores: 1},
+		{Name: "c2", Node: "n2", FDValue: "n2", TlcGiB: 1250, NumCores: 1},
+		{Name: "c3", Node: "n3", FDValue: "n3", TlcGiB: 1250, NumCores: 1},
+	}
+
+	// Inventory: existing nodes (modest headroom — growth is frozen anyway) + 4 spare nodes
+	// with 5000 GiB TLC each so 3 of them can host an 882 GiB FD.
+	inv := append(
+		nodes(3, 2000, 0, 8, "n"),
+		nodes(4, 5000, 0, 64, "spare")...,
+	)
+
+	plan := planCap(DesiredCapacity{TlcRawGiB: 6395}, s, existingDrives, inv, cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Grow) != 0 {
+		t.Fatalf("AllowInPlaceGrowth=false: want 0 grows, got %d: %v", len(plan.Grow), plan.Grow)
+	}
+	// KEY ASSERTION: even-split to delta → 3 new FDs (fewest k with even share <= maxPerFdCap), NOT the
+	// old T0-clone count ceil(2645/1250)=3 of 1250, and NOT 2.
+	if len(plan.Create) != 3 {
+		t.Fatalf("even-split to delta should create 3 new FDs, got %d: %v\n"+
+			"  delta=2645, maxPerFdCap=1279; k=1→2645, k=2→1323 both exceed cap; k=3→882 fits",
+			len(plan.Create), plan.Create)
+	}
+	for i, c := range plan.Create {
+		// CeilDiv(2645, 3) = 882; accept 882 or 883 defensively (CeilDiv rounding).
+		if c.TlcGiB != 882 && c.TlcGiB != 883 {
+			t.Errorf("create[%d].TlcGiB = %d, want ~882 (CeilDiv(delta=2645, k=3))", i, c.TlcGiB)
+		}
+	}
+	if got := 3750 + sumCreateTlc(plan); got < 6395 || got > 6396 {
+		t.Errorf("total realized TLC = %d, want ~6396 (3750 + 3×882); should reach desired without over-provisioning", got)
+	}
+}
+
+// Test_UniformIncrease_EvenSplit_SubT0_SingleSmallFd validates worked example (b): when the shortfall is
+// smaller than a single existing FD, Step 4 covers it with ONE new FD sized to the shortfall itself, not a
+// full T0-sized clone (no sub-T0 quantization overshoot).
+//
+// Scenario arithmetic (all values in GiB):
+//
+//	scheme: stripeWidth=3 / redundancy=2 / hotSpare=0 → minFd=5
+//	existing TLC pool: 5 FDs × 1179 GiB = 5895 GiB current (T0 = 1179)
+//	desired TLC raw: 6395 GiB → delta = 500
+//	maxPerFdCap = 6395/5 = 1279
+//	k=1 → CeilDiv(500,1)=500 (>= MinChunkSizeGiB=384, <= 1279) → one 500-GiB FD, total 6395 exact.
+//	final FD count = 5 existing + 1 new = 6 >= minFd, feasible.
+func Test_UniformIncrease_EvenSplit_SubT0_SingleSmallFd(t *testing.T) {
+	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
+	cons := testCons()
+	cons.AllowInPlaceGrowth = false // freeze existing FDs; the shortfall is covered by one fresh FD
+
+	// 5 existing FDs of 1179 GiB each → current = 5895, T0 = 1179.
+	existingDrives := []ExistingContainer{
+		{Name: "c1", Node: "n1", FDValue: "n1", TlcGiB: 1179, NumCores: 1},
+		{Name: "c2", Node: "n2", FDValue: "n2", TlcGiB: 1179, NumCores: 1},
+		{Name: "c3", Node: "n3", FDValue: "n3", TlcGiB: 1179, NumCores: 1},
+		{Name: "c4", Node: "n4", FDValue: "n4", TlcGiB: 1179, NumCores: 1},
+		{Name: "c5", Node: "n5", FDValue: "n5", TlcGiB: 1179, NumCores: 1},
+	}
+
+	// Existing nodes (modest headroom — frozen) + 2 spare nodes so one can host a 500 GiB FD.
+	inv := append(
+		nodes(5, 2000, 0, 8, "n"),
+		nodes(2, 5000, 0, 64, "spare")...,
+	)
+
+	plan := planCap(DesiredCapacity{TlcRawGiB: 6395}, s, existingDrives, inv, cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Grow) != 0 {
+		t.Fatalf("AllowInPlaceGrowth=false: want 0 grows, got %d: %v", len(plan.Grow), plan.Grow)
+	}
+	// KEY ASSERTION: one new FD of 500 (the shortfall), NOT a 1179 T0 clone.
+	if len(plan.Create) != 1 {
+		t.Fatalf("sub-T0 delta should create exactly 1 new FD, got %d: %v", len(plan.Create), plan.Create)
+	}
+	if c := plan.Create[0]; c.TlcGiB != 500 {
+		t.Errorf("create[0].TlcGiB = %d, want 500 (the shortfall, not a T0=1179 clone)", c.TlcGiB)
+	}
+	if len(plan.OverProvisions) != 0 {
+		t.Errorf("total 6395 == desired exactly; want no OverProvision advisory, got %v", plan.OverProvisions)
 	}
 }
 
