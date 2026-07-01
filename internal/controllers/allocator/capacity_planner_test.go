@@ -146,8 +146,8 @@ func withAllowSingleParity(t *testing.T, enabled bool) {
 
 func Test_MinProtectionFloor_GatedBySingleParityFlag(t *testing.T) {
 	withAllowSingleParity(t, false)
-	if sw, rl, hs := MinProtectionFloor(); sw != 3 || rl != 2 || hs != 1 {
-		t.Fatalf("default floor must be 3/2/1, got %d/%d/%d", sw, rl, hs)
+	if sw, rl, hs := MinProtectionFloor(); sw != 3 || rl != 2 || hs != 0 {
+		t.Fatalf("default floor must be 3/2/0, got %d/%d/%d", sw, rl, hs)
 	}
 	withAllowSingleParity(t, true)
 	if sw, rl, hs := MinProtectionFloor(); sw != 2 || rl != 1 || hs != 0 {

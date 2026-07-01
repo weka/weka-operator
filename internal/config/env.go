@@ -182,10 +182,11 @@ type DriveSharingConfig struct {
 	HugepagesQlcRatio                    int
 	SmallBigDiskSizesMaxProportionFactor int
 	// AllowSingleParity lowers the clusterCapacity protection floor from the production
-	// 3+2+1 (stripeWidth/data>=3, redundancyLevel/parity>=2, hotSpare>=1) to single-parity
-	// 2+1+0, enabling QA/test clusters such as 2+1. QA/test only: a single parity chunk leaves
-	// a stripe unprotected during rebuild. When set, the operator also emits the allow_1_parity
-	// weka override at cluster formation (weka rejects parity=1 without it).
+	// 3+2+0 (stripeWidth/data>=3, redundancyLevel/parity>=2, hotSpare>=0 / optional) to
+	// single-parity 2+1+0, enabling QA/test clusters such as 2+1. QA/test only: a single
+	// parity chunk leaves a stripe unprotected during rebuild. When set, the operator also
+	// emits the allow_1_parity weka override at cluster formation (weka rejects parity=1
+	// without it).
 	AllowSingleParity bool
 }
 
