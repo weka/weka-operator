@@ -210,22 +210,9 @@ func (r *containerReconcilerLoop) NeedsDrivesToAllocate() bool {
 		return false
 	}
 
-	// Dynamic drive scaling for shared drives is disabled: block GROWING an existing virtual
-	// drive's allocation, but still allow ADDING a brand-new pool/type (e.g. a QLC-only container
-	// gaining its first TLC virtual drive). Growing an existing type is the "dynamic scaling" this
-	// flag forbids; adding a new drive is not.
+	// Skip dynamic drive scaling for shared drives if disabled
 	if r.container.UsesDriveSharing() && !config.Config.DriveSharing.EnableDynamicDriveScaling {
-		if !r.container.HasContainerCapacity() {
-			return false // numDrives/driveCapacity mode has no per-type notion — keep blocking
-		}
-		desiredTlc, desiredQlc := weka.GetTlcQlcCapacity(
-			r.container.Spec.ContainerCapacity, r.container.Spec.DriveTypesRatio)
-		curTlc, curQlc := r.container.Status.Allocations.GetAllocatedVirtualDrivesCapacityByType()
-		// Allocate only when a type that has NO current allocation is now desired (a new pool);
-		// a shortfall on a type that already exists would be a forbidden in-place grow.
-		newTlcPool := desiredTlc > 0 && curTlc == 0
-		newQlcPool := desiredQlc > 0 && curQlc == 0
-		return newTlcPool || newQlcPool
+		return false
 	}
 
 	if r.container.HasContainerCapacity() {

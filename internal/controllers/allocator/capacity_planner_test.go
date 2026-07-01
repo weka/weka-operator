@@ -3217,3 +3217,102 @@ func Test_FrozenFDs_ImbalanceGuardBlocks(t *testing.T) {
 		t.Fatalf("want infeasible (imbalance guard blocks all k), got create=%d grow=%d", len(plan.Create), len(plan.Grow))
 	}
 }
+
+// --- enableDynamicDriveScalingForSharedDrives=false: fresh placement may not grow OR convert an existing
+// drive container; new capacity lands only on EMPTY nodes, else infeasible. ---
+
+// Flag OFF + a QLC-only container asked for TLC too (cross-pool conversion), with NO empty node: the
+// planner must NOT convert the existing QLC container to mixed and must report infeasible. Mirror of
+// Test_Grow_TlcOnlyContainer_ConvertedToMixed_WhenNodeHasQlc with the flag flipped and pools swapped.
+func Test_ScalingDisabled_QlcOnly_AddTlc_NoEmptyNode_Infeasible(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	var existingDrives []ExistingContainer
+	for i := 1; i <= 6; i++ {
+		n := "n" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, QlcGiB: 28 * tib, NumCores: 6})
+	}
+	// Same 6 nodes expose TLC headroom (so conversion WOULD be possible if allowed); no empty node exists.
+	inv := nodes(6, 100*tib, 0, 58, "n")
+	desired := DesiredCapacity{TlcRawGiB: 6 * 28 * tib, QlcRawGiB: 6 * 28 * tib}
+	cons := testCons()
+	cons.AllowInPlaceGrowth = false // dynamic drive scaling OFF
+	plan := planCap(desired, s, existingDrives, inv, cons)
+	if plan.Infeasible == "" {
+		t.Fatalf("want infeasible (no empty node to place fresh TLC, conversion forbidden), got create=%d grow=%d", len(plan.Create), len(plan.Grow))
+	}
+	if len(plan.Grow) != 0 {
+		t.Fatalf("flag off must not grow/convert any existing container, got %d: %+v", len(plan.Grow), plan.Grow)
+	}
+	for _, c := range plan.Create {
+		if c.TlcGiB > 0 {
+			t.Fatalf("flag off must not place TLC on an occupied node, got create %+v", c)
+		}
+	}
+}
+
+// Flag OFF + same QLC-only-plus-TLC request, but now an EMPTY node is available: the planner must place
+// the new TLC capacity as brand-new standalone container(s) on the empty node(s) and never touch the
+// existing QLC containers.
+func Test_ScalingDisabled_QlcOnly_AddTlc_EmptyNodesAvailable_CreatesFresh(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	var existingDrives []ExistingContainer
+	var inv []NodeCapacity
+	// 6 QLC-only FDs on QLC-full nodes (no TLC headroom → cannot be converted even if allowed).
+	for i := 1; i <= 6; i++ {
+		n := "q" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "q" + itoa(i), Node: n, FDValue: n, QlcGiB: 28 * tib, NumCores: 6})
+		inv = append(inv, node(n, 0, 0, 58))
+	}
+	// 6 EMPTY nodes with TLC headroom — the only legal home for the new TLC pool.
+	for i := 1; i <= 6; i++ {
+		n := "e" + itoa(i)
+		inv = append(inv, node(n, 100*tib, 0, 58))
+	}
+	desired := DesiredCapacity{TlcRawGiB: 6 * 28 * tib, QlcRawGiB: 6 * 28 * tib}
+	cons := testCons()
+	cons.AllowInPlaceGrowth = false
+	plan := planCap(desired, s, existingDrives, inv, cons)
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible (empty nodes should host fresh TLC): %s", plan.Infeasible)
+	}
+	if len(plan.Grow) != 0 {
+		t.Fatalf("flag off must not grow/convert existing QLC containers, got %d: %+v", len(plan.Grow), plan.Grow)
+	}
+	if len(plan.Create) == 0 || sumCreateTlc(plan) < 6*28*tib {
+		t.Fatalf("want fresh TLC containers covering 168 TiB on empty nodes, got create=%d tlc=%d", len(plan.Create), sumCreateTlc(plan))
+	}
+	for _, c := range plan.Create {
+		if strings.HasPrefix(c.Node, "q") {
+			t.Fatalf("flag off must not create on an occupied (q*) node, got %+v", c)
+		}
+	}
+}
+
+// Flag ON, same shape as the infeasible case: the existing QLC-only containers ARE converted to mixed in
+// place (no new containers). Guards that the flag-ON path is unchanged by the flag-OFF exclusion rule.
+func Test_ScalingEnabled_QlcOnly_AddTlc_ConvertsInPlace(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	var existingDrives []ExistingContainer
+	for i := 1; i <= 6; i++ {
+		n := "n" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, QlcGiB: 28 * tib, NumCores: 6})
+	}
+	inv := nodes(6, 100*tib, 0, 58, "n") // QLC full, TLC headroom available on the same nodes
+	desired := DesiredCapacity{TlcRawGiB: 6 * 28 * tib, QlcRawGiB: 6 * 28 * tib}
+	cons := testCons() // AllowInPlaceGrowth = true (default)
+	plan := planCap(desired, s, existingDrives, inv, cons)
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Create) != 0 {
+		t.Fatalf("flag on: conversion should not create new containers, got %d: %+v", len(plan.Create), plan.Create)
+	}
+	if len(plan.Grow) != 6 {
+		t.Fatalf("flag on: want 6 QLC-only→mixed conversions, got %d: %+v", len(plan.Grow), plan.Grow)
+	}
+	for _, g := range plan.Grow {
+		if g.NewTlcGiB != 28*tib || g.NewQlcGiB != 28*tib {
+			t.Fatalf("flag on: want converted to mixed TLC28+QLC28, got %+v", g)
+		}
+	}
+}

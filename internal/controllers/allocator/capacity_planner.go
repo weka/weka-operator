@@ -96,13 +96,14 @@ type CapacityConstraints struct {
 	ComputeHugepagesTlcRatio int
 	ComputeHugepagesQlcRatio int
 	ComputeMaxHugepagesMiB   int
-	// AllowInPlaceGrowth permits extending EXISTING drive/compute containers in place. When false
-	// (enableDynamicDriveScalingForSharedDrives=false) the planner never grows an existing container —
-	// all growth is satisfied by NEW containers only (spread as evenly as possible), and is reported
-	// infeasible if none can be placed. This mirrors the container-level NeedsDrivesToAllocate() gate,
-	// which when the flag is off refuses same-type (in-place) virtual-drive growth but still permits
-	// ADDING a brand-new pool/type to a container (e.g. a QLC-only container gaining its first TLC
-	// virtual drive).
+	// AllowInPlaceGrowth permits extending or converting EXISTING drive/compute containers in place.
+	// When false (enableDynamicDriveScalingForSharedDrives=false) the planner neither GROWS an existing
+	// container nor CONVERTS one to a new type (e.g. adding TLC to a QLC-only container to make it
+	// mixed): fresh placement excludes every node already hosting any drive container (freshExclusion),
+	// so new capacity may only land on EMPTY nodes as brand-new containers, and the pool is reported
+	// infeasible if no empty node can host it. This mirrors the container-level NeedsDrivesToAllocate()
+	// gate, which when the flag is off blanket-refuses dynamic drive allocation for a drive-sharing
+	// container — so no in-place expansion or cross-pool conversion happens on any path.
 	AllowInPlaceGrowth bool
 	// MinGrowthFraction is the minimum relative per-container grow (target-cur)/cur to grow an existing
 	// drive FD in place; below it the grow is skipped. 0 means treat as the 0.2 default at use sites —
@@ -1286,11 +1287,11 @@ func planPoolFreshUniform(
 	plan *CapacityPlan,
 	isFallback bool,
 ) bool {
-	candidates := orderFreshFdGroups(p, states, poolNodeUsed(existingDrives, p), cons)
+	candidates := orderFreshFdGroups(p, states, freshExclusion(existingDrives, p, cons), cons)
 	chosen, T, ok := selectUniform(desiredRaw, minFd, candidates, cons)
 	if !ok {
 		if !isFallback {
-			plan.Infeasible = uniformInfeasibleMsg(p, desiredRaw, minFd, candidates, states, poolNodeUsed(existingDrives, p), cons)
+			plan.Infeasible = uniformInfeasibleMsg(p, desiredRaw, minFd, candidates, states, freshExclusion(existingDrives, p, cons), cons)
 		}
 		return false // greenfield: infeasible (set above); fallback: fall through on untouched state
 	}
@@ -1338,7 +1339,7 @@ func planPoolExplicit(
 	// exactNewFds fresh FDs at the front of the headroom-desc candidate list. placeUniform grows the
 	// existing FDs below T up to T and creates the fresh FDs at T.
 	chosen := existingFdsAsChosen(p, existingDrives, states, cons)
-	fresh := orderFreshFdGroups(p, states, poolNodeUsed(existingDrives, p), cons)
+	fresh := orderFreshFdGroups(p, states, freshExclusion(existingDrives, p, cons), cons)
 	chosen = append(chosen, takeFreshAtLevel(fresh, exactNewFds, T)...)
 
 	placeUniform(p, T, chosen, existingDrives, states, cons, growFor, newByNode, newFor)
@@ -1401,7 +1402,9 @@ func planPoolUniformIncrease(
 	T0 := max(cons.MinChunkSizeGiB, minFdCap)
 
 	// --- Fresh candidate FDs (FDs not hosting pool p, per-node headroom >= MinChunk), best-headroom first.
-	freshGroups := orderFreshFdGroups(p, states, poolNodeUsed(existingDrives, p), cons)
+	// When in-place growth is off, freshExclusion bars EVERY occupied node (not just this pool's), so a
+	// different-pool node can no longer be converted to mixed and only empty nodes remain as candidates.
+	freshGroups := orderFreshFdGroups(p, states, freshExclusion(existingDrives, p, cons), cons)
 	freshCountAtLeast := func(L int) int {
 		n := 0
 		for _, g := range freshGroups {
@@ -1942,6 +1945,35 @@ func poolNodeUsed(existingDrives []ExistingContainer, p poolKind) map[string]str
 		}
 	}
 	return used
+}
+
+// allDriveNodes is the set of nodes hosting ANY existing drive container (any pool). Used to bar fresh
+// placement from every occupied node when in-place growth is disabled (see freshExclusion).
+func allDriveNodes(existingDrives []ExistingContainer) map[string]struct{} {
+	used := map[string]struct{}{}
+	for i := range existingDrives {
+		c := &existingDrives[i]
+		if c.Node == "" {
+			continue
+		}
+		if c.TlcGiB > 0 || c.QlcGiB > 0 {
+			used[c.Node] = struct{}{}
+		}
+	}
+	return used
+}
+
+// freshExclusion returns the node set that fresh (new-container) placement must avoid.
+// Normally only nodes already hosting THIS pool are excluded (a different-pool node can be converted
+// to mixed via placeUniform's grow path). But when in-place growth is disabled
+// (enableDynamicDriveScalingForSharedDrives=false) we must not grow OR convert any existing
+// container, so exclude every node hosting any drive container — new capacity may land only on
+// empty nodes; if none, the pool is reported infeasible.
+func freshExclusion(existingDrives []ExistingContainer, p poolKind, cons *CapacityConstraints) map[string]struct{} {
+	if cons.AllowInPlaceGrowth {
+		return poolNodeUsed(existingDrives, p)
+	}
+	return allDriveNodes(existingDrives)
 }
 
 // OverProvisionCapGiB is the GiB a pool may exceed its desired raw capacity WITHOUT triggering the
