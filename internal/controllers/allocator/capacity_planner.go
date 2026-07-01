@@ -99,9 +99,10 @@ type CapacityConstraints struct {
 	// AllowInPlaceGrowth permits extending EXISTING drive/compute containers in place. When false
 	// (enableDynamicDriveScalingForSharedDrives=false) the planner never grows an existing container —
 	// all growth is satisfied by NEW containers only (spread as evenly as possible), and is reported
-	// infeasible if none can be placed. This keeps the cluster-level planner consistent with the
-	// container-level NeedsDrivesToAllocate() gate, which already refuses live virtual-drive allocation
-	// when the flag is off.
+	// infeasible if none can be placed. This mirrors the container-level NeedsDrivesToAllocate() gate,
+	// which when the flag is off refuses same-type (in-place) virtual-drive growth but still permits
+	// ADDING a brand-new pool/type to a container (e.g. a QLC-only container gaining its first TLC
+	// virtual drive).
 	AllowInPlaceGrowth bool
 	// MinGrowthFraction is the minimum relative per-container grow (target-cur)/cur to grow an existing
 	// drive FD in place; below it the grow is skipped. 0 means treat as the 0.2 default at use sites —
