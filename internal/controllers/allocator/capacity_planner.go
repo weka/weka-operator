@@ -109,6 +109,9 @@ type CapacityConstraints struct {
 	MinGrowthFraction float64
 	// MaxOverProvisionFraction is the max fraction a pool's create-new may overshoot desiredRaw.
 	MaxOverProvisionFraction float64
+	// CapacityDeadbandFraction is the relative shortfall (desired-current)/desired below which pool
+	// growth is ignored (see CapacityShort). 0 disables the deadband (strict current < desired).
+	CapacityDeadbandFraction float64
 }
 
 // Drive-pod resource coefficients (MiB). They mirror the drive-container sizing in resources/pod.go
@@ -1181,8 +1184,8 @@ func planPool(
 		}
 		return
 	}
-	if delta == 0 {
-		return
+	if !CapacityShort(current, desiredRaw, cons) {
+		return // within the relative deadband (or exactly met) — treat as no change
 	}
 
 	// Step 3.5: Heterogeneous-growth fallback. When the FD count is not pinned and a fresh per-FD chunk

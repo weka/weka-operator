@@ -1,6 +1,8 @@
 package allocator
 
 import (
+	"math"
+
 	globalconfig "github.com/weka/weka-operator/internal/config"
 )
 
@@ -45,6 +47,7 @@ func CapacityConstraintsFromConfig() *CapacityConstraints {
 		AllowInPlaceGrowth:       globalconfig.Config.DriveSharing.EnableDynamicDriveScaling,
 		MinGrowthFraction:        minGrowthFraction,
 		MaxOverProvisionFraction: maxOverProvisionFraction,
+		CapacityDeadbandFraction: cfg.CapacityDeadbandFraction,
 	}
 }
 
@@ -78,4 +81,15 @@ type NodeCapacity struct {
 // and hot-spare overhead: raw = usable * (sw+rl+hs) / sw.
 func RawCapacityGiB(clusterCapGiB, sw, rl, hs int) int {
 	return int(float64(clusterCapGiB*(sw+rl+hs)/sw) / 0.9)
+}
+
+// CapacityShort reports whether current is below desired by more than the relative deadband
+// (desired × CapacityDeadbandFraction). A fraction <= 0 makes it a strict current < desired check,
+// preserving exact-match behavior. The band is rounded up so a sub-1-GiB band never collapses to 0.
+func CapacityShort(current, desired int, cons *CapacityConstraints) bool {
+	if cons.CapacityDeadbandFraction <= 0 {
+		return current < desired
+	}
+	band := int(math.Ceil(float64(desired) * cons.CapacityDeadbandFraction))
+	return desired-current > band
 }

@@ -304,6 +304,10 @@ clusterCapacity:
   # Grow imbalance factor: when each new drive container would be >= this factor x the existing
   # containers' average capacity, the planner lays out a fresh balanced set instead. Default 8.0.
   imbalanceFactor: 8.0
+  # Relative capacity deadband: a clusterCapacity growth is ignored when the shortfall is smaller
+  # than desired capacity x this fraction. Avoids re-planning/thrashing on trivial bumps. Default 0.05 (5%).
+  # Set to 0 to disable the deadband (any positive capacity delta triggers growth).
+  deadbandFraction: 0.05
 
 # Drive sharing configuration
 driveSharing:

@@ -414,6 +414,8 @@ spec:
               value: "{{ .Values.clusterCapacity.qlcCapacityPerCoreGiB }}"
             - name: CLUSTER_CAPACITY_IMBALANCE_FACTOR
               value: "{{ .Values.clusterCapacity.imbalanceFactor }}"
+            - name: CLUSTER_CAPACITY_DEADBAND_FRACTION
+              value: "{{ .Values.clusterCapacity.deadbandFraction }}"
             - name: DRIVE_TYPES_RATIO_TLC
               value: "{{ .Values.driveSharing.driveTypesRatio.tlc }}"
             - name: DRIVE_TYPES_RATIO_QLC
