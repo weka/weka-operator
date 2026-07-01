@@ -3021,3 +3021,59 @@ func Test_GrowRestore_FallsBackToDeletingNodeWhenSoleCandidate(t *testing.T) {
 		t.Fatalf("want fallback onto the only capable (deleting) node ndel, got %q", got)
 	}
 }
+
+// Test_FrozenFDs_NewFDSizedFromMaxCap_NotT0: with AllowInPlaceGrowth=false, a new FD is sized from
+// maxPerFdCap (desiredRaw/minFd) rather than replicating T0, so one spare node with enough headroom suffices.
+func Test_FrozenFDs_NewFDSizedFromMaxCap_NotT0(t *testing.T) {
+	// minFd = stripeWidth(3) + redundancy(2) + hotSpare(0) = 5
+	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0}
+	cons := testCons()
+	cons.AllowInPlaceGrowth = false
+	cons.ImbalanceFactor = 0 // disable imbalance guard so the size check is the only constraint
+
+	// 5 existing QLC FDs frozen at 3750 GiB each.
+	var existingDrives []ExistingContainer
+	for i := 1; i <= 5; i++ {
+		n := "n" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, QlcGiB: 3750, NumCores: 2})
+	}
+	// current = 5*3750 = 18750; desiredRaw = 18750 + 4436 = 23186; delta = 4436
+	// maxPerFdCap = 23186/5 = 4637; CeilDiv(4436,1) = 4436 <= 4637 => k=1 fits.
+	// One spare node with enough QLC headroom (>=4437 GiB) and sufficient cores/hugepages/memory.
+	spare := node("nspare", 0, 10000, 64) // 10000 GiB QLC headroom, 64 cores
+	inv := append(nodes(5, 0, 10000, 64, "n"), spare)
+
+	plan := planCap(DesiredCapacity{QlcRawGiB: 23186}, s, existingDrives, inv, cons)
+	if plan.Infeasible != "" {
+		t.Fatalf("want feasible (new FD sized from maxPerFdCap), got infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Create) != 1 {
+		t.Fatalf("want exactly 1 new container, got %d: %v", len(plan.Create), plan.Create)
+	}
+	if plan.Create[0].QlcGiB != 4436 {
+		t.Fatalf("want new FD QlcGiB=4436 (CeilDiv(4436,1)), got %d", plan.Create[0].QlcGiB)
+	}
+}
+
+// Test_FrozenFDs_ImbalanceGuardBlocks: same setup as Test_FrozenFDs_NewFDSizedFromMaxCap_NotT0 but with
+// ImbalanceFactor=1.1 so that 4436 >= 3750*1.1=4125 triggers the imbalance guard for all k values,
+// preventing the new-FD path from completing and leaving the plan infeasible.
+func Test_FrozenFDs_ImbalanceGuardBlocks(t *testing.T) {
+	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0}
+	cons := testCons()
+	cons.AllowInPlaceGrowth = false
+	cons.ImbalanceFactor = 1.1 // 4436 >= 3750*1.1=4125 => imbalance triggered for k=1
+
+	var existingDrives []ExistingContainer
+	for i := 1; i <= 5; i++ {
+		n := "n" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, QlcGiB: 3750, NumCores: 2})
+	}
+	spare := node("nspare", 0, 10000, 64)
+	inv := append(nodes(5, 0, 10000, 64, "n"), spare)
+
+	plan := planCap(DesiredCapacity{QlcRawGiB: 23186}, s, existingDrives, inv, cons)
+	if plan.Infeasible == "" {
+		t.Fatalf("want infeasible (imbalance guard blocks all k), got create=%d grow=%d", len(plan.Create), len(plan.Grow))
+	}
+}

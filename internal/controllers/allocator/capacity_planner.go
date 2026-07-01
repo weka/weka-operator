@@ -1533,21 +1533,64 @@ func planPoolUniformIncrease(
 
 	// best.L > T0: a uniform grow is required.
 	if !cons.AllowInPlaceGrowth {
+		// maxPerFdCap is the largest a single failure domain may be: the pool's raw target spread across the
+		// minimum failure-domain count minFd (= stripeWidth+redundancy+hotSpare). It sizes new FDs below and
+		// is reported as the per-FD ceiling in the infeasible messages.
+		maxPerFdCap := 0
+		if minFd > 0 {
+			maxPerFdCap = desiredRaw / minFd
+		}
+		// Frozen existing FDs cannot grow, but a NEW failure domain may legitimately be LARGER than T0 —
+		// up to maxPerFdCap = desiredRaw/minFd, the most any single FD should hold given data must spread
+		// across at least minFd (= stripeWidth+redundancy+hotSpare) failure domains. Sizing new FDs from
+		// this cap (not by replicating the smallest existing FD) lets the delta be covered by fewer, larger
+		// new FDs — hence fewer spare nodes — without touching the frozen existing FDs. The imbalance factor
+		// still binds: a new FD may not dwarf the existing ones (detectImbalance), and the per-FD floor
+		// (MinChunkSizeGiB) and over-provision cap still apply. Prefer the fewest new FDs (smallest k), which
+		// yields the largest per-FD size the spare nodes can actually host.
+		if maxPerFdCap > 0 {
+			existingAvg := poolAvg(existingDrives, p)
+			for k := 1; k <= len(freshGroups); k++ {
+				perFd := util.CeilDiv(delta, k)
+				if perFd < cons.MinChunkSizeGiB {
+					perFd = cons.MinChunkSizeGiB
+				}
+				if perFd > maxPerFdCap {
+					continue // too large for k FDs; a larger k lowers the per-FD size
+				}
+				if detectImbalance(perFd, existingAvg, cons) {
+					continue // a new FD this large relative to existing trips the imbalance factor
+				}
+				if freshCountAtLeast(perFd) < k {
+					continue // not enough spare nodes can host a perFd-sized FD
+				}
+				total := current + k*perFd
+				if total-desiredRaw > overshootCap {
+					continue // would over-provision beyond maxOverProvisionFraction
+				}
+				placeUniform(p, perFd, freshChosen(k, perFd), existingDrives, states, cons, growFor, newByNode, newFor)
+				finalizeFeasibility()
+				if plan.Infeasible == "" && total > desiredRaw {
+					plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(k, perFd, total))
+				}
+				return
+			}
+		}
 		if shortfall := kNeeded - kAvail; shortfall > 0 {
 			// The binding constraint is the NUMBER of failure domains, not bytes-per-node: existing FDs are
 			// frozen (growth disabled) and uniform distribution forces every new FD to equal the smallest
 			// existing one (T0), so the only way to add capacity is one new T0-sized FD per spare node.
 			plan.Infeasible = fmt.Sprintf(
-				"%s: cannot satisfy clusterCapacity (+%d GiB). The %d existing failure domain(s) are frozen at %d GiB each and cannot grow because dynamic drive scaling for shared drives is disabled, so new capacity can only be added as more %d GiB failure domains — one per node not already running a %s drive container and with %d GiB of free capacity/cores/hugepages/memory. This needs %d such node(s) but only %d is/are available, so %d more node(s) are required. Either add %d more node(s), or enable enableDynamicDriveScalingForSharedDrives to grow the existing containers in place instead (aggregate free capacity elsewhere does not help — capacity on a node already hosting this pool's FD cannot be reused while growth is disabled).",
-				p, delta, numExisting, T0, T0, p, T0, kNeeded, kAvail, shortfall, shortfall)
+				"%s: cannot satisfy clusterCapacity (+%d GiB). The %d existing failure domain(s) are frozen at %d GiB each and cannot grow because dynamic drive scaling for shared drives is disabled, so new capacity can only be added as more %d GiB failure domains — one per node not already running a %s drive container and with %d GiB of free capacity/cores/hugepages/memory. This needs %d such node(s) but only %d is/are available, so %d more node(s) are required. Either add %d more node(s), or enable enableDynamicDriveScalingForSharedDrives to grow the existing containers in place instead (aggregate free capacity elsewhere does not help — capacity on a node already hosting this pool's FD cannot be reused while growth is disabled). The maximum capacity a single failure domain may hold is %d GiB (clusterCapacity raw ÷ (stripeWidth+redundancy+hotSpare) = %d ÷ %d).",
+				p, delta, numExisting, T0, T0, p, T0, kNeeded, kAvail, shortfall, shortfall, maxPerFdCap, desiredRaw, minFd)
 			return
 		}
 		// Enough candidate nodes exist, but covering the delta with only T0-sized FDs would over-provision
 		// beyond maxOverProvisionFraction; the balanced plan therefore needs to grow existing FDs, which is
 		// disabled. Either allow growth or align the request to a whole number of T0 chunks.
 		plan.Infeasible = fmt.Sprintf(
-			"%s: cannot satisfy clusterCapacity (+%d GiB) without growing the %d existing failure domain(s) beyond their current %d GiB each, but dynamic drive scaling for shared drives is disabled. Enable enableDynamicDriveScalingForSharedDrives, or set clusterCapacity to a value that the %d GiB failure-domain size divides evenly.",
-			p, delta, numExisting, T0, T0)
+			"%s: cannot satisfy clusterCapacity (+%d GiB) without growing the %d existing failure domain(s) beyond their current %d GiB each, but dynamic drive scaling for shared drives is disabled. Enable enableDynamicDriveScalingForSharedDrives, or set clusterCapacity to a value that the %d GiB failure-domain size divides evenly. The maximum capacity a single failure domain may hold is %d GiB (clusterCapacity raw ÷ (stripeWidth+redundancy+hotSpare) = %d ÷ %d).",
+			p, delta, numExisting, T0, T0, maxPerFdCap, desiredRaw, minFd)
 		return
 	}
 	if float64(best.L-T0) < cons.MinGrowthFraction*float64(T0) {
