@@ -565,12 +565,13 @@ func TestPlanClusterCapacitySkipsNodeInventory(t *testing.T) {
 		return r, &calls
 	}
 
-	// 30Gi usable => raw TLC = 60 GiB. Cover it with 6 drive containers @ 10 GiB TLC each, plus the
-	// MinFdNum (6) compute containers @ 1 core so compute needs no change.
+	// 30Gi usable => raw TLC = int(30×(sw+rl+hs)/sw / 0.9) = int(60/0.9) = 66 GiB. Cover it with 6 drive
+	// containers @ 11 GiB TLC each (6×11 = 66), plus the MinFdNum (6) compute containers @ 1 core so
+	// compute needs no change.
 	covering := func() []*weka.WekaContainer {
 		var cs []*weka.WekaContainer
 		for range 6 {
-			c := ownedDriveContainer("me", "n", 10, 1, 0) // 10 GiB TLC
+			c := ownedDriveContainer("me", "n", 11, 1, 0) // 11 GiB TLC
 			c.Status.NodeAffinity = "n"                    // scheduled (not transiently unscheduled)
 			cs = append(cs, &c)
 		}
@@ -598,7 +599,7 @@ func TestPlanClusterCapacitySkipsNodeInventory(t *testing.T) {
 	})
 
 	t.Run("pool short -> buildNodeInventory IS called", func(t *testing.T) {
-		// 60Gi usable => raw TLC = 120 GiB, but existing covers only 60 -> must re-plan.
+		// 60Gi usable => raw TLC = int(60×2/0.9) = 133 GiB, but existing covers only 66 -> must re-plan.
 		r, calls := newLoop("60Gi", covering(), func() ([]allocator.NodeCapacity, error) {
 			return nil, nil // empty inventory -> PlanCapacity is infeasible, but it was consulted
 		})

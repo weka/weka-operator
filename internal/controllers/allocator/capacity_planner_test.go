@@ -173,7 +173,7 @@ func Test_SingleParity_RejectedWhenFlagOff(t *testing.T) {
 func Test_SingleParity_AcceptedWhenFlagOn_SpreadsAcross3FDs(t *testing.T) {
 	withAllowSingleParity(t, true)
 	s := singleParityScheme() // minFdNum = 3
-	// 30 TiB usable, QLC-only. raw = usable × (2+1+0)/2 = 1.5× = 45 TiB across 3 FDs ⇒ 15 TiB/FD.
+	// 30 TiB usable, QLC-only. raw = usable × (2+1+0)/2 / 0.9 ≈ 1.667× → 50 TiB raw; ceil(50×1024/3)=17067 GiB/FD → total 51201 GiB across 3 FDs.
 	plan := planCap(
 		desiredFrom(30*tib, s, ratio(0, 1)),
 		s,
@@ -187,15 +187,15 @@ func Test_SingleParity_AcceptedWhenFlagOn_SpreadsAcross3FDs(t *testing.T) {
 	if len(plan.Create) != 3 {
 		t.Fatalf("want 3 QLC containers (one per FD = minFdNum), got %d", len(plan.Create))
 	}
-	if got := sumCreateQlc(plan); got != 45*tib {
-		t.Fatalf("want total created QLC raw 45 TiB (1.5× usable), got %d GiB", got)
+	if got := sumCreateQlc(plan); got != 51201 {
+		t.Fatalf("want total created QLC raw 51201 GiB (50 TiB raw / 0.9 factor, 3 FDs ceil-rounded), got %d GiB", got)
 	}
 }
 
 func Test_Greenfield_Homogeneous_TLOnly_SpreadsEvenlyAcrossMinFdNum(t *testing.T) {
 	s := testScheme()
 	plan := planCap(
-		desiredFrom(90*tib, s, ratio(1, 0)), // rawTLC = 180 TiB
+		desiredFrom(90*tib, s, ratio(1, 0)), // rawTLC = 200 TiB (= 90×2/0.9; ceil/6 = 34134 GiB/FD)
 		s,
 		nil,
 		nodes(6, 100*tib, 0, 64, "n"),
@@ -210,12 +210,12 @@ func Test_Greenfield_Homogeneous_TLOnly_SpreadsEvenlyAcrossMinFdNum(t *testing.T
 	if len(plan.Create) != 6 {
 		t.Fatalf("want 6 TLC containers (one per FD), got %d", len(plan.Create))
 	}
-	if got := sumCreateTlc(plan); got != 180*tib {
-		t.Fatalf("want total created TLC 180 TiB, got %d GiB", got)
+	if got := sumCreateTlc(plan); got != 204804 {
+		t.Fatalf("want total created TLC 204804 GiB (200 TiB raw / 0.9 factor, 6 FDs ceil-rounded), got %d GiB", got)
 	}
 	for _, c := range plan.Create {
-		if c.Type != DriveTypeTLC || c.QlcGiB != 0 || c.TlcGiB != 30*tib {
-			t.Fatalf("want each container TLC=30 TiB type=tlc, got %+v", c)
+		if c.Type != DriveTypeTLC || c.QlcGiB != 0 || c.TlcGiB != 34134 {
+			t.Fatalf("want each container TLC=34134 GiB (ceil(204800/6)) type=tlc, got %+v", c)
 		}
 	}
 }
@@ -225,7 +225,7 @@ func Test_Greenfield_MoreNodesThanMinFd_UsesMinFdNum(t *testing.T) {
 	// 12 capable nodes, but the target fits comfortably in minFdNum: the planner must create exactly
 	// minFdNum (6) containers, NOT spread thinly across all 12.
 	plan := planCap(
-		desiredFrom(90*tib, s, ratio(1, 0)), // rawTLC = 180 TiB
+		desiredFrom(90*tib, s, ratio(1, 0)), // rawTLC = 200 TiB (= 90×2/0.9; ceil/6 = 34134 GiB/FD)
 		s,
 		nil,
 		nodes(12, 100*tib, 0, 64, "n"),
@@ -238,18 +238,18 @@ func Test_Greenfield_MoreNodesThanMinFd_UsesMinFdNum(t *testing.T) {
 		t.Fatalf("want exactly minFdNum (6) containers, got %d", len(plan.Create))
 	}
 	for _, c := range plan.Create {
-		if c.TlcGiB != 30*tib { // 180 / 6
-			t.Fatalf("want each container TLC=30 TiB, got %+v", c)
+		if c.TlcGiB != 34134 { // ceil(204800 GiB / 6 FDs) = 34134 GiB
+			t.Fatalf("want each container TLC=34134 GiB (ceil(204800/6)), got %+v", c)
 		}
 	}
 }
 
 func Test_Greenfield_MinFdNumTooSmall_ExtendsFdCount(t *testing.T) {
 	s := testScheme() // minFdNum = 6
-	// Each node holds only 20 TiB, so minFdNum FDs (6 × 20 = 120 TiB) cannot hold rawTLC 180 TiB.
-	// The planner must extend beyond minFdNum until the capacity fits (9 FDs × 20 TiB = 180 TiB).
+	// Each node holds only 20 TiB, so minFdNum FDs (6 × 20 = 120 TiB) cannot hold rawTLC 200 TiB.
+	// The planner must extend beyond minFdNum until the capacity fits (10 FDs × 20 TiB = 200 TiB).
 	plan := planCap(
-		desiredFrom(90*tib, s, ratio(1, 0)), // rawTLC = 180 TiB
+		desiredFrom(90*tib, s, ratio(1, 0)), // rawTLC = 200 TiB (= 90×2/0.9 = 204800 GiB)
 		s,
 		nil,
 		nodes(12, 20*tib, 0, 64, "n"),
@@ -258,11 +258,11 @@ func Test_Greenfield_MinFdNumTooSmall_ExtendsFdCount(t *testing.T) {
 	if plan.Infeasible != "" {
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
 	}
-	if len(plan.Create) != 9 {
-		t.Fatalf("want 9 containers (extended from minFdNum to fit capacity), got %d", len(plan.Create))
+	if len(plan.Create) != 10 {
+		t.Fatalf("want 10 containers (extended from minFdNum to fit 204800 GiB on 20 TiB nodes), got %d", len(plan.Create))
 	}
-	if got := sumCreateTlc(plan); got != 180*tib {
-		t.Fatalf("want total created TLC 180 TiB, got %d GiB", got)
+	if got := sumCreateTlc(plan); got != 204800 {
+		t.Fatalf("want total created TLC 204800 GiB (200 TiB raw / 0.9 factor, exactly 10 × 20 TiB), got %d GiB", got)
 	}
 }
 
@@ -303,12 +303,12 @@ func Test_Greenfield_TLCplusQLC_DisjointNodes(t *testing.T) {
 	if plan.Infeasible != "" {
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
 	}
-	// raw 240 TiB; tlcRaw 60, qlcRaw 180.
-	if got := sumCreateTlc(plan); got != 60*tib {
-		t.Fatalf("want total TLC 60 TiB, got %d", got)
+	// raw ≈ 267 TiB (= 120×2/0.9 = 273066 GiB); tlcRaw = 273066/4 = 68266 GiB → ceil/6 = 11378 GiB/FD → total 68268 GiB; qlcRaw = 204800 GiB.
+	if got := sumCreateTlc(plan); got != 68268 {
+		t.Fatalf("want total TLC 68268 GiB (raw 273066/4=68266, ceil/6=11378 per FD), got %d", got)
 	}
-	if got := sumCreateQlc(plan); got != 180*tib {
-		t.Fatalf("want total QLC 180 TiB, got %d", got)
+	if got := sumCreateQlc(plan); got != 204804 {
+		t.Fatalf("want total QLC 204804 GiB (204800 raw / 0.9 factor, ceil/6=34134 per FD), got %d", got)
 	}
 	tlcCount, qlcCount := 0, 0
 	for _, c := range plan.Create {
@@ -376,7 +376,7 @@ func Test_Greenfield_LabelBasedFD_MultiHostPerFD_SpansAllFDs(t *testing.T) {
 		)
 	}
 
-	plan := planCap(desiredFrom(90*tib, s, ratio(1, 0)), s, nil, inv, testCons()) // rawTLC = 180 TiB
+	plan := planCap(desiredFrom(90*tib, s, ratio(1, 0)), s, nil, inv, testCons()) // rawTLC = 200 TiB (204800 GiB / 0.9 factor)
 
 	if plan.Infeasible != "" {
 		t.Fatalf("label-based multi-host greenfield must be feasible, got infeasible: %s", plan.Infeasible)
@@ -396,13 +396,13 @@ func Test_Greenfield_LabelBasedFD_MultiHostPerFD_SpansAllFDs(t *testing.T) {
 	if len(perFD) != 6 {
 		t.Fatalf("want capacity spanning all 6 distinct failure domains, got %d: %v", len(perFD), perFD)
 	}
-	if got := sumCreateTlc(plan); got != 180*tib {
-		t.Fatalf("want total created TLC 180 TiB, got %d GiB", got)
+	if got := sumCreateTlc(plan); got != 204804 {
+		t.Fatalf("want total created TLC 204804 GiB (200 TiB raw / 0.9 factor, 6 FDs ceil-rounded), got %d GiB", got)
 	}
-	// Capacity is balanced PER FD: each rack carries the same 30 TiB share (180 / 6).
+	// Capacity is balanced PER FD: each rack carries the same 34134 GiB share (ceil(204800/6)).
 	for fd, v := range perFD {
-		if v != 30*tib {
-			t.Fatalf("FD %s holds %d GiB, want 30 TiB equal across all FDs (per-FD balance): %v", fd, v, perFD)
+		if v != 34134 {
+			t.Fatalf("FD %s holds %d GiB, want 34134 GiB equal across all FDs (per-FD balance): %v", fd, v, perFD)
 		}
 	}
 }
@@ -411,9 +411,9 @@ func Test_Greenfield_LabelBasedFD_MultiHostPerFD_SpansAllFDs(t *testing.T) {
 // chosen FD set must still span exactly minFd distinct racks while using both hosts within a rack for
 // capacity — distinct-FD count stays at minFd, never collapsing below it.
 func Test_Greenfield_LabelBasedFD_UnevenHosts_UsesMultipleHostsPerFD(t *testing.T) {
-	s := testScheme() // minFdNum = 6, 30 TiB per FD for 180 TiB raw
-	// 6 racks, 2 hosts each, but each host holds only 20 TiB (< the 30 TiB per-FD share). Both hosts in
-	// a rack are needed to carry that rack's 30 TiB; the plan must still land on exactly 6 racks.
+	s := testScheme() // minFdNum = 6, 34134 GiB per FD for 204800 GiB raw
+	// 6 racks, 2 hosts each, but each host holds only 20 TiB (< the 34134 GiB per-FD share). Both hosts in
+	// a rack are needed to carry that rack's share; the plan must still land on exactly 6 racks.
 	var inv []NodeCapacity
 	for r := 1; r <= 6; r++ {
 		fd := "rack-" + itoa(r)
@@ -423,7 +423,7 @@ func Test_Greenfield_LabelBasedFD_UnevenHosts_UsesMultipleHostsPerFD(t *testing.
 		)
 	}
 
-	plan := planCap(desiredFrom(90*tib, s, ratio(1, 0)), s, nil, inv, testCons()) // rawTLC = 180 TiB
+	plan := planCap(desiredFrom(90*tib, s, ratio(1, 0)), s, nil, inv, testCons()) // rawTLC = 200 TiB (204800 GiB / 0.9 factor)
 
 	if plan.Infeasible != "" {
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
@@ -435,28 +435,28 @@ func Test_Greenfield_LabelBasedFD_UnevenHosts_UsesMultipleHostsPerFD(t *testing.
 	if len(perFD) != 6 {
 		t.Fatalf("want capacity spanning exactly 6 distinct failure domains, got %d: %v", len(perFD), perFD)
 	}
-	if got := sumCreateTlc(plan); got != 180*tib {
-		t.Fatalf("want total created TLC 180 TiB, got %d GiB", got)
+	if got := sumCreateTlc(plan); got != 204804 {
+		t.Fatalf("want total created TLC 204804 GiB (200 TiB raw / 0.9 factor, 6 FDs ceil-rounded), got %d GiB", got)
 	}
 	for fd, v := range perFD {
-		if v != 30*tib {
-			t.Fatalf("FD %s holds %d GiB, want 30 TiB per FD across two hosts: %v", fd, v, perFD)
+		if v != 34134 {
+			t.Fatalf("FD %s holds %d GiB, want 34134 GiB per FD across two hosts: %v", fd, v, perFD)
 		}
 	}
-	// More than one container per FD is expected here (20 TiB host cap < 30 TiB FD share).
+	// More than one container per FD is expected here (20 TiB host cap < 34134 GiB per-FD share).
 	if len(plan.Create) <= 6 {
-		t.Fatalf("want multiple hosts per FD (>6 containers) to hold each 30 TiB FD share, got %d", len(plan.Create))
+		t.Fatalf("want multiple hosts per FD (>6 containers) to hold each 34134 GiB FD share, got %d", len(plan.Create))
 	}
 }
 
 // disc #13: greenfield label-based FD with an UNEVEN HOST COUNT per FD must balance capacity PER FAILURE
-// DOMAIN, not per node. rack-1 has 3 hosts, racks 2-6 have 2 hosts each (13 nodes). raw 180 TiB => every
-// rack gets the same 30 TiB share regardless of host count: rack-1 splits 30 TiB across its 3 hosts (10
-// TiB each, 3 containers), the 2-host racks across 2 hosts (15 TiB each, 2 containers). Before the fix the
-// create rounds loop sized per node (raw/13 ~ 14.2 TiB each), so rack-1 got ~42.5 TiB vs ~28.4 TiB for the
-// 2-host racks, tripping the FD-imbalance warning ("usable gated by smallest FD"). Verified live as Test K.
+// DOMAIN, not per node. rack-1 has 3 hosts, racks 2-6 have 2 hosts each (13 nodes). raw 200 TiB (204800 GiB)
+// => every rack gets the same 34134 GiB share regardless of host count: rack-1 splits across its 3 hosts
+// (3 containers), the 2-host racks across 2 hosts (2 containers each). Before the fix the create rounds loop
+// sized per node (raw/13), so rack-1 got proportionally more than 2-host racks, tripping the FD-imbalance
+// warning ("usable gated by smallest FD"). Verified live as Test K.
 func Test_Greenfield_LabelBasedFD_UnevenHostCount_BalancesPerFD(t *testing.T) {
-	s := testScheme() // minFdNum = 6, 30 TiB per FD for 180 TiB raw
+	s := testScheme() // minFdNum = 6, 34134 GiB per FD for 204800 GiB raw (200 TiB / 0.9 factor)
 	var inv []NodeCapacity
 	// rack-1: THREE hosts
 	inv = append(inv,
@@ -473,7 +473,7 @@ func Test_Greenfield_LabelBasedFD_UnevenHostCount_BalancesPerFD(t *testing.T) {
 		)
 	}
 
-	plan := planCap(desiredFrom(90*tib, s, ratio(1, 0)), s, nil, inv, testCons()) // rawTLC = 180 TiB
+	plan := planCap(desiredFrom(90*tib, s, ratio(1, 0)), s, nil, inv, testCons()) // rawTLC = 200 TiB (204800 GiB / 0.9 factor)
 
 	if plan.Infeasible != "" {
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
@@ -490,24 +490,24 @@ func Test_Greenfield_LabelBasedFD_UnevenHostCount_BalancesPerFD(t *testing.T) {
 	if len(perFD) != 6 {
 		t.Fatalf("want 6 distinct FDs, got %d: %v", len(perFD), perFD)
 	}
-	if got := sumCreateTlc(plan); got != 180*tib {
-		t.Fatalf("want total created TLC 180 TiB, got %d GiB", got)
+	if got := sumCreateTlc(plan); got != 204804 {
+		t.Fatalf("want total created TLC 204804 GiB (200 TiB raw / 0.9 factor, 6 FDs ceil-rounded), got %d GiB", got)
 	}
-	// KEY (disc #13): per-FD balance regardless of host count — every rack holds 30 TiB, NOT proportional
+	// KEY (disc #13): per-FD balance regardless of host count — every rack holds 34134 GiB, NOT proportional
 	// to its host count.
 	for fd, v := range perFD {
-		if v != 30*tib {
-			t.Fatalf("FD %s holds %d GiB, want 30 TiB equal across all FDs (per-FD balance, not per-node): %v", fd, v, perFD)
+		if v != 34134 {
+			t.Fatalf("FD %s holds %d GiB, want 34134 GiB equal across all FDs (per-FD balance, not per-node): %v", fd, v, perFD)
 		}
 	}
-	// rack-1 (3 hosts) splits its 30 TiB share across all 3 hosts; the 2-host racks across 2.
+	// rack-1 (3 hosts) splits its 34134 GiB share across all 3 hosts; the 2-host racks across 2.
 	if perFDcount["rack-1"] != 3 {
-		t.Fatalf("rack-1 (3 hosts) should split its 30 TiB across 3 containers, got %d: %v", perFDcount["rack-1"], perFDcount)
+		t.Fatalf("rack-1 (3 hosts) should split its 34134 GiB across 3 containers, got %d: %v", perFDcount["rack-1"], perFDcount)
 	}
 	for r := 2; r <= 6; r++ {
 		fd := "rack-" + itoa(r)
 		if perFDcount[fd] != 2 {
-			t.Fatalf("%s (2 hosts) should split its 30 TiB across 2 containers, got %d: %v", fd, perFDcount[fd], perFDcount)
+			t.Fatalf("%s (2 hosts) should split its 34134 GiB across 2 containers, got %d: %v", fd, perFDcount[fd], perFDcount)
 		}
 	}
 }
@@ -604,7 +604,7 @@ func desiredDrive(usableGiB int, s ProtectionScheme, r *weka.DriveTypesRatio, dr
 
 func Test_DriveContainers_Exact_Greenfield_TLOnly(t *testing.T) {
 	s := testScheme() // minFdNum = 6
-	// 12 capable nodes, rawTLC = 180 TiB, driveContainers=8 -> exactly 8 containers of 180/8 = 22.5 TiB.
+	// 12 capable nodes, rawTLC = 200 TiB (204800 GiB / 0.9 factor), driveContainers=8 -> exactly 8 containers of 204800/8 = 25600 GiB each.
 	plan := planCap(desiredDrive(90*tib, s, ratio(1, 0), 8, 0), s, nil, nodes(12, 100*tib, 0, 64, "n"), testCons())
 	if plan.Infeasible != "" {
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
@@ -612,8 +612,8 @@ func Test_DriveContainers_Exact_Greenfield_TLOnly(t *testing.T) {
 	if len(plan.Create) != 8 {
 		t.Fatalf("want exactly 8 drive containers, got %d", len(plan.Create))
 	}
-	if got := sumCreateTlc(plan); got != 180*tib {
-		t.Fatalf("want total TLC 180 TiB, got %d", got)
+	if got := sumCreateTlc(plan); got != 204800 {
+		t.Fatalf("want total TLC 204800 GiB (200 TiB raw / 0.9 factor, 8 containers of 25600 GiB), got %d", got)
 	}
 }
 
@@ -707,6 +707,7 @@ func Test_DriveCores_NodeLacksCores_Infeasible(t *testing.T) {
 func Test_Grow_FitsInPlace_OnExistingNodes(t *testing.T) {
 	s := testScheme()
 	// 6 existing TLC containers at 30 TiB, on nodes that still have 70 TiB / 58 cores headroom.
+	// desiredFrom(120 TiB) -> raw = int(float64(120*1024*2)/0.9) = 273066 GiB; per FD = ceil(273066/6) = 45511 GiB.
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
 		n := "n" + itoa(i)
@@ -723,8 +724,8 @@ func Test_Grow_FitsInPlace_OnExistingNodes(t *testing.T) {
 		t.Fatalf("want 6 in-place grows, got %d", len(plan.Grow))
 	}
 	for _, g := range plan.Grow {
-		if g.NewTlcGiB != 40*tib { // 30 -> 40 TiB (delta 60/6 = 10 each)
-			t.Fatalf("want grown TLC 40 TiB, got %+v", g)
+		if g.NewTlcGiB != 45511 { // 30 TiB existing -> 45511 GiB (= ceil(273066/6); raw 120 TiB usable = 273066 GiB / 0.9)
+			t.Fatalf("want grown TLC 45511 GiB, got %+v", g)
 		}
 	}
 }
@@ -884,10 +885,12 @@ func Test_RatioChange_SameTarget_GrowsOnePool_NoOpsOther(t *testing.T) {
 
 func Test_Shrink_NoOp_EmitsDeleteEvent(t *testing.T) {
 	s := testScheme()
+	// 6×41 TiB = 251904 GiB existing; desired raw = int(float64(90*1024*2)/0.9) = 204800 GiB.
+	// Overprovision = 47104 GiB > 20% of 204800 (= 40960 GiB) → shrink event emitted.
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
 		n := "n" + itoa(i)
-		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 40 * tib, NumCores: 8})
+		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 41 * tib, NumCores: 8})
 	}
 	plan := planCap(desiredFrom(90*tib, s, ratio(1, 0)), s, existingDrives, nodes(6, 20*tib, 0, 20, "n"), testCons())
 	if len(plan.Grow) != 0 || len(plan.Create) != 0 {
@@ -905,7 +908,7 @@ func Test_Shrink_WithinOverProvisionCap_NoEvent(t *testing.T) {
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
 		n := "n" + itoa(i)
-		// 6×34 = 204 TiB current vs 180 desired (90 usable): overage 24 TiB < 20% cap (36 TiB) → silent.
+		// 6×34 TiB = 208896 GiB current vs 204800 GiB desired (90 TiB usable / 0.9): overage 4096 GiB < 20% cap (40960 GiB) → silent.
 		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 34 * tib, NumCores: 7})
 	}
 	plan := planCap(desiredFrom(90*tib, s, ratio(1, 0)), s, existingDrives, nodes(6, 20*tib, 0, 20, "n"), testCons())
@@ -919,12 +922,15 @@ func Test_Shrink_WithinOverProvisionCap_NoEvent(t *testing.T) {
 
 func Test_Idempotent_WhenCurrentEqualsDesired_EmptyPlan(t *testing.T) {
 	s := testScheme()
+	// desired raw = int(float64(90*1024*2)/0.9) = 204800 GiB; ceil(204800/6) = 34134 GiB per FD.
+	// Setting existing to 34134 GiB each makes current (6×34134=204804 GiB) ≥ desired (204800 GiB),
+	// within the 20% overprovision cap (4 GiB << 40960 GiB), so the plan is empty (no grow, no shrink).
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
 		n := "n" + itoa(i)
-		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 30 * tib, NumCores: 6})
+		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 34134, NumCores: 7})
 	}
-	// desired raw == current 180 TiB.
+	// desired raw == current 200 TiB (ceil-rounded to 204804 GiB).
 	plan := planCap(desiredFrom(90*tib, s, ratio(1, 0)), s, existingDrives, nodes(6, 70*tib, 0, 58, "n"), testCons())
 	if len(plan.Grow) != 0 || len(plan.Create) != 0 || plan.Infeasible != "" {
 		t.Fatalf("want empty stable plan, got grow=%d create=%d infeasible=%q", len(plan.Grow), len(plan.Create), plan.Infeasible)
@@ -1376,9 +1382,11 @@ func Test_PlaceUniform_DoesNotDoubleChargeBaseMemoryForMergedContainer(t *testin
 
 // --- compute sizing (OP-329): node-core-aware compute container layout ---
 
-// Test_Compute_BugScenario_NodeCoreAware reproduces the OP-329 bug: 200 TiB / SW,RL,HS=3,2,1 /
-// TLC-only across 14 large nodes -> 84 TLC drive cores. The planner must derive a MINIMAL compute
-// layout bounded by the per-node core cap (6 containers x 14 cores), NOT 84 single-core containers.
+// Test_Compute_BugScenario_NodeCoreAware reproduces the OP-329 bug: 200 TiB usable / SW,RL,HS=3,2,1 /
+// TLC-only across 14 large nodes -> 90 TLC drive cores (raw = int(float64(200*1024*2)/0.9) = 455111 GiB;
+// 6 FDs; ceil(455111/6)=75852 GiB/FD; ceil(75852/5120)=15 cores/FD; 15×6=90 total drive cores).
+// The planner must derive a MINIMAL compute layout bounded by the per-node core cap (6 containers x 15 cores),
+// NOT 90 single-core containers.
 func Test_Compute_BugScenario_NodeCoreAware(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
@@ -1389,11 +1397,11 @@ func Test_Compute_BugScenario_NodeCoreAware(t *testing.T) {
 	if plan.Infeasible != "" {
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
 	}
-	if plan.TotalTlcDriveCores != 84 {
-		t.Fatalf("want 84 TLC drive cores, got %d", plan.TotalTlcDriveCores)
+	if plan.TotalTlcDriveCores != 90 {
+		t.Fatalf("want 90 TLC drive cores (15 cores × 6 FDs = 90), got %d", plan.TotalTlcDriveCores)
 	}
-	if plan.ComputeContainers != 6 || plan.ComputeCores != 14 {
-		t.Fatalf("want compute 6x14 (minimal count, cap-bound), got %dx%d", plan.ComputeContainers, plan.ComputeCores)
+	if plan.ComputeContainers != 6 || plan.ComputeCores != 15 {
+		t.Fatalf("want compute 6x15 (minimal count, cap-bound by MaxComputeCoresPerNode=16), got %dx%d", plan.ComputeContainers, plan.ComputeCores)
 	}
 	if plan.ComputeContainers*plan.ComputeCores < plan.TotalTlcDriveCores {
 		t.Fatalf("compute:drive 1:1 violated: %d < %d", plan.ComputeContainers*plan.ComputeCores, plan.TotalTlcDriveCores)
@@ -1403,11 +1411,13 @@ func Test_Compute_BugScenario_NodeCoreAware(t *testing.T) {
 // Test_Compute_Infeasible_NoCoreHeadroom asserts the planner reports infeasibility (so the caller
 // retries before creating drive containers) when the drive-bearing nodes have no spare cores for the
 // 1:1 compute, instead of emitting unschedulable single-core compute containers.
+// raw = int(float64(200*1024*2)/0.9) = 455111 GiB; with 14 FDs: ceil(455111/14) = 32508 GiB/FD;
+// ceil(32508/5120) = 7 cores/FD. Giving each node exactly 7 cores leaves 0 spare for compute → infeasible.
 func Test_Compute_Infeasible_NoCoreHeadroom(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
 
-	inv := nodes(14, 100*tib, 0, 6, "n") // each node's 6 cores are fully consumed by its drive container
+	inv := nodes(14, 100*tib, 0, 7, "n") // each node's 7 cores are fully consumed by its drive container (ceil(32508/5120)=7), 0 left for compute
 	plan := planCap(desiredFrom(200*tib, s, nil), s, nil, inv, cons)
 	if !strings.Contains(plan.Infeasible, "compute") {
 		t.Fatalf("want a compute infeasibility, got infeasible=%q (compute %dx%d)", plan.Infeasible, plan.ComputeContainers, plan.ComputeCores)
@@ -1441,14 +1451,16 @@ func Test_Compute_HeterogeneousNodes_BoundBySmallest(t *testing.T) {
 // pool — which can be DISKLESS nodes outside the drive inventory — and not over the drive nodes. The
 // drive nodes here are fully core-consumed by their drive containers (0 spare compute cores), so sizing
 // compute over them (the old behavior) would be infeasible; the diskless compute pool makes it feasible.
+// raw = int(float64(200*1024*2)/0.9) = 455111 GiB; 6 FDs: ceil(455111/6) = 75852 GiB/FD;
+// ceil(75852/5120) = 15 cores/FD; 15×6 = 90 total drive cores.
 func Test_Compute_DisklessNodes_SizedOnComputePool(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
 	cons.MaxComputeCoresPerNode = 16
 
-	// 6 drive nodes with exactly enough cores for their drive container (14 cores → 0 left for compute),
+	// 6 drive nodes with exactly enough cores for their drive container (15 cores → 0 left for compute),
 	// plus 8 diskless compute-only nodes (no drives, 32 cores each).
-	inv := append(nodes(6, 100*tib, 0, 14, "d"), nodes(8, 0, 0, 32, "c")...)
+	inv := append(nodes(6, 100*tib, 0, 15, "d"), nodes(8, 0, 0, 32, "c")...)
 	computeNodes := map[string]bool{}
 	for i := 1; i <= 8; i++ {
 		computeNodes["c"+itoa(i)] = true // only the diskless pool is compute-eligible
@@ -1458,11 +1470,11 @@ func Test_Compute_DisklessNodes_SizedOnComputePool(t *testing.T) {
 	if plan.Infeasible != "" {
 		t.Fatalf("compute should fit on the diskless pool, got infeasible: %s", plan.Infeasible)
 	}
-	if plan.TotalTlcDriveCores != 84 {
-		t.Fatalf("want 84 TLC drive cores, got %d", plan.TotalTlcDriveCores)
+	if plan.TotalTlcDriveCores != 90 {
+		t.Fatalf("want 90 TLC drive cores (15 cores × 6 FDs), got %d", plan.TotalTlcDriveCores)
 	}
-	if plan.ComputeContainers != 6 || plan.ComputeCores != 14 {
-		t.Fatalf("want compute 6x14 over the diskless pool, got %dx%d", plan.ComputeContainers, plan.ComputeCores)
+	if plan.ComputeContainers != 6 || plan.ComputeCores != 15 {
+		t.Fatalf("want compute 6x15 over the diskless pool (ceil(90/6)=15 cores per container), got %dx%d", plan.ComputeContainers, plan.ComputeCores)
 	}
 	// Drives must land only on the drive nodes, never on diskless compute nodes.
 	if len(plan.Create) != 6 {
@@ -1556,15 +1568,18 @@ func Test_Compute_PinnedDisjointFromDrives_WhenHugepagesTight(t *testing.T) {
 	cons.DriveDpdkPerCoreMiB = 64
 	cons.ComputeDpdkPerCoreMiB = 64
 
-	// 12 nodes, each 20000 MiB hugepages: a 6-core drive reserves 6*(1600+64)=9984 (fits), but a
-	// 6-core compute needs 3000*6 + 64*6 = 18384 — so a drive node's post-drive remainder (10016)
-	// cannot also host compute. Disjoint placement IS possible (6 drive + 6 compute <= 12 nodes).
+	// 12 nodes, each 22000 MiB hugepages: a 7-core drive reserves 7*(1600+64)=11648 (fits with 10352 left),
+	// but a 7-core compute needs max(3000*7,1700*7)+64*7 = 21448 MiB — so a drive node's post-drive
+	// remainder (22000-11648=10352 MiB) cannot also host compute. A fresh node (22000 MiB) CAN host compute
+	// (21448 < 22000). Disjoint placement IS possible (6 drive + 6 compute <= 12 nodes).
+	// raw = int(float64(90*1024*2)/0.9) = 204800 GiB; 6 FDs; ceil(204800/6) = 34134 GiB/FD;
+	// ceil(34134/5120) = 7 cores/FD; totalDriveCores = 42.
 	inv := make([]NodeCapacity, 0, 12)
 	for i := 1; i <= 12; i++ {
-		inv = append(inv, tightNode("n"+itoa(i), 100*tib, 64, 20000))
+		inv = append(inv, tightNode("n"+itoa(i), 100*tib, 64, 22000))
 	}
 
-	plan := planCap(desiredFrom(90*tib, s, ratio(1, 0)), s, nil, inv, cons) // rawTLC 180 -> 6x30TiB drives
+	plan := planCap(desiredFrom(90*tib, s, ratio(1, 0)), s, nil, inv, cons) // rawTLC 200 TiB (204800 GiB) -> 6 FDs × 34134 GiB
 	if plan.Infeasible != "" {
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
 	}
