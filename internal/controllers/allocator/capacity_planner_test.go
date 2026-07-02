@@ -326,6 +326,301 @@ func Test_Greenfield_TLCplusQLC_DisjointNodes(t *testing.T) {
 	}
 }
 
+// Both pools greenfield on MORE than minFd mixed-capable nodes: QLC must co-locate onto the SAME nodes
+// TLC took (mixed containers) rather than spreading onto the still-empty nodes. Without the co-location
+// bias QLC would prefer the untouched nodes (they have more remaining headroom now that TLC consumed some
+// of the shared cores), splitting into disjoint TLC-only/QLC-only containers.
+func Test_Greenfield_TLCplusQLC_PrefersSameNode(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	inv := nodes(12, 100*tib, 100*tib, 64, "n")
+	plan := planCap(desiredFrom(60*tib, s, ratio(1, 1)), s, nil, inv, testCons())
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Create) != 6 {
+		t.Fatalf("want 6 mixed containers co-located on 6 nodes, got %d containers: %+v", len(plan.Create), plan.Create)
+	}
+	for _, c := range plan.Create {
+		if c.Type != DriveTypeMixed || c.TlcGiB <= 0 || c.QlcGiB <= 0 {
+			t.Fatalf("want every container mixed (TLC+QLC on the same node), got %+v", c)
+		}
+	}
+}
+
+// Both pools greenfield on mixed-capable-DRIVE nodes that are CORE-limited so a single node can host one
+// pool's per-FD share but not both (cores are shared across pools; drive capacity is per-pool). The
+// co-location bias must fall back to a split — TLC on 6 nodes, QLC on 6 others, no mixed — because no node
+// can hold both. Compute is sized over a dedicated diskless pool so the drive nodes can be fully
+// core-consumed (mirrors Test_Compute_DisklessNodes_SizedOnComputePool).
+func Test_Greenfield_TLCplusQLC_SplitsWhenNodeCannotHoldBoth(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	// 3 cores/drive-node is exactly the TLC per-FD share's core need; once TLC lands, 0 cores remain for QLC.
+	inv := append(nodes(12, 100*tib, 100*tib, 3, "d"), nodes(8, 0, 0, 32, "c")...)
+	computeNodes := map[string]bool{}
+	for i := 1; i <= 8; i++ {
+		computeNodes["c"+itoa(i)] = true // only the diskless pool is compute-eligible
+	}
+	plan := PlanCapacity(desiredFrom(60*tib, s, ratio(1, 1)), s, nil, nil, inv, computeNodes, testCons())
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	tlcCount, qlcCount := 0, 0
+	for _, c := range plan.Create {
+		switch c.Type {
+		case DriveTypeTLC:
+			tlcCount++
+		case DriveTypeQLC:
+			qlcCount++
+		default:
+			t.Fatalf("unexpected mixed container when no node can hold both: %+v", c)
+		}
+	}
+	if tlcCount != 6 || qlcCount != 6 {
+		t.Fatalf("want 6 TLC + 6 QLC containers (split), got %d + %d", tlcCount, qlcCount)
+	}
+}
+
+// Regression for the live-cluster over-fragmentation: deleting a few TLC FDs recreated MORE, smaller FDs
+// than necessary because the increase path anchored the new-FD count on the existing FD size. New FDs must
+// be sized to cover the delta with the FEWEST containers (largest per-FD up to maxPerFdCap). Here delta
+// 2314 with maxPerFdCap=(current+2314)/5=1464 → kMin=CeilDiv(2314,1464)=2 → 2 replacements of 1157, not 3.
+func Test_UniformIncrease_AntiFragmentation_FewestContainers(t *testing.T) {
+	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
+	cons := testCons()
+	// 5 existing TLC FDs (mirrors the cluster after earlier deletes left an uneven set).
+	sizes := []int{1250, 939, 939, 939, 939}
+	var existingDrives []ExistingContainer
+	var inv []NodeCapacity
+	current := 0
+	for i, sz := range sizes {
+		n := "old" + itoa(i+1)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i+1), Node: n, FDValue: n, TlcGiB: sz, NumCores: 1})
+		inv = append(inv, node(n, 0, 0, 64)) // drive-full: existing FDs cannot grow, so the delta is covered by new FDs
+		current += sz
+	}
+	inv = append(inv, nodes(4, 100*tib, 0, 64, "new")...) // fresh nodes to host the replacements
+	delta := 2314                                         // == 2×1157, as if two 1157-GiB TLC FDs were deleted
+	plan := planCap(DesiredCapacity{TlcRawGiB: current + delta}, s, existingDrives, inv, cons)
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Grow) != 0 {
+		t.Fatalf("want create-new (no grow), got grows: %+v", plan.Grow)
+	}
+	if len(plan.Create) != 2 {
+		t.Fatalf("want 2 replacement FDs (fewest containers), not 3 smaller ones; got %d: %+v", len(plan.Create), plan.Create)
+	}
+	for _, c := range plan.Create {
+		if c.TlcGiB != 1157 { // CeilDiv(2314, 2)
+			t.Fatalf("want each new FD = 1157 GiB (CeilDiv(2314,2)), got %+v", c)
+		}
+	}
+}
+
+// Increase path with fresh candidate nodes INDIVIDUALLY SMALLER than the existing FDs (review scenario):
+// the fewest-containers search must still cover the delta on those nodes (kMax = CeilDiv(delta, T0) keeps
+// the count high enough to fall to per-FD sizes the small nodes can hold) — it must NOT go infeasible.
+// Existing TLC FDs [1250, 939×4], delta=2314, fresh nodes ~900 GiB each (< T0=939): k=2 (perFd 1157) can't
+// fit 900, so it falls to k=3 (perFd 772 <= 900) → 3×772, feasible.
+func Test_UniformIncrease_SmallFreshNodes_StaysFeasible(t *testing.T) {
+	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
+	cons := testCons()
+	sizes := []int{1250, 939, 939, 939, 939}
+	var existingDrives []ExistingContainer
+	var inv []NodeCapacity
+	current := 0
+	for i, sz := range sizes {
+		n := "old" + itoa(i+1)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i+1), Node: n, FDValue: n, TlcGiB: sz, NumCores: 1})
+		inv = append(inv, node(n, 0, 0, 64)) // drive-full: existing FDs cannot grow
+		current += sz
+	}
+	inv = append(inv, nodes(5, 900, 0, 64, "new")...) // fresh nodes smaller than every existing FD
+	delta := 2314
+	plan := planCap(DesiredCapacity{TlcRawGiB: current + delta}, s, existingDrives, inv, cons)
+	if plan.Infeasible != "" {
+		t.Fatalf("small fresh nodes must still cover the delta (fell through to infeasible): %s", plan.Infeasible)
+	}
+	if len(plan.Grow) != 0 {
+		t.Fatalf("existing FDs are drive-full; want create-new, got grows: %+v", plan.Grow)
+	}
+	if len(plan.Create) != 3 { // k=2 needs 1157>900 (skip) → k=3 perFd=772<=900
+		t.Fatalf("want 3 new FDs of 772 (largest that fits the 900-GiB fresh nodes), got %d: %+v", len(plan.Create), plan.Create)
+	}
+	for _, c := range plan.Create {
+		if c.TlcGiB > 900 {
+			t.Fatalf("new FD must fit the 900-GiB fresh nodes, got %+v", c)
+		}
+	}
+}
+
+// Mirrors the live cluster: some nodes carry both drive types, others are TLC-only. QLC can only live on
+// the mixed-capable nodes, so it is the CONSTRAINED pool — it must be planned first, after which TLC
+// co-locates onto those same nodes (mixed containers) instead of spreading onto the tempting high-headroom
+// TLC-only nodes. Proves both the pool-ordering (constrained-first) and the co-location bias: were TLC
+// planned first it would grab the t* nodes and QLC would be forced to split onto the mixed nodes.
+func Test_Greenfield_TLCplusQLC_ConstrainedPoolFirst_CoLocates(t *testing.T) {
+	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
+	inv := append(
+		nodes(6, 20000, 20000, 64, "m"), // 6 mixed-capable nodes (both drive types)
+		nodes(8, 50000, 0, 64, "t")...,  // 8 TLC-only nodes with HIGHER TLC headroom (tempt TLC away)
+	)
+	plan := planCap(desiredFrom(30*tib, s, ratio(1, 1)), s, nil, inv, testCons())
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Create) != 5 { // minFd = 5 FDs, all co-located onto the mixed-capable nodes
+		t.Fatalf("want 5 mixed containers co-located on the mixed-capable nodes, got %d: %+v", len(plan.Create), plan.Create)
+	}
+	for _, c := range plan.Create {
+		if c.Type != DriveTypeMixed || c.TlcGiB <= 0 || c.QlcGiB <= 0 {
+			t.Fatalf("want every container mixed (TLC co-located with QLC), got %+v", c)
+		}
+		if c.Node[0] != 'm' {
+			t.Fatalf("co-located containers must land on the mixed-capable m* nodes, got node %q", c.Node)
+		}
+	}
+}
+
+// Co-location on the INCREASE path (the real delete-and-recreate scenario): both pools already have FDs
+// and both must CREATE new ones (existing FDs are drive-full, cannot grow). QLC is planned first
+// (constrained to the mixed-capable fresh nodes); TLC then co-locates its new FDs onto the SAME fresh
+// mixed nodes via colocatedFirst, so every new QLC FD becomes a mixed container instead of splitting onto
+// the higher-headroom TLC-only nodes.
+func Test_UniformIncrease_TLCplusQLC_CoLocatesNewFDs(t *testing.T) {
+	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
+	cons := testCons()
+
+	var existingDrives []ExistingContainer
+	var inv []NodeCapacity
+	for i := 1; i <= 5; i++ { // 5 QLC FDs on drive-full mixed nodes, 5 TLC FDs on drive-full TLC-only nodes
+		m, tn := "m"+itoa(i), "t"+itoa(i)
+		existingDrives = append(existingDrives,
+			ExistingContainer{Name: "q" + itoa(i), Node: m, FDValue: m, QlcGiB: 3000, NumCores: 1},
+			ExistingContainer{Name: "t" + itoa(i), Node: tn, FDValue: tn, TlcGiB: 3000, NumCores: 1})
+		inv = append(inv, node(m, 0, 0, 64), node(tn, 0, 0, 64)) // drive-full: no in-place growth
+	}
+	inv = append(inv, nodes(4, 20000, 20000, 64, "mf")...) // fresh mixed-capable nodes (only QLC-capable fresh)
+	inv = append(inv, nodes(4, 50000, 0, 64, "tf")...)     // fresh TLC-only nodes with HIGHER TLC headroom
+
+	// Raise both pools by 6000 GiB (current 15000 each) → each needs 2 new FDs of 3000 (== largest existing).
+	plan := planCap(DesiredCapacity{TlcRawGiB: 21000, QlcRawGiB: 21000}, s, existingDrives, inv, cons)
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	mixed, qlcOnly := 0, 0
+	for _, c := range plan.Create {
+		if c.QlcGiB > 0 && c.TlcGiB > 0 {
+			mixed++
+		} else if c.QlcGiB > 0 {
+			qlcOnly++
+		}
+	}
+	if qlcOnly != 0 {
+		t.Fatalf("every new QLC FD should be co-located with TLC (mixed); got %d QLC-only new FDs: %+v", qlcOnly, plan.Create)
+	}
+	if mixed == 0 {
+		t.Fatalf("want new TLC FDs co-located onto the new QLC (mixed) nodes; got none mixed: %+v", plan.Create)
+	}
+}
+
+// The live delete-both race: both pools short (scaling OFF), the freed MIXED node still hosts its old QLC
+// container TERMINATING (HasDeletingDriveContainer=true), while a freed TLC-only node's small container has
+// already finalized. Co-location must still win — TLC must land on the freed mixed node with QLC (one mixed
+// container), NOT split onto the not-deleting TLC-only node. Regression for takeFreshAtLevel ranking
+// not-deleting above co-location.
+func Test_UniformIncrease_BothShort_CoLocatesOnFreedNode_EvenWhileTerminating(t *testing.T) {
+	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
+	cons := testCons()
+	cons.AllowInPlaceGrowth = false // matches the live cluster default (no conversion of occupied nodes)
+	var existingDrives []ExistingContainer
+	var inv []NodeCapacity
+	// 3 fully-mixed + 2 QLC-only occupied mixed nodes; 6 occupied TLC-only nodes. (QLC FDs=5, TLC FDs=9.)
+	for _, n := range []string{"m1", "m2", "m3"} {
+		existingDrives = append(existingDrives, ExistingContainer{Name: n, Node: n, FDValue: n, TlcGiB: 1250, QlcGiB: 3750, NumCores: 3})
+		inv = append(inv, node(n, 41000, 53000, 60))
+	}
+	for _, n := range []string{"q1", "q2"} {
+		existingDrives = append(existingDrives, ExistingContainer{Name: n, Node: n, FDValue: n, QlcGiB: 4053, NumCores: 1})
+		inv = append(inv, node(n, 64000, 53000, 60))
+	}
+	for i := 1; i <= 6; i++ {
+		n := "t" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{Name: n, Node: n, FDValue: n, TlcGiB: 1157, NumCores: 1})
+		inv = append(inv, node(n, 70000, 0, 60))
+	}
+	// Freed MIXED node whose old QLC container is STILL terminating; freed TLC-only node already finalized.
+	freedMixed := node("fmix", 42000, 57000, 60)
+	freedMixed.HasDeletingDriveContainer = true
+	inv = append(inv, freedMixed, node("fh6", 71000, 0, 60))
+
+	curT, curQ := 0, 0
+	for _, c := range existingDrives {
+		curT += c.TlcGiB
+		curQ += c.QlcGiB
+	}
+	plan := planCap(DesiredCapacity{TlcRawGiB: curT + 1157, QlcRawGiB: curQ + 4053}, s, existingDrives, inv, cons)
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Grow) != 0 {
+		t.Fatalf("scaling off: must not convert/grow, got %+v", plan.Grow)
+	}
+	// Exactly one fresh MIXED container on the freed mixed node — no split onto fh6.
+	if len(plan.Create) != 1 {
+		t.Fatalf("want 1 fresh mixed container co-located on the freed node, got %d: %+v", len(plan.Create), plan.Create)
+	}
+	c := plan.Create[0]
+	if c.Node != "fmix" || c.TlcGiB <= 0 || c.QlcGiB <= 0 {
+		t.Fatalf("want a mixed container on fmix (the freed mixed node), got %+v", c)
+	}
+}
+
+// The live-cluster case: EXISTING QLC-only containers already sit on mixed-capable nodes, and ONLY TLC is
+// short (QLC is not creating anything this pass). Co-location must NOT convert an already-running
+// single-pool container: adding TLC to an existing QLC-only container is an in-place modification we do
+// not want. The new TLC FD is created fresh on an empty node; the QLC-only nodes are left untouched.
+// (Co-location is only ever realized by creating ONE fresh mixed container on an EMPTY node when both
+// pools are short in the same plan — see Test_UniformIncrease_TLCplusQLC_CoLocatesNewFDs.)
+func Test_UniformIncrease_TLC_DoesNotConvertExistingQLCOnlyNode(t *testing.T) {
+	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
+	cons := testCons()
+	var existingDrives []ExistingContainer
+	var inv []NodeCapacity
+	for i := 1; i <= 5; i++ { // QLC-only containers on mixed-capable nodes m1..m5 (free TLC + QLC available)
+		n := "m" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "q" + itoa(i), Node: n, FDValue: n, QlcGiB: 3000, NumCores: 1})
+		inv = append(inv, node(n, 20000, 5000, 64))
+	}
+	for i := 1; i <= 5; i++ { // TLC-only containers on drive-full t1..t5 (can't grow in place)
+		n := "t" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "t" + itoa(i), Node: n, FDValue: n, TlcGiB: 3000, NumCores: 1})
+		inv = append(inv, node(n, 0, 0, 64))
+	}
+	inv = append(inv, nodes(2, 60000, 0, 64, "tempty")...) // empty TLC-only nodes for the fresh TLC FD
+
+	// QLC not short (15000==current); TLC raised by 3000 → needs 1 more FD.
+	plan := planCap(DesiredCapacity{TlcRawGiB: 18000, QlcRawGiB: 15000}, s, existingDrives, inv, cons)
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	// No existing QLC-only container may be converted to mixed (no in-place cross-pool grow).
+	for _, g := range plan.Grow {
+		if g.NewTlcGiB > 0 && g.NewQlcGiB > 0 {
+			t.Fatalf("must NOT convert an existing single-pool container to mixed, got grow %+v", g)
+		}
+	}
+	// The new TLC FD is created fresh (on an empty node), not co-located onto an occupied QLC-only node.
+	if len(plan.Create) == 0 {
+		t.Fatalf("want a fresh TLC container created, got none (grow=%+v)", plan.Grow)
+	}
+	for _, c := range plan.Create {
+		if c.QlcGiB != 0 {
+			t.Fatalf("fresh TLC FD must be TLC-only (no conversion), got %+v", c)
+		}
+	}
+}
+
 func Test_QLCpool_TooFewFDs_FailFast(t *testing.T) {
 	s := testScheme()
 	inv := append(nodes(6, 100*tib, 0, 64, "t"), nodes(5, 0, 100*tib, 64, "q")...) // only 5 QLC nodes
@@ -614,6 +909,37 @@ func Test_DriveContainers_Exact_Greenfield_TLOnly(t *testing.T) {
 	}
 	if got := sumCreateTlc(plan); got != 204800 {
 		t.Fatalf("want total TLC 204800 GiB (200 TiB raw / 0.9 factor, 8 containers of 25600 GiB), got %d", got)
+	}
+}
+
+// Invariant guard: the pinned-driveContainers path must NOT grow an existing container in place when
+// dynamic drive scaling is off. With existing FDs below the pinned per-FD level T, it reports infeasible
+// (enable the flag or unset driveContainers) instead of growing them.
+func Test_DriveContainers_Pinned_ScalingOff_DoesNotGrowExisting(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	cons := testCons()
+	cons.AllowInPlaceGrowth = false
+	// 3 existing TLC FDs of 10 TiB (below the pinned per-FD level) + 4 empty spare nodes → driveContainers=6
+	// leaves 3 fresh FDs allowed (so resolveExactNewFds passes), but reaching the uniform T=15 TiB would
+	// require growing the 3 existing FDs — disabled → the new guard must report infeasible, grow nothing.
+	var existingDrives []ExistingContainer
+	var inv []NodeCapacity
+	for i := 1; i <= 3; i++ {
+		n := "old" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 10 * tib, NumCores: 2})
+		inv = append(inv, node(n, 40*tib, 0, 64)) // headroom exists (growth would fit if allowed)
+	}
+	inv = append(inv, nodes(4, 100*tib, 0, 64, "new")...) // spare empty nodes for the fresh FDs
+	// raw ~ 90 TiB, driveContainers=6 → T = 15 TiB/FD > existing 10 TiB → existing would need growth.
+	plan := planCap(desiredDrive(90*tib, s, ratio(1, 0), 6, 0), s, existingDrives, inv, cons)
+	if plan.Infeasible == "" {
+		t.Fatalf("want infeasible (growth disabled, pinned per-FD exceeds existing), got Create=%+v Grow=%+v", plan.Create, plan.Grow)
+	}
+	if len(plan.Grow) != 0 {
+		t.Fatalf("must not grow existing containers when scaling is off, got %+v", plan.Grow)
+	}
+	if !strings.Contains(plan.Infeasible, "growing it in place is disabled") {
+		t.Fatalf("want a flag-aware infeasibility message, got %q", plan.Infeasible)
 	}
 }
 
@@ -1029,13 +1355,11 @@ func Test_Heterogeneous_BalancedFresh_FiresWithScalingDisabled(t *testing.T) {
 	}
 }
 
-// NEW behavior: even-split-to-delta at the PREFERRED count. 6 full existing FDs at T0=20 TiB + 6 fresh
-// nodes; delta=90 TiB. The preferred count is kBase=CeilDiv(delta,T0)=CeilDiv(90,20)=5 — the same count
-// T0-cloning would use — and the per-FD size CeilDiv(90,5)=18 TiB comes out <= T0 (never bigger than the
-// frozen existing FDs). 6 fresh nodes cover the 5 FDs, so 5 new FDs of 18 TiB = 90 TiB EXACTLY (no
-// over-provision). Existing specs are untouched. This replaces the old T0-clone behavior (5 FDs of the full
-// T0=20 TiB = 100 TiB, over-provisioning by 10 TiB): sizing each new FD to delta/kBase reaches desired
-// exactly while keeping the new FDs <= the existing ones.
+// NEW behavior: cover the delta with the FEWEST new FDs (largest per-FD up to maxPerFdCap). 6 full existing
+// FDs at T0=20 TiB + 6 fresh nodes; delta=90 TiB. maxPerFdCap = 210/6 = 35 TiB, so kMin=CeilDiv(90,35)=3 →
+// 3 new FDs of CeilDiv(90,3)=30 TiB = 90 TiB EXACTLY (30 <= maxPerFdCap 35, >= T0 20, and 30 < imbalance
+// boundary 2×avg=40). Existing specs untouched, 0 over-provision. Fewer containers than the old even-split
+// (which spread the same delta over 5 FDs of 18 TiB) — same capacity, less core/base-memory overhead.
 func Test_Grow_PartialInPlace_RemainderCreatesNew(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	// 6 existing TLC containers on full nodes (no headroom) + 6 fresh empty nodes available.
@@ -1046,7 +1370,7 @@ func Test_Grow_PartialInPlace_RemainderCreatesNew(t *testing.T) {
 	}
 	// Old nodes are full on DRIVE capacity (0 GiB free) but retain CPU cores for compute containers.
 	inv := append(nodes(6, 0, 0, 64, "old"), nodes(6, 100*tib, 0, 64, "new")...) // old nodes drive-full
-	// current 120 TiB; raise to 210 TiB raw -> delta 90 TiB lands on the fresh nodes as 5 even-split FDs.
+	// current 120 TiB; raise to 210 TiB raw -> delta 90 TiB lands on the fresh nodes as the fewest FDs.
 	desired := DesiredCapacity{TlcRawGiB: 210 * tib}
 	plan := planCap(desired, s, existingDrives, inv, testCons())
 	if plan.Infeasible != "" {
@@ -1055,16 +1379,16 @@ func Test_Grow_PartialInPlace_RemainderCreatesNew(t *testing.T) {
 	if len(plan.Grow) != 0 {
 		t.Fatalf("old nodes are full; want 0 grows, got %d", len(plan.Grow))
 	}
-	if len(plan.Create) != 5 { // preferred count kBase=CeilDiv(90,20)=5; perFd=CeilDiv(90,5)=18 TiB (<= T0)
-		t.Fatalf("want 5 new even-split FDs (18 TiB each), got %d: %v", len(plan.Create), plan.Create)
+	if len(plan.Create) != 3 { // fewest: kMin=CeilDiv(90,maxPerFdCap=35)=3; perFd=CeilDiv(90,3)=30 TiB
+		t.Fatalf("want 3 new FDs (30 TiB each — fewest containers), got %d: %v", len(plan.Create), plan.Create)
 	}
 	for _, c := range plan.Create {
-		if c.TlcGiB != 18*tib {
-			t.Fatalf("want each new FD at CeilDiv(delta=90 TiB, kBase=5)=18 TiB, got %+v", c)
+		if c.TlcGiB != 30*tib {
+			t.Fatalf("want each new FD at CeilDiv(delta=90 TiB, k=3)=30 TiB, got %+v", c)
 		}
 	}
-	if got := sumCreateTlc(plan); got != 90*tib { // 5 × 18 TiB = the delta EXACTLY
-		t.Fatalf("want 90 TiB created (even-split to delta), got %d", got)
+	if got := sumCreateTlc(plan); got != 90*tib { // 3 × 30 TiB = the delta EXACTLY
+		t.Fatalf("want 90 TiB created (fewest FDs cover delta), got %d", got)
 	}
 	if len(plan.OverProvisions) != 0 {
 		t.Fatalf("even-split reaches desired exactly; want no over-provision advisory, got %v", plan.OverProvisions)
@@ -1162,15 +1486,11 @@ func Test_Grow_RebalancesPreExistingSkew_TowardAverage(t *testing.T) {
 	}
 }
 
-// NEW behavior: even-split-to-delta covers the increase on FRESH FDs WITHOUT growing the existing ones.
-// Only 3 existing FDs (T0=30 TiB) + 6 fresh nodes; delta=270 TiB. maxPerFdCap = 360 TiB/minFd(6) = 60 TiB.
-// The preferred count is kBase=CeilDiv(delta,T0)=CeilDiv(270,30)=9, but only 6 fresh nodes are available, so
-// node scarcity caps the count at 6: perFd=CeilDiv(270,6)=45 TiB (<= maxPerFdCap 60, below the imbalance
-// boundary existingAvg=30 TiB × 2.0 = 60) → 6 new FDs of 45 TiB = 270 TiB EXACTLY, 0 grows. The new FDs are
-// LARGER than T0 here only because there aren't enough spare nodes for the preferred 9-FD (30 TiB each)
-// layout. Final layout = 3 existing (untouched) + 6 new = 9 FDs (>= minFd). This replaces the old behavior
-// (grow existing 30->40 TiB + 6 new at 40 TiB): the preferred no-grow cover reaches desired exactly with no
-// in-place growth.
+// NEW behavior: cover the increase on FRESH FDs with the FEWEST containers, WITHOUT growing existing ones.
+// 3 existing FDs (T0=30 TiB) + 6 fresh nodes; delta=270 TiB. maxPerFdCap = 360/6 = 60 TiB, so
+// kMin=CeilDiv(270,60)=5 → 5 new FDs of CeilDiv(270,5)=54 TiB = 270 TiB EXACTLY (54 <= maxPerFdCap 60,
+// >= T0 30, below imbalance boundary 2×avg=60). Final layout = 3 existing (untouched) + 5 new = 8 FDs
+// (>= minFd). Fewer, larger FDs than the old even-split (6 × 45 TiB) — same capacity, one fewer container.
 func Test_Grow_ExistingFewerThanMinFd_TopsUpExistingAndCreatesNew(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	var existingDrives []ExistingContainer
@@ -1178,7 +1498,7 @@ func Test_Grow_ExistingFewerThanMinFd_TopsUpExistingAndCreatesNew(t *testing.T) 
 		n := "old" + itoa(i)
 		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 30 * tib, NumCores: 6})
 	}
-	// Existing nodes have ample headroom; 6 fresh nodes host the new even-split FDs.
+	// Existing nodes have ample headroom; fresh nodes host the new FDs.
 	inv := append(nodes(3, 30*tib, 0, 64, "old"), nodes(6, 100*tib, 0, 64, "new")...)
 	// current 90 TiB; raise to 360 TiB -> delta 270 TiB, covered by fresh FDs only.
 	desired := DesiredCapacity{TlcRawGiB: 360 * tib}
@@ -1187,14 +1507,14 @@ func Test_Grow_ExistingFewerThanMinFd_TopsUpExistingAndCreatesNew(t *testing.T) 
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
 	}
 	if len(plan.Grow) != 0 {
-		t.Fatalf("even-split covers the delta on fresh FDs; want 0 grows, got %d: %+v", len(plan.Grow), plan.Grow)
+		t.Fatalf("fewest-FD cover on fresh FDs; want 0 grows, got %d: %+v", len(plan.Grow), plan.Grow)
 	}
-	if len(plan.Create) != 6 { // preferred kBase=9 capped by 6 spare nodes -> k=6, CeilDiv(270,6)=45 TiB
-		t.Fatalf("want 6 new even-split FDs (45 TiB each), got %d: %v", len(plan.Create), plan.Create)
+	if len(plan.Create) != 5 { // fewest: kMin=CeilDiv(270,maxPerFdCap=60)=5; perFd=CeilDiv(270,5)=54 TiB
+		t.Fatalf("want 5 new FDs (54 TiB each — fewest containers), got %d: %v", len(plan.Create), plan.Create)
 	}
 	for _, c := range plan.Create {
-		if c.TlcGiB != 45*tib { // CeilDiv(delta=270 TiB, k=6) = 45 TiB
-			t.Fatalf("want new FDs at CeilDiv(delta=270 TiB, k=6)=45 TiB, got %+v", c)
+		if c.TlcGiB != 54*tib { // CeilDiv(delta=270 TiB, k=5) = 54 TiB
+			t.Fatalf("want new FDs at CeilDiv(delta=270 TiB, k=5)=54 TiB, got %+v", c)
 		}
 	}
 	// Distinct FDs across the (untouched) existing + created must reach minFdNum.
@@ -1208,7 +1528,7 @@ func Test_Grow_ExistingFewerThanMinFd_TopsUpExistingAndCreatesNew(t *testing.T) 
 	if len(fds) < 6 {
 		t.Fatalf("want >= minFdNum (6) distinct FDs, got %d", len(fds))
 	}
-	if got := 90*tib + sumCreateTlc(plan); got != 360*tib { // current 90 + created 6×45=270 = 360 exactly
+	if got := 90*tib + sumCreateTlc(plan); got != 360*tib { // current 90 + created 5×54=270 = 360 exactly
 		t.Fatalf("want total raw 360 TiB placed, got %d (created %d)", got, sumCreateTlc(plan))
 	}
 }
@@ -2594,8 +2914,8 @@ func Test_GrowD5_FrozenPlusNetNew_BalancedFill(t *testing.T) {
 
 // Test_Grow_DynamicScalingDisabled_CreatesNewInsteadOfExtending asserts that with in-place growth
 // disabled the planner does NOT grow any existing drive container (no CapacityGrowthApplied) — it places
-// the whole delta as NEW containers on fresh failure domains, sized evenly to the common per-FD target.
-// The enabled sub-run is the contrast: identical inputs grow in place.
+// the whole delta as NEW containers on fresh failure domains, using the FEWEST containers (largest per-FD
+// up to maxPerFdCap, imbalance-guarded). The enabled sub-run is the contrast: create-new-before-grow.
 func Test_Grow_DynamicScalingDisabled_CreatesNewInsteadOfExtending(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	// 6 existing TLC containers at 30 TiB on n1..n6 (each with 70 TiB / 58 cores headroom for growth),
@@ -2622,15 +2942,15 @@ func Test_Grow_DynamicScalingDisabled_CreatesNewInsteadOfExtending(t *testing.T)
 		if len(plan.Grow) != 0 {
 			t.Fatalf("dynamic scaling disabled: must not extend existing containers, got %d grows: %+v", len(plan.Grow), plan.Grow)
 		}
-		if len(plan.Create) != 6 {
-			t.Fatalf("want the 180 TiB delta placed as 6 new containers on fresh FDs, got %d", len(plan.Create))
+		if len(plan.Create) != 4 { // fewest: kMin=CeilDiv(180,maxPerFdCap=60)=3 is imbalanced (60==2×avg), so k=4
+			t.Fatalf("want the 180 TiB delta placed as 4 new containers on fresh FDs (fewest), got %d", len(plan.Create))
 		}
 		for _, c := range plan.Create {
 			if existingNodes[c.Node] {
 				t.Fatalf("new container must land on a FRESH failure domain, got node %s", c.Node)
 			}
-			if c.TlcGiB != 30*tib { // 180 TiB delta / 6 fresh FDs, even with the frozen existing FDs
-				t.Fatalf("want each new container TLC=30 TiB (even per-FD target), got %+v", c)
+			if c.TlcGiB != 45*tib { // CeilDiv(180 TiB, k=4) = 45 TiB
+				t.Fatalf("want each new container TLC=45 TiB (fewest FDs), got %+v", c)
 			}
 		}
 		if got := sumCreateTlc(plan); got != 180*tib {
@@ -2639,7 +2959,7 @@ func Test_Grow_DynamicScalingDisabled_CreatesNewInsteadOfExtending(t *testing.T)
 	})
 
 	// NEW behavior: create-new-before-grow. With scaling enabled AND spare fresh FDs, a clean delta=180 TiB
-	// is covered by 6 new full-T0 (30 TiB) FDs on the fresh nodes — existing specs are left untouched
+	// is covered by the fewest new FDs (4 × 45 TiB) on the fresh nodes — existing specs are left untouched
 	// (was: grow the 6 existing FDs to 60 TiB in place).
 	t.Run("enabled_creates_new_at_T", func(t *testing.T) {
 		cons := testCons() // AllowInPlaceGrowth = true
@@ -2650,19 +2970,19 @@ func Test_Grow_DynamicScalingDisabled_CreatesNewInsteadOfExtending(t *testing.T)
 		if len(plan.Grow) != 0 {
 			t.Fatalf("create-new-before-grow: existing specs must be untouched, got %d grows", len(plan.Grow))
 		}
-		if len(plan.Create) != 6 {
-			t.Fatalf("want the 180 TiB delta as 6 new full-T0 (30 TiB) FDs, got %d", len(plan.Create))
+		if len(plan.Create) != 4 { // fewest FDs: 4 × 45 TiB (kMin=3 is imbalanced at 60==2×avg)
+			t.Fatalf("want the 180 TiB delta as 4 new FDs (fewest), got %d", len(plan.Create))
 		}
 		for _, c := range plan.Create {
 			if existingNodes[c.Node] {
 				t.Fatalf("new container must land on a FRESH failure domain, got node %s", c.Node)
 			}
-			if c.TlcGiB != 30*tib { // uniform T0 chunk replicated
-				t.Fatalf("want each new container TLC=30 TiB (uniform T0), got %+v", c)
+			if c.TlcGiB != 45*tib { // CeilDiv(180 TiB, k=4) = 45 TiB
+				t.Fatalf("want each new container TLC=45 TiB (fewest FDs), got %+v", c)
 			}
 		}
-		if len(plan.OverProvisions) != 0 { // exact multiple of T0, no overshoot
-			t.Fatalf("exact multiple of T0 should not over-provision, got %v", plan.OverProvisions)
+		if len(plan.OverProvisions) != 0 { // exact cover of delta, no overshoot
+			t.Fatalf("exact cover of delta should not over-provision, got %v", plan.OverProvisions)
 		}
 	})
 }
@@ -3130,7 +3450,7 @@ func Test_GrowRestore_PrefersCleanNodeOverDeletingNode(t *testing.T) {
 	}
 	inv := nodes(5, 30*tib, 0, 64, "n") // existing nodes (TLC-used → excluded from fresh placement)
 	ndel := node("ndel", 100*tib, 0, 64)
-	ndel.HasDeletingDriveContainer = true // still hosts the just-deleted container; MOST headroom
+	ndel.HasDeletingDriveContainer = true   // still hosts the just-deleted container; MOST headroom
 	nspare := node("nspare", 60*tib, 0, 64) // genuinely free, less (but sufficient) headroom
 	inv = append(inv, ndel, nspare)
 
@@ -3161,7 +3481,7 @@ func Test_GrowRestore_FallsBackToDeletingNodeWhenSoleCandidate(t *testing.T) {
 	}
 	inv := nodes(5, 30*tib, 0, 64, "n")
 	ndel := node("ndel", 100*tib, 0, 64)
-	ndel.HasDeletingDriveContainer = true        // only candidate that can host the 30 TiB chunk
+	ndel.HasDeletingDriveContainer = true   // only candidate that can host the 30 TiB chunk
 	nsmall := node("nsmall", 10*tib, 0, 64) // clean but too small for the chunk ⇒ must not be preferred
 	inv = append(inv, ndel, nsmall)
 

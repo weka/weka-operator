@@ -439,12 +439,12 @@ func PlanCapacity(
 	states := make(map[string]*nodeState, len(inventory))
 	for _, nc := range inventory {
 		states[nc.NodeName] = &nodeState{
-			nc:                   nc,
-			tlcFree:              nc.TlcGiB,
-			qlcFree:              nc.QlcGiB,
-			coresFree:            nc.AllocatableCPU,
-			hugepagesMiB:         nc.AvailableHugepagesMiB,
-			memoryMiB:            nc.AvailableMemoryMiB,
+			nc:                        nc,
+			tlcFree:                   nc.TlcGiB,
+			qlcFree:                   nc.QlcGiB,
+			coresFree:                 nc.AllocatableCPU,
+			hugepagesMiB:              nc.AvailableHugepagesMiB,
+			memoryMiB:                 nc.AvailableMemoryMiB,
 			hasDeletingDriveContainer: nc.HasDeletingDriveContainer,
 		}
 	}
@@ -462,8 +462,27 @@ func PlanCapacity(
 	growth := map[string]*ContainerGrowth{} // by container name
 	newByNode := map[string]*NewContainer{} // by node name
 
-	planPool(poolTLC, desired.TlcRawGiB, minFd, tlcTargetFds, existingDrives, states, cons, growth, newByNode, &plan)
-	planPool(poolQLC, desired.QlcRawGiB, minFd, qlcTargetFds, existingDrives, states, cons, growth, newByNode, &plan)
+	// Plan the more spatially-CONSTRAINED pool first (fewer nodes can physically host its drive type), so
+	// the other, more flexible pool can then co-locate onto the same nodes as a mixed (TLC+QLC) container
+	// via the fresh-placement co-location bias. Co-location only works in this direction: the constrained
+	// pool cannot bend onto nodes lacking its drive type, but the flexible pool can bend toward it. A tie
+	// (or only one pool requested) keeps TLC first for determinism.
+	type poolPlan struct {
+		p        poolKind
+		desired  int
+		targetFd int
+	}
+	pools := []poolPlan{
+		{poolTLC, desired.TlcRawGiB, tlcTargetFds},
+		{poolQLC, desired.QlcRawGiB, qlcTargetFds},
+	}
+	if desired.TlcRawGiB > 0 && desired.QlcRawGiB > 0 &&
+		countPoolCapableNodes(states, poolQLC) < countPoolCapableNodes(states, poolTLC) {
+		pools[0], pools[1] = pools[1], pools[0]
+	}
+	for _, pp := range pools {
+		planPool(pp.p, pp.desired, minFd, pp.targetFd, existingDrives, states, cons, growth, newByNode, &plan)
+	}
 
 	// driveCores (0 == auto): a FIXED per-container core count. A container whose capacity needs more
 	// cores than this cannot serve it → fail fast. Higher-than-needed is allowed (the node-fit check
@@ -1287,8 +1306,13 @@ func planPoolFreshUniform(
 	plan *CapacityPlan,
 	isFallback bool,
 ) bool {
+	// Co-location bias: prefer nodes that already carry a freshly-planned OTHER-pool container so both
+	// pools land on the same node (a mixed drive container) when it can hold both, splitting only when no
+	// co-located node can hold this pool's even share. Only the two-pool create case populates this;
+	// otherwise preferNodes is empty and selection is the plain headroom-desc top-N.
+	preferNodes := otherPoolPreferNodes(p, newByNode)
 	candidates := orderFreshFdGroups(p, states, freshExclusion(existingDrives, p, cons), cons)
-	chosen, T, ok := selectUniform(desiredRaw, minFd, candidates, cons)
+	chosen, T, ok := selectUniform(desiredRaw, minFd, candidates, preferNodes, cons)
 	if !ok {
 		if !isFallback {
 			plan.Infeasible = uniformInfeasibleMsg(p, desiredRaw, minFd, candidates, states, freshExclusion(existingDrives, p, cons), cons)
@@ -1335,9 +1359,36 @@ func planPoolExplicit(
 
 	T := util.CeilDiv(desiredRaw, targetFds)
 
+	// INVARIANT: never grow/convert an existing container in place unless dynamic drive scaling is enabled.
+	// The pinned-driveContainers path reaches the uniform per-FD level T by growing existing below-T FDs;
+	// if any existing pool-p FD is below T (would need growing) while AllowInPlaceGrowth is off, report
+	// infeasible instead of growing — consistent with planPoolUniformIncrease and the fresh paths (which
+	// freshExclusion already bars from touching occupied nodes when the flag is off).
+	if !cons.AllowInPlaceGrowth {
+		perFd := map[string]int{}
+		for i := range existingDrives {
+			c := &existingDrives[i]
+			if c.FDValue == "" {
+				continue
+			}
+			if v := poolCap(c, p); v > 0 {
+				perFd[c.FDValue] += v
+			}
+		}
+		for fd, capGiB := range perFd {
+			if capGiB < T {
+				plan.Infeasible = fmt.Sprintf(
+					"%s: driveContainers=%d pins %d GiB per failure domain, but failure domain %q holds only %d GiB and growing it in place is disabled (enableDynamicDriveScalingForSharedDrives=false) — enable it or unset driveContainers",
+					p, targetFds, T, fd, capGiB)
+				return
+			}
+		}
+	}
+
 	// Assemble the exactly-targetFds chosen FDs: every existing pool-p FD (as a grow target) plus exactly
 	// exactNewFds fresh FDs at the front of the headroom-desc candidate list. placeUniform grows the
-	// existing FDs below T up to T and creates the fresh FDs at T.
+	// existing FDs below T up to T and creates the fresh FDs at T. (When the flag is off, the guard above
+	// has already ensured no existing FD is below T, so no growth occurs here.)
 	chosen := existingFdsAsChosen(p, existingDrives, states, cons)
 	fresh := orderFreshFdGroups(p, states, freshExclusion(existingDrives, p, cons), cons)
 	chosen = append(chosen, takeFreshAtLevel(fresh, exactNewFds, T)...)
@@ -1405,6 +1456,12 @@ func planPoolUniformIncrease(
 	// When in-place growth is off, freshExclusion bars EVERY occupied node (not just this pool's), so a
 	// different-pool node can no longer be converted to mixed and only empty nodes remain as candidates.
 	freshGroups := orderFreshFdGroups(p, states, freshExclusion(existingDrives, p, cons), cons)
+	// Co-location bias (increase path): float FDs whose nodes already carry a freshly-planned other-pool
+	// container to the front so takeFreshAtLevel draws them first — both pools land on the same node (a
+	// mixed drive container) when it can hold this pool's share. Order-only; freshCountAtLeast is a count
+	// and takeFreshAtLevel still filters by level, so an under-capacity co-located node is skipped and
+	// placement falls back to a split. Empty preferNodes (this pool planned first) → no-op.
+	freshGroups = colocatedFirst(freshGroups, otherPoolPreferNodes(p, newByNode))
 	freshCountAtLeast := func(L int) int {
 		n := 0
 		for _, g := range freshGroups {
@@ -1478,36 +1535,40 @@ func planPoolUniformIncrease(
 	}
 
 	// --- Step 4: no-grow attempt (preferred) — cover the missing capacity with new failure domains sized to
-	// the shortfall itself (CeilDiv(delta, k)) rather than cloning the full existing FD size (T0). Sizing to
-	// delta/k makes the new FDs sum to ~delta, so the pool reaches desiredRaw without over-provisioning —
-	// neither the count-rounding overshoot of cloning T0 nor the sub-T0 quantization overshoot when
-	// delta < T0. The PREFERRED count is kBase = CeilDiv(delta, T0): the same count T0-cloning would use, and
-	// its per-FD size CeilDiv(delta, kBase) is always <= T0, so new FDs are <= the existing frozen FDs (never
-	// bigger) and clean multiples of T0 stay uniform at exactly T0. Only when there aren't enough spare nodes
-	// for kBase FDs may the count drop and per-FD size grow (up to maxPerFdCap = desiredRaw/minFd).
+	// the shortfall itself (CeilDiv(delta, k)) rather than cloning an existing FD size. Sizing to delta/k
+	// makes the new FDs sum to ~delta, so the pool reaches desiredRaw without over-provisioning. Prefer the
+	// FEWEST new containers: iterate the count k ASCENDING from kMin (the fewest FDs that keep per-FD <=
+	// maxPerFdCap = desiredRaw/minFd) and place at the first feasible k, so a delta is covered by as few,
+	// as-large FDs as possible instead of many small ones (deleting a few FDs recreates a few, not a fresh
+	// swarm that ratchets the pool finer each time). Two bounds shape the search:
+	//   - kMax = CeilDiv(delta, T0) caps the FD COUNT at what T0-cloning (the smallest existing FD) would
+	//     use, so we never fragment into MORE FDs than that. Note this bounds the count, not the per-FD size:
+	//     at k=kMax the per-FD can dip mildly below T0 (ceiling rounding) — that's intended, so a delta whose
+	//     fresh nodes are individually a little smaller than T0 is still covered here rather than pushed to
+	//     the grow phase. A delta that truly needs sub-T0 fragments beyond this count is left to grow/infeasible.
+	//   - detectImbalance keeps a single fresh FD from dwarfing tiny existing FDs (it then tries more,
+	//     smaller FDs). Node scarcity (freshCountAtLeast) likewise falls to more, smaller FDs.
 	maxPerFdCap := 0
 	if minFd > 0 {
 		maxPerFdCap = desiredRaw / minFd
 	}
 	if maxPerFdCap > 0 {
 		existingAvg := poolAvg(existingDrives, p)
-		kBase := util.CeilDiv(delta, T0) // count T0-cloning would use — preferred (per-FD comes out <= T0)
-		// Prefer the preferred count (most FDs, smallest per-FD <= T0, uniform with existing); only when there
-		// aren't enough spare nodes for that many fall to fewer, LARGER new FDs (up to maxPerFdCap). Sizing to
-		// delta/k makes the new FDs sum to ~delta, so we hit desiredRaw without over-provisioning.
-		for k := min(kBase, len(freshGroups)); k >= 1; k-- {
+		kMin := max(1, util.CeilDiv(delta, maxPerFdCap))       // fewest FDs (largest per-FD within the ceiling)
+		kMax := min(util.CeilDiv(delta, T0), len(freshGroups)) // count cap: no more FDs than T0-cloning would use
+		for k := kMin; k <= kMax; k++ {
 			perFd := util.CeilDiv(delta, k)
 			if perFd < cons.MinChunkSizeGiB {
 				perFd = cons.MinChunkSizeGiB
 			}
 			if perFd > maxPerFdCap {
-				break // fewer FDs only make perFd larger — cannot satisfy the cap; leave to grow/infeasible
+				continue // still above the per-FD ceiling — need more (smaller) FDs
 			}
 			if detectImbalance(perFd, existingAvg, cons) {
-				break // fewer FDs only make perFd larger — imbalance won't improve
+				continue // this size would dwarf the existing FDs — try more (smaller) FDs
 			}
 			if freshCountAtLeast(perFd) < k {
-				continue // not enough spare nodes for k FDs this size; try fewer (larger) FDs
+				continue // not enough spare nodes for k FDs this size; try more (smaller) FDs
 			}
 			total := current + k*perFd
 			if total-desiredRaw > overshootCap {
@@ -1630,7 +1691,10 @@ func planPoolUniformIncrease(
 // grows N (which lowers T) until either the top-N candidates all clear T (returns them + T) or candidates
 // run out (ok=false -> caller reports infeasible). candidates are headroom-desc (orderFreshFdGroups), so
 // the front N are always the highest-headroom N FDs.
-func selectUniform(desiredRaw, minFd int, candidates []*fdGroup, cons *CapacityConstraints) (chosen []*fdGroup, target int, ok bool) {
+// preferNodes (may be nil) are nodes already carrying a freshly-planned OTHER-pool container. When both
+// pools need fresh FDs, selection biases toward co-locating pool p onto those nodes (a mixed drive
+// container) so both pools share a node when it can still hold both — see pickPreferringColocated.
+func selectUniform(desiredRaw, minFd int, candidates []*fdGroup, preferNodes map[string]struct{}, cons *CapacityConstraints) (chosen []*fdGroup, target int, ok bool) {
 	for N := max(minFd, 1); N <= len(candidates); N++ {
 		target = max(cons.MinChunkSizeGiB, util.CeilDiv(desiredRaw, N))
 		fits := true
@@ -1640,11 +1704,44 @@ func selectUniform(desiredRaw, minFd int, candidates []*fdGroup, cons *CapacityC
 				break
 			}
 		}
-		if fits {
-			return candidates[:N], target, true
+		if !fits {
+			continue
 		}
+		// N and target are fixed by the headroom-desc fit above and stay unchanged (FD count and per-FD
+		// size are identical to a pure top-N pick). Only WHICH N failure domains get filled flips toward
+		// co-located ones, so both pools land on the same node whenever it can still hold its even share.
+		return pickPreferringColocated(candidates, N, target, preferNodes), target, true
 	}
 	return nil, 0, false
+}
+
+// pickPreferringColocated selects N failure domains (each with aggregate headroom >= target) from the
+// headroom-desc candidate list, taking CO-LOCATED FDs first (any member node in preferNodes) then the
+// rest, preserving headroom-desc order within each tier. selectUniform's fit check guarantees at least N
+// candidates clear target, and only such candidates are picked, so exactly N are returned and each still
+// holds its even share. When preferNodes is empty, or no co-located FD clears target (e.g. disjoint
+// TLC-only/QLC-only nodes), this reduces to the plain headroom-desc top-N — i.e. a split.
+func pickPreferringColocated(candidates []*fdGroup, n, target int, preferNodes map[string]struct{}) []*fdGroup {
+	colocated := func(g *fdGroup) bool {
+		for _, ns := range g.nodes {
+			if _, ok := preferNodes[ns.nc.NodeName]; ok {
+				return true
+			}
+		}
+		return false
+	}
+	out := make([]*fdGroup, 0, n)
+	for _, wantColocated := range []bool{true, false} {
+		for _, g := range candidates {
+			if len(out) >= n {
+				return out
+			}
+			if g.headroom >= target && colocated(g) == wantColocated {
+				out = append(out, g)
+			}
+		}
+	}
+	return out
 }
 
 // uniformInfeasibleMsg explains why no uniform tiling fits: the smallest usable FD caps below the per-FD
@@ -1688,7 +1785,7 @@ func rejectedNodesBreakdown(p poolKind, states map[string]*nodeState, poolUsed m
 
 	type reasonGroup struct {
 		nodes []string // member names (sorted, capped at maxNamesPerReason)
-		total int       // total nodes with this reason (may exceed len(nodes))
+		total int      // total nodes with this reason (may exceed len(nodes))
 	}
 	byReason := map[string]*reasonGroup{}
 	order := make([]string, 0) // reason text in first-seen (name-sorted) order
@@ -2033,6 +2130,11 @@ type fdGroup struct {
 	// deleted. takeFreshAtLevel deprioritizes such FDs so a replacement is not recreated on the node it
 	// was just deleted from while a free FD exists.
 	hasDeletingDriveContainer bool
+	// colocated is set by colocatedFirst when a member node already carries the OTHER pool's pending
+	// container: placing this pool there yields a mixed container. takeFreshAtLevel treats it as the PRIMARY
+	// preference (above the not-deleting tier) so a co-location target is chosen even if its node still hosts
+	// a terminating container — the just-freed mixed node is exactly where both pools should co-locate.
+	colocated bool
 }
 
 // takeFreshAtLevel returns up to k fresh candidate FDs that can host `level`, preferring FDs with no
@@ -2046,13 +2148,19 @@ type fdGroup struct {
 // hosts a deleting container this is simply the front-k of the headroom-desc list.
 func takeFreshAtLevel(fresh []*fdGroup, k, level int) []*fdGroup {
 	out := make([]*fdGroup, 0, k)
-	for _, wantDeleting := range []bool{false, true} {
-		for _, g := range fresh {
-			if len(out) >= k {
-				return out
-			}
-			if g.headroom >= level && g.hasDeletingDriveContainer == wantDeleting {
-				out = append(out, g)
+	// Co-location is the PRIMARY key, not-deleting the SECONDARY: a co-located FD (its node carries the
+	// other pool's pending container) is preferred even when its node still hosts a terminating container,
+	// because that just-freed mixed node is exactly where both pools should land as one mixed container.
+	// Tier order: colocated+notDeleting, colocated+deleting, notColocated+notDeleting, notColocated+deleting.
+	for _, wantColocated := range []bool{true, false} {
+		for _, wantDeleting := range []bool{false, true} {
+			for _, g := range fresh {
+				if len(out) >= k {
+					return out
+				}
+				if g.headroom >= level && g.colocated == wantColocated && g.hasDeletingDriveContainer == wantDeleting {
+					out = append(out, g)
+				}
 			}
 		}
 	}
@@ -2163,6 +2271,81 @@ func poolCapNew(n *NewContainer, p poolKind) int {
 		return n.TlcGiB
 	}
 	return n.QlcGiB
+}
+
+// otherPool returns the pool that is NOT p (there are exactly two).
+func otherPool(p poolKind) poolKind {
+	if p == poolTLC {
+		return poolQLC
+	}
+	return poolTLC
+}
+
+// otherPoolPreferNodes is the set of nodes whose pending NEW container (placed earlier in THIS plan, by
+// the constrained pool planned first) already carries the OTHER pool's capacity and NOT pool p. Placing
+// pool p on such a node yields a single FRESH mixed (TLC+QLC) drive container, so fresh placement biases
+// toward them (pickPreferringColocated on the greenfield path, colocatedFirst on the increase path).
+//
+// It deliberately does NOT bias toward EXISTING single-pool containers: co-locating there would mean
+// adding the other pool to an already-running container (an in-place conversion/grow), which is not
+// wanted — co-location is only ever realized by creating one fresh mixed container on an EMPTY node when
+// both pools are short in the same plan. Empty when the other pool has not been placed yet → no-op.
+func otherPoolPreferNodes(p poolKind, newByNode map[string]*NewContainer) map[string]struct{} {
+	other := otherPool(p)
+	out := map[string]struct{}{}
+	for node, n := range newByNode {
+		if poolCapNew(n, other) > 0 && poolCapNew(n, p) == 0 {
+			out[node] = struct{}{}
+		}
+	}
+	return out
+}
+
+// colocatedFirst stable-partitions fresh FD groups so those with any member node in preferNodes come
+// first (co-location candidates), preserving input order within each partition. Used on the uniform-
+// increase fresh candidate list so takeFreshAtLevel draws co-located FDs first (still level-filtered, so
+// an under-capacity co-located node is skipped and placement falls back to a split). No-op when
+// preferNodes is empty.
+func colocatedFirst(groups []*fdGroup, preferNodes map[string]struct{}) []*fdGroup {
+	if len(preferNodes) == 0 {
+		return groups
+	}
+	isColocated := func(g *fdGroup) bool {
+		for _, ns := range g.nodes {
+			if _, ok := preferNodes[ns.nc.NodeName]; ok {
+				return true
+			}
+		}
+		return false
+	}
+	front := make([]*fdGroup, 0, len(groups))
+	back := make([]*fdGroup, 0, len(groups))
+	for _, g := range groups {
+		if isColocated(g) {
+			g.colocated = true // primary tier in takeFreshAtLevel (above not-deleting)
+			front = append(front, g)
+		} else {
+			back = append(back, g)
+		}
+	}
+	return append(front, back...)
+}
+
+// countPoolCapableNodes counts inventory nodes that can PHYSICALLY host pool p (have any of its drive
+// type). It measures spatial constraint, not current free space, so PlanCapacity can plan the more
+// constrained pool first and let the flexible pool co-locate onto it.
+func countPoolCapableNodes(states map[string]*nodeState, p poolKind) int {
+	n := 0
+	for _, ns := range states {
+		capacity := ns.nc.TlcGiB
+		if p == poolQLC {
+			capacity = ns.nc.QlcGiB
+		}
+		if capacity > 0 {
+			n++
+		}
+	}
+	return n
 }
 
 // poolFeasibility returns a non-empty reason when the pool cannot be satisfied: capacity left

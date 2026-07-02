@@ -17,7 +17,7 @@ All reconciliation logic lives in `internal/controllers/`.
 - [wekacontainer.md](wekacontainer.md) - Container lifecycle (most complex)
 - [wekacluster.md](wekacluster.md) - Cluster lifecycle
 - [wekaclient.md](wekaclient.md) - Client lifecycle
-- [wekacluster-drive-planning.md](wekacluster-drive-planning.md) - Drive capacity planner (TLC/QLC targets → per-node containers → device allocation); intent-vs-reality capacity, known accounting defect
+- [wekacluster-drive-planning.md](wekacluster-drive-planning.md) - Drive capacity planner hub (TLC/QLC targets → per-node containers → device allocation); links to detail docs: co-location + in-place-growth invariant, new-FD sizing, intent-vs-reality accounting
 
 ## Shared Components
 
