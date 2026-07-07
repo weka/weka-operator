@@ -71,8 +71,8 @@
         <summary>S3 functionality guide detailing container types, status monitoring, provisioning S3 capabilities, and accessing S3 storage in Weka clusters.</summary>
     </file>
     <file relpath="operator/operations/drive-signing.md">
-        <tags>sign drives, WekaPolicy, WekaManualOperation, signDrivesPayload, all-not-root, drive containers, backend nodes, image specification</tags>
-        <summary>Documentation for drive signing operations required for backend containers, including WekaPolicy and WekaManualOperation configurations for scanning and signing drives, with guidance on image specification and drive type selection.</summary>
+        <tags>sign drives, WekaPolicy, WekaManualOperation, signDrivesPayload, all-not-root, drive containers, backend nodes, image specification, sign-drives-hash, BootID, force, new drive, re-sign, incremental signing, ExcludedSerialIds, weka-full-drives, weka-shared-drives, blocked-drives</tags>
+        <summary>Documentation for drive signing operations required for backend containers, including WekaPolicy and WekaManualOperation configurations for scanning and signing drives, with guidance on image specification and drive type selection. Explains re-run semantics: node skip is gated by the BootID-based weka.io/sign-drives-hash annotation (hot-added drives are not picked up until force is set, the hash is deleted, or the node reboots), and re-runs are incremental — already-annotated serials are excluded from signing and results are merged into existing drive annotations, so deleting only the hash signs new drives without re-signing old ones.</summary>
     </file>
     <file relpath="operator/operations/drive-sharing.md">
         <tags>drive sharing, multi-tenant, shared drives, proxy mode, virtual drives, containerCapacity, driveCapacity, driveTypesRatio, ssdproxy, TLC, QLC, capacity allocation, multi-cluster</tags>

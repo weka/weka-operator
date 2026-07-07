@@ -53,8 +53,8 @@ This document is organized so each fact lives in exactly one place:
 
 **Mutual exclusivity & protection floor (enforced at admission):** `clusterCapacity` cannot be
 combined with `containerCapacity`, `numDrives`, or `driveCapacity` (CEL). It also requires
-`stripeWidth >= 3`, `redundancyLevel >= 2`, `hotSpare >= 1` (the `clusterCapacityProtection`
-webhook), because the FD spread is derived from these. QLC-only is not allowed
+`stripeWidth >= 3`, `redundancyLevel >= 2`, `hotSpare >= 0` (hot spare optional; the
+`clusterCapacityProtection` webhook), because the FD spread is derived from these. QLC-only is not allowed
 (`driveTypesRatio.tlc > 0` is required).
 
 ## Basic example
@@ -104,13 +104,15 @@ reconcile. They are referenced throughout the algorithm and examples.
 | Quantity | Formula | Notes |
 |---|---|---|
 | `minFdNum` | `stripeWidth + redundancyLevel + hotSpare` | Minimum failure domains capacity must spread across. |
-| `rawCapacity` | `clusterCapacity × minFdNum / stripeWidth` | Usable target inflated to raw (protection overhead). |
+| `rawCapacity` | `clusterCapacity × minFdNum / stripeWidth ÷ 0.9` | Usable target inflated to raw: protection overhead (`minFdNum / stripeWidth`) **and** a ~10% usable reserve (`÷ 0.9`), so ~90% of raw is usable. |
 | `tlcRaw`, `qlcRaw` | `rawCapacity` split by `driveTypesRatio` | Per-pool raw targets, planned independently. |
 | `current` | Σ this pool's capacity over this cluster's healthy drive containers | What the cluster already has, this pool. |
-| `delta` | `desiredRaw − current` | Drives the planning branch. **Sign** selects grow / no-op / shrink. |
+| `delta` | `desiredRaw − current` | Drives the planning branch. **Sign and the deadband** select grow / no-op / shrink — a positive `delta` within `capacityDeadbandFraction` (default 5%) of `desiredRaw` is also a no-op. |
 
 Fixed caps and floors:
 
+- **10% usable reserve.** On top of the protection inflation, `rawCapacity` divides by `0.9`, keeping
+  ~10% of raw as reserve so the usable target is ~90% of raw (matches `RawCapacityGiB` in the allocator).
 - **Per-core capacity caps** (defaults): TLC ≈ 5 TiB/core, QLC ≈ 50 TiB/core. A container's cores =
   `ceil(tlc / tlcPerCore) + ceil(qlc / qlcPerCore)`, at least 1.
 - **MinChunk = 384 GiB.** No new drive container (and no per-FD share) is created below this floor.
@@ -377,7 +379,10 @@ on the uniform-increase path).
 ## Worked examples
 
 Small round numbers for clarity. Unless noted, all use **SW=3, RL=2, HS=1 ⇒ minFdNum = 6**, so
-`rawCapacity = 2 × usable`; per-core caps TLC ≈ 5 TiB/core, QLC ≈ 50 TiB/core. Each example states
+`rawCapacity = 2 × usable`; per-core caps TLC ≈ 5 TiB/core, QLC ≈ 50 TiB/core. *For round numbers the
+examples use the simplified `rawCapacity = usable × minFdNum / stripeWidth` and omit the 10% usable
+reserve (`÷ 0.9`) from [Core concepts](#core-concepts); real raw is ~11% higher. The reserve does not
+change the placement logic these examples illustrate (FD count, uniform tiling, fallback).* Each example states
 its **Input** (hardware + spec + current state) and the planner's **Expected output** (the
 grow/create plan + events). Behaviors marked "deferred", "live", "no-op shrink", or "deferred
 planning" are defined once in [§Rules](#rules-that-apply-everywhere).
@@ -799,7 +804,7 @@ TLC-only `{tlc:1}` and mixed `{tlc:m, qlc:n}` are supported; only QLC-only is re
 | Input (rejected) | Rejected by | Message |
 |---|---|---|
 | `clusterCapacity` + any of `containerCapacity` / `numDrives` / `driveCapacity` | CEL | *"clusterCapacity is mutually exclusive with containerCapacity, numDrives and driveCapacity."* |
-| `clusterCapacity` with `stripeWidth < 3` (or `redundancyLevel < 2`, `hotSpare < 1`) | `clusterCapacityProtection` | *"clusterCapacity requires stripeWidth >= 3"* (etc.) |
+| `clusterCapacity` with `stripeWidth < 3` (or `redundancyLevel < 2`) | `clusterCapacityProtection` | *"clusterCapacity requires stripeWidth >= 3"* (etc.). Hot spare is optional (`hotSpare >= 0`), so it never triggers this rejection. |
 
 The protection floor is required because `minFdNum = stripeWidth + redundancyLevel + hotSpare`.
 
@@ -853,14 +858,14 @@ clusterCapacity planning.
 | explicit `computeCores` exceeds per-node compute headroom, or `computeContainers × computeCores < totalTlcDriveCores` |
 | explicit `driveContainers < minFdNum`, `> available FDs`, or per-container share `< 384 GiB`; for mixed pools, the raw-ratio split drops a pool below `minFdNum` |
 | explicit `driveCores` smaller than a container's capacity needs, or a node cannot host the pinned `driveCores` |
-| `stripeWidth < 3` or `redundancyLevel < 2` or `hotSpare < 1`; `clusterCapacity <= 0` |
+| `stripeWidth < 3` or `redundancyLevel < 2`; `clusterCapacity <= 0` (hot spare is optional, `hotSpare >= 0`) |
 
 The event names the binding constraint (e.g. "QLC: only 4 of 6 required FDs have capacity",
 "node X: hugepages short by N MiB").
 
 **Admission errors** — rejected before any reconcile:
 - CEL: `clusterCapacity` XOR `containerCapacity`/`numDrives`/`driveCapacity`; `driveTypesRatio.tlc > 0`.
-- `clusterCapacityProtection`: `stripeWidth >= 3`, `redundancyLevel >= 2`, `hotSpare >= 1`.
+- `clusterCapacityProtection`: `stripeWidth >= 3`, `redundancyLevel >= 2`, `hotSpare >= 0` (hot spare optional).
 - `clusterCapacityChunkFeasibility` (greenfield only): each active pool's per-FD share must clear
   384 GiB — `clusterCapacity × part/(tlc+qlc) >= 384 × stripeWidth` for **both** pools. Skipped once
   the cluster already has drive containers.
@@ -898,6 +903,7 @@ that fails fast via `ClusterCapacityInfeasible`.)
 | `imbalanceFactor` | `8.0` | `CLUSTER_CAPACITY_IMBALANCE_FACTOR` | A fresh per-FD chunk `≥ factor × existing per-FD average` triggers the heterogeneous (balanced-fresh) fallback. `0` (or below) disables the fallback. |
 | `driveSharing.minGrowthFraction` | `0.2` | `MIN_GROWTH_FRACTION` | Minimum relative per-container grow required to trigger an in-place grow: `(newCap − cur) / cur >= minGrowthFraction`. A grow below this fraction is skipped; if that is the only option and no spare node is available → `ClusterCapacityInfeasible`. |
 | `driveSharing.maxOverProvisionFraction` | `0.2` | `MAX_OVER_PROVISION_FRACTION` | Maximum fraction by which a pool may be over-provisioned (above its raw desired) when creating new FDs rounds up to a full chunk. If the overshoot from a ceil-rounded new-FD count exceeds `maxOverProvisionFraction × desiredRaw`, the create-new step is skipped and the planner falls back to grow or infeasible. |
+| `clusterCapacity.capacityDeadbandFraction` | `0.05` | `CLUSTER_CAPACITY_DEADBAND_FRACTION` | Relative shortfall `(desiredRaw − current) / desiredRaw` below which pool growth is ignored (treated as a no-op), avoiding churn from tiny target changes. `0` disables the band (strict `current < desiredRaw`). |
 
 `enableDynamicDriveScalingForSharedDrives` (default `false`) governs whether existing containers may
 be extended in place. **In the default config (`false`) existing drive containers are frozen and all
@@ -930,7 +936,7 @@ are recreated**.
 `hotSpare` must already be set on the WekaCluster (`spec`-level, matching the protection the cluster
 was formed with) **before** you migrate. `clusterCapacity` derives `minFdNum` and the failure-domain
 spread from them, and the `clusterCapacityProtection` webhook **rejects** the switch unless
-`stripeWidth >= 3`, `redundancyLevel >= 2`, `hotSpare >= 1`. These are cluster-formation parameters —
+`stripeWidth >= 3`, `redundancyLevel >= 2` (`hotSpare >= 0`, optional). These are cluster-formation parameters —
 migration **adopts** the protection the cluster already runs with; it does not introduce or change it.
 
 **Steps** (edit the same WekaCluster, keeping its name/namespace):
