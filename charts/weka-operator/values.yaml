@@ -178,6 +178,11 @@ removalThrottlingEnabled: true
 # envoy process is missing.
 recreateUnhealthyEnvoyThrottlingEnabled: true
 
+# Force SMT/full-pcpus-only CPU alignment (round weka pod CPU up to an even number
+# on hyperthreaded nodes). Default false = auto-detect per node from the kubelet's
+# cpuManagerPolicyOptions full-pcpus-only setting (needs nodes/proxy RBAC). Set true
+# to force alignment operator-wide, e.g. when the kubelet configz read is unavailable.
+fullPcpusOnly: false
 # -- Pods omit standard "unhealthy node" tolerations (unschedulable, not-ready, unreachable).
 skipUnhealthyToleration: false
 # -- Client pods omit auto-generated NoSchedule tolerations.

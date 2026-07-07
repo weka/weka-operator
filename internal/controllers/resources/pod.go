@@ -1145,6 +1145,14 @@ func GetHugePagesDetails(container *weka.WekaContainer, ff *domain.FeatureFlags)
 	}
 }
 
+// fullPcpusOnlyEffective resolves whether SMT/full-pcpus-only CPU alignment is
+// active for this pod: either forced operator-wide via the Helm value, or
+// auto-detected on this node's kubelet. The Helm value is read fresh on every
+// call so flipping it takes effect without re-running node discovery.
+func (f *PodFactory) fullPcpusOnlyEffective() bool {
+	return config.Config.FullPcpusOnly || f.nodeInfo.NodeFullPcpusOnly
+}
+
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetails HugePagesDetails) error {
 	totalNumCores := f.container.Spec.NumCores
 	switch f.container.Spec.Mode {
@@ -1211,12 +1219,18 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 		case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeSmbw, weka.WekaContainerModeDataServices:
 			totalCores -= f.container.Spec.ExtraCores // basically reducing back what we over-allocated
 		}
+		if f.nodeInfo.IsHt && f.fullPcpusOnlyEffective() && totalCores%2 != 0 {
+			totalCores++
+		}
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr
 	case weka.CpuPolicyDedicated:
 		totalCores := totalNumCores + 1
 		if f.container.Spec.Mode == weka.WekaContainerModeEnvoy {
 			totalCores = totalNumCores // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
+		}
+		if f.nodeInfo.IsHt && f.fullPcpusOnlyEffective() && totalCores%2 != 0 {
+			totalCores++
 		}
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr

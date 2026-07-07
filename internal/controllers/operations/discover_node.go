@@ -129,9 +129,18 @@ func (o *DiscoverNodeOperation) GetProvider() discovery.Provider {
 }
 
 func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
 	o.result.NumCpus = int(o.node.Status.Allocatable.Cpu().Value())
 	o.result.Provider = o.GetProvider()
 	o.result.Arch = o.node.Status.NodeInfo.Architecture
+
+	fp, err := discovery.DetectKubeletFullPcpusOnly(ctx, o.mgr.GetConfig(), o.node.Name)
+	if err != nil {
+		logger.Error(err, "failed to detect kubelet full-pcpus-only; defaulting to false", "node", o.node.Name)
+		fp = false
+	}
+	o.result.NodeFullPcpusOnly = fp
 
 	if o.result.IsRhCos() {
 		if o.result.OsBuildId == "" {

@@ -266,6 +266,7 @@ var Config struct {
 	DNSPolicy                      DNSPolicy
 	SignDrivesImage                string
 	TaskmonDefaultImage            string
+	FullPcpusOnly                  bool
 	SkipUnhealthyToleration        bool
 	SkipClientNoScheduleToleration bool
 	SkipAuxNoScheduleToleration    bool
@@ -498,6 +499,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DNSPolicy.HostNetwork = env.GetString("DNS_POLICY_HOST_NETWORK", "")
 	Config.SignDrivesImage = env.GetString("SIGN_DRIVES_IMAGE", "")
 	Config.TaskmonDefaultImage = env.GetString("TASKMON_DEFAULT_IMAGE", "")
+	Config.FullPcpusOnly = getBoolEnvOrDefault("FULL_PCPUS_ONLY", false)
 	Config.SkipUnhealthyToleration = getBoolEnvOrDefault("SKIP_UNHEALTHY_TOLERATION", false)
 	Config.SkipClientNoScheduleToleration = getBoolEnvOrDefault("SKIP_CLIENT_NO_SCHEDULE_TOLERATION", false)
 	Config.SkipAuxNoScheduleToleration = getBoolEnvOrDefault("SKIP_AUX_NO_SCHEDULE_TOLERATION", false)

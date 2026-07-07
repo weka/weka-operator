@@ -64,6 +64,7 @@ type DiscoveryNodeInfo struct {
 	NumCpus            int      `json:"num_cpus,omitempty"`
 	Provider           Provider `json:"provider,omitempty"`
 	Arch               string   `json:"arch,omitempty"` // k8s-normalized, e.g. "amd64", "arm64"; set by Enrich()
+	NodeFullPcpusOnly  bool     `json:"full_pcpus_only,omitempty"` // kubelet cpuManagerPolicyOptions full-pcpus-only; set by Enrich
 	// this field is for internal use only, is populated by DiscoverNodeOperation.Enrich
 	// Node *corev1.Node `json:"-"` // this is not necessarily aligned with a node
 }
