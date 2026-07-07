@@ -318,6 +318,8 @@ spec:
               value: "{{ .Values.csi.selinuxSupport | default "auto" }}"
             - name: CSI_KUBELET_PATH
               value: "{{ .Values.csi.kubeletPath | default "/var/lib/kubelet" }}"
+            - name: CSI_ALLOW_MOUNT_OPTION_OVERRIDES
+              value: "{{ .Values.csi.allowMountOptionOverrides | default false }}"
             - name: CSI_CONTROLLER_WEKAFS_LIMITS_CPU
               value: "{{ .Values.csi.controller.resources.wekafs.limits.cpu }}"
             - name: CSI_CONTROLLER_WEKAFS_LIMITS_MEMORY

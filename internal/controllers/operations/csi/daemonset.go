@@ -23,21 +23,22 @@ import (
 // CsiNodeHashableSpec represents the fields from CSI Node DaemonSet
 // that are relevant for determining if an update is needed
 type CsiNodeHashableSpec struct {
-	CsiDriverName         string
-	ClientName            string
-	ClientNamespace       string
-	CsiImage              string
-	CsiRegistrarImage     string
-	CsiLivenessProbeImage string
-	Labels                *util2.HashableMap
-	Tolerations           []corev1.Toleration
-	NodeSelector          *util2.HashableMap
-	EnforceTrustedHttps   bool
-	LogLevel              int
-	PriorityClassName     string
-	SelinuxSupport        string
-	KubeletPath           string
-	HostNetwork           bool
+	CsiDriverName             string
+	ClientName                string
+	ClientNamespace           string
+	CsiImage                  string
+	CsiRegistrarImage         string
+	CsiLivenessProbeImage     string
+	Labels                    *util2.HashableMap
+	Tolerations               []corev1.Toleration
+	NodeSelector              *util2.HashableMap
+	EnforceTrustedHttps       bool
+	AllowMountOptionOverrides bool
+	LogLevel                  int
+	PriorityClassName         string
+	SelinuxSupport            string
+	KubeletPath               string
+	HostNetwork               bool
 }
 
 // GetCsiNodeDaemonSetHash generates a hash for the CSI Node DaemonSet
@@ -71,21 +72,22 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, c
 	}
 
 	spec := CsiNodeHashableSpec{
-		CsiDriverName:         csiDriverName,
-		ClientName:            clientName,
-		ClientNamespace:       clientNamespace,
-		CsiImage:              config.Config.Csi.WekafsImage,
-		CsiRegistrarImage:     config.Config.Csi.RegistrarImage,
-		CsiLivenessProbeImage: config.Config.Csi.LivenessProbeImage,
-		Labels:                labelsHashable,
-		Tolerations:           tolerations,
-		NodeSelector:          nodeSelectorHashable,
-		EnforceTrustedHttps:   enforceTrustedHttps,
-		LogLevel:              config.Config.Csi.LogLevel,
-		PriorityClassName:     config.Config.PriorityClasses.Targeted,
-		SelinuxSupport:        config.Config.Csi.SelinuxSupport,
-		KubeletPath:           config.Config.Csi.KubeletPath,
-		HostNetwork:           config.Config.Csi.HostNetwork,
+		CsiDriverName:             csiDriverName,
+		ClientName:                clientName,
+		ClientNamespace:           clientNamespace,
+		CsiImage:                  config.Config.Csi.WekafsImage,
+		CsiRegistrarImage:         config.Config.Csi.RegistrarImage,
+		CsiLivenessProbeImage:     config.Config.Csi.LivenessProbeImage,
+		Labels:                    labelsHashable,
+		Tolerations:               tolerations,
+		NodeSelector:              nodeSelectorHashable,
+		EnforceTrustedHttps:       enforceTrustedHttps,
+		AllowMountOptionOverrides: config.Config.Csi.AllowMountOptionOverrides,
+		LogLevel:                  config.Config.Csi.LogLevel,
+		PriorityClassName:         config.Config.PriorityClasses.Targeted,
+		SelinuxSupport:            config.Config.Csi.SelinuxSupport,
+		KubeletPath:               config.Config.Csi.KubeletPath,
+		HostNetwork:               config.Config.Csi.HostNetwork,
 	}
 
 	return util2.HashStruct(spec)
@@ -167,6 +169,10 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 
 	if !enforceTrustedHttps {
 		args = append(args, "--allowinsecurehttps")
+	}
+
+	if config.Config.Csi.AllowMountOptionOverrides {
+		args = append(args, "--allowmountoptionoverrides")
 	}
 
 	tracingFlag := GetTracingFlag()

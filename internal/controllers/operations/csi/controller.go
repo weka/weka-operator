@@ -415,6 +415,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
 								"--feature-gates=Topology=true",
+								"--extra-create-metadata=true",
 								"--timeout=60s",
 								"--prevent-volume-mode-conversion",
 								"--worker-threads=5",

@@ -461,6 +461,18 @@ csi:
   selinuxSupport: "auto"
   # kubelet path, in cases Kubernetes is installed not in default folder
   kubeletPath: "/var/lib/kubelet"
+  # Allow the CSI node driver to override mount options from PVC/Pod annotations
+  # during NodePublishVolume. Security-gated capability, default false.
+  #
+  # TRUST IMPLICATION: when enabled, mount options are no longer fixed by the
+  # StorageClass alone — they can be influenced by annotations on the PVC/Pod,
+  # which any principal able to create a Pod/PVC in a namespace can set. This
+  # widens who can affect on-host mount behavior (e.g. caching/coherency,
+  # read-only vs read-write). Leave false unless you trust all such principals.
+  # The exact annotation keys honored are defined by the csi-wekafs driver
+  # version in use (see the csi-wekafs docs for the release pinned in `image`).
+  # Note: toggling this on an existing cluster rolls the CSI node DaemonSet.
+  allowMountOptionOverrides: false
   storageClassCreationDisabled: false
   image: "quay.io/weka.io/csi-wekafs:v2.8.8"
   provisionerImage: "registry.k8s.io/sig-storage/csi-provisioner:v5.3.0"
