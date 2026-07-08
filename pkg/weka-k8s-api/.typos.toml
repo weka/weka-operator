@@ -1,0 +1,3 @@
+[default.extend-words]
+# "Hashi" (as in HashiCorp Vault) is not a typo of "Hash"
+Hashi = "Hashi"
