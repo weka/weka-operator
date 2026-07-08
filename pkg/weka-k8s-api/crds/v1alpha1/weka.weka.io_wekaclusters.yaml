@@ -720,11 +720,19 @@ spec:
                 description: Advanced override settings for cluster operations. Only
                   use when explicitly instructed by Weka support.
                 properties:
+                  allowNfsInterfaceGroupDestroy:
+                    description: When true, permits the operator to remove the NFS
+                      interface group it manages once NFS is torn down. Destructive
+                      — also drops the interface group's floating IP ranges.
+                    type: boolean
                   allowS3ClusterDestroy:
                     description: When true, permits cluster deletion even when an
                       active S3 cluster exists. Destructive — will erase all S3 data.
                     type: boolean
                   allowSmbwClusterDestroy:
+                    description: When true, permits the operator to destroy the SMB-W
+                      cluster it manages once SMB-W is torn down (no SMB-W containers
+                      desired). Destructive — will erase all SMB share configuration.
                     type: boolean
                   cancelDeletion:
                     description: Cancel deletion of the cluster if it is in graceful

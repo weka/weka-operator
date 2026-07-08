@@ -922,8 +922,11 @@ type DpdkBaseMemoryMbOverride struct {
 
 type WekaClusterSpecOverrides struct {
 	// When true, permits cluster deletion even when an active S3 cluster exists. Destructive — will erase all S3 data.
-	AllowS3ClusterDestroy   bool `json:"allowS3ClusterDestroy,omitempty"`
+	AllowS3ClusterDestroy bool `json:"allowS3ClusterDestroy,omitempty"`
+	// When true, permits the operator to destroy the SMB-W cluster it manages once SMB-W is torn down (no SMB-W containers desired). Destructive — will erase all SMB share configuration.
 	AllowSmbwClusterDestroy bool `json:"allowSmbwClusterDestroy,omitempty"`
+	// When true, permits the operator to remove the NFS interface group it manages once NFS is torn down. Destructive — also drops the interface group's floating IP ranges.
+	AllowNfsInterfaceGroupDestroy bool `json:"allowNfsInterfaceGroupDestroy,omitempty"`
 	// disregard redundancy constraints, useful for testing, should not be used in production as misaligns failure domains
 	DisregardRedundancy bool `json:"disregardRedundancy,omitempty"`
 	// can be used to specify a build_id for a driver in the distributor service, keep empty for auto detection default
