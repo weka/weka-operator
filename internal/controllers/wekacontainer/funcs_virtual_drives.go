@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 
@@ -166,7 +167,7 @@ func (r *containerReconcilerLoop) addVirtualDriveViaJSONRPC(ctx context.Context,
 	}
 
 	// Call node agent's /jsonrpc endpoint
-	url := "http://" + agentPod.Status.PodIP + ":8090/jsonrpc"
+	url := "http://" + net.JoinHostPort(agentPod.Status.PodIP, "8090") + "/jsonrpc"
 	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
 	if err != nil {
 		return fmt.Errorf("failed to call node agent /jsonrpc endpoint: %w", err)

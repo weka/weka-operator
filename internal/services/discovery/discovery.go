@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -311,7 +312,7 @@ func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error
 	for _, container := range selected {
 		containerJoinIps := make([]string, 0, len(container.Status.GetManagementIps()))
 		for _, ip := range container.Status.GetManagementIps() {
-			joinIp := WrapIpv6Brackets(ip) + ":" + strconv.Itoa(container.GetPort())
+			joinIp := net.JoinHostPort(ip, strconv.Itoa(container.GetPort()))
 			containerJoinIps = append(containerJoinIps, joinIp)
 		}
 		fd := ""
@@ -329,13 +330,6 @@ func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error
 		return nil, errors.New("No join IP port pairs found")
 	}
 	return joinIpsByFD, nil
-}
-
-func WrapIpv6Brackets(ip string) string {
-	if util.IsIpv6(ip) {
-		return "[" + ip + "]"
-	}
-	return ip
 }
 
 func GetClusterByUID(ctx context.Context, c client.Client, uid types.UID) (*weka.WekaCluster, error) {

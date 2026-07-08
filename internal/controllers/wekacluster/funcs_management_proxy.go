@@ -161,6 +161,11 @@ func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka
 	clusterBasePort := r.cluster.Status.Ports.BasePort
 	managementProxyPort := r.cluster.Status.Ports.ManagementProxyPort
 
+	bindAddress := "0.0.0.0"
+	if r.cluster.Spec.Ipv6 {
+		bindAddress = "::"
+	}
+
 	// Build endpoints list
 	endpoints := []string{}
 	for _, container := range activeContainers {
@@ -170,10 +175,13 @@ func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka
 		}
 		// Use first management IP
 		ip := managementIPs[0]
+		if util.IsIpv6(ip) {
+			bindAddress = "::"
+		}
 		endpoints = append(endpoints, fmt.Sprintf(`        - endpoint:
             address:
               socket_address:
-                address: %s
+                address: %q
                 port_value: %d`, ip, clusterBasePort))
 	}
 
@@ -182,7 +190,7 @@ func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka
   - name: listener_0
     address:
       socket_address:
-        address: 0.0.0.0
+        address: %q
         port_value: %d
     filter_chains:
     - filters:
@@ -223,9 +231,9 @@ func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka
 admin:
   address:
     socket_address:
-      address: 0.0.0.0
+      address: %q
       port_value: 9901
-`, managementProxyPort, strings.Join(endpoints, "\n"))
+`, bindAddress, managementProxyPort, strings.Join(endpoints, "\n"), bindAddress)
 
 	return proxyConfig
 }

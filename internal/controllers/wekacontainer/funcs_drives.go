@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -763,7 +764,7 @@ func (r *containerReconcilerLoop) getKernelDrivesFromNodeAgent(ctx context.Conte
 	}
 
 	// Call /findDrives endpoint
-	url := fmt.Sprintf("http://%s:8090/findDrives", agentPod.Status.PodIP)
+	url := "http://" + net.JoinHostPort(agentPod.Status.PodIP, "8090") + "/findDrives"
 
 	timeout := time.Second * 30
 	ctx, cancel := context.WithTimeout(ctx, timeout)

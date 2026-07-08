@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"slices"
 	"time"
@@ -109,7 +110,7 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 
 	payload := node_agent.GetContainerInfoRequest{ContainerId: string(r.container.GetUID())}
 
-	url := "http://" + agentPod.Status.PodIP + ":8090/getContainerInfo"
+	url := "http://" + net.JoinHostPort(agentPod.Status.PodIP, "8090") + "/getContainerInfo"
 
 	// Convert the payload to JSON
 	jsonData, err := json.Marshal(payload)
@@ -253,7 +254,7 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 		return err
 	}
 
-	url := "http://" + agentPod.Status.PodIP + ":8090/register"
+	url := "http://" + net.JoinHostPort(agentPod.Status.PodIP, "8090") + "/register"
 
 	// Convert the payload to JSON
 	jsonData, err := json.Marshal(payload)
@@ -449,7 +450,7 @@ func (r *containerReconcilerLoop) DeregisterContainerFromMetrics(ctx context.Con
 	}
 
 	// Send deregistration request to node agent
-	url := "http://" + agentPod.Status.PodIP + ":8090/deregister"
+	url := "http://" + net.JoinHostPort(agentPod.Status.PodIP, "8090") + "/deregister"
 	timeout := config.Config.Metrics.Containers.RequestsTimeouts.Register // Reuse register timeout
 
 	logger.Info("Deregistering container from metrics", "container_id", payload.ContainerId, "node_agent_url", url)

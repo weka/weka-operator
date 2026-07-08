@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -473,7 +474,7 @@ func (o *MaintainTraceSession) EnsureWekaNodeRoutingConfigMap(ctx context.Contex
 		if _, ok := data.Containers[containerId]; !ok {
 			data.Containers[containerId] = ContainerInfo{
 				Name:                processes[i].NodeInfo.ContainerName,
-				TraceServerEndpoint: processes[i].NodeInfo.ManagementIps[0] + ":" + strconv.Itoa(processes[i].NodeInfo.ManagementPort+50),
+				TraceServerEndpoint: net.JoinHostPort(processes[i].NodeInfo.ManagementIps[0], strconv.Itoa(processes[i].NodeInfo.ManagementPort+50)),
 			}
 		}
 	}
@@ -552,7 +553,7 @@ func (o *MaintainTraceSession) EnsureK8sContainerRoutingConfigMap(ctx context.Co
 		}
 		data.Pods[container.Name] = ContainerInfo{
 			Name:                container.Spec.WekaContainerName,
-			TraceServerEndpoint: mggmtIps[0] + ":" + strconv.Itoa(container.GetPort()+50),
+			TraceServerEndpoint: net.JoinHostPort(mggmtIps[0], strconv.Itoa(container.GetPort()+50)),
 		}
 	}
 
