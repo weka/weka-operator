@@ -968,14 +968,21 @@ func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
 	return c.AdditionalMemory.GetForMode(mode)
 }
 
+// ClusterPorts defines the port allocation for the Weka cluster.
+// We should not be updating Spec, as it's a user interface and we should not break ability to update spec file.
+// Therefore, when BasePort is 0, and PortRange is 0, we have application level defaults that will be written in here.
 type ClusterPorts struct {
-	// We should not be updating Spec, as it's a user interface and we should not break ability to update spec file
-	// Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here
-	BasePort            int `json:"basePort,omitempty"`
-	PortRange           int `json:"portRange,omitempty"`
-	LbPort              int `json:"lbPort,omitempty"`
-	LbAdminPort         int `json:"lbAdminPort,omitempty"`
-	S3Port              int `json:"s3Port,omitempty"`
+	// Starting port number used for allocating Weka cluster ports. Can be overridden by the user; defaults to 35000 for the first cluster.
+	BasePort int `json:"basePort,omitempty"`
+	// Number of ports to allocate for the cluster. Defaults to 260 with operator version 1.10 / WEKA 5.1.0 onwards (500 for earlier versions).
+	PortRange int `json:"portRange,omitempty"`
+	// Data port for the S3 software load balancer. If unset, auto-allocated within the cluster port range relative to basePort (basePort+300 in the legacy 500-port layout, basePort+240 with the default 260-port range).
+	LbPort int `json:"lbPort,omitempty"`
+	// Administration port for the S3 software load balancer. If unset, auto-allocated within the cluster port range, immediately after lbPort.
+	LbAdminPort int `json:"lbAdminPort,omitempty"`
+	// Data port for S3 API traffic. If unset, auto-allocated within the cluster port range, after the load balancer ports.
+	S3Port int `json:"s3Port,omitempty"`
+	// Enables Kubernetes-level access to Weka management for port-forwarding, REST API usage, and UI access. If unset, auto-allocated within the cluster port range relative to basePort when the management proxy is first enabled.
 	ManagementProxyPort int `json:"managementProxyPort,omitempty"`
 	DataServicesPort    int `json:"dataServicesPort,omitempty"`
 }
