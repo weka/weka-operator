@@ -676,9 +676,16 @@ type SmbwConfig struct {
 	// ClusterName is the SMB-W cluster name, defaults to "default"
 	ClusterName string `json:"clusterName,omitempty"`
 	// DomainName is the domain name for SMB-W, required for SMB-W cluster creation
-	DomainName       string `json:"domainName"`
+	DomainName string `json:"domainName"`
+	// DomainJoinSecret is the name of a Kubernetes Secret holding the domain-join password.
+	// The Secret must live in the same namespace as this WekaCluster resource. The password
+	// is read from one of the keys "password", "Password", or "PASSWORD".
+	// The domain join is only performed when both UserName and DomainJoinSecret are set;
+	// if either is empty the join is silently skipped.
 	DomainJoinSecret string `json:"domainJoinSecret"`
-	UserName         string `json:"userName,omitempty"`
+	// UserName is the domain user used to join the domain (e.g. "domain-admin").
+	// Required (together with DomainJoinSecret) to trigger the domain join.
+	UserName string `json:"userName,omitempty"`
 	// IpRanges specifies floating IP ranges for SMB-W high availability
 	IpRanges []string `json:"ipRanges,omitempty"`
 
