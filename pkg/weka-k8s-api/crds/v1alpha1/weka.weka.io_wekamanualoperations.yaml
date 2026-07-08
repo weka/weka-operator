@@ -69,6 +69,7 @@ spec:
                 - unblock-drives
                 - ensure-nics
                 - remote-traces-session
+                - clean-stale-virtual-drives
                 type: string
               deletionDelay:
                 default: 5m
@@ -97,6 +98,39 @@ spec:
                         type: array
                     required:
                     - node
+                    type: object
+                  cleanStaleVirtualDrivesPayload:
+                    description: |-
+                      CleanStaleVirtualDrivesPayload is the shared payload for the clean-stale-virtual-drives
+                      operation, used by both WekaManualOperation (one-shot) and WekaPolicy (periodic).
+
+                      The operation scans every ssdproxy's virtual drives (VIDs) and diffs them against
+                      the union of all live WekaContainer allocations to find stale VIDs. Detection always
+                      runs and reports; deletion is opt-in and double-gated (see DeleteStaleVids).
+                    properties:
+                      deleteStaleVids:
+                        default: false
+                        description: |-
+                          DeleteStaleVids enables ACTUAL removal of detected stale VIDs. DANGEROUS — disabled by
+                          default. Even when true, a VID is only removed if it was reported stale and UNCHANGED on
+                          the previous cycle (fingerprint match) and is still unclaimed at removal time. Acts as the
+                          user's confirmation.
+                        type: boolean
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          NodeSelector limits the scan to ssdproxies on nodes matching these labels.
+                          Empty = all nodes that have an ssdproxy.
+                        type: object
+                      onlyNonExistingClusters:
+                        default: false
+                        description: |-
+                          OnlyNonExistingClusters restricts the stale set to VIDs whose owner cluster GUID has NO
+                          WekaCluster CR at all (category dead_cluster) — the safe-by-construction subset (no live
+                          cluster could be mid-allocating them). Excludes live_cluster_unclaimed. Recommended ON
+                          when pairing with deletion.
+                        type: boolean
                     type: object
                   discoverDrivesPayload:
                     properties:

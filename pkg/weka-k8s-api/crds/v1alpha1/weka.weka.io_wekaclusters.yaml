@@ -50,6 +50,11 @@ spec:
       name: FS(Capacity)
       priority: 1
       type: string
+    - description: Raw provisioned drive-sharing capacity (TLC/QLC)
+      jsonPath: .status.printer.capacity
+      name: Capacity
+      priority: 1
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -245,6 +250,20 @@ spec:
               dynamicTemplate:
                 description: weka cluster topology configuration
                 properties:
+                  clusterCapacity:
+                    description: |-
+                      ClusterCapacity is a human-friendly target USABLE capacity for the whole cluster.
+                      Alternative to ContainerCapacity: instead of sizing each container, the operator
+                      translates this target into failure domains built from whole containers and grows
+                      toward it (capacity only ever increases). Mutually exclusive with ContainerCapacity,
+                      NumDrives and DriveCapacity.
+
+                      Unit handling: the suffix determines whether decimal (base-1000) or binary (base-1024)
+                      interpretation is used.
+                        - Binary (IEC): "GiB"/"Gi", "TiB"/"Ti", "MiB"/"Mi", etc.  e.g. "8000GiB" = 8000 GiB
+                        - Decimal (SI): "GB", "TB", "MB", etc.                      e.g. "8000GB"  ≈ 7450 GiB
+                        - Bare unit (no "B"): "8000g", "300t" — treated as binary for backward compatibility
+                    type: string
                   computeContainers:
                     description: Number of compute containers per cluster node.
                     minimum: 0
@@ -436,6 +455,12 @@ spec:
                     0'
                 - message: driveCapacity must be greater than 0 when specified
                   rule: '!has(self.driveCapacity) || self.driveCapacity > 0'
+                - message: clusterCapacity is mutually exclusive with containerCapacity,
+                    numDrives and driveCapacity
+                  rule: '!has(self.clusterCapacity) || self.clusterCapacity.size()
+                    == 0 || ((!has(self.containerCapacity) || self.containerCapacity
+                    == 0) && (!has(self.numDrives) || self.numDrives == 0) && (!has(self.driveCapacity)
+                    || self.driveCapacity == 0))'
               encryption:
                 description: Encryption configuration for data at rest. Configure
                   a HashiCorp Vault KMS for production use.
@@ -1719,6 +1744,12 @@ spec:
                       range for default domain mapping
                     type: integer
                   domainJoinSecret:
+                    description: |-
+                      DomainJoinSecret is the name of a Kubernetes Secret holding the domain-join password.
+                      The Secret must live in the same namespace as this WekaCluster resource. The password
+                      is read from one of the keys "password", "Password", or "PASSWORD".
+                      The domain join is only performed when both UserName and DomainJoinSecret are set;
+                      if either is empty the join is silently skipped.
                     type: string
                   domainName:
                     description: DomainName is the domain name for SMB-W, required
@@ -1776,6 +1807,9 @@ spec:
                       Symlink enables symlink support for SMB-W shares
                     type: boolean
                   userName:
+                    description: |-
+                      UserName is the domain user used to join the domain (e.g. "domain-admin").
+                      Required (together with DomainJoinSecret) to trigger the domain join.
                     type: string
                 required:
                 - domainJoinSecret
@@ -1996,6 +2030,10 @@ spec:
                 type: object
               printer:
                 properties:
+                  capacity:
+                    description: Aggregated raw provisioned drive-sharing capacity
+                      per type, e.g. "TLC 100TiB / QLC 200TiB"
+                    type: string
                   computeContainers:
                     type: string
                   driveContainers:

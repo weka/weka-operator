@@ -41,6 +41,11 @@ spec:
       name: Drives
       priority: 1
       type: string
+    - description: Per-drive-type capacity (TLC/QLC)
+      jsonPath: .status.printer.capacity
+      name: Capacity
+      priority: 1
+      type: string
     - description: Number of active mounts
       jsonPath: .status.printer.activeMounts
       name: Mounts
@@ -1833,10 +1838,6 @@ spec:
                 must be greater than 0
               rule: '!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0 ||
                 self.driveTypesRatio.qlc > 0'
-            - message: driveTypesRatio.tlc must be greater than 0 when driveTypesRatio
-                is specified; TLC-only and mixed TLC/QLC configurations are supported,
-                but QLC-only is not allowed
-              rule: '!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0'
             - message: driveCapacity must be greater than 0 when specified
               rule: '!has(self.driveCapacity) || self.driveCapacity > 0'
           status:
@@ -2020,6 +2021,10 @@ spec:
               printer:
                 properties:
                   activeMounts:
+                    type: string
+                  capacity:
+                    description: per-drive-type capacity of a drive container, e.g.
+                      "TLC 30TiB / QLC 60TiB" (drive-sharing only)
                     type: string
                   drives:
                     type: string
