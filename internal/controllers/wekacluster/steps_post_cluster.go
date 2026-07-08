@@ -129,6 +129,12 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 		},
 		&lifecycle.SimpleStep{
 			Predicates: lifecycle.Predicates{
+				loop.ShouldDestroyNfs,
+			},
+			Run: loop.DestroyNfs,
+		},
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(loop.cluster.IsExpand),
 				loop.HasRunningNfsContainers,
 			},

@@ -11,3 +11,6 @@ CROS = "CROS"
 ba = "ba"
 # umounted follows the umount(8) command naming convention
 umounted = "umounted"
+# "Hashi" is the vendor name in "HashiCorp Vault", surfaced in generated
+# doc/api_dump/ from the encryption field descriptions (not a typo for "Hash")
+Hashi = "Hashi"
