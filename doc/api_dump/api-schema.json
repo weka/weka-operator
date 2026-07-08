@@ -50,30 +50,35 @@
           "name": "Compute",
           "jsonName": "compute",
           "type": "int",
+          "description": "Additional memory in MiB for compute containers (positive or negative offset from auto-calculated baseline).",
           "optional": true
         },
         {
           "name": "Drive",
           "jsonName": "drive",
           "type": "int",
+          "description": "Additional memory in MiB for drive containers.",
           "optional": true
         },
         {
           "name": "S3",
           "jsonName": "s3",
           "type": "int",
+          "description": "Additional memory in MiB for S3 gateway containers.",
           "optional": true
         },
         {
           "name": "Nfs",
           "jsonName": "nfs",
           "type": "int",
+          "description": "Additional memory in MiB for NFS protocol containers.",
           "optional": true
         },
         {
           "name": "Envoy",
           "jsonName": "envoy",
           "type": "int",
+          "description": "Additional memory in MiB for Envoy proxy containers (used by S3 gateway).",
           "optional": true
         },
         {
@@ -438,42 +443,48 @@
     },
     "ClusterPorts": {
       "kind": "struct",
+      "description": "ClusterPorts defines the port allocation for the Weka cluster.\nWe should not be updating Spec, as it's a user interface and we should not break ability to update spec file.\nTherefore, when BasePort is 0, and PortRange is 0, we have application level defaults that will be written in here.",
       "fields": [
         {
           "name": "BasePort",
           "jsonName": "basePort",
           "type": "int",
-          "description": "We should not be updating Spec, as it's a user interface and we should not break ability to update spec file\nTherefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here",
+          "description": "Starting port number used for allocating Weka cluster ports. Can be overridden by the user; defaults to 35000 for the first cluster.",
           "optional": true
         },
         {
           "name": "PortRange",
           "jsonName": "portRange",
           "type": "int",
+          "description": "Number of ports to allocate for the cluster. Defaults to 260 with operator version 1.10 / WEKA 5.1.0 onwards (500 for earlier versions).",
           "optional": true
         },
         {
           "name": "LbPort",
           "jsonName": "lbPort",
           "type": "int",
+          "description": "Data port for the S3 software load balancer. If unset, auto-allocated within the cluster port range relative to basePort (basePort+300 in the legacy 500-port layout, basePort+240 with the default 260-port range).",
           "optional": true
         },
         {
           "name": "LbAdminPort",
           "jsonName": "lbAdminPort",
           "type": "int",
+          "description": "Administration port for the S3 software load balancer. If unset, auto-allocated within the cluster port range, immediately after lbPort.",
           "optional": true
         },
         {
           "name": "S3Port",
           "jsonName": "s3Port",
           "type": "int",
+          "description": "Data port for S3 API traffic. If unset, auto-allocated within the cluster port range, after the load balancer ports.",
           "optional": true
         },
         {
           "name": "ManagementProxyPort",
           "jsonName": "managementProxyPort",
           "type": "int",
+          "description": "Enables Kubernetes-level access to Weka management for port-forwarding, REST API usage, and UI access. If unset, auto-allocated within the cluster port range relative to basePort when the management proxy is first enabled.",
           "optional": true
         },
         {
@@ -811,12 +822,14 @@
             "type": "array",
             "items": "string"
           },
+          "description": "CIDR subnets to filter which management IPs are advertised to the CSI driver. Leave empty to advertise all.",
           "optional": true
         },
         {
           "name": "CsiGroup",
           "jsonName": "csiGroup",
           "type": "string",
+          "description": "CSI driver group name. Scopes CSI resources when multiple Weka clusters coexist in the same namespace.",
           "optional": true
         },
         {
@@ -825,6 +838,7 @@
           "type": {
             "$ref": "#/definitions/AdvancedCsiConfig"
           },
+          "description": "Advanced CSI driver settings. Should not be changed unless explicitly instructed by Weka support.",
           "optional": true,
           "pointer": true
         }
@@ -1150,6 +1164,7 @@
           "type": {
             "$ref": "#/definitions/VaultConfig"
           },
+          "description": "Configures a HashiCorp Vault KMS for encryption key management. Recommended for production.",
           "optional": true,
           "pointer": true
         },
@@ -1654,6 +1669,7 @@
               "$ref": "#/definitions/NetworkSelector"
             }
           },
+          "description": "Selectors define how backend data-path network interfaces are chosen on each node.",
           "optional": true
         },
         {
@@ -1665,6 +1681,7 @@
               "$ref": "#/definitions/NetworkSelector"
             }
           },
+          "description": "Selectors for management IPs used for cluster API and agent communication.",
           "optional": true
         },
         {
@@ -1703,18 +1720,21 @@
           "name": "Subnet",
           "jsonName": "subnet",
           "type": "string",
+          "description": "CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.",
           "optional": true
         },
         {
           "name": "Min",
           "jsonName": "min",
           "type": "int",
+          "description": "Minimum number of interfaces required from nodes matching this selector.",
           "optional": true
         },
         {
           "name": "Max",
           "jsonName": "max",
           "type": "int",
+          "description": "Maximum number of interfaces to select per node matching this selector.",
           "optional": true
         },
         {
@@ -1831,12 +1851,14 @@
           "name": "Name",
           "jsonName": "name",
           "type": "string",
+          "description": "Name of the PersistentVolumeClaim to mount into all Weka containers.",
           "optional": false
         },
         {
           "name": "Path",
           "jsonName": "path",
           "type": "string",
+          "description": "Mount path inside the Weka container. Defaults to /opt/k8s-weka when empty.",
           "optional": true
         }
       ],
@@ -2646,12 +2668,14 @@
           "name": "DomainJoinSecret",
           "jsonName": "domainJoinSecret",
           "type": "string",
+          "description": "DomainJoinSecret is the name of a Kubernetes Secret holding the domain-join password.\nThe Secret must live in the same namespace as this WekaCluster resource. The password\nis read from one of the keys \"password\", \"Password\", or \"PASSWORD\".\nThe domain join is only performed when both UserName and DomainJoinSecret are set;\nif either is empty the join is silently skipped.",
           "optional": false
         },
         {
           "name": "UserName",
           "jsonName": "userName",
           "type": "string",
+          "description": "UserName is the domain user used to join the domain (e.g. \"domain-admin\").\nRequired (together with DomainJoinSecret) to trigger the domain join.",
           "optional": true
         },
         {
@@ -3991,6 +4015,7 @@
           "type": {
             "$ref": "#/definitions/WekaClusterSpecOverrides"
           },
+          "description": "Advanced override settings for cluster operations. Only use when explicitly instructed by Weka support.",
           "optional": true,
           "pointer": true
         },
@@ -4000,6 +4025,7 @@
           "type": {
             "$ref": "#/definitions/CsiConfig"
           },
+          "description": "Configuration for the Weka CSI Driver integration. Controls how the CSI driver discovers and connects to this cluster.",
           "optional": true
         },
         {
@@ -4008,6 +4034,7 @@
           "type": {
             "$ref": "#/definitions/PVCConfig"
           },
+          "description": "Reference to a PVC shared by all Weka containers. Use to persist container state on nodes lacking local NVMe storage.",
           "optional": true,
           "pointer": true
         },
@@ -4015,6 +4042,7 @@
           "name": "ServiceAccountName",
           "jsonName": "serviceAccountName",
           "type": "string",
+          "description": "Name of the Kubernetes ServiceAccount for Weka container pods. Operator default is used if empty.",
           "optional": true
         },
         {
@@ -4041,6 +4069,7 @@
           "type": {
             "$ref": "#/definitions/EncryptionConfig"
           },
+          "description": "Encryption configuration for data at rest. Configure a HashiCorp Vault KMS for production use.",
           "optional": true,
           "pointer": true
         },
@@ -4103,12 +4132,21 @@
           "name": "AllowS3ClusterDestroy",
           "jsonName": "allowS3ClusterDestroy",
           "type": "bool",
+          "description": "When true, permits cluster deletion even when an active S3 cluster exists. Destructive — will erase all S3 data.",
           "optional": true
         },
         {
           "name": "AllowSmbwClusterDestroy",
           "jsonName": "allowSmbwClusterDestroy",
           "type": "bool",
+          "description": "When true, permits the operator to destroy the SMB-W cluster it manages once SMB-W is torn down (no SMB-W containers desired). Destructive — will erase all SMB share configuration.",
+          "optional": true
+        },
+        {
+          "name": "AllowNfsInterfaceGroupDestroy",
+          "jsonName": "allowNfsInterfaceGroupDestroy",
+          "type": "bool",
+          "description": "When true, permits the operator to remove the NFS interface group it manages once NFS is torn down. Destructive — also drops the interface group's floating IP ranges.",
           "optional": true
         },
         {
@@ -4347,42 +4385,49 @@
           "name": "ComputeContainers",
           "jsonName": "computeContainers",
           "type": "int",
+          "description": "Number of compute containers per cluster node.",
           "optional": true
         },
         {
           "name": "DriveContainers",
           "jsonName": "driveContainers",
           "type": "int",
+          "description": "Number of drive containers per cluster node.",
           "optional": true
         },
         {
           "name": "S3Containers",
           "jsonName": "s3Containers",
           "type": "int",
+          "description": "Number of S3 gateway containers per cluster node.",
           "optional": true
         },
         {
           "name": "ComputeCores",
           "jsonName": "computeCores",
           "type": "int",
+          "description": "Number of cores allocated to each compute container.",
           "optional": true
         },
         {
           "name": "DriveCores",
           "jsonName": "driveCores",
           "type": "int",
+          "description": "Number of cores allocated to each drive container.",
           "optional": true
         },
         {
           "name": "S3Cores",
           "jsonName": "s3Cores",
           "type": "int",
+          "description": "Number of cores allocated to each S3 gateway container.",
           "optional": true
         },
         {
           "name": "NumDrives",
           "jsonName": "numDrives",
           "type": "int",
+          "description": "Number of virtual or physical drives per drive container. Mutually exclusive with containerCapacity.",
           "optional": true
         },
         {
@@ -4401,113 +4446,126 @@
           "name": "S3ExtraCores",
           "jsonName": "s3ExtraCores",
           "type": "int",
+          "description": "Additional non-DPDK cores for S3 gateway containers, used for background tasks.",
           "optional": true
         },
         {
           "name": "DriveHugepages",
           "jsonName": "driveHugepages",
           "type": "int",
+          "description": "Hugepage allocation in MiB for drive containers. 0 means auto-calculated.",
           "optional": true
         },
         {
           "name": "DriveHugepagesOffset",
           "jsonName": "driveHugepagesOffset",
           "type": "int",
+          "description": "Offset in MiB applied to the auto-calculated hugepage allocation for drive containers.",
           "optional": true
         },
         {
           "name": "ComputeHugepages",
           "jsonName": "computeHugepages",
           "type": "int",
+          "description": "Hugepage allocation in MiB for compute containers. 0 means auto-calculated.",
           "optional": true
         },
         {
           "name": "ComputeHugepagesOffset",
           "jsonName": "computeHugepagesOffset",
           "type": "int",
+          "description": "Offset in MiB applied to the auto-calculated hugepage allocation for compute containers.",
           "optional": true
         },
         {
           "name": "S3FrontendHugepages",
           "jsonName": "s3FrontendHugepages",
           "type": "int",
+          "description": "Hugepage allocation in MiB for S3 gateway frontend threads.",
           "optional": true
         },
         {
           "name": "S3FrontendHugepagesOffset",
           "jsonName": "s3FrontendHugepagesOffset",
           "type": "int",
+          "description": "Offset in MiB applied to the auto-calculated hugepage allocation for S3 frontend threads.",
           "optional": true
         },
         {
           "name": "EnvoyCores",
           "jsonName": "envoyCores",
           "type": "int",
+          "description": "Number of cores allocated to the Envoy proxy process used by the S3 gateway.",
           "optional": true
         },
         {
           "name": "NfsContainers",
           "jsonName": "nfsContainers",
           "type": "int",
+          "description": "Number of NFS protocol containers per cluster node.",
           "optional": true
         },
         {
           "name": "NfsCores",
           "jsonName": "nfsCores",
           "type": "int",
+          "description": "Number of cores allocated to each NFS container.",
           "optional": true
         },
         {
           "name": "NfsExtraCores",
           "jsonName": "nfsExtraCores",
           "type": "int",
+          "description": "Additional non-DPDK cores for NFS containers.",
           "optional": true
         },
         {
           "name": "NfsFrontendHugepages",
           "jsonName": "nfsFrontendHugepages",
           "type": "int",
+          "description": "Hugepage allocation in MiB for NFS frontend threads.",
           "optional": true
         },
         {
           "name": "NfsFrontendHugepagesOffset",
           "jsonName": "nfsFrontendHugepagesOffset",
           "type": "int",
+          "description": "Offset in MiB for NFS frontend hugepage allocation.",
           "optional": true
         },
         {
           "name": "SmbwContainers",
           "jsonName": "smbwContainers",
           "type": "int",
-          "description": "EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W containers (3-8)",
+          "description": "number of SMB-W containers (3-8)",
           "optional": true
         },
         {
           "name": "SmbwCores",
           "jsonName": "smbwCores",
           "type": "int",
-          "description": "EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W cores per container",
+          "description": "number of SMB-W cores per container",
           "optional": true
         },
         {
           "name": "SmbwExtraCores",
           "jsonName": "smbwExtraCores",
           "type": "int",
-          "description": "EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W extra cores per container",
+          "description": "number of SMB-W extra cores per container",
           "optional": true
         },
         {
           "name": "SmbwFrontendHugepages",
           "jsonName": "smbwFrontendHugepages",
           "type": "int",
-          "description": "EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for SMB-W frontend",
+          "description": "hugepage allocation for SMB-W frontend",
           "optional": true
         },
         {
           "name": "SmbwFrontendHugepagesOffset",
           "jsonName": "smbwFrontendHugepagesOffset",
           "type": "int",
-          "description": "EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for SMB-W frontend",
+          "description": "hugepage offset for SMB-W frontend",
           "optional": true
         },
         {
@@ -5385,24 +5443,28 @@
           "name": "Endpoint",
           "jsonName": "endpoint",
           "type": "string",
+          "description": "URL of the WekaHome telemetry endpoint. Defaults to the Weka-managed cloud endpoint if empty.",
           "optional": true
         },
         {
           "name": "AllowInsecure",
           "jsonName": "allowInsecure",
           "type": "bool",
+          "description": "When true, disables TLS certificate verification for the WekaHome endpoint.",
           "optional": true
         },
         {
           "name": "CacertSecret",
           "jsonName": "cacertSecret",
           "type": "string",
+          "description": "Name of a Kubernetes secret containing a PEM CA certificate for the WekaHome TLS connection.",
           "optional": true
         },
         {
           "name": "EnableStats",
           "jsonName": "enableStats",
           "type": "bool",
+          "description": "When true, performance statistics are sent to WekaHome in addition to connectivity and event data. Defaults to true.",
           "optional": true,
           "pointer": true
         }

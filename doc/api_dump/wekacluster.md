@@ -95,13 +95,13 @@
 | bucketRaftSize | *int | size of raft for buckets, defaults to 5, 5/9 are supported |
 | startIoConditions | *StartIoConditions | conditions that must be met before starting IO |
 | gracefulDestroyDuration | metav1.Duration | During this period the cluster will not be destroyed (protection from accidental deletion)<br>Note: due to discrepancies in validation vs parsing, we use a Pattern instead of `Format=duration`. See<br>https://bugzilla.redhat.com/show_bug.cgi?id=2050332<br>https://github.com/kubernetes/apimachinery/issues/131<br>https://github.com/kubernetes/apiextensions-apiserver/issues/56 |
-| overrides | *WekaClusterSpecOverrides |  |
-| csiConfig | CsiConfig |  |
-| globalPVC | *PVCConfig |  |
-| serviceAccountName | string |  |
+| overrides | *WekaClusterSpecOverrides | Advanced override settings for cluster operations. Only use when explicitly instructed by Weka support. |
+| csiConfig | CsiConfig | Configuration for the Weka CSI Driver integration. Controls how the CSI driver discovers and connects to this cluster. |
+| globalPVC | *PVCConfig | Reference to a PVC shared by all Weka containers. Use to persist container state on nodes lacking local NVMe storage. |
+| serviceAccountName | string | Name of the Kubernetes ServiceAccount for Weka container pods. Operator default is used if empty. |
 | roleCoreIds | RoleCoreIds | RoleCoreIds defines a list of CPU core IDs (as seen by the host) that should<br>be assigned to containers of the specific role when CpuPolicy is set to<br>"manual". If the slice for the given role is empty, core ids will not be<br>set for that role, and the manual policy will fail validation on pod start.<br>NOTE: The semantics are the same as for NodeSelector/Annotations structures –<br>a single list per role which will be copied to every container of that role.<br>Users are responsible to provide a set that makes sense for their topology.<br>Example:<br>roleCoreIds:<br>compute: [0,1,2,3]<br>drive:   [4,5,6,7]<br>will result in every compute container getting coreIds [0,1,2,3] and every<br>drive container getting [4,5,6,7]. |
 | roleNonDatapathCoreIds | RoleCoreIds | RoleNonDatapathCoreIds defines CPU core IDs (as seen by the host) to pin<br>management/aux (non-IONode) processes to, per container role. Applicable<br>when CpuPolicy is "manual" or "shared".<br>When set, weka pins management processes to these cores instead of deriving them automatically. |
-| encryption | *EncryptionConfig |  |
+| encryption | *EncryptionConfig | Encryption configuration for data at rest. Configure a HashiCorp Vault KMS for production use. |
 | nfs | *NfsConfig |  |
 | s3 | *S3Config |  |
 | smbw | *SmbwConfig |  |
@@ -211,10 +211,10 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| endpoint | string |  |
-| allowInsecure | bool |  |
-| cacertSecret | string |  |
-| enableStats | *bool |  |
+| endpoint | string | URL of the WekaHome telemetry endpoint. Defaults to the Weka-managed cloud endpoint if empty. |
+| allowInsecure | bool | When true, disables TLS certificate verification for the WekaHome endpoint. |
+| cacertSecret | string | Name of a Kubernetes secret containing a PEM CA certificate for the WekaHome TLS connection. |
+| enableStats | *bool | When true, performance statistics are sent to WekaHome in addition to connectivity and event data. Defaults to true. |
 
 ---
 
@@ -222,11 +222,11 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| compute | int |  |
-| drive | int |  |
-| s3 | int |  |
-| nfs | int |  |
-| envoy | int |  |
+| compute | int | Additional memory in MiB for compute containers (positive or negative offset from auto-calculated baseline). |
+| drive | int | Additional memory in MiB for drive containers. |
+| s3 | int | Additional memory in MiB for S3 gateway containers. |
+| nfs | int | Additional memory in MiB for NFS protocol containers. |
+| envoy | int | Additional memory in MiB for Envoy proxy containers (used by S3 gateway). |
 | smbw | int |  |
 | dataServices | int |  |
 
@@ -236,12 +236,12 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| basePort | int | We should not be updating Spec, as it's a user interface and we should not break ability to update spec file<br>Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here |
-| portRange | int |  |
-| lbPort | int |  |
-| lbAdminPort | int |  |
-| s3Port | int |  |
-| managementProxyPort | int |  |
+| basePort | int | Starting port number used for allocating Weka cluster ports. Can be overridden by the user; defaults to 35000 for the first cluster. |
+| portRange | int | Number of ports to allocate for the cluster. Defaults to 260 with operator version 1.10 / WEKA 5.1.0 onwards (500 for earlier versions). |
+| lbPort | int | Data port for the S3 software load balancer. If unset, auto-allocated within the cluster port range relative to basePort (basePort+300 in the legacy 500-port layout, basePort+240 with the default 260-port range). |
+| lbAdminPort | int | Administration port for the S3 software load balancer. If unset, auto-allocated within the cluster port range, immediately after lbPort. |
+| s3Port | int | Data port for S3 API traffic. If unset, auto-allocated within the cluster port range, after the load balancer ports. |
+| managementProxyPort | int | Enables Kubernetes-level access to Weka management for port-forwarding, REST API usage, and UI access. If unset, auto-allocated within the cluster port range relative to basePort when the management proxy is first enabled. |
 | dataServicesPort | int |  |
 
 ---
@@ -250,33 +250,33 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| computeContainers | int |  |
-| driveContainers | int |  |
-| s3Containers | int |  |
-| computeCores | int |  |
-| driveCores | int |  |
-| s3Cores | int |  |
-| numDrives | int |  |
+| computeContainers | int | Number of compute containers per cluster node. |
+| driveContainers | int | Number of drive containers per cluster node. |
+| s3Containers | int | Number of S3 gateway containers per cluster node. |
+| computeCores | int | Number of cores allocated to each compute container. |
+| driveCores | int | Number of cores allocated to each drive container. |
+| s3Cores | int | Number of cores allocated to each S3 gateway container. |
+| numDrives | int | Number of virtual or physical drives per drive container. Mutually exclusive with containerCapacity. |
 | computeExtraCores | int |  |
 | driveExtraCores | int |  |
-| s3ExtraCores | int |  |
-| driveHugepages | int |  |
-| driveHugepagesOffset | int |  |
-| computeHugepages | int |  |
-| computeHugepagesOffset | int |  |
-| s3FrontendHugepages | int |  |
-| s3FrontendHugepagesOffset | int |  |
-| envoyCores | int |  |
-| nfsContainers | int |  |
-| nfsCores | int |  |
-| nfsExtraCores | int |  |
-| nfsFrontendHugepages | int |  |
-| nfsFrontendHugepagesOffset | int |  |
-| smbwContainers | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W containers (3-8) |
-| smbwCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W cores per container |
-| smbwExtraCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W extra cores per container |
-| smbwFrontendHugepages | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for SMB-W frontend |
-| smbwFrontendHugepagesOffset | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for SMB-W frontend |
+| s3ExtraCores | int | Additional non-DPDK cores for S3 gateway containers, used for background tasks. |
+| driveHugepages | int | Hugepage allocation in MiB for drive containers. 0 means auto-calculated. |
+| driveHugepagesOffset | int | Offset in MiB applied to the auto-calculated hugepage allocation for drive containers. |
+| computeHugepages | int | Hugepage allocation in MiB for compute containers. 0 means auto-calculated. |
+| computeHugepagesOffset | int | Offset in MiB applied to the auto-calculated hugepage allocation for compute containers. |
+| s3FrontendHugepages | int | Hugepage allocation in MiB for S3 gateway frontend threads. |
+| s3FrontendHugepagesOffset | int | Offset in MiB applied to the auto-calculated hugepage allocation for S3 frontend threads. |
+| envoyCores | int | Number of cores allocated to the Envoy proxy process used by the S3 gateway. |
+| nfsContainers | int | Number of NFS protocol containers per cluster node. |
+| nfsCores | int | Number of cores allocated to each NFS container. |
+| nfsExtraCores | int | Additional non-DPDK cores for NFS containers. |
+| nfsFrontendHugepages | int | Hugepage allocation in MiB for NFS frontend threads. |
+| nfsFrontendHugepagesOffset | int | Offset in MiB for NFS frontend hugepage allocation. |
+| smbwContainers | int | number of SMB-W containers (3-8) |
+| smbwCores | int | number of SMB-W cores per container |
+| smbwExtraCores | int | number of SMB-W extra cores per container |
+| smbwFrontendHugepages | int | hugepage allocation for SMB-W frontend |
+| smbwFrontendHugepagesOffset | int | hugepage offset for SMB-W frontend |
 | driveCapacity | int | DriveCapacity is the capacity in GiB to allocate per single virtual drive.<br>NumDrives multiplied by DriveCapacity gives the total capacity requested by each drive container.<br>This value determines how much capacity each container receives from shared drives. |
 | containerCapacity | int | ContainerCapacity specifies the total capacity (in GiB) requested by each container when using shared drives via SSD proxy.<br>This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation. |
 | clusterCapacity | string | ClusterCapacity is a human-friendly target USABLE capacity for the whole cluster.<br>Alternative to ContainerCapacity: instead of sizing each container, the operator<br>translates this target into failure domains built from whole containers and grows<br>toward it (capacity only ever increases). Mutually exclusive with ContainerCapacity,<br>NumDrives and DriveCapacity.<br>Unit handling: the suffix determines whether decimal (base-1000) or binary (base-1024)<br>interpretation is used.<br>- Binary (IEC): "GiB"/"Gi", "TiB"/"Ti", "MiB"/"Mi", etc.  e.g. "8000GiB" = 8000 GiB<br>- Decimal (SI): "GB", "TB", "MB", etc.                      e.g. "8000GB"  ≈ 7450 GiB<br>- Bare unit (no "B"): "8000g", "300t" — treated as binary for backward compatibility |
@@ -299,8 +299,8 @@
 | gateway | string | The default gateway IPv4 address for the backend containers’ data-path network.<br>This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).<br>If you have a flat, non-routed backend network, you can leave this field empty. |
 | udpMode | bool | A setting that enables or disables UDP encapsulation for backend traffic.<br>- false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.<br>This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based. |
 | deviceSubnets | []string | A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).<br>The operator assigns IP addresses from these subnets to the backend containers for their data path network |
-| selectors | []NetworkSelector |  |
-| managementIpsSelectors | []NetworkSelector |  |
+| selectors | []NetworkSelector | Selectors define how backend data-path network interfaces are chosen on each node. |
+| managementIpsSelectors | []NetworkSelector | Selectors for management IPs used for cluster API and agent communication. |
 | bindManagementAll | bool | BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.<br>When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).<br>When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses. |
 | nvidiaVfSingleIp | *bool | NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF<br>When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups |
 | allocateVfPerIoNode | *bool |  |
@@ -319,8 +319,9 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| allowS3ClusterDestroy | bool |  |
-| allowSmbwClusterDestroy | bool |  |
+| allowS3ClusterDestroy | bool | When true, permits cluster deletion even when an active S3 cluster exists. Destructive — will erase all S3 data. |
+| allowSmbwClusterDestroy | bool | When true, permits the operator to destroy the SMB-W cluster it manages once SMB-W is torn down (no SMB-W containers desired). Destructive — will erase all SMB share configuration. |
+| allowNfsInterfaceGroupDestroy | bool | When true, permits the operator to remove the NFS interface group it manages once NFS is torn down. Destructive — also drops the interface group's floating IP ranges. |
 | disregardRedundancy | bool | disregard redundancy constraints, useful for testing, should not be used in production as misaligns failure domains |
 | driversBuildId | *string | can be used to specify a build_id for a driver in the distributor service, keep empty for auto detection default |
 | driversLoaderImage | string | image to be used for loading drivers, do not use unless explicitly instructed by Weka team |
@@ -343,9 +344,9 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| endpointsSubnets | []string |  |
-| csiGroup | string |  |
-| advanced | *AdvancedCsiConfig |  |
+| endpointsSubnets | []string | CIDR subnets to filter which management IPs are advertised to the CSI driver. Leave empty to advertise all. |
+| csiGroup | string | CSI driver group name. Scopes CSI resources when multiple Weka clusters coexist in the same namespace. |
+| advanced | *AdvancedCsiConfig | Advanced CSI driver settings. Should not be changed unless explicitly instructed by Weka support. |
 
 ---
 
@@ -353,8 +354,8 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| name | string |  |
-| path | string |  |
+| name | string | Name of the PersistentVolumeClaim to mount into all Weka containers. |
+| path | string | Mount path inside the Weka container. Defaults to /opt/k8s-weka when empty. |
 
 ---
 
@@ -375,7 +376,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| vault | *VaultConfig |  |
+| vault | *VaultConfig | Configures a HashiCorp Vault KMS for encryption key management. Recommended for production. |
 | internal | *InternalEncryptionConfig | InternalConfig defines internal encryption settings, encryption key stored in weka configuration, for production systems use real KMS, however this mode can be useful to evaluate performance of encrypted filesystems |
 
 ---
@@ -403,8 +404,8 @@
 |------------|------|-------------|
 | clusterName | string | ClusterName is the SMB-W cluster name, defaults to "default" |
 | domainName | string | DomainName is the domain name for SMB-W, required for SMB-W cluster creation |
-| domainJoinSecret | string |  |
-| userName | string |  |
+| domainJoinSecret | string | DomainJoinSecret is the name of a Kubernetes Secret holding the domain-join password.<br>The Secret must live in the same namespace as this WekaCluster resource. The password<br>is read from one of the keys "password", "Password", or "PASSWORD".<br>The domain join is only performed when both UserName and DomainJoinSecret are set;<br>if either is empty the join is silently skipped. |
+| userName | string | UserName is the domain user used to join the domain (e.g. "domain-admin").<br>Required (together with DomainJoinSecret) to trigger the domain join. |
 | ipRanges | []string | IpRanges specifies floating IP ranges for SMB-W high availability |
 | symlink | *bool | Creation-time configuration flags<br>Symlink enables symlink support for SMB-W shares |
 | domainNetbiosName | string | DomainNetbiosName is the NetBIOS name for the domain |
@@ -504,9 +505,9 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| subnet | string |  |
-| min | int |  |
-| max | int |  |
+| subnet | string | CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible. |
+| min | int | Minimum number of interfaces required from nodes matching this selector. |
+| max | int | Maximum number of interfaces to select per node matching this selector. |
 | deviceNames | []string |  |
 | rdmaOnly | bool |  |
 | disableRdma | bool |  |

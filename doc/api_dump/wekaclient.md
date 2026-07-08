@@ -111,8 +111,8 @@
 | gateway | string | The default gateway IPv4 address for the backend containers’ data-path network.<br>This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).<br>If you have a flat, non-routed backend network, you can leave this field empty. |
 | udpMode | bool | A setting that enables or disables UDP encapsulation for backend traffic.<br>- false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.<br>This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based. |
 | deviceSubnets | []string | A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).<br>The operator assigns IP addresses from these subnets to the backend containers for their data path network |
-| selectors | []NetworkSelector |  |
-| managementIpsSelectors | []NetworkSelector |  |
+| selectors | []NetworkSelector | Selectors define how backend data-path network interfaces are chosen on each node. |
+| managementIpsSelectors | []NetworkSelector | Selectors for management IPs used for cluster API and agent communication. |
 | bindManagementAll | bool | BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.<br>When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).<br>When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses. |
 | nvidiaVfSingleIp | *bool | NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF<br>When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups |
 | allocateVfPerIoNode | *bool |  |
@@ -183,8 +183,8 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| name | string |  |
-| path | string |  |
+| name | string | Name of the PersistentVolumeClaim to mount into all Weka containers. |
+| path | string | Mount path inside the Weka container. Defaults to /opt/k8s-weka when empty. |
 
 ---
 
@@ -218,9 +218,9 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| subnet | string |  |
-| min | int |  |
-| max | int |  |
+| subnet | string | CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible. |
+| min | int | Minimum number of interfaces required from nodes matching this selector. |
+| max | int | Maximum number of interfaces to select per node matching this selector. |
 | deviceNames | []string |  |
 | rdmaOnly | bool |  |
 | disableRdma | bool |  |

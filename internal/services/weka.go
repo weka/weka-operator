@@ -369,6 +369,7 @@ type WekaService interface {
 	CreateFilesystem(ctx context.Context, name, group string, params FSParams) error
 	CreateFilesystemGroup(ctx context.Context, name string) error
 	ConfigureNfs(ctx context.Context, nfsParams *NFSParams) error
+	DeleteNfsInterfaceGroup(ctx context.Context, interfaceGroupName string) error
 	EnsureNfsIpRanges(ctx context.Context, interfaceGroupName string, targetIpRanges []string) error
 	GetS3Cluster(ctx context.Context) (*S3Cluster, error)
 	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
@@ -1184,6 +1185,45 @@ func (c *CliWekaService) DeleteS3Cluster(ctx context.Context) error {
 	return nil
 }
 
+// DeleteNfsInterfaceGroup removes the NFS interface group (including its ports and floating IPs).
+// It is idempotent: a "does not exist" result is treated as success so the operation can be retried
+// safely and won't fail once the group has already been removed.
+func (c *CliWekaService) DeleteNfsInterfaceGroup(ctx context.Context, interfaceGroupName string) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "DeleteNfsInterfaceGroup")
+	defer logger.End()
+
+	executor, err := c.getExecutor(ctx)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "nfs", "interface-group", "remove", interfaceGroupName, "-f",
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "DeleteNfsInterfaceGroup", cmd)
+	if err != nil {
+		stderrStr := stderr.String()
+		// Idempotency: treat a missing interface group as success. Match specifically on the
+		// interface-group-not-found signature (case-insensitive) so unrelated failures, such as a
+		// missing CLI binary ("wekaauthcli: not found"), are not masked as success.
+		lowerStderr := strings.ToLower(stderrStr)
+		if strings.Contains(lowerStderr, "interface group") &&
+			(strings.Contains(lowerStderr, "does not exist") || strings.Contains(lowerStderr, "not found")) {
+			logger.Info("NFS interface group already removed", "interfaceGroup", interfaceGroupName)
+			return nil
+		}
+		logger.Error(err, "Failed to delete NFS interface group", "interfaceGroup", interfaceGroupName, "stderr", stderrStr)
+		return err
+	}
+	return nil
+}
+
+// NfsInterfaceGroupName is the name of the interface group the operator manages for NFS.
+// It is defined here so NFS creation (ConfigureNfs) and teardown (DestroyNfs in the
+// wekacluster controller) always target the same group and can't drift apart.
+const NfsInterfaceGroupName = "MgmtInterfaceGroup"
+
 func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams *NFSParams) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "ConfigureNfs")
 	defer logger.End()
@@ -1234,7 +1274,7 @@ func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams *NFSParams)
 	}
 
 	// create interface group if it doesn't exist
-	interfaceGroupName := "MgmtInterfaceGroup"
+	interfaceGroupName := NfsInterfaceGroupName
 	cmd = []string{
 		"wekaauthcli", "nfs", "interface-group", "add", interfaceGroupName, "NFS", "--subnet", "0.0.0.0",
 	}
