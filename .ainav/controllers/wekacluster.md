@@ -28,7 +28,7 @@ Manages cluster-level resources and post-cluster operations.
 | `funcs_credentials.go` | Secret/credential mgmt |
 | `funcs_helpers.go` | Utility functions |
 | `funcs_upgrade.go` | Upgrade orchestration |
-| `funcs_nfs.go` | NFS frontend config |
+| `funcs_nfs.go` | NFS interface-group config + teardown (EnsureNfs / ShouldDestroyNfs+DestroyNfs) |
 | `funcs_s3.go` | S3 configuration |
 | `funcs_management_proxy.go` | Management proxy service |
 | `funcs_management_service.go` | Management k8s service |
