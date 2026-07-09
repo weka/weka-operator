@@ -6,7 +6,7 @@ from dagger import dag, Container, Directory, Socket, Secret
 # NOTE: `version` must match the `go` directive in go.mod. CI runs with
 # GOTOOLCHAIN=local, so an older builder cannot auto-upgrade and the build
 # fails with "go.mod requires go >= <x> (running go <y>)".
-async def _go_builder_container(sock: Socket, gh_token: Optional[Secret] = None, version: str = "1.26.4-alpine") -> Container:
+async def _go_builder_container(sock: Socket, gh_token: Optional[Secret] = None, version: str = "1.26.5-alpine") -> Container:
     """
     Returns a container suitable for building go applications.
     If gh_token is provided, it will be used to configure git to use the token.

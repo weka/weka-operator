@@ -4,7 +4,7 @@ module github.com/weka/weka-operator
 // it explicitly (GOTOOLCHAIN=local in CI means they cannot auto-upgrade):
 //   - Dockerfile (golang:<version>)
 //   - .dagger/src/containers/builders.py (_go_builder_container version=)
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/ant0ine/go-json-rest v3.3.2+incompatible

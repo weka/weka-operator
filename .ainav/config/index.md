@@ -62,7 +62,12 @@ Admission-webhook validators implement the `Validator` interface (`validator.go`
 listed per-CRD in `registry.go`, and get a default severity in `admission/defaults.go`.
 Add a rule = implement + register + add to the defaults table. clusterCapacity validators:
 `cluster_capacity_chunk_feasibility.go` (greenfield per-FD TLC share ≥ 384 GiB; skipped once the
-cluster has TLC-bearing drive containers) and `cluster_capacity_protection.go` (min SW≥3, RL≥2, HS≥1).
+cluster has TLC-bearing drive containers) and `cluster_capacity_protection.go` (min SW≥3, RL≥2, HS≥0 /
+hotSpare optional — the `3+2+0` floor from `allocator.MinProtectionFloor`).
+Protection values are resolved via `DriveSharingConfig.EffectiveProtection` (env.go): a per-cluster
+spec field wins when non-zero (0 is treated as unset), else the Helm-level default (`PROTECTION_STRIPE_WIDTH` /
+`PROTECTION_REDUNDANCY_LEVEL` / `PROTECTION_HOT_SPARE`, values `protection.*`) fills it. Same helper
+is used in `FormCluster` so validation and formation agree.
 
 ## Adding Configuration
 

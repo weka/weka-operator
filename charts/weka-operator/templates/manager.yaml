@@ -438,6 +438,12 @@ spec:
               value: "{{ .Values.driveSharing.smallBigDiskSizesMaxProportionFactor }}"
             - name: ALLOW_SINGLE_PARITY
               value: "{{ .Values.allowSingleParity }}"
+            - name: PROTECTION_STRIPE_WIDTH
+              value: "{{ .Values.protection.stripeWidth }}"
+            - name: PROTECTION_REDUNDANCY_LEVEL
+              value: "{{ .Values.protection.redundancyLevel }}"
+            - name: PROTECTION_HOT_SPARE
+              value: "{{ .Values.protection.hotSpare }}"
             - name: HUGEPAGES_TLC_RATIO
               value: "{{ .Values.hugepagesTlcRatio }}"
             - name: HUGEPAGES_QLC_RATIO

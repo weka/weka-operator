@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -34,12 +35,19 @@ func (r *wekaClusterReconcilerLoop) listNodesForSelector(ctx context.Context, se
 	return nodeList.Items, nil
 }
 
-// protectionScheme reads the protection protectionScheme from the cluster spec.
+// protectionScheme resolves the effective protection scheme, applying the per-cluster spec values
+// when set and falling back to the Helm-level defaults (PROTECTION_STRIPE_WIDTH / _REDUNDANCY_LEVEL /
+// _HOT_SPARE) otherwise. This mirrors the clusterCapacityProtection webhook and FormCluster so the
+// capacity planner forms exactly what admission accepted (a clusterCapacity cluster relying on the
+// defaults would otherwise pass admission but deadlock as Infeasible / divide-by-zero here).
 func (r *wekaClusterReconcilerLoop) protectionScheme() allocator.ProtectionScheme {
+	sw, rl, hs := globalconfig.Config.DriveSharing.EffectiveProtection(
+		r.cluster.Spec.StripeWidth, r.cluster.Spec.RedundancyLevel, r.cluster.Spec.HotSpare,
+	)
 	return allocator.ProtectionScheme{
-		StripeWidth:     r.cluster.Spec.StripeWidth,
-		RedundancyLevel: r.cluster.Spec.RedundancyLevel,
-		HotSpare:        r.cluster.Spec.HotSpare,
+		StripeWidth:     sw,
+		RedundancyLevel: rl,
+		HotSpare:        hs,
 	}
 }
 

@@ -385,12 +385,28 @@ driveSharing:
 hugepagesTlcRatio: 1000
 hugepagesQlcRatio: 6000
 
-# Lower the clusterCapacity protection floor from the production 3+2+1
-# (stripeWidth/data>=3, redundancyLevel/parity>=2, hotSpare>=1) to single-parity 2+1+0,
-# enabling QA/test clusters such as 2+1 (minFdNum=3). QA/TEST ONLY: a single parity chunk
+# Lower the clusterCapacity protection floor from the production 3+2+0
+# (stripeWidth/data>=3, redundancyLevel/parity>=2, hotSpare>=0 / hot spare optional) to
+# single-parity 2+1+0, enabling QA/test clusters such as 2+1 (minFdNum=3). QA/TEST ONLY: a single parity chunk
 # leaves a stripe unprotected during rebuild. When true, the operator also sets the
 # allow_1_parity weka override at cluster formation (weka rejects parity=1 without it).
 allowSingleParity: false
+
+# Default protection scheme applied to WekaClusters that leave these fields at 0.
+# A non-zero per-cluster spec value wins; a spec value of 0 is treated as "unset" and
+# falls back to the default below (so a cluster cannot force e.g. hotSpare=0 while a
+# non-zero default is configured here).
+# stripeWidth/redundancyLevel: 0 means "no default" — the operator skips the matching
+# `weka cluster update` call, so the weka CLI default applies.
+# hotSpare: the operator always runs `weka cluster hot-spare <value>` at formation, so 0
+# here sets hot spare explicitly to 0 (it is NOT left at a weka CLI default).
+# Note: clusterCapacity clusters are still rejected at admission unless the *effective*
+# protection (spec value, else this default) meets the 3+2+0 floor (see allowSingleParity
+# and allocator.MinProtectionFloor).
+protection:
+  stripeWidth: 0
+  redundancyLevel: 0
+  hotSpare: 0
 
 # Hugepages update propagation to existing compute/drive containers.
 # User-set hugepages values (spec.dynamic.computeHugepages / driveHugepages) are always
@@ -631,8 +647,8 @@ admissionPolicies:
   #   cluster_dataservices_fe_cores:        default  # strict: error  | relaxed: error
   #
   #   # When clusterCapacity is set, stripeWidth/redundancyLevel/hotSpare must
-  #   # meet the 3+2+1 minimum (sw>=3, rl>=2, hs>=1). A lower value produces a
-  #   # degenerate or unbootable cluster.
+  #   # meet the 3+2+0 floor (sw>=3, rl>=2, hs>=0 / hot spare optional). A lower
+  #   # value produces a degenerate or unbootable cluster.
   #   cluster_capacity_protection:          default  # strict: error  | relaxed: error
   #
   #   # WekaClient.spec.targetCluster must reference an existing

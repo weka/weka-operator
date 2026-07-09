@@ -193,6 +193,30 @@ type DriveSharingConfig struct {
 	// emits the allow_1_parity weka override at cluster formation (weka rejects parity=1
 	// without it).
 	AllowSingleParity bool
+	// DefaultStripeWidth, DefaultRedundancyLevel, DefaultHotSpare are Helm-level protection
+	// defaults applied only when the WekaCluster CR leaves the corresponding field at 0.
+	// A non-zero per-cluster spec value takes precedence; a spec value of 0 is treated as
+	// "unset" and falls back to the default. Consequence: a cluster cannot force hotSpare=0
+	// while a non-zero DefaultHotSpare is configured (0 always resolves to the default).
+	DefaultStripeWidth     int
+	DefaultRedundancyLevel int
+	DefaultHotSpare        int
+}
+
+// EffectiveProtection returns the protection values to apply, using the per-cluster
+// spec value when set (!=0) and falling back to the Helm-level default otherwise.
+func (c *DriveSharingConfig) EffectiveProtection(specSW, specRL, specHS int) (sw, rl, hs int) {
+	sw, rl, hs = specSW, specRL, specHS
+	if sw == 0 {
+		sw = c.DefaultStripeWidth
+	}
+	if rl == 0 {
+		rl = c.DefaultRedundancyLevel
+	}
+	if hs == 0 {
+		hs = c.DefaultHotSpare
+	}
+	return
 }
 
 type PortAllocationConfig struct {
@@ -578,6 +602,9 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DriveSharing.HugepagesQlcRatio = getIntEnvOrDefault("HUGEPAGES_QLC_RATIO", 6000)
 	Config.DriveSharing.SmallBigDiskSizesMaxProportionFactor = getIntEnvOrDefault("SMALL_BIG_DISK_SIZES_MAX_PROPORTION_FACTOR", 10)
 	Config.DriveSharing.AllowSingleParity = getBoolEnvOrDefault("ALLOW_SINGLE_PARITY", false)
+	Config.DriveSharing.DefaultStripeWidth = getIntEnvOrDefault("PROTECTION_STRIPE_WIDTH", 0)
+	Config.DriveSharing.DefaultRedundancyLevel = getIntEnvOrDefault("PROTECTION_REDUNDANCY_LEVEL", 0)
+	Config.DriveSharing.DefaultHotSpare = getIntEnvOrDefault("PROTECTION_HOT_SPARE", 0)
 
 	// Cluster capacity configuration
 	Config.ClusterCapacity.MaxComputeCoresPerNode = getIntEnvOrDefault("CLUSTER_CAPACITY_MAX_COMPUTE_CORES_PER_NODE", 16)

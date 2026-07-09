@@ -78,9 +78,21 @@ type NodeCapacity struct {
 }
 
 // RawCapacityGiB converts a usable cluster-capacity target into raw capacity including parity
-// and hot-spare overhead: raw = usable * (sw+rl+hs) / sw.
+// and hot-spare overhead, plus WEKA's ~10% usable-capacity reserve:
+//
+//	raw = usable * (sw+rl+hs) / sw / 0.9
+//
+// The (sw+rl+hs)/sw factor is the protection overhead; the /0.9 accounts for the portion of raw
+// capacity WEKA does not expose as usable (only ~90% is usable after formation). A non-positive
+// stripeWidth (no spec value and no Helm default) has no meaningful overhead ratio, so return 0
+// rather than panic; admission (clusterCapacityProtection) rejects such a scheme before formation.
 func RawCapacityGiB(clusterCapGiB, sw, rl, hs int) int {
-	return int(float64(clusterCapGiB*(sw+rl+hs)/sw) / 0.9)
+	if sw <= 0 {
+		return 0
+	}
+	// All-float arithmetic so neither the fractional (sw+rl+hs)/sw overhead nor the /0.9 usable
+	// reserve is truncated by integer division before scaling.
+	return int(float64(clusterCapGiB) * float64(sw+rl+hs) / float64(sw) / 0.9)
 }
 
 // CapacityShort reports whether current is below desired by more than the relative deadband

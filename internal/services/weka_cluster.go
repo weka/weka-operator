@@ -135,8 +135,10 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		return errors.Wrapf(err, "Failed to update cluster name: %s", stderr.String())
 	}
 
-	cmd = fmt.Sprintf("weka cluster hot-spare %d", r.Cluster.Spec.HotSpare)
-	logger.Debug("Setting hot-spare", "hotSpare", r.Cluster.Spec.HotSpare)
+	sw, rl, hs := globalconfig.Config.DriveSharing.EffectiveProtection(r.Cluster.Spec.StripeWidth, r.Cluster.Spec.RedundancyLevel, r.Cluster.Spec.HotSpare)
+
+	cmd = fmt.Sprintf("weka cluster hot-spare %d", hs)
+	logger.Debug("Setting hot-spare", "hotSpare", hs)
 	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetHotSpare", []string{"bash", "-ce", cmd})
 	if err != nil {
 		return errors.Wrapf(err, "Failed to set hot spare: %s", stderr.String())
@@ -147,30 +149,30 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	// with ProtectionNotAllowed otherwise. EnsureWekaOverrides runs post start-io (too late), so the
 	// override is set here, between hot-spare and parity. Operator-gated by AllowSingleParity; QA/test
 	// only (a single parity chunk leaves a stripe unprotected during rebuild).
-	if globalconfig.Config.DriveSharing.AllowSingleParity && r.Cluster.Spec.RedundancyLevel > 0 && r.Cluster.Spec.RedundancyLevel < 2 {
+	if globalconfig.Config.DriveSharing.AllowSingleParity && rl > 0 && rl < 2 {
 		wekaSvc := NewWekaService(r.ExecService, containers[0])
 		existing, lerr := wekaSvc.ListOverridesByKey(ctx, "allow_1_parity")
 		if lerr != nil || len(existing) == 0 {
-			logger.Info("Setting allow_1_parity override (single-parity protection)", "redundancyLevel", r.Cluster.Spec.RedundancyLevel)
-			comment := fmt.Sprintf("weka-operator AllowSingleParity: enable single parity for cluster %s (parity=%d)", r.Cluster.Name, r.Cluster.Spec.RedundancyLevel)
+			logger.Info("Setting allow_1_parity override (single-parity protection)", "redundancyLevel", rl)
+			comment := fmt.Sprintf("weka-operator AllowSingleParity: enable single parity for cluster %s (parity=%d)", r.Cluster.Name, rl)
 			if err = wekaSvc.AddOverride(ctx, "allow_1_parity", "true", comment, true); err != nil {
 				return errors.Wrapf(err, "Failed to set allow_1_parity override: %s", err.Error())
 			}
 		}
 	}
 
-	if r.Cluster.Spec.RedundancyLevel != 0 {
+	if rl != 0 {
 		logger.Debug("Setting parity drives")
-		cmd = fmt.Sprintf("weka cluster update --parity-drives %d", r.Cluster.Spec.RedundancyLevel)
+		cmd = fmt.Sprintf("weka cluster update --parity-drives %d", rl)
 		_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetParityDrives", []string{"bash", "-ce", cmd})
 		if err != nil {
 			return errors.Wrapf(err, "Failed to set redundancy level (--parity-drives): %s", stderr.String())
 		}
 	}
 
-	if r.Cluster.Spec.StripeWidth != 0 {
+	if sw != 0 {
 		logger.Debug("Setting data drives")
-		cmd = fmt.Sprintf("weka cluster update --data-drives %d", r.Cluster.Spec.StripeWidth)
+		cmd = fmt.Sprintf("weka cluster update --data-drives %d", sw)
 		_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetDataDrives", []string{"bash", "-ce", cmd})
 		if err != nil {
 			return errors.Wrapf(err, "Failed to set stripe width (--data-drives): %s", stderr.String())

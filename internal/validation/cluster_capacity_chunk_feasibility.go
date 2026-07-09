@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
@@ -33,7 +34,11 @@ func (clusterCapacityChunkFeasibility) Validate(ctx context.Context, c client.Cl
 		return nil
 	}
 
-	sw, rl, hs := cluster.Spec.StripeWidth, cluster.Spec.RedundancyLevel, cluster.Spec.HotSpare
+	// Resolve effective protection (spec value, else Helm default) so this greenfield gate checks the
+	// same scheme the webhook accepted and the planner forms.
+	sw, rl, hs := globalconfig.Config.DriveSharing.EffectiveProtection(
+		cluster.Spec.StripeWidth, cluster.Spec.RedundancyLevel, cluster.Spec.HotSpare,
+	)
 	// The protection floor (3+2+0, or single-parity 2+1+0 when AllowSingleParity is set) is reported by
 	// clusterCapacityProtection; below it the chunk math is degenerate.
 	minSW, minRL, minHS := allocator.MinProtectionFloor()

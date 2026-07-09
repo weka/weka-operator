@@ -45,9 +45,12 @@ func calculateDynamicComputeHugepages(ctx context.Context, k8sClient client.Clie
 		if ccErr != nil {
 			return 0, fmt.Errorf("clusterCapacity compute hugepages: %w", ccErr)
 		}
-		totalRawCapacityGiB = RawCapacityGiB(
-			clusterCapGiB, cluster.Spec.StripeWidth, cluster.Spec.RedundancyLevel, cluster.Spec.HotSpare,
+		// Resolve effective protection (spec value, else Helm default) so the raw-capacity estimate
+		// matches what the FD planner and webhook use; raw spec 0/0/0 would divide by zero here.
+		sw, rl, hs := globalconfig.Config.DriveSharing.EffectiveProtection(
+			cluster.Spec.StripeWidth, cluster.Spec.RedundancyLevel, cluster.Spec.HotSpare,
 		)
+		totalRawCapacityGiB = RawCapacityGiB(clusterCapGiB, sw, rl, hs)
 	case template.ContainerCapacity > 0:
 		// Drive-sharing mode - full capacity per drive container is known
 		totalRawCapacityGiB = template.ContainerCapacity * template.Containers.Drive

@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 )
 
@@ -28,19 +29,25 @@ func (clusterCapacityProtection) Validate(_ context.Context, _ client.Client, ob
 		return nil
 	}
 	var errs field.ErrorList
-	sw, rl, hs := cluster.Spec.StripeWidth, cluster.Spec.RedundancyLevel, cluster.Spec.HotSpare
+	specSW, specRL, specHS := cluster.Spec.StripeWidth, cluster.Spec.RedundancyLevel, cluster.Spec.HotSpare
+	sw, rl, hs := globalconfig.Config.DriveSharing.EffectiveProtection(specSW, specRL, specHS)
 	minSW, minRL, minHS := allocator.MinProtectionFloor()
+	// Compare against the *effective* protection (spec value, else the PROTECTION_* Helm
+	// default) but report the raw spec value as the field.Invalid "bad value" so kubectl/API
+	// clients see the value that actually exists in the object (not a default-resolved one).
+	// The message carries the effective value so a 0-in-spec-resolved-from-default case is
+	// still explained and points at both sources.
 	if sw < minSW {
-		errs = append(errs, field.Invalid(field.NewPath("spec", "stripeWidth"), sw,
-			fmt.Sprintf("clusterCapacity requires stripeWidth >= %d", minSW)))
+		errs = append(errs, field.Invalid(field.NewPath("spec", "stripeWidth"), specSW,
+			fmt.Sprintf("clusterCapacity requires stripeWidth >= %d (effective value %d; raise spec.stripeWidth to >= %d, or leave spec.stripeWidth=0 to fall back to the PROTECTION_STRIPE_WIDTH default — which must itself be >= %d)", minSW, sw, minSW, minSW)))
 	}
 	if rl < minRL {
-		errs = append(errs, field.Invalid(field.NewPath("spec", "redundancyLevel"), rl,
-			fmt.Sprintf("clusterCapacity requires redundancyLevel >= %d", minRL)))
+		errs = append(errs, field.Invalid(field.NewPath("spec", "redundancyLevel"), specRL,
+			fmt.Sprintf("clusterCapacity requires redundancyLevel >= %d (effective value %d; raise spec.redundancyLevel to >= %d, or leave spec.redundancyLevel=0 to fall back to the PROTECTION_REDUNDANCY_LEVEL default — which must itself be >= %d)", minRL, rl, minRL, minRL)))
 	}
 	if hs < minHS {
-		errs = append(errs, field.Invalid(field.NewPath("spec", "hotSpare"), hs,
-			fmt.Sprintf("clusterCapacity requires hotSpare >= %d", minHS)))
+		errs = append(errs, field.Invalid(field.NewPath("spec", "hotSpare"), specHS,
+			fmt.Sprintf("clusterCapacity requires hotSpare >= %d (effective value %d; raise spec.hotSpare to >= %d, or leave spec.hotSpare=0 to fall back to the PROTECTION_HOT_SPARE default — which must itself be >= %d)", minHS, hs, minHS, minHS)))
 	}
 	return errs
 }
