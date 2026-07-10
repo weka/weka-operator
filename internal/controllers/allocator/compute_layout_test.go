@@ -204,3 +204,188 @@ func TestComputeLayoutWouldGrow(t *testing.T) {
 		})
 	}
 }
+
+// nodeSet turns a compute-node name list into a set for membership assertions.
+func nodeSet(names []string) map[string]bool {
+	m := make(map[string]bool, len(names))
+	for _, n := range names {
+		m[n] = true
+	}
+	return m
+}
+
+// Test_UnscheduledCompute_CountedAsCommitted_NoFreshNodes: an already-created compute whose pod is
+// still Pending (Node pinned, Unscheduled) must count as committed capacity — frozen and its node
+// pinned — so the planner does NOT recreate a fresh batch on other nodes.
+//
+// 6 scheduled drives (72 TLC drive cores) make compute derive to 6×12. Six existing Unscheduled
+// computes on cmp1..cmp6 already cover that. Each cmp node keeps 13 cores free after its footprint is
+// charged (still fit, so hmin stays ≥ 12) but less than the ample fresh nodes (free1..free6, 64), so
+// best-fit prefers the fresh nodes: the buggy planner skips the unscheduled computes and fills the
+// shortfall onto free1..free6 (FAILS); the fix freezes them, shortfall == 0, ComputeNodes = cmp1..cmp6.
+func Test_UnscheduledCompute_CountedAsCommitted_NoFreshNodes(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	cons := testCons()
+	cons.MaxComputeCoresPerNode = 0 // disable policy cap; real per-node headroom binds
+
+	var existingDrives []ExistingContainer
+	for i := 1; i <= 6; i++ {
+		n := "drv" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{
+			Name: "drive" + itoa(i), Node: n, FDValue: n,
+			TlcGiB: 60 * tib, NumCores: 12,
+		})
+	}
+
+	// Six existing computes covering the 6×12 target, each pinned to its node but its pod still Pending.
+	const curHP = 1600 * 12 // plausible frozen hugepages; nodes are huge so it never binds
+	var existingCompute []ExistingComputeContainer
+	for i := 1; i <= 6; i++ {
+		existingCompute = append(existingCompute, ExistingComputeContainer{
+			Name: "compute" + itoa(i), Node: "cmp" + itoa(i), NumCores: 12, HugepagesMiB: curHP,
+			Unscheduled: true,
+		})
+	}
+
+	inv := make([]NodeCapacity, 0, 18)
+	for i := 1; i <= 6; i++ {
+		inv = append(inv, NodeCapacity{
+			NodeName: "drv" + itoa(i), FDValue: "drv" + itoa(i),
+			TlcGiB: 100 * tib, AllocatableCPU: 64, AvailableHugepagesMiB: 1 << 28, AvailableMemoryMiB: 1 << 28,
+		})
+	}
+	// cmp nodes: 25 cores → after the inventory charges the 12-core unscheduled compute, 13 free
+	// (still ≥ the 12-core target, so hmin=13 keeps count=6/cores=12) but below the fresh nodes' 64.
+	for i := 1; i <= 6; i++ {
+		inv = append(inv, NodeCapacity{
+			NodeName: "cmp" + itoa(i), FDValue: "cmp" + itoa(i),
+			TlcGiB: 0, AllocatableCPU: 25, AvailableHugepagesMiB: 1 << 28, AvailableMemoryMiB: 1 << 28,
+		})
+	}
+	// Six ample fresh compute nodes — the buggy planner steers the duplicate batch here.
+	for i := 1; i <= 6; i++ {
+		inv = append(inv, NodeCapacity{
+			NodeName: "free" + itoa(i), FDValue: "free" + itoa(i),
+			TlcGiB: 0, AllocatableCPU: 64, AvailableHugepagesMiB: 1 << 28, AvailableMemoryMiB: 1 << 28,
+		})
+	}
+
+	computeNodes := computeNodeSet(
+		"cmp1", "cmp2", "cmp3", "cmp4", "cmp5", "cmp6",
+		"free1", "free2", "free3", "free4", "free5", "free6",
+	)
+	inv = netCompute(inv, existingCompute, cons)
+	plan := PlanCapacity(DesiredCapacity{TlcRawGiB: 6 * 60 * tib}, s, existingDrives, existingCompute, inv, computeNodes, cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if plan.ComputeContainers != 6 || plan.ComputeCores != 12 {
+		t.Fatalf("want compute 6x12, got %dx%d", plan.ComputeContainers, plan.ComputeCores)
+	}
+	if len(plan.ComputeNodes) != 6 {
+		t.Fatalf("want exactly 6 compute nodes (the pinned unscheduled set), got %d: %v",
+			len(plan.ComputeNodes), plan.ComputeNodes)
+	}
+	pinned := nodeSet([]string{"cmp1", "cmp2", "cmp3", "cmp4", "cmp5", "cmp6"})
+	for _, n := range plan.ComputeNodes {
+		if !pinned[n] {
+			t.Fatalf("fresh node %q consumed — the unscheduled compute set was recreated instead of "+
+				"counted as committed capacity; ComputeNodes=%v", n, plan.ComputeNodes)
+		}
+	}
+}
+
+// Test_MultiPass_UnscheduledCompute_DoesNotGrow reproduces the accumulation across re-plans: pass 1
+// places the compute set; those pods are still Pending (Unscheduled) when pass 2 re-plans. The buggy
+// planner ignores them and places another full batch on the remaining fresh nodes, so the two passes
+// target DISJOINT node sets (union doubles). The fix freezes the pass-1 computes, so pass 2 re-targets
+// the same nodes and the set does not grow.
+//
+// Twelve compute-eligible nodes, each 24 cores: one 12-core container leaves 12 free — still fit (hmin
+// stays ≥ 12) but with less headroom than the six untouched 24-core nodes, so the buggy pass-2 shortfall
+// deterministically prefers the untouched nodes, proving the disjoint double-create.
+func Test_MultiPass_UnscheduledCompute_DoesNotGrow(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	cons := testCons()
+	cons.MaxComputeCoresPerNode = 0
+
+	var existingDrives []ExistingContainer
+	for i := 1; i <= 6; i++ {
+		n := "drv" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{
+			Name: "drive" + itoa(i), Node: n, FDValue: n,
+			TlcGiB: 60 * tib, NumCores: 12,
+		})
+	}
+	desired := DesiredCapacity{TlcRawGiB: 6 * 60 * tib} // 72 TLC drive cores → compute 6×12
+
+	baseInv := func() []NodeCapacity {
+		inv := make([]NodeCapacity, 0, 18)
+		for i := 1; i <= 6; i++ {
+			inv = append(inv, NodeCapacity{
+				NodeName: "drv" + itoa(i), FDValue: "drv" + itoa(i),
+				TlcGiB: 100 * tib, AllocatableCPU: 64, AvailableHugepagesMiB: 1 << 28, AvailableMemoryMiB: 1 << 28,
+			})
+		}
+		for i := 1; i <= 12; i++ {
+			inv = append(inv, NodeCapacity{
+				NodeName: "cmp" + itoa(i), FDValue: "cmp" + itoa(i),
+				TlcGiB: 0, AllocatableCPU: 24, AvailableHugepagesMiB: 1 << 28, AvailableMemoryMiB: 1 << 28,
+			})
+		}
+		return inv
+	}
+	var cmpNodes []string
+	for i := 1; i <= 12; i++ {
+		cmpNodes = append(cmpNodes, "cmp"+itoa(i))
+	}
+	computeNodes := computeNodeSet(cmpNodes...)
+
+	// Pass 1: no existing compute — the planner places the initial 6×12 set on fresh nodes.
+	plan1 := PlanCapacity(desired, s, existingDrives, nil, baseInv(), computeNodes, cons)
+	if plan1.Infeasible != "" {
+		t.Fatalf("pass 1 unexpected infeasible: %s", plan1.Infeasible)
+	}
+	if plan1.ComputeContainers != 6 {
+		t.Fatalf("pass 1 want 6 compute containers, got %d (%v)", plan1.ComputeContainers, plan1.ComputeNodes)
+	}
+	pass1Nodes := nodeSet(plan1.ComputeNodes)
+
+	// Feed pass 1's layout back as still-Pending (Unscheduled) existing compute, and charge its
+	// footprint against the inventory exactly as production would.
+	var existingCompute []ExistingComputeContainer
+	for i, c := range plan1.ComputeLayout {
+		existingCompute = append(existingCompute, ExistingComputeContainer{
+			Name: "compute" + itoa(i+1), Node: c.Node, NumCores: c.NumCores, HugepagesMiB: c.HugepagesMiB,
+			Unscheduled: true,
+		})
+	}
+	inv2 := netCompute(baseInv(), existingCompute, cons)
+
+	// Pass 2: the same target, now with the pass-1 computes present but unscheduled.
+	plan2 := PlanCapacity(desired, s, existingDrives, existingCompute, inv2, computeNodes, cons)
+	if plan2.Infeasible != "" {
+		t.Fatalf("pass 2 unexpected infeasible: %s", plan2.Infeasible)
+	}
+	if plan2.ComputeContainers != 6 {
+		t.Fatalf("pass 2 want 6 compute containers, got %d", plan2.ComputeContainers)
+	}
+
+	// The set must not grow: pass 2 must re-target exactly the pass-1 nodes. BEFORE the fix, pass 2
+	// picks the untouched higher-headroom nodes (disjoint), so the union doubles to 12.
+	union := nodeSet(plan1.ComputeNodes)
+	for _, n := range plan2.ComputeNodes {
+		union[n] = true
+	}
+	if len(union) != 6 {
+		t.Fatalf("compute set grew across passes — pass1=%v pass2=%v (union=%d); the "+
+			"unscheduled pass-1 computes were recreated on fresh nodes instead of frozen",
+			plan1.ComputeNodes, plan2.ComputeNodes, len(union))
+	}
+	for _, n := range plan2.ComputeNodes {
+		if !pass1Nodes[n] {
+			t.Fatalf("pass 2 targeted new node %q not in the pass-1 set %v", n, plan1.ComputeNodes)
+		}
+	}
+}
