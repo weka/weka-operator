@@ -176,6 +176,14 @@ cluster-sample: ## Deploy sample cluster CRD
 build: ## Build the operator binary.
 	go build ./...
 
+.PHONY: build-weka-capacity
+build-weka-capacity: ## Build the weka-capacity dry-run CLI binary into bin/.
+	go build -o bin/weka-capacity ./cmd/weka-capacity
+
+.PHONY: run-weka-capacity
+run-weka-capacity: ## Run the weka-capacity CLI (pass args via ARGS, e.g. ARGS="explore-nodes -n weka-operator-system").
+	go run ./cmd/weka-capacity $(ARGS)
+
 .PHONY: verify
 verify: ## Verify go.mod is tidy and generated files are current.
 	go mod tidy

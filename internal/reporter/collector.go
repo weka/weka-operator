@@ -42,20 +42,40 @@ func newWekaPolicyList() client.ObjectList          { return &weka.WekaPolicyLis
 func newWekaManualOperationList() client.ObjectList { return &weka.WekaManualOperationList{} }
 
 func clusterItems(l client.ObjectList) []client.Object {
-	return objectsFrom(l.(*weka.WekaClusterList).Items)
+	list, ok := l.(*weka.WekaClusterList)
+	if !ok {
+		return nil
+	}
+	return objectsFrom(list.Items)
 }
 func containerItems(l client.ObjectList) []client.Object {
-	return objectsFrom(l.(*weka.WekaContainerList).Items)
+	list, ok := l.(*weka.WekaContainerList)
+	if !ok {
+		return nil
+	}
+	return objectsFrom(list.Items)
 }
 func clientItems(l client.ObjectList) []client.Object {
-	return objectsFrom(l.(*weka.WekaClientList).Items)
+	list, ok := l.(*weka.WekaClientList)
+	if !ok {
+		return nil
+	}
+	return objectsFrom(list.Items)
 }
 func policyItems(l client.ObjectList) []client.Object {
-	return objectsFrom(l.(*weka.WekaPolicyList).Items)
+	list, ok := l.(*weka.WekaPolicyList)
+	if !ok {
+		return nil
+	}
+	return objectsFrom(list.Items)
 }
 
 func manualOpItems(l client.ObjectList) []client.Object {
-	return objectsFrom(l.(*weka.WekaManualOperationList).Items)
+	list, ok := l.(*weka.WekaManualOperationList)
+	if !ok {
+		return nil
+	}
+	return objectsFrom(list.Items)
 }
 
 // objectsFrom boxes a list's []T item values into []client.Object (PT is *T and
@@ -74,7 +94,10 @@ func objectsFrom[T any, PT interface {
 // clusterSelectors harvests the global node-selector plus every per-role
 // selector from each WekaCluster.
 func clusterSelectors(l client.ObjectList) []map[string]string {
-	list := l.(*weka.WekaClusterList)
+	list, ok := l.(*weka.WekaClusterList)
+	if !ok {
+		return nil
+	}
 	var out []map[string]string
 	for i := range list.Items {
 		spec := &list.Items[i].Spec
@@ -93,7 +116,10 @@ func clusterSelectors(l client.ObjectList) []map[string]string {
 
 // clientSelectors harvests the node-selector from each WekaClient.
 func clientSelectors(l client.ObjectList) []map[string]string {
-	list := l.(*weka.WekaClientList)
+	list, ok := l.(*weka.WekaClientList)
+	if !ok {
+		return nil
+	}
 	var out []map[string]string
 	for i := range list.Items {
 		out = append(out, list.Items[i].Spec.NodeSelector)
@@ -105,7 +131,10 @@ func clientSelectors(l client.ObjectList) []map[string]string {
 // payload: the four common sub-payloads (via appendOpSelectors) plus the
 // driver-distribution payload (WekaPolicy-only).
 func policySelectors(l client.ObjectList) []map[string]string {
-	list := l.(*weka.WekaPolicyList)
+	list, ok := l.(*weka.WekaPolicyList)
+	if !ok {
+		return nil
+	}
 	var out []map[string]string
 	for i := range list.Items {
 		p := &list.Items[i].Spec.Payload
@@ -131,7 +160,10 @@ func policySelectors(l client.ObjectList) []map[string]string {
 // manualOpSelectors harvests node-selectors from every pod-creating
 // WekaManualOperation payload (the four common sub-payloads).
 func manualOpSelectors(l client.ObjectList) []map[string]string {
-	list := l.(*weka.WekaManualOperationList)
+	list, ok := l.(*weka.WekaManualOperationList)
+	if !ok {
+		return nil
+	}
 	var out []map[string]string
 	for i := range list.Items {
 		p := &list.Items[i].Spec.Payload

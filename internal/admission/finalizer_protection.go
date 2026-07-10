@@ -28,7 +28,7 @@ var protectedFinalizers = []string{
 	consts.WekaFinalizer,
 }
 
-func (h *FinalizerProtectionHandler) Handle(_ context.Context, req admission.Request) admission.Response {
+func (h *FinalizerProtectionHandler) Handle(_ context.Context, req admission.Request) admission.Response { //nolint:gocritic // req is admission.Handler's fixed interface signature, cannot pass by pointer
 	// Only guard UPDATE; allow everything else unconditionally.
 	if req.Operation != admissionv1.Update {
 		return admission.Allowed("")

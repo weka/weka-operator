@@ -79,7 +79,7 @@ func main() {
 	sourceDir := "./pkg/weka-k8s-api/api/v1alpha1"
 	outputDir := "./doc/api_dump"
 
-	os.MkdirAll(outputDir, 0o755) //nolint:errcheck
+	os.MkdirAll(outputDir, 0o755) //nolint:errcheck // best-effort dir creation; a real failure surfaces on the next file write
 
 	// Phase 1: Generate api-schema.json
 	schema := generateSchema(sourceDir)
@@ -115,7 +115,7 @@ func resolveConstString(expr ast.Expr, constLiterals map[string]string) (string,
 
 func generateSchema(sourceDir string) *Schema {
 	fset := token.NewFileSet()
-	packages, err := parser.ParseDir(fset, sourceDir, nil, parser.ParseComments) //nolint:staticcheck
+	packages, err := parser.ParseDir(fset, sourceDir, nil, parser.ParseComments) //nolint:staticcheck // ParseDir is deprecated (doesn't consider build tags) but sufficient for this doc-generation script over a single-build-tag API package
 	if err != nil {
 		fmt.Printf("Error parsing directory: %v\n", err)
 		os.Exit(1)
@@ -184,18 +184,19 @@ func generateSchema(sourceDir string) *Schema {
 						}
 						allTypes[ts.Name.Name] = ti
 
-						if _, ok := ts.Type.(*ast.StructType); ok {
+						switch t := ts.Type.(type) {
+						case *ast.StructType:
 							structTypes[ts.Name.Name] = true
-						} else if ident, ok := ts.Type.(*ast.Ident); ok {
-							if isBasicType(ident.Name) {
-								aliasTypes[ts.Name.Name] = ident.Name
+						case *ast.Ident:
+							if isBasicType(t.Name) {
+								aliasTypes[ts.Name.Name] = t.Name
 							}
-						} else if sel, ok := ts.Type.(*ast.SelectorExpr); ok {
+						case *ast.SelectorExpr:
 							pkgName := ""
-							if ident, ok := sel.X.(*ast.Ident); ok {
+							if ident, ok := t.X.(*ast.Ident); ok {
 								pkgName = ident.Name
 							}
-							aliasTypes[ts.Name.Name] = pkgName + "." + sel.Sel.Name
+							aliasTypes[ts.Name.Name] = pkgName + "." + t.Sel.Name
 						}
 					}
 				}
@@ -359,19 +360,19 @@ func generateCRDMarkdown(crdName string, schema *Schema, outputDir string) {
 		fmt.Printf("Error creating file %s: %v\n", filename, err)
 		return
 	}
-	defer f.Close() //nolint:errcheck
+	defer f.Close() //nolint:errcheck // best-effort close on a file opened for writing; a real failure already surfaced at Write/Sync time
 
-	fmt.Fprintf(f, "# %s\n\n", crdName) //nolint:errcheck
+	fmt.Fprintf(f, "# %s\n\n", crdName) //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
 
 	// Find related types via BFS through $ref links (structs only)
 	relatedTypes := findRelatedTypes(crdName, schema)
 
 	// Write table of contents
-	fmt.Fprintf(f, "## API Types\n\n") //nolint:errcheck
+	fmt.Fprintf(f, "## API Types\n\n") //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
 	for _, typeName := range relatedTypes {
-		fmt.Fprintf(f, "- [%s](#%s)\n", typeName, strings.ToLower(typeName)) //nolint:errcheck
+		fmt.Fprintf(f, "- [%s](#%s)\n", typeName, strings.ToLower(typeName)) //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
 	}
-	fmt.Fprintf(f, "\n---\n\n") //nolint:errcheck
+	fmt.Fprintf(f, "\n---\n\n") //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
 
 	// Generate documentation for each related type
 	for _, typeName := range relatedTypes {
@@ -434,7 +435,7 @@ func findRelatedTypes(crdName string, schema *Schema) []string {
 }
 
 func generateTypeSection(f *os.File, typeName string, def *Definition) {
-	fmt.Fprintf(f, "## %s\n\n", typeName) //nolint:errcheck
+	fmt.Fprintf(f, "## %s\n\n", typeName) //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
 
 	// Write fields table for struct types (skip embedded/metadata fields)
 	hasFields := false
@@ -446,8 +447,8 @@ func generateTypeSection(f *os.File, typeName string, def *Definition) {
 	}
 
 	if hasFields {
-		fmt.Fprintf(f, "| JSON Field | Type | Description |\n")  //nolint:errcheck
-		fmt.Fprintf(f, "|------------|------|-------------|\n") //nolint:errcheck
+		fmt.Fprintf(f, "| JSON Field | Type | Description |\n")  //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
+		fmt.Fprintf(f, "|------------|------|-------------|\n") //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
 
 		for _, field := range def.Fields {
 			if field.Embedded {
@@ -456,12 +457,12 @@ func generateTypeSection(f *os.File, typeName string, def *Definition) {
 			goType := typeToGoString(field.Type, field.Pointer)
 			desc := strings.ReplaceAll(field.Description, "\n", "<br>")
 			desc = strings.ReplaceAll(desc, "|", "\\|")
-			fmt.Fprintf(f, "| %s | %s | %s |\n", field.JSONName, goType, desc) //nolint:errcheck
+			fmt.Fprintf(f, "| %s | %s | %s |\n", field.JSONName, goType, desc) //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
 		}
-		fmt.Fprintf(f, "\n") //nolint:errcheck
+		fmt.Fprintf(f, "\n") //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
 	}
 
-	fmt.Fprintf(f, "---\n\n") //nolint:errcheck
+	fmt.Fprintf(f, "---\n\n") //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
 }
 
 // typeToGoString converts a JSON type representation back to a Go-style type string.

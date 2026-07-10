@@ -329,8 +329,8 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 	// the daemonset may have been created while CSI was enabled and CSI
 	// disabled afterwards. UndeployCsiNodeDaemonSetForClient treats NotFound
 	// as success, so this is a no-op when nothing is present.
-	if err := c.UndeployCsiNodeDaemonSetForClient(ctx); err != nil {
-		return errors.Wrap(err, "failed to undeploy per-client CSI node daemonset")
+	if undeployErr := c.UndeployCsiNodeDaemonSetForClient(ctx); undeployErr != nil {
+		return errors.Wrap(undeployErr, "failed to undeploy per-client CSI node daemonset")
 	}
 
 	// Undeploy shared CSI components only if this client manages them

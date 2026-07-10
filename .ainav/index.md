@@ -17,6 +17,10 @@ Entry point for AI navigation. Max 3 hops to any information.
 
 ```
 cmd/manager/main.go          # Operator entry point
+cmd/weka-capacity/           # Dry-run capacity-planner CLI (explore-nodes, plan); ships in the image
+internal/capacityplanner/    # PURE planner: PlanCapacity + constraints + InfeasibilityReport/fix tips
+  inventory/                 # k8s inventory collector (NodeInventory/Collect/ExploreNodes), shared by
+                             #   the wekacluster controller AND the weka-capacity CLI
 internal/controllers/        # All reconciliation logic
   wekacluster/              # Cluster lifecycle
   wekacontainer/            # Container lifecycle (MOST ACTIVE)

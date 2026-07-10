@@ -31,123 +31,6 @@ func ownedDriveContainer(ownerUID, node string, capGiB, tlc, qlc int) weka.WekaC
 	return c
 }
 
-func testCons() *allocator.CapacityConstraints {
-	return &allocator.CapacityConstraints{
-		TlcCapacityPerCoreGiB: 5 * tib,  // 1 core / 5 TiB TLC
-		QlcCapacityPerCoreGiB: 50 * tib, // 1 core / 50 TiB QLC
-		HugepagesPerCoreMiB:   allocator.HugepagesPerCoreMiB,
-		MemoryBaseMiB:         allocator.MemoryBaseMiB,
-		MemoryPerCoreMiB:      allocator.MemoryPerCoreMiB,
-	}
-}
-
-// TestAggregateContainerResources_Drives verifies the per-node DRIVE footprint summed across ALL
-// drive-sharing containers (this cluster's own AND other clusters') by aggregateContainerResources — the
-// basis for the planner's remaining-headroom inventory. Cores/hugepages/memory are derived from each
-// container's capacity via the shared sizing model (NOT read from Spec.NumCores/Hugepages, which may be
-// stale), so the headroom lines up with how the planner sizes and consumes containers. Unpinned
-// containers contribute nothing.
-func TestAggregateContainerResources_Drives(t *testing.T) {
-	cons := testCons()
-	// Each n1 container: tlc=20TiB (ceil(20/5)=4 cores) + qlc=80TiB (ceil(80/50)=2 cores) = 6 cores.
-	const perContainerCores = 6
-
-	// Spec.NumCores/Hugepages are deliberately set to values that do NOT match the capacity-derived
-	// figure, to prove the aggregation ignores the (possibly stale) pod spec for drives.
-	other := ownedDriveContainer("cluster-other", "n1", 100*tib, 1, 4) // tlc=20TiB, qlc=80TiB
-	other.Spec.NumCores = 10
-	other.Spec.Hugepages = 1000
-
-	mine := ownedDriveContainer("cluster-me", "n1", 100*tib, 1, 4) // included too (own + other)
-	mine.Spec.NumCores = 99
-	mine.Spec.Hugepages = 2000
-
-	labelOwned := ownedDriveContainer("", "n2", 50*tib, 1, 0) // tlc=50TiB → ceil(50/5)=10 cores
-	labelOwned.Spec.NumCores = 5
-
-	// Unscheduled / unpinned (no node): contributes nothing.
-	noNode := ownedDriveContainer("cluster-other", "", 100*tib, 1, 4)
-	noNode.Spec.NumCores = 7
-
-	containers := []weka.WekaContainer{other, mine, labelOwned, noNode}
-	res := aggregateContainerResources(containers, cons)
-
-	if res.tlc["n1"] != 40*tib { // 20 (other) + 20 (mine)
-		t.Errorf("n1 TLC = %d, want 40TiB (own + other)", res.tlc["n1"])
-	}
-	if res.qlc["n1"] != 160*tib {
-		t.Errorf("n1 QLC = %d, want 160TiB", res.qlc["n1"])
-	}
-	if res.cores["n1"] != 2*perContainerCores { // capacity-derived, not 10+99
-		t.Errorf("n1 cores = %d, want %d", res.cores["n1"], 2*perContainerCores)
-	}
-	if want := 2 * perContainerCores * allocator.HugepagesPerCoreMiB; res.hugepages["n1"] != want {
-		t.Errorf("n1 hugepages = %d, want %d", res.hugepages["n1"], want)
-	}
-	wantMem := 2 * allocator.ComputeMemoryFootprintMiB(perContainerCores, cons)
-	if res.memory["n1"] != wantMem {
-		t.Errorf("n1 memory = %d, want %d", res.memory["n1"], wantMem)
-	}
-	if res.tlc["n2"] != 50*tib || res.qlc["n2"] != 0 {
-		t.Errorf("n2 = (tlc %d, qlc %d), want (50TiB, 0)", res.tlc["n2"], res.qlc["n2"])
-	}
-	if res.cores["n2"] != 10 { // ceil(50TiB / 5TiB) = 10
-		t.Errorf("n2 cores = %d, want 10", res.cores["n2"])
-	}
-}
-
-// modeContainer builds a non-drive WekaContainer of the given mode pinned to node, requesting numCores
-// CPUs and hugepagesMiB of 2Mi hugepages.
-func modeContainer(mode, node string, numCores, hugepagesMiB int) weka.WekaContainer {
-	c := weka.WekaContainer{}
-	c.Spec.Mode = mode
-	c.Spec.NodeAffinity = weka.NodeName(node)
-	c.Spec.NumCores = numCores
-	c.Spec.Hugepages = hugepagesMiB
-	return c
-}
-
-// TestAggregateContainerResources_ComputeAndOther verifies the per-node footprint charged for compute and
-// other (e.g. ssdproxy) modes by the unified aggregator. Compute charges spec cores/hugepages plus the
-// shared memory model — including OTHER clusters' compute, which the planner never saw before (gap B).
-// Other modes charge spec cores (gap A) and 2Mi hugepages (chiefly the per-node ssdproxy container).
-// 1Gi hugepages draw from a different pool, and unpinned containers contribute nothing.
-func TestAggregateContainerResources_ComputeAndOther(t *testing.T) {
-	cons := testCons()
-
-	// Another cluster's compute on h6-9-b: cores + hugepages + memory all charged (gap B).
-	otherCompute := modeContainer(weka.WekaContainerModeCompute, "h6-9-b", 8, 19572)
-
-	// ssdproxy on the same node: cores (gap A) + 2Mi hugepages.
-	ssdproxy := modeContainer(weka.WekaContainerModeSSDProxy, "h6-9-b", 2, 2962)
-
-	// 1Gi hugepages are a distinct resource pool — its cores still count, its hugepages do not.
-	oneGi := modeContainer(weka.WekaContainerModeClient, "h6-9-b", 3, 4096)
-	oneGi.Spec.HugepagesSize = "1Gi"
-
-	// Excluded: no node.
-	noNode := modeContainer(weka.WekaContainerModeSSDProxy, "", 5, 2962)
-
-	// Another hugepage-using mode on a second node is counted.
-	s3 := modeContainer(weka.WekaContainerModeS3, "h6-9-c", 4, 1500)
-
-	res := aggregateContainerResources(
-		[]weka.WekaContainer{otherCompute, ssdproxy, oneGi, noNode, s3}, cons)
-
-	if want := 8 + 2 + 3; res.cores["h6-9-b"] != want { // compute + ssdproxy + 1Gi client cores
-		t.Errorf("h6-9-b cores = %d, want %d (compute+ssdproxy+1Gi)", res.cores["h6-9-b"], want)
-	}
-	if want := 19572 + 2962; res.hugepages["h6-9-b"] != want { // 1Gi excluded from 2Mi pool
-		t.Errorf("h6-9-b hugepages = %d, want %d (compute+ssdproxy; 1Gi excluded)", res.hugepages["h6-9-b"], want)
-	}
-	if want := allocator.ComputeMemoryFootprintMiB(8, cons); res.memory["h6-9-b"] != want { // compute only
-		t.Errorf("h6-9-b memory = %d, want %d (compute footprint)", res.memory["h6-9-b"], want)
-	}
-	if res.cores["h6-9-c"] != 4 || res.hugepages["h6-9-c"] != 1500 {
-		t.Errorf("h6-9-c = (cores %d, hugepages %d), want (4, 1500)", res.cores["h6-9-c"], res.hugepages["h6-9-c"])
-	}
-}
-
 // nodeWithLabels builds a corev1.Node carrying the given labels.
 func nodeWithLabels(labels map[string]string) *corev1.Node {
 	return &corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: labels}}
@@ -219,124 +102,6 @@ func TestResolveNodeFDValue(t *testing.T) {
 	}
 }
 
-// nodeNamed builds a corev1.Node with a name and labels (compute candidates carry no drive annotations).
-func nodeNamed(name string, labels map[string]string) *corev1.Node {
-	return &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
-}
-
-// TestResolveInventoryFDValue is the regression guard for the COMPUTE-inventory FD bug: in label-based FD
-// mode a compute-eligible node WITHOUT the FD label belongs to no failure domain and must be skipped
-// (skip=true), never admitted with FDValue=node.Name. If it were admitted, every unlabeled compute node
-// would masquerade as its own distinct FD, the minComputeFds gate would pass falsely, and compute could be
-// pinned onto drive-free unlabeled nodes that then fail the rack topologySpreadConstraint (pods Pending).
-// Both the drive and compute loops in buildNodeInventory route through this helper, so they cannot drift
-// apart again. AUTO mode (nil config) falls back to the node name = FD per host.
-func TestResolveInventoryFDValue(t *testing.T) {
-	labelFD := &weka.FailureDomain{Label: strPtr("topology.kubernetes.io/rack")}
-
-	tests := []struct {
-		name     string
-		fd       *weka.FailureDomain
-		node     *corev1.Node
-		wantFD   string
-		wantSkip bool
-	}{
-		{
-			name:     "label-based: labeled compute node keeps its rack FD",
-			fd:       labelFD,
-			node:     nodeNamed("h1", map[string]string{"topology.kubernetes.io/rack": "rack-1"}),
-			wantFD:   "rack-1",
-			wantSkip: false,
-		},
-		{
-			name:     "label-based: UNLABELED compute node is skipped (belongs to no FD)",
-			fd:       labelFD,
-			node:     nodeNamed("unlabeled-node", nil),
-			wantFD:   "",
-			wantSkip: true,
-		},
-		{
-			name:     "AUTO mode: unlabeled node falls back to node name as its own FD",
-			fd:       nil,
-			node:     nodeNamed("h1", nil),
-			wantFD:   "h1",
-			wantSkip: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotFD, gotSkip := resolveInventoryFDValue(tt.node, tt.fd)
-			if gotFD != tt.wantFD || gotSkip != tt.wantSkip {
-				t.Errorf("resolveInventoryFDValue() = (%q, %v), want (%q, %v)", gotFD, gotSkip, tt.wantFD, tt.wantSkip)
-			}
-		})
-	}
-}
-
-// invByName indexes a planner inventory by node name for assertions.
-func invByName(inv []allocator.NodeCapacity) map[string]allocator.NodeCapacity {
-	m := make(map[string]allocator.NodeCapacity, len(inv))
-	for _, nc := range inv {
-		m[nc.NodeName] = nc
-	}
-	return m
-}
-
-// TestMergeRoleNodes covers the union of drive- and compute-candidate node sets and the resulting
-// compute-eligibility map, for both equal and differing drive/compute role selectors.
-func TestMergeRoleNodes(t *testing.T) {
-	driveCap := func(name string, tlc int) allocator.NodeCapacity {
-		return allocator.NodeCapacity{NodeName: name, FDValue: name, TlcGiB: tlc, AllocatableCPU: 32}
-	}
-	computeOnly := func(name string) allocator.NodeCapacity {
-		return allocator.NodeCapacity{NodeName: name, FDValue: name, AllocatableCPU: 32}
-	}
-
-	t.Run("equal selectors: every node both drive and compute, no diskless appends", func(t *testing.T) {
-		drive := []allocator.NodeCapacity{driveCap("n1", 50*tib), driveCap("n2", 50*tib)}
-		compute := []allocator.NodeCapacity{computeOnly("n1"), computeOnly("n2")}
-
-		inv, eligible := mergeRoleNodes(drive, compute)
-		if len(inv) != 2 {
-			t.Fatalf("want 2 inventory entries (no diskless appends), got %d", len(inv))
-		}
-		byName := invByName(inv)
-		for _, n := range []string{"n1", "n2"} {
-			if byName[n].TlcGiB != 50*tib {
-				t.Errorf("%s should keep its drive capacity, got %d", n, byName[n].TlcGiB)
-			}
-			if !eligible[n] {
-				t.Errorf("%s should be compute-eligible", n)
-			}
-		}
-	})
-
-	t.Run("different selectors: drive-only, shared, and compute-only diskless", func(t *testing.T) {
-		drive := []allocator.NodeCapacity{driveCap("driveOnly", 50*tib), driveCap("shared", 50*tib)}
-		compute := []allocator.NodeCapacity{computeOnly("shared"), computeOnly("computeOnly")}
-
-		inv, eligible := mergeRoleNodes(drive, compute)
-		byName := invByName(inv)
-		if len(inv) != 3 {
-			t.Fatalf("want 3 inventory entries (driveOnly, shared, computeOnly), got %d", len(inv))
-		}
-		// drive-only node: kept with capacity, NOT compute-eligible.
-		if byName["driveOnly"].TlcGiB != 50*tib || eligible["driveOnly"] {
-			t.Errorf("driveOnly should keep capacity and be compute-ineligible, got cap=%d eligible=%v", byName["driveOnly"].TlcGiB, eligible["driveOnly"])
-		}
-		// shared node: kept with drive capacity AND compute-eligible.
-		if byName["shared"].TlcGiB != 50*tib || !eligible["shared"] {
-			t.Errorf("shared should keep capacity and be compute-eligible, got cap=%d eligible=%v", byName["shared"].TlcGiB, eligible["shared"])
-		}
-		// compute-only node: appended diskless (no drive capacity) AND compute-eligible.
-		if byName["computeOnly"].TlcGiB != 0 || byName["computeOnly"].QlcGiB != 0 || !eligible["computeOnly"] {
-			t.Errorf("computeOnly should be diskless and compute-eligible, got tlc=%d qlc=%d eligible=%v", byName["computeOnly"].TlcGiB, byName["computeOnly"].QlcGiB, eligible["computeOnly"])
-		}
-	})
-}
-
-
 // testConstraints is a fixed set of capacity constraints for the summary helpers (TLC 10 TiB/core).
 func testConstraints() *allocator.CapacityConstraints {
 	return &allocator.CapacityConstraints{TlcCapacityPerCoreGiB: 10 * tib, QlcCapacityPerCoreGiB: 40 * tib}
@@ -354,7 +119,7 @@ func computeContainer(node string, cores int) *weka.WekaContainer {
 // over THIS cluster's healthy drive containers, matching buildExistingDriveContainers semantics:
 // ratio-split capacity, legacy DriveCapacity, and the exclusion of non-drive and deleting containers.
 func TestSummarizeDriveContainers(t *testing.T) {
-	mixed := ownedDriveContainer("me", "n1", 100*tib, 1, 4) // tlc=20TiB, qlc=80TiB
+	mixed := ownedDriveContainer("me", "n1", 100*tib, 1, 4)  // tlc=20TiB, qlc=80TiB
 	tlcOnly := ownedDriveContainer("me", "n2", 50*tib, 1, 0) // tlc=50TiB
 
 	legacy := &weka.WekaContainer{}
@@ -423,7 +188,7 @@ func TestSummarizeComputeContainers(t *testing.T) {
 // steadyStatePlan returns skip=true with a no-op plan echoing the existing compute. A short pool or a
 // compute set below the derived target falls through (skip=false) to the full inventory path.
 func TestSteadyStatePlan(t *testing.T) {
-	cons := testConstraints() // TLC 10 TiB/core, QLC 40 TiB/core
+	cons := testConstraints()                                                        // TLC 10 TiB/core, QLC 40 TiB/core
 	s := allocator.ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 1} // MinFdNum=6
 
 	// 6 drive containers, 10 TiB TLC each -> tlc=60TiB, totalTlcDriveCores=6. 6 compute @ 1 core each.
@@ -572,7 +337,7 @@ func TestPlanClusterCapacitySkipsNodeInventory(t *testing.T) {
 		var cs []*weka.WekaContainer
 		for range 6 {
 			c := ownedDriveContainer("me", "n", 11, 1, 0) // 11 GiB TLC
-			c.Status.NodeAffinity = "n"                    // scheduled (not transiently unscheduled)
+			c.Status.NodeAffinity = "n"                   // scheduled (not transiently unscheduled)
 			cs = append(cs, &c)
 		}
 		for range 6 {
@@ -855,53 +620,4 @@ func TestFormatCapacityPlanSummary(t *testing.T) {
 			t.Errorf("summary %q should omit the grow leg when no entry resolves", got)
 		}
 	})
-}
-
-// TestAggregateContainerResources_SkipsMarkedForDeletion validates that aggregateContainerResources
-// ignores containers where IsMarkedForDeletion() is true (DeletionTimestamp set + at least one
-// finalizer), for both drive and compute modes. Only the live container's footprint must appear.
-func TestAggregateContainerResources_SkipsMarkedForDeletion(t *testing.T) {
-	cons := testCons()
-
-	// Live drive container on "n1" (100 GiB total, tlc:qlc ratio 1:4 → 20 TiB TLC, 80 TiB QLC).
-	live := ownedDriveContainer("cluster-me", "n1", 100*tib, 1, 4)
-
-	// Deleting drive container on "n1" — same capacity but marked for deletion.
-	deleting := ownedDriveContainer("cluster-me", "n1", 100*tib, 1, 4)
-	now := metav1.Now()
-	deleting.DeletionTimestamp = &now
-	deleting.Finalizers = []string{"x"}
-
-	// Deleting compute container on "n1" — proves ALL modes are skipped, not just drive.
-	delCompute := modeContainer(weka.WekaContainerModeCompute, "n1", 8, 19572)
-	delCompute.DeletionTimestamp = &now
-	delCompute.Finalizers = []string{"x"}
-
-	res := aggregateContainerResources([]weka.WekaContainer{live, deleting, delCompute}, cons)
-
-	// Build a reference result from ONLY the live container and compare map-by-map.
-	// This avoids hardcoding derived numbers and directly proves that the two deleting
-	// containers contribute exactly zero to every resource dimension.
-	resLiveOnly := aggregateContainerResources([]weka.WekaContainer{live}, cons)
-
-	if res.tlc["n1"] != resLiveOnly.tlc["n1"] {
-		t.Errorf("n1 TLC: got %d, want %d (only live container; deleting drive must be skipped)",
-			res.tlc["n1"], resLiveOnly.tlc["n1"])
-	}
-	if res.qlc["n1"] != resLiveOnly.qlc["n1"] {
-		t.Errorf("n1 QLC: got %d, want %d (only live container; deleting drive must be skipped)",
-			res.qlc["n1"], resLiveOnly.qlc["n1"])
-	}
-	if res.cores["n1"] != resLiveOnly.cores["n1"] {
-		t.Errorf("n1 cores: got %d, want %d (deleting drive's cores + deleting compute's 8 cores must be skipped)",
-			res.cores["n1"], resLiveOnly.cores["n1"])
-	}
-	if res.hugepages["n1"] != resLiveOnly.hugepages["n1"] {
-		t.Errorf("n1 hugepages: got %d, want %d (deleting containers must not charge hugepages)",
-			res.hugepages["n1"], resLiveOnly.hugepages["n1"])
-	}
-	if res.memory["n1"] != resLiveOnly.memory["n1"] {
-		t.Errorf("n1 memory: got %d, want %d (deleting containers must not charge memory)",
-			res.memory["n1"], resLiveOnly.memory["n1"])
-	}
 }

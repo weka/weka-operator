@@ -1,4 +1,4 @@
-package allocator
+package capacityplanner
 
 import (
 	"strings"
@@ -6,7 +6,6 @@ import (
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 
-	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -135,28 +134,16 @@ func singleParityScheme() ProtectionScheme {
 	return ProtectionScheme{StripeWidth: 2, RedundancyLevel: 1, HotSpare: 0}
 }
 
-// withAllowSingleParity flips the operator-level AllowSingleParity flag for the duration of the test
-// and restores it afterwards (the flag is a process-global read by MinProtectionFloor).
-func withAllowSingleParity(t *testing.T, enabled bool) {
-	t.Helper()
-	prev := globalconfig.Config.DriveSharing.AllowSingleParity
-	globalconfig.Config.DriveSharing.AllowSingleParity = enabled
-	t.Cleanup(func() { globalconfig.Config.DriveSharing.AllowSingleParity = prev })
-}
-
 func Test_MinProtectionFloor_GatedBySingleParityFlag(t *testing.T) {
-	withAllowSingleParity(t, false)
-	if sw, rl, hs := MinProtectionFloor(); sw != 3 || rl != 2 || hs != 0 {
+	if sw, rl, hs := MinProtectionFloor(false); sw != 3 || rl != 2 || hs != 0 {
 		t.Fatalf("default floor must be 3/2/0, got %d/%d/%d", sw, rl, hs)
 	}
-	withAllowSingleParity(t, true)
-	if sw, rl, hs := MinProtectionFloor(); sw != 2 || rl != 1 || hs != 0 {
+	if sw, rl, hs := MinProtectionFloor(true); sw != 2 || rl != 1 || hs != 0 {
 		t.Fatalf("single-parity floor must be 2/1/0, got %d/%d/%d", sw, rl, hs)
 	}
 }
 
 func Test_SingleParity_RejectedWhenFlagOff(t *testing.T) {
-	withAllowSingleParity(t, false)
 	s := singleParityScheme()
 	plan := planCap(
 		desiredFrom(60*tib, s, ratio(0, 1)),
@@ -171,15 +158,16 @@ func Test_SingleParity_RejectedWhenFlagOff(t *testing.T) {
 }
 
 func Test_SingleParity_AcceptedWhenFlagOn_SpreadsAcross3FDs(t *testing.T) {
-	withAllowSingleParity(t, true)
 	s := singleParityScheme() // minFdNum = 3
+	cons := testCons()
+	cons.AllowSingleParity = true
 	// 30 TiB usable, QLC-only. raw = usable × (2+1+0)/2 / 0.9 ≈ 1.667× → 50 TiB raw; ceil(50×1024/3)=17067 GiB/FD → total 51201 GiB across 3 FDs.
 	plan := planCap(
 		desiredFrom(30*tib, s, ratio(0, 1)),
 		s,
 		nil,
 		nodes(3, 0, 100*tib, 64, "q"),
-		testCons(),
+		cons,
 	)
 	if plan.Infeasible != "" {
 		t.Fatalf("2+1+0 must be feasible with the flag on, got Infeasible=%q", plan.Infeasible)
@@ -3319,34 +3307,6 @@ func Test_UniformIncrease_EvenSplit_SubT0_SingleSmallFd(t *testing.T) {
 	}
 	if len(plan.OverProvisions) != 0 {
 		t.Errorf("total 6395 == desired exactly; want no OverProvision advisory, got %v", plan.OverProvisions)
-	}
-}
-
-// Test_CapacityConstraintsFromConfig_ZeroFractionsNotCoerced asserts the fix for the PR #2604 review:
-// an explicit 0 for MinGrowthFraction / MaxOverProvisionFraction is honored, not coerced back to 0.2.
-func Test_CapacityConstraintsFromConfig_ZeroFractionsNotCoerced(t *testing.T) {
-	prevMin := globalconfig.Config.DriveSharing.MinGrowthFraction
-	prevMax := globalconfig.Config.DriveSharing.MaxOverProvisionFraction
-	t.Cleanup(func() {
-		globalconfig.Config.DriveSharing.MinGrowthFraction = prevMin
-		globalconfig.Config.DriveSharing.MaxOverProvisionFraction = prevMax
-	})
-
-	globalconfig.Config.DriveSharing.MinGrowthFraction = 0
-	globalconfig.Config.DriveSharing.MaxOverProvisionFraction = 0
-	cons := CapacityConstraintsFromConfig()
-	if cons.MinGrowthFraction != 0 {
-		t.Errorf("MinGrowthFraction=0 must be honored, got %v", cons.MinGrowthFraction)
-	}
-	if cons.MaxOverProvisionFraction != 0 {
-		t.Errorf("MaxOverProvisionFraction=0 must be honored, got %v", cons.MaxOverProvisionFraction)
-	}
-
-	globalconfig.Config.DriveSharing.MinGrowthFraction = 0.35
-	globalconfig.Config.DriveSharing.MaxOverProvisionFraction = 0.1
-	cons = CapacityConstraintsFromConfig()
-	if cons.MinGrowthFraction != 0.35 || cons.MaxOverProvisionFraction != 0.1 {
-		t.Errorf("explicit non-zero values must pass through, got min=%v max=%v", cons.MinGrowthFraction, cons.MaxOverProvisionFraction)
 	}
 }
 

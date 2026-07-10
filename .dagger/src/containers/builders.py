@@ -103,6 +103,49 @@ async def build_go(
     return await cont
 
 
+async def build_go_multiple(
+        src: Directory,
+        sock: Socket,
+        gh_token: Optional[Secret] = None,
+        cache_deps: bool = True,
+        programs: Optional[dict] = None,
+        go_generate: bool = False,
+        target_os: str = "",
+        target_arch: str = "",
+) -> Container:
+    """Builds multiple go binaries in ONE builder pass so they share the module/build cache and any
+    `go generate` output. `programs` maps binary name -> build target (a package path like
+    `./cmd/weka-capacity`, or a `main.go` file path). Each binary is emitted at `/out/<name>`.
+    Mirrors build_go's step order (mod download -> generate -> full source -> build)."""
+    programs = programs or {}
+
+    cont = (
+        (await _go_builder_container(sock, gh_token))
+        .with_file("/src/go.mod", src.file("go.mod"))
+        .with_file("/src/go.sum", src.file("go.sum"))
+        .with_workdir("/src")
+    )
+
+    if cache_deps:
+        cont = cont.with_exec(["go", "mod", "download"])
+
+    if go_generate:
+        cont = cont.with_exec(["go", "generate", "./..."])
+
+    cont = cont.with_directory("/src", src)
+
+    if target_os and target_arch:
+        cont = (cont
+            .with_env_variable("CGO_ENABLED", "0")
+            .with_env_variable("GOOS", target_os)
+            .with_env_variable("GOARCH", target_arch)
+        )
+
+    for name, target in programs.items():
+        cont = cont.with_exec(["go", "build", "-o", f"/out/{name}", target])
+    return await cont
+
+
 async def _uv_base() -> Container:
     # The ghcr.io/astral-sh/uv:alpine image already contains Python and uv
     return (

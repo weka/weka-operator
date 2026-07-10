@@ -27,6 +27,12 @@ COPY ./ /workspace
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build,id=gobuild-$TARGETARCH \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /dist/weka-operator cmd/manager/main.go
 
+# weka-capacity is the capacity-planner dry-run CLI. Built by package path (multi-file main) and shipped
+# alongside the operator so it can be invoked via `kubectl exec ... -- /weka-capacity ...`.
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build,id=gobuild-$TARGETARCH \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /dist/weka-capacity ./cmd/weka-capacity
+
 FROM registry.access.redhat.com/ubi9/ubi as final
 COPY --from=builder /dist/weka-operator /weka-operator
+COPY --from=builder /dist/weka-capacity /weka-capacity
 ENTRYPOINT ["/weka-operator"]

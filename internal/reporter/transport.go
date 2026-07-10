@@ -43,8 +43,12 @@ const maxErrorBodyBytes = 4 << 10 // 4 KiB
 // settings: AllowInsecure (skip verification) and CacertSecret (trust a
 // private/on-prem CA). Every PEM value in the cacert Secret is added to the pool,
 // so the data-key name does not matter.
-func buildHTTPClient(ctx context.Context, c client.Client, wh config.WekaHome, namespace string, timeout time.Duration) (*http.Client, error) {
-	tr := http.DefaultTransport.(*http.Transport).Clone()
+func buildHTTPClient(ctx context.Context, c client.Client, wh *config.WekaHome, namespace string, timeout time.Duration) (*http.Client, error) {
+	baseTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		baseTransport = &http.Transport{}
+	}
+	tr := baseTransport.Clone()
 
 	if config.Config.Proxy != "" {
 		proxyURL, err := url.Parse(config.Config.Proxy)
@@ -121,8 +125,8 @@ func send(ctx context.Context, httpClient *http.Client, endpoint, deploymentID s
 		return nil, fmt.Errorf("get auth header: %w", err)
 	}
 
-	url := strings.TrimRight(endpoint, "/") + ingestPathFor(deploymentID)
-	resp, err := util.SendJsonRequest(ctx, url, ndjson, util.RequestOptions{
+	fullURL := strings.TrimRight(endpoint, "/") + ingestPathFor(deploymentID)
+	resp, err := util.SendJsonRequest(ctx, fullURL, ndjson, util.RequestOptions{
 		AuthHeader:  authHeader,
 		GzipBody:    true,
 		ContentType: "application/x-ndjson",
@@ -133,11 +137,14 @@ func send(ctx context.Context, httpClient *http.Client, endpoint, deploymentID s
 		return nil, fmt.Errorf("send snapshot: %w", err)
 	}
 	defer func() {
+		//nolint:errcheck // draining response body before close; error is not actionable
 		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		//nolint:errcheck // best-effort close on a drained response body
+		_ = resp.Body.Close()
 	}()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= 300 {
+		//nolint:errcheck // best-effort error snippet for a diagnostic message; a read failure just yields an empty snippet
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return nil, fmt.Errorf("send snapshot: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
 	}

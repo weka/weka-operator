@@ -450,6 +450,40 @@ func init() {
 	Consts.SsdProxyDpdkMemoryMiB = 2048
 }
 
+// LoadCapacityEnv populates the drive-sharing, cluster-capacity and compute-hugepages configuration
+// from environment variables, with the built-in defaults. It is the single source of these defaults,
+// shared by ConfigureEnv (the operator) and standalone callers such as the weka-capacity dry-run CLI,
+// which need the capacity constraints without the full operator env (VERSION, bind addresses, ...).
+func LoadCapacityEnv() {
+	// Drive sharing configuration
+	Config.DriveSharing.DriveTypesRatio.Tlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_TLC", 1)
+	Config.DriveSharing.DriveTypesRatio.Qlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_QLC", 0)
+	Config.DriveSharing.MaxVirtualDrivesPerCore = getIntEnvOrDefault("MAX_VIRTUAL_DRIVES_PER_CORE", 8)
+	Config.DriveSharing.EnforceMinDrivesPerTypePerCore = getBoolEnvOrDefault("ENFORCE_MIN_DRIVES_PER_TYPE_PER_CORE", true)
+	Config.DriveSharing.EnableDynamicDriveScaling = getBoolEnvOrDefault("ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES", false)
+	Config.DriveSharing.MinGrowthFraction = getFloatEnvOrDefault("MIN_GROWTH_FRACTION", 0.2)
+	Config.DriveSharing.MaxOverProvisionFraction = getFloatEnvOrDefault("MAX_OVER_PROVISION_FRACTION", 0.2)
+	Config.DriveSharing.SsdProxyHugepagesOffsetMiB = getIntEnvOrDefault("SSD_PROXY_HUGEPAGES_OFFSET_MIB", 200)
+	Config.DriveSharing.SsdProxyImageOverride = getEnvOrDefault("SSD_PROXY_IMAGE_OVERRIDE", "")
+	Config.DriveSharing.HugepagesTlcRatio = getIntEnvOrDefault("HUGEPAGES_TLC_RATIO", 1000)
+	Config.DriveSharing.HugepagesQlcRatio = getIntEnvOrDefault("HUGEPAGES_QLC_RATIO", 6000)
+	Config.DriveSharing.SmallBigDiskSizesMaxProportionFactor = getIntEnvOrDefault("SMALL_BIG_DISK_SIZES_MAX_PROPORTION_FACTOR", 10)
+	Config.DriveSharing.AllowSingleParity = getBoolEnvOrDefault("ALLOW_SINGLE_PARITY", false)
+	Config.DriveSharing.DefaultStripeWidth = getIntEnvOrDefault("PROTECTION_STRIPE_WIDTH", 0)
+	Config.DriveSharing.DefaultRedundancyLevel = getIntEnvOrDefault("PROTECTION_REDUNDANCY_LEVEL", 0)
+	Config.DriveSharing.DefaultHotSpare = getIntEnvOrDefault("PROTECTION_HOT_SPARE", 0)
+
+	// Cluster capacity configuration
+	Config.ClusterCapacity.MaxComputeCoresPerNode = getIntEnvOrDefault("CLUSTER_CAPACITY_MAX_COMPUTE_CORES_PER_NODE", 16)
+	Config.ClusterCapacity.TlcCapacityPerCoreGiB = getIntEnvOrDefault("CLUSTER_CAPACITY_TLC_CAPACITY_PER_CORE_GIB", 5*1024)
+	Config.ClusterCapacity.QlcCapacityPerCoreGiB = getIntEnvOrDefault("CLUSTER_CAPACITY_QLC_CAPACITY_PER_CORE_GIB", 50*1024)
+	Config.ClusterCapacity.ImbalanceFactor = getFloatEnvOrDefault("CLUSTER_CAPACITY_IMBALANCE_FACTOR", 8.0)
+	Config.ClusterCapacity.CapacityDeadbandFraction = getFloatEnvOrDefault("CLUSTER_CAPACITY_DEADBAND_FRACTION", 0.05)
+
+	// Compute hugepages cap
+	Config.ComputeMaxHugepagesMiB = getIntEnvOrDefault("COMPUTE_MAX_HUGEPAGES_MIB", 360000)
+}
+
 func ConfigureEnv(ctx context.Context) {
 	Config.Version = getEnvOrFail("VERSION")
 	Config.Mode = OperatorMode(env.GetString("OPERATOR_MODE", string(OperatorModeManager)))
@@ -588,30 +622,8 @@ func ConfigureEnv(ctx context.Context) {
 	// SMBW configuration
 	Config.Smbw.ShmSize = getEnvOrDefault("SMBW_SHM_SIZE", "8Gi")
 
-	// Drive sharing configuration
-	Config.DriveSharing.DriveTypesRatio.Tlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_TLC", 1)
-	Config.DriveSharing.DriveTypesRatio.Qlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_QLC", 0)
-	Config.DriveSharing.MaxVirtualDrivesPerCore = getIntEnvOrDefault("MAX_VIRTUAL_DRIVES_PER_CORE", 8)
-	Config.DriveSharing.EnforceMinDrivesPerTypePerCore = getBoolEnvOrDefault("ENFORCE_MIN_DRIVES_PER_TYPE_PER_CORE", true)
-	Config.DriveSharing.EnableDynamicDriveScaling = getBoolEnvOrDefault("ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES", false)
-	Config.DriveSharing.MinGrowthFraction = getFloatEnvOrDefault("MIN_GROWTH_FRACTION", 0.2)
-	Config.DriveSharing.MaxOverProvisionFraction = getFloatEnvOrDefault("MAX_OVER_PROVISION_FRACTION", 0.2)
-	Config.DriveSharing.SsdProxyHugepagesOffsetMiB = getIntEnvOrDefault("SSD_PROXY_HUGEPAGES_OFFSET_MIB", 200)
-	Config.DriveSharing.SsdProxyImageOverride = getEnvOrDefault("SSD_PROXY_IMAGE_OVERRIDE", "")
-	Config.DriveSharing.HugepagesTlcRatio = getIntEnvOrDefault("HUGEPAGES_TLC_RATIO", 1000)
-	Config.DriveSharing.HugepagesQlcRatio = getIntEnvOrDefault("HUGEPAGES_QLC_RATIO", 6000)
-	Config.DriveSharing.SmallBigDiskSizesMaxProportionFactor = getIntEnvOrDefault("SMALL_BIG_DISK_SIZES_MAX_PROPORTION_FACTOR", 10)
-	Config.DriveSharing.AllowSingleParity = getBoolEnvOrDefault("ALLOW_SINGLE_PARITY", false)
-	Config.DriveSharing.DefaultStripeWidth = getIntEnvOrDefault("PROTECTION_STRIPE_WIDTH", 0)
-	Config.DriveSharing.DefaultRedundancyLevel = getIntEnvOrDefault("PROTECTION_REDUNDANCY_LEVEL", 0)
-	Config.DriveSharing.DefaultHotSpare = getIntEnvOrDefault("PROTECTION_HOT_SPARE", 0)
-
-	// Cluster capacity configuration
-	Config.ClusterCapacity.MaxComputeCoresPerNode = getIntEnvOrDefault("CLUSTER_CAPACITY_MAX_COMPUTE_CORES_PER_NODE", 16)
-	Config.ClusterCapacity.TlcCapacityPerCoreGiB = getIntEnvOrDefault("CLUSTER_CAPACITY_TLC_CAPACITY_PER_CORE_GIB", 5*1024)
-	Config.ClusterCapacity.QlcCapacityPerCoreGiB = getIntEnvOrDefault("CLUSTER_CAPACITY_QLC_CAPACITY_PER_CORE_GIB", 50*1024)
-	Config.ClusterCapacity.ImbalanceFactor = getFloatEnvOrDefault("CLUSTER_CAPACITY_IMBALANCE_FACTOR", 8.0)
-	Config.ClusterCapacity.CapacityDeadbandFraction = getFloatEnvOrDefault("CLUSTER_CAPACITY_DEADBAND_FRACTION", 0.05)
+	// Drive-sharing, cluster-capacity and compute-hugepages config (shared with the weka-capacity CLI).
+	LoadCapacityEnv()
 
 	// Builder images configuration
 	Config.BuilderImages.Default = getEnvOrDefault("BUILDER_IMAGE_DEFAULT", "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22")
@@ -623,7 +635,6 @@ func ConfigureEnv(ctx context.Context) {
 	// Hugepages update propagation configuration
 	Config.HugepagesUpdate.Compute = getBoolEnvOrDefault("HUGEPAGES_UPDATE_COMPUTE", false)
 	Config.HugepagesUpdate.Drive = getBoolEnvOrDefault("HUGEPAGES_UPDATE_DRIVE", false)
-	Config.ComputeMaxHugepagesMiB = getIntEnvOrDefault("COMPUTE_MAX_HUGEPAGES_MIB", 360000)
 
 	// Evicted pod cleanup configuration
 	Config.EvictedPodCleanupEnabled = getBoolEnvOrDefault("EVICTED_POD_CLEANUP_ENABLED", true)

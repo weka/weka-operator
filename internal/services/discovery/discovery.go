@@ -372,11 +372,32 @@ func GetClusterContainers(ctx context.Context, c client.Client, cluster *weka.We
 	return GetClusterContainersByClusterUID(ctx, c, string(cluster.UID), cluster.Namespace, mode)
 }
 
+// GetClusterContainersNoFieldIndex is like GetClusterContainers but does NOT use the
+// metadata.ownerReferences.uid field index. It lists the namespace and filters by owner UID in
+// memory, so it works with a cache-less/direct client that has no field indexer registered (e.g. the
+// weka-capacity CLI, which builds a plain client.New without a cache). The controller keeps using the
+// index-based GetClusterContainers; the index is registered on the manager cache in
+// setupContainerIndexes (cmd/manager/main.go). Sending that field selector through a direct client
+// makes the apiserver reject it ("field label not supported: metadata.ownerReferences.uid").
+func GetClusterContainersNoFieldIndex(ctx context.Context, c client.Client, cluster *weka.WekaCluster, mode string) ([]*weka.WekaContainer, error) {
+	return getClusterContainersByClusterUID(ctx, c, string(cluster.UID), cluster.Namespace, mode, false)
+}
+
 func GetClusterContainersByClusterUID(ctx context.Context, c client.Client, clusterUID, clusterNamespace, mode string) ([]*weka.WekaContainer, error) {
+	return getClusterContainersByClusterUID(ctx, c, clusterUID, clusterNamespace, mode, true)
+}
+
+// getClusterContainersByClusterUID lists a cluster's WekaContainers. When useFieldIndex is true it
+// filters via the metadata.ownerReferences.uid cache field index (fast, but requires the index to be
+// registered on the client's cache). When false it lists the namespace and filters by owner UID in
+// memory — for clients without that index registered.
+func getClusterContainersByClusterUID(ctx context.Context, c client.Client, clusterUID, clusterNamespace, mode string, useFieldIndex bool) ([]*weka.WekaContainer, error) {
 	containersList := weka.WekaContainerList{}
 	listOpts := []client.ListOption{
 		client.InNamespace(clusterNamespace),
-		client.MatchingFields{"metadata.ownerReferences.uid": clusterUID},
+	}
+	if useFieldIndex {
+		listOpts = append(listOpts, client.MatchingFields{"metadata.ownerReferences.uid": clusterUID})
 	}
 	if mode != "" {
 		listOpts = append(listOpts, client.MatchingLabels{"weka.io/mode": mode})
@@ -389,9 +410,22 @@ func GetClusterContainersByClusterUID(ctx context.Context, c client.Client, clus
 
 	containers := []*weka.WekaContainer{}
 	for i := range containersList.Items {
+		if !useFieldIndex && !isOwnedByUID(&containersList.Items[i], clusterUID) {
+			continue
+		}
 		containers = append(containers, &containersList.Items[i])
 	}
 	return containers, nil
+}
+
+// isOwnedByUID reports whether obj carries an ownerReference with the given UID.
+func isOwnedByUID(obj *weka.WekaContainer, uid string) bool {
+	for _, ref := range obj.OwnerReferences {
+		if string(ref.UID) == uid {
+			return true
+		}
+	}
+	return false
 }
 
 func GetClientContainers(ctx context.Context, c client.Client, wekaClient *weka.WekaClient) ([]*weka.WekaContainer, error) {

@@ -1,4 +1,4 @@
-package allocator
+package capacityplanner
 
 import (
 	"fmt"
@@ -7,7 +7,6 @@ import (
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 
-	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -36,9 +35,11 @@ func (p ProtectionScheme) MinFdNum() int { return p.StripeWidth + p.RedundancyLe
 // (parity>=2 is the durability guarantee); hotSpare is optional (>=0). When the operator-level
 // AllowSingleParity flag is set, the floor drops to single-parity 2+1+0 so QA/test schemes such as
 // 2+1 (minFdNum=3) are accepted. QA/test only — a single parity chunk leaves a stripe unprotected
-// during rebuild. The same flag drives the allow_1_parity weka override at formation.
-func MinProtectionFloor() (stripeWidth, redundancyLevel, hotSpare int) {
-	if globalconfig.Config.DriveSharing.AllowSingleParity {
+// during rebuild. The same flag drives the allow_1_parity weka override at formation. The flag is
+// passed in explicitly (CapacityConstraints.AllowSingleParity) so this package stays free of the
+// globalconfig singleton; the allocator keeps a no-arg shim that reads it from config.
+func MinProtectionFloor(allowSingleParity bool) (stripeWidth, redundancyLevel, hotSpare int) {
+	if allowSingleParity {
 		return 2, 1, 0
 	}
 	return 3, 2, 0
@@ -114,6 +115,10 @@ type CapacityConstraints struct {
 	// CapacityDeadbandFraction is the relative shortfall (desired-current)/desired below which pool
 	// growth is ignored (see CapacityShort). 0 disables the deadband (strict current < desired).
 	CapacityDeadbandFraction float64
+	// AllowSingleParity relaxes the protection floor to single-parity 2+1+0 (see MinProtectionFloor).
+	// QA/test only. Sourced from the operator-level flag by the caller so this package stays free of
+	// the globalconfig singleton.
+	AllowSingleParity bool
 }
 
 // Drive-pod resource coefficients (MiB). They mirror the drive-container sizing in resources/pod.go
@@ -194,13 +199,18 @@ type CapacityPlan struct {
 	ComputeLayout []ComputeContainerSpec
 	Warnings      []string
 	ShrinkEvents  []string
-	// OverProvisions carries per-pool over-provision advisories: the create-new-before-grow path covered an
-	// increase with whole uniform-T failure domains that overshoot the pool's desiredRaw (within
-	// MaxOverProvisionFraction) to avoid resizing existing containers. Emitted under their own
+	// OverProvisions carries per-pool over-provision advisories: the pool was realized with uniformly-sized
+	// failure domains (whether by adding new FDs, growing existing ones, or both), and ceiling that uniform
+	// size lands slightly above the pool's desiredRaw (within MaxOverProvisionFraction). Each message states
+	// which placement happened (grown existing vs. new FDs). Emitted under their own
 	// ClusterCapacityOverProvisioned (Normal) event reason, separate from the growth Warnings and shrink
 	// advisories above.
 	OverProvisions []string
 	Infeasible     string
+	// Infeasibility is the structured form of Infeasible: the binding cause, per-node rejection
+	// breakdown and ordered fix tips. nil when the plan is feasible; when set, Infeasibility.Reason is
+	// byte-identical to Infeasible. Populated via setInfeasible at every failing site.
+	Infeasibility *InfeasibilityReport
 }
 
 // ComputeContainerSpec is one compute container in the planner's per-container layout: the node it is
@@ -414,10 +424,14 @@ func PlanCapacity(
 ) CapacityPlan {
 	plan := CapacityPlan{}
 
-	minSW, minRL, minHS := MinProtectionFloor()
+	minSW, minRL, minHS := MinProtectionFloor(cons.AllowSingleParity)
 	if scheme.StripeWidth < minSW || scheme.RedundancyLevel < minRL || scheme.HotSpare < minHS {
-		plan.Infeasible = fmt.Sprintf("clusterCapacity requires stripeWidth>=%d, redundancyLevel>=%d, hotSpare>=%d (got sw=%d rl=%d hs=%d)",
-			minSW, minRL, minHS, scheme.StripeWidth, scheme.RedundancyLevel, scheme.HotSpare)
+		setInfeasible(&plan, &InfeasibilityReport{
+			Reason: fmt.Sprintf("clusterCapacity requires stripeWidth>=%d, redundancyLevel>=%d, hotSpare>=%d (got sw=%d rl=%d hs=%d)",
+				minSW, minRL, minHS, scheme.StripeWidth, scheme.RedundancyLevel, scheme.HotSpare),
+			Binding: "protection",
+			Fixes:   fixesProtection(minSW, minRL, minHS),
+		})
 		return plan
 	}
 	minFd := scheme.MinFdNum()
@@ -430,7 +444,7 @@ func PlanCapacity(
 		var reason string
 		tlcTargetFds, qlcTargetFds, reason = splitDriveContainers(desired, minFd)
 		if reason != "" {
-			plan.Infeasible = reason
+			setInfeasible(&plan, &InfeasibilityReport{Reason: reason, Binding: "driveContainers", Fixes: fixesDriveContainers(0)})
 			return plan
 		}
 	}
@@ -514,7 +528,7 @@ func PlanCapacity(
 		g := growth[name]
 		cores, _, reason := pinCores(g.NewTlcGiB, g.NewQlcGiB)
 		if reason != "" {
-			plan.Infeasible = reason
+			setInfeasible(&plan, &InfeasibilityReport{Reason: reason, Binding: "driveCores", Fixes: fixesDriveCores(recomputeCores(g.NewTlcGiB, g.NewQlcGiB, cons))})
 			return plan
 		}
 		g.NewCores = cores
@@ -531,16 +545,20 @@ func PlanCapacity(
 		n := newByNode[node]
 		cores, derived, reason := pinCores(n.TlcGiB, n.QlcGiB)
 		if reason != "" {
-			plan.Infeasible = reason
+			setInfeasible(&plan, &InfeasibilityReport{Reason: reason, Binding: "driveCores", Fixes: fixesDriveCores(derived)})
 			return plan
 		}
 		// When driveCores is pinned ABOVE the capacity-derived count, the extra cores (and their
 		// hugepages/memory) must still fit the node — placement only reserved the derived amount. Charge
 		// and verify the surplus so an over-pinned container fails fast instead of landing unschedulable.
 		if ns := states[node]; ns != nil && !ns.reserveCores(cores-derived, cons) {
-			plan.Infeasible = fmt.Sprintf(
-				"node %s cannot host driveCores=%d for its %d GiB drive container (insufficient cores/hugepages/memory for the pinned core count)",
-				node, cores, n.TlcGiB+n.QlcGiB)
+			setInfeasible(&plan, &InfeasibilityReport{
+				Reason: fmt.Sprintf(
+					"node %s cannot host driveCores=%d for its %d GiB drive container (insufficient cores/hugepages/memory for the pinned core count)",
+					node, cores, n.TlcGiB+n.QlcGiB),
+				Binding: "cores",
+				Fixes:   []string{fmt.Sprintf("lower driveCores (<=%d), or free cores/hugepages/memory on node %s", derived, node)},
+			})
 			return plan
 		}
 		n.NumCores = cores
@@ -554,9 +572,13 @@ func PlanCapacity(
 	// grow/merge topologies (e.g. TLC+QLC co-locating) against silently diverging from the request.
 	if plan.Infeasible == "" && desired.DriveContainers > 0 {
 		if got := distinctDriveFds(existingDrives, newByNode); got != desired.DriveContainers {
-			plan.Infeasible = fmt.Sprintf(
-				"driveContainers=%d cannot be honored: the plan resolves to %d drive containers across the available failure domains",
-				desired.DriveContainers, got)
+			setInfeasible(&plan, &InfeasibilityReport{
+				Reason: fmt.Sprintf(
+					"driveContainers=%d cannot be honored: the plan resolves to %d drive containers across the available failure domains",
+					desired.DriveContainers, got),
+				Binding: "driveContainers",
+				Fixes:   fixesDriveContainers(got),
+			})
 			return plan
 		}
 	}
@@ -592,7 +614,7 @@ func planCompute(
 	// computeNodes is always supplied by the caller (planClusterCapacity). A nil map is a bug — surface
 	// it loudly rather than silently sizing compute over an empty/unintended node set.
 	if computeNodes == nil {
-		plan.Infeasible = "internal: compute node set not provided"
+		setInfeasible(plan, &InfeasibilityReport{Reason: "internal: compute node set not provided", Pool: "compute"})
 		return
 	}
 
@@ -631,7 +653,7 @@ func planCompute(
 	)
 	plan.Warnings = append(plan.Warnings, warnings...)
 	if infeasible != "" {
-		plan.Infeasible = "compute: " + infeasible
+		setInfeasible(plan, &InfeasibilityReport{Reason: "compute: " + infeasible, Pool: "compute", Fixes: fixesCompute()})
 		return
 	}
 
@@ -678,9 +700,14 @@ func planCompute(
 		nNew = util.CeilDiv(shortfall, cores)
 	}
 	if nNew > len(fitNodes) {
-		plan.Infeasible = fmt.Sprintf(
-			"compute: cannot place %d new compute container(s) to cover the %d-core shortfall — only %d free fitting compute node(s) (each holds up to %d cores + %d MiB hugepages)",
-			nNew, shortfall, len(fitNodes), cores, perContainerHP)
+		setInfeasible(plan, &InfeasibilityReport{
+			Reason: fmt.Sprintf(
+				"compute: cannot place %d new compute container(s) to cover the %d-core shortfall — only %d free fitting compute node(s) (each holds up to %d cores + %d MiB hugepages)",
+				nNew, shortfall, len(fitNodes), cores, perContainerHP),
+			Pool:    "compute",
+			Binding: "cores",
+			Fixes:   fixesCompute(),
+		})
 		return
 	}
 
@@ -701,7 +728,7 @@ func planCompute(
 		nNew++
 	}
 	if reason := computeFDFeasibility(minComputeFds, coveredFDs, fitNodes[:nNew], fdOf); reason != "" {
-		plan.Infeasible = "compute: " + reason
+		setInfeasible(plan, &InfeasibilityReport{Reason: "compute: " + reason, Pool: "compute", Binding: "failure domains", Fixes: fixesCompute()})
 		return
 	}
 	// Extending nNew for FD coverage can outrun the cores the shortfall would split into (one-per-node,
@@ -728,9 +755,14 @@ func planCompute(
 			if ns.coresFree < cCores || ns.hugepagesMiB < cHP {
 				// A new container is ≤ the uniform footprint this node already passed, so this is not
 				// expected; treat as infeasible rather than over-claim.
-				plan.Infeasible = fmt.Sprintf(
-					"compute: free compute node %s cannot host a %d-core compute container (%d cores + %d MiB hugepages free)",
-					node, cCores, ns.coresFree, ns.hugepagesMiB)
+				setInfeasible(plan, &InfeasibilityReport{
+					Reason: fmt.Sprintf(
+						"compute: free compute node %s cannot host a %d-core compute container (%d cores + %d MiB hugepages free)",
+						node, cCores, ns.coresFree, ns.hugepagesMiB),
+					Pool:    "compute",
+					Binding: "hugepages",
+					Fixes:   fixesCompute(),
+				})
 				return
 			}
 			ns.coresFree -= cCores
@@ -1279,8 +1311,14 @@ func finalizePoolFeasibility(
 		placed += finalPoolCap(c, growth, p)
 	}
 	// remaining shortfall is measured to the deadband floor (CapacityCoverTarget), so a within-deadband gap isn't reported infeasible.
-	if reason := poolFeasibility(p, minFd, max(0, CapacityCoverTarget(desiredRaw, cons)-placed), existingDrives, growth, newByNode, cons); reason != "" {
-		plan.Infeasible = reason
+	shortfall := max(0, CapacityCoverTarget(desiredRaw, cons)-placed)
+	if reason := poolFeasibility(p, minFd, shortfall, existingDrives, growth, newByNode, cons); reason != "" {
+		// poolFeasibility reports a capacity shortfall when remaining>0, else an FD-count shortfall.
+		binding, fixes := "drive capacity", fixesCapacity(p, cons.AllowInPlaceGrowth)
+		if shortfall == 0 {
+			binding, fixes = "failure domains", fixesFailureDomains(p, minFd)
+		}
+		setInfeasible(plan, &InfeasibilityReport{Reason: reason, Pool: p.tag(), Binding: binding, ShortfallGiB: shortfall, Fixes: fixes})
 	}
 }
 
@@ -1319,7 +1357,20 @@ func planPoolFreshUniform(
 	chosen, T, ok := selectUniform(desiredRaw, minFd, candidates, preferNodes, cons)
 	if !ok {
 		if !isFallback {
-			plan.Infeasible = uniformInfeasibleMsg(p, desiredRaw, minFd, candidates, states, freshExclusion(existingDrives, p, cons), cons)
+			poolUsed := freshExclusion(existingDrives, p, cons)
+			msg, binding, shortfall := uniformInfeasibleMsg(p, desiredRaw, minFd, candidates, states, poolUsed, cons)
+			fixes := fixesCapacity(p, cons.AllowInPlaceGrowth)
+			if binding == "failure domains" {
+				fixes = fixesFailureDomains(p, minFd)
+			}
+			setInfeasible(plan, &InfeasibilityReport{
+				Reason:        msg,
+				Pool:          p.tag(),
+				Binding:       binding,
+				ShortfallGiB:  shortfall,
+				RejectedNodes: rejectedNodes(p, states, poolUsed, cons),
+				Fixes:         fixes,
+			})
 		}
 		return false // greenfield: infeasible (set above); fallback: fall through on untouched state
 	}
@@ -1357,7 +1408,7 @@ func planPoolExplicit(
 	// Fail-fast checks: pinned count vs existing count, per-container minimum chunk, etc.
 	exactNewFds, reason := resolveExactNewFds(p, targetFds, existingDrives, delta, cons)
 	if reason != "" {
-		plan.Infeasible = reason
+		setInfeasible(plan, &InfeasibilityReport{Reason: reason, Pool: p.tag(), Binding: "driveContainers", Fixes: fixesDriveContainers(0)})
 		return
 	}
 
@@ -1381,9 +1432,15 @@ func planPoolExplicit(
 		}
 		for fd, capGiB := range perFd {
 			if capGiB < T {
-				plan.Infeasible = fmt.Sprintf(
-					"%s: driveContainers=%d pins %d GiB per failure domain, but failure domain %q holds only %d GiB and growing it in place is disabled (enableDynamicDriveScalingForSharedDrives=false) — enable it or unset driveContainers",
-					p, targetFds, T, fd, capGiB)
+				setInfeasible(plan, &InfeasibilityReport{
+					Reason: fmt.Sprintf(
+						"%s: driveContainers=%d pins %d GiB per failure domain, but failure domain %q holds only %d GiB and growing it in place is disabled (enableDynamicDriveScalingForSharedDrives=false) — enable it or unset driveContainers",
+						p, targetFds, T, fd, capGiB),
+					Pool:         p.tag(),
+					Binding:      "driveContainers",
+					ShortfallGiB: T - capGiB,
+					Fixes:        []string{"enable enableDynamicDriveScalingForSharedDrives to grow the failure domain in place", "or unset driveContainers"},
+				})
 				return
 			}
 		}
@@ -1517,10 +1574,24 @@ func planPoolUniformIncrease(
 	}
 
 	overshootCap := int(cons.MaxOverProvisionFraction * float64(desiredRaw))
-	overProvisionMsg := func(kFresh, level, total int) string {
+	// overProvisionMsg describes an intentional overshoot: the pool is realized with uniformly-sized
+	// failure domains, and ceiling that uniform size to a whole GiB (or to the smallest size the fresh
+	// nodes support) lands slightly above the exact target. `grown` is how many EXISTING FDs were resized
+	// in place and `kFresh` how many NEW FDs were added — the two placement paths read very differently, so
+	// the message states which actually happened rather than assuming "new FDs, existing untouched".
+	overProvisionMsg := func(grown, kFresh, level, total int) string {
+		var placement string
+		switch {
+		case grown > 0 && kFresh > 0:
+			placement = fmt.Sprintf("growing %d existing and adding %d new failure domain(s)", grown, kFresh)
+		case grown > 0:
+			placement = fmt.Sprintf("growing %d existing failure domain(s)", grown)
+		default:
+			placement = fmt.Sprintf("adding %d new failure domain(s)", kFresh)
+		}
 		return fmt.Sprintf(
-			"%s: covering +%d GiB by %d new failure domain(s) of %d GiB (over-provisioned by %d GiB, within maxOverProvisionFraction=%.2f) to avoid resizing existing containers",
-			p, delta, kFresh, level, total-desiredRaw, cons.MaxOverProvisionFraction)
+			"%s: +%d GiB covered by %s, each sized to a uniform %d GiB; this over-provisions the target by %d GiB (within maxOverProvisionFraction=%.2f) — intentional rounding to keep failure domains uniformly sized, not reclaimable excess (no manual shrink needed)",
+			p, delta, placement, level, total-desiredRaw, cons.MaxOverProvisionFraction)
 	}
 
 	// freshChosen returns the first k fresh candidate FDs that can host `level` (clean-first then
@@ -1581,7 +1652,8 @@ func planPoolUniformIncrease(
 			placeUniform(p, perFd, freshChosen(k, perFd), existingDrives, states, cons, growFor, newByNode, newFor)
 			finalizeFeasibility()
 			if plan.Infeasible == "" && total > desiredRaw {
-				plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(k, perFd, total))
+				// Step 4 even-split: k NEW fresh FDs cover the delta; existing FDs are untouched.
+				plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(0, k, perFd, total))
 			}
 			return
 		}
@@ -1616,9 +1688,15 @@ func planPoolUniformIncrease(
 	}
 
 	if best == nil {
-		plan.Infeasible = fmt.Sprintf(
-			"%s: cannot satisfy clusterCapacity (+%d GiB) at the uniform per-failure-domain size of %d GiB. Even after growing the %d existing failure domain(s) to their nodes' limits and adding failure domains on all %d candidate node(s) (nodes not already running a %s drive container, with enough free capacity/cores/hugepages/memory), the target is still out of reach. Add more nodes (or nodes with more free resources), or lower clusterCapacity.",
-			p, delta, T0, numExisting, len(freshGroups), p)
+		setInfeasible(plan, &InfeasibilityReport{
+			Reason: fmt.Sprintf(
+				"%s: cannot satisfy clusterCapacity (+%d GiB) at the uniform per-failure-domain size of %d GiB. Even after growing the %d existing failure domain(s) to their nodes' limits and adding failure domains on all %d candidate node(s) (nodes not already running a %s drive container, with enough free capacity/cores/hugepages/memory), the target is still out of reach. Add more nodes (or nodes with more free resources), or lower clusterCapacity.",
+				p, delta, T0, numExisting, len(freshGroups), p),
+			Pool:         p.tag(),
+			Binding:      "drive capacity",
+			ShortfallGiB: delta,
+			Fixes:        fixesAddCapacity(p),
+		})
 		return
 	}
 
@@ -1630,7 +1708,8 @@ func planPoolUniformIncrease(
 		placeUniform(p, T0, freshChosen(kFresh, T0), existingDrives, states, cons, growFor, newByNode, newFor)
 		finalizeFeasibility()
 		if plan.Infeasible == "" && best.total > desiredRaw {
-			plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(kFresh, T0, best.total))
+			// L==T0 defensive create-at-T0: kFresh NEW FDs at T0; existing FDs are untouched.
+			plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(0, kFresh, T0, best.total))
 		}
 		return
 	}
@@ -1653,17 +1732,29 @@ func planPoolUniformIncrease(
 			// The binding constraint is the NUMBER of failure domains, not bytes-per-node: existing FDs are
 			// frozen (growth disabled) and uniform distribution forces every new FD to equal the smallest
 			// existing one (T0), so the only way to add capacity is one new T0-sized FD per spare node.
-			plan.Infeasible = fmt.Sprintf(
-				"%s: cannot satisfy clusterCapacity (+%d GiB). The %d existing failure domain(s) are frozen at %d GiB each and cannot grow because dynamic drive scaling for shared drives is disabled, so new capacity can only be added as more %d GiB failure domains — one per node not already running a %s drive container and with %d GiB of free capacity/cores/hugepages/memory. This needs %d such node(s) but only %d is/are available, so %d more node(s) are required. Either add %d more node(s), or enable enableDynamicDriveScalingForSharedDrives to grow the existing containers in place instead (aggregate free capacity elsewhere does not help — capacity on a node already hosting this pool's FD cannot be reused while growth is disabled). The maximum capacity a single failure domain may hold is %d GiB (clusterCapacity raw ÷ (stripeWidth+redundancy+hotSpare) = %d ÷ %d).",
-				p, delta, numExisting, T0, T0, p, T0, kNeeded, kAvail, shortfall, shortfall, maxPerFdCap, desiredRaw, minFd)
+			setInfeasible(plan, &InfeasibilityReport{
+				Reason: fmt.Sprintf(
+					"%s: cannot satisfy clusterCapacity (+%d GiB). The %d existing failure domain(s) are frozen at %d GiB each and cannot grow because dynamic drive scaling for shared drives is disabled, so new capacity can only be added as more %d GiB failure domains — one per node not already running a %s drive container and with %d GiB of free capacity/cores/hugepages/memory. This needs %d such node(s) but only %d is/are available, so %d more node(s) are required. Either add %d more node(s), or enable enableDynamicDriveScalingForSharedDrives to grow the existing containers in place instead (aggregate free capacity elsewhere does not help — capacity on a node already hosting this pool's FD cannot be reused while growth is disabled). The maximum capacity a single failure domain may hold is %d GiB (clusterCapacity raw ÷ (stripeWidth+redundancy+hotSpare) = %d ÷ %d).",
+					p, delta, numExisting, T0, T0, p, T0, kNeeded, kAvail, shortfall, shortfall, maxPerFdCap, desiredRaw, minFd),
+				Pool:         p.tag(),
+				Binding:      "failure domains",
+				ShortfallGiB: delta,
+				Fixes:        fixesGrowthDisabledFDs(shortfall),
+			})
 			return
 		}
 		// Enough candidate nodes exist, but covering the delta with only T0-sized FDs would over-provision
 		// beyond maxOverProvisionFraction; the balanced plan therefore needs to grow existing FDs, which is
 		// disabled. Either allow growth or align the request to a whole number of T0 chunks.
-		plan.Infeasible = fmt.Sprintf(
-			"%s: cannot satisfy clusterCapacity (+%d GiB) without growing the %d existing failure domain(s) beyond their current %d GiB each, but dynamic drive scaling for shared drives is disabled. Enable enableDynamicDriveScalingForSharedDrives, or set clusterCapacity to a value that the %d GiB failure-domain size divides evenly. The maximum capacity a single failure domain may hold is %d GiB (clusterCapacity raw ÷ (stripeWidth+redundancy+hotSpare) = %d ÷ %d).",
-			p, delta, numExisting, T0, T0, maxPerFdCap, desiredRaw, minFd)
+		setInfeasible(plan, &InfeasibilityReport{
+			Reason: fmt.Sprintf(
+				"%s: cannot satisfy clusterCapacity (+%d GiB) without growing the %d existing failure domain(s) beyond their current %d GiB each, but dynamic drive scaling for shared drives is disabled. Enable enableDynamicDriveScalingForSharedDrives, or set clusterCapacity to a value that the %d GiB failure-domain size divides evenly. The maximum capacity a single failure domain may hold is %d GiB (clusterCapacity raw ÷ (stripeWidth+redundancy+hotSpare) = %d ÷ %d).",
+				p, delta, numExisting, T0, T0, maxPerFdCap, desiredRaw, minFd),
+			Pool:         p.tag(),
+			Binding:      "drive capacity",
+			ShortfallGiB: delta,
+			Fixes:        fixesGrowthDisabledOverProvision(T0),
+		})
 		return
 	}
 	if float64(best.L-T0) < cons.MinGrowthFraction*float64(T0) {
@@ -1672,9 +1763,15 @@ func planPoolUniformIncrease(
 		kNeeded := util.CeilDiv(delta, T0)
 		kAvail := freshCountAtLeast(T0)
 		pct := int((100*float64(best.L-T0))/float64(T0) + 0.5)
-		plan.Infeasible = fmt.Sprintf(
-			"%s: cannot satisfy clusterCapacity — need +%d GiB. Adding failure domains requires %d node(s) not already running a %s drive container with >=%d GiB free each (the uniform per-FD size), but only %d is/are available. The alternative — growing existing containers in place — would raise each by only %d%% (below minGrowthFraction=%.2f), so it is skipped. Resolve by: adding %d more node(s), or raising clusterCapacity by at least one %d GiB failure-domain chunk, or lowering minGrowthFraction.",
-			p, delta, kNeeded, p, T0, kAvail, pct, cons.MinGrowthFraction, kNeeded-kAvail, T0)
+		setInfeasible(plan, &InfeasibilityReport{
+			Reason: fmt.Sprintf(
+				"%s: cannot satisfy clusterCapacity — need +%d GiB. Adding failure domains requires %d node(s) not already running a %s drive container with >=%d GiB free each (the uniform per-FD size), but only %d is/are available. The alternative — growing existing containers in place — would raise each by only %d%% (below minGrowthFraction=%.2f), so it is skipped. Resolve by: adding %d more node(s), or raising clusterCapacity by at least one %d GiB failure-domain chunk, or lowering minGrowthFraction.",
+				p, delta, kNeeded, p, T0, kAvail, pct, cons.MinGrowthFraction, kNeeded-kAvail, T0),
+			Pool:         p.tag(),
+			Binding:      "failure domains",
+			ShortfallGiB: delta,
+			Fixes:        fixesGrowTooSmall(kNeeded-kAvail, T0, cons.MinGrowthFraction),
+		})
 		return
 	}
 
@@ -1686,7 +1783,8 @@ func planPoolUniformIncrease(
 	placeUniform(p, best.L, chosen, existingDrives, states, cons, growFor, newByNode, newFor)
 	finalizeFeasibility()
 	if plan.Infeasible == "" && best.total > desiredRaw {
-		plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(kFresh, best.L, best.total))
+		// Grow path: the numExisting existing FDs are grown in place to best.L, plus kFresh NEW FDs at best.L.
+		plan.OverProvisions = append(plan.OverProvisions, overProvisionMsg(numExisting, kFresh, best.L, best.total))
 	}
 }
 
@@ -1751,24 +1849,25 @@ func pickPreferringColocated(candidates []*fdGroup, n, target int, preferNodes m
 // uniformInfeasibleMsg explains why no uniform tiling fits: the smallest usable FD caps below the per-FD
 // share. It reports the per-FD share at the largest feasible N (the most forgiving tiling) and the smallest
 // candidate FD headroom that falls short.
-func uniformInfeasibleMsg(p poolKind, desiredRaw, minFd int, candidates []*fdGroup, states map[string]*nodeState, poolUsed map[string]struct{}, cons *CapacityConstraints) string {
+func uniformInfeasibleMsg(p poolKind, desiredRaw, minFd int, candidates []*fdGroup, states map[string]*nodeState, poolUsed map[string]struct{}, cons *CapacityConstraints) (msg, binding string, shortfallGiB int) {
 	if len(candidates) < minFd {
-		msg := fmt.Sprintf(
+		msg = fmt.Sprintf(
 			"%s: only %d of %d required failure domains have capacity (need at least stripeWidth+redundancyLevel+hotSpare)",
 			p, len(candidates), minFd)
 		if breakdown := rejectedNodesBreakdown(p, states, poolUsed, cons); breakdown != "" {
 			msg += " — " + breakdown
 		}
-		return msg
+		return msg, "failure domains", 0
 	}
 	// At the largest N (all candidates) the per-FD share is smallest; the smallest candidate still caps below
 	// it, so no N can tile uniformly.
 	N := len(candidates)
 	T := max(cons.MinChunkSizeGiB, util.CeilDiv(desiredRaw, N))
 	smallest := candidates[N-1].headroom
-	return fmt.Sprintf(
+	msg = fmt.Sprintf(
 		"%s: cannot place %d GiB uniformly across %d failure domains — the smallest usable FD holds %d GiB, below the %d GiB per-FD share; add capacity or lower clusterCapacity",
 		p, desiredRaw, N, smallest, T)
+	return msg, "drive capacity", max(0, T-smallest)
 }
 
 // rejectedNodesBreakdown explains why the candidate failure-domain set fell short: every node that is NOT
@@ -1780,12 +1879,6 @@ func uniformInfeasibleMsg(p poolKind, desiredRaw, minFd int, candidates []*fdGro
 func rejectedNodesBreakdown(p poolKind, states map[string]*nodeState, poolUsed map[string]struct{}, cons *CapacityConstraints) string {
 	const maxNamesPerReason = 6
 	const maxReasons = 8
-
-	names := make([]string, 0, len(states))
-	for name := range states {
-		names = append(names, name)
-	}
-	sort.Strings(names)
 
 	type reasonGroup struct {
 		nodes []string // member names (sorted, capped at maxNamesPerReason)
@@ -1809,20 +1902,16 @@ func rejectedNodesBreakdown(p poolKind, states map[string]*nodeState, poolUsed m
 		}
 	}
 
-	for _, name := range names {
-		ns := states[name]
-		if _, used := poolUsed[name]; used {
-			add(name, fmt.Sprintf("already hosts a %s container", p))
-			continue
-		}
-		h, binding := ns.nodeHeadroomBinding(p, cons, true)
-		if h >= cons.MinChunkSizeGiB {
-			continue // usable candidate — not rejected
-		}
-		if binding == "drive capacity" && h == 0 {
-			add(name, fmt.Sprintf("no %s drive capacity", p))
-		} else {
-			add(name, fmt.Sprintf("%s limits usable %s to %d GiB (below the %d GiB minimum chunk)", binding, p, h, cons.MinChunkSizeGiB))
+	// rejectedNodes() sorts by name and applies the same candidate classification; format each
+	// structured rejection into its human reason bucket (behavior-identical to the former inline loop).
+	for _, rj := range rejectedNodes(p, states, poolUsed, cons) {
+		switch {
+		case strings.HasPrefix(rj.Binding, "already hosts"):
+			add(rj.Node, rj.Binding)
+		case rj.Binding == "drive capacity" && rj.FreeGiB == 0:
+			add(rj.Node, fmt.Sprintf("no %s drive capacity", p))
+		default:
+			add(rj.Node, fmt.Sprintf("%s limits usable %s to %d GiB (below the %d GiB minimum chunk)", rj.Binding, p, rj.FreeGiB, rj.NeededGiB))
 		}
 	}
 	if rejected == 0 {

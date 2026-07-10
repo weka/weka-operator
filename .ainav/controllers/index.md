@@ -26,12 +26,14 @@ allocator/          # Resource allocation (ports, IPs, drives)
   allocator.go      # Main allocation logic
   templates.go      # Container templates
   ranges.go         # IP/port range management
-  capacity_planner.go   # clusterCapacity planner: pure PlanCapacity (grow-in-place /
-                        #   create-new / balanced-fresh fallback / node-fit gate; FD = host in
-                        #   AUTO mode or label group; no operator FD stamping)
-  cluster_capacity.go   # shared helpers (RawCapacityGiB, imbalanceExceeds, NodeCapacity)
-  cluster_capacity_assignment.go  # RatioType + ResolveNodeFDValue
-                        #   (see wekacluster.md / drive-sharing.md clusterCapacity section)
+  capacityplanner_shim.go # re-exports the PURE planner (moved to internal/capacityplanner, OP-346):
+                        #   type aliases + PlanCapacity/RawCapacityGiB/RequiredDriveResources/... wrappers
+                        #   + no-arg MinProtectionFloor (reads globalconfig, delegates to the pure helper)
+  cluster_capacity.go   # operator adapter ONLY: CapacityConstraintsFromConfig (globalconfig → constraints)
+  cluster_capacity_assignment.go  # k8s-coupled ResolveNodeFDValue (RatioFromCaps/DriveType* moved to
+                        #   internal/capacityplanner/ratio.go)
+  # The pure algorithm now lives in internal/capacityplanner/{planner,constraints,ratio,infeasibility}.go
+  # (see wekacluster-drive-planning.md; drive-sharing.md clusterCapacity section)
 
 factory/            # Object construction
   container_factory.go  # Creates container specs

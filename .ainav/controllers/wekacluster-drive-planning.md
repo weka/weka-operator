@@ -22,10 +22,12 @@ WekaClusterReconcile
 
 | Concern | File | Symbols (approx line) |
 |---|---|---|
-| Steady-state / cluster plan | `internal/controllers/wekacluster/funcs_fd_planning.go` | `steadyStatePlan` (~420-455), `summarizeDriveContainers` (~364-379), `driveContainerCapacities` (~346-351), `buildNodeInventory` (~554-573), pool split (~63) |
+| Steady-state / cluster plan | `internal/controllers/wekacluster/funcs_fd_planning.go` | `planClusterCapacity` (orchestrator), `steadyStatePlan`, `summarizeDriveContainers`; node inventory + existing views now come from `inventory.Collector` (below) |
+| Node inventory + existing views | `internal/capacityplanner/inventory/collect.go` | `Collector.NodeInventory`/`Collect`/`ExploreNodes`, `ExistingDrives`/`ExistingCompute`, `aggregateContainerResources`, `DriveContainerCapacities` |
 | Create/grow drive containers | `internal/controllers/wekacluster/steps_cluster_creation.go` | create (~401-402), `applyClusterCapacityGrowth` (~414-445) |
-| Per-FD sizing & pool math | `internal/.../allocator/capacity_planner.go` | `planPoolUniformIncrease`, `maxPerFdCap = desiredRaw/minFd`, `RatioFromCaps` (~526-527) |
-| Fresh greenfield placement | `internal/.../allocator/capacity_planner.go` | `planPoolFreshUniform` → `selectUniform` → `pickPreferringColocated` |
+| Per-FD sizing & pool math | `internal/capacityplanner/planner.go` | `planPoolUniformIncrease`, `maxPerFdCap = desiredRaw/minFd`; `RatioFromCaps` in `internal/capacityplanner/ratio.go` |
+| Fresh greenfield placement | `internal/capacityplanner/planner.go` | `planPoolFreshUniform` → `selectUniform` → `pickPreferringColocated` |
+| Infeasibility report + fix tips | `internal/capacityplanner/infeasibility.go` | `InfeasibilityReport`, `setInfeasible`, per-cause `fixes*` catalog (reused by the `ClusterCapacityInfeasible` event + the weka-capacity CLI) |
 | Device allocation | `internal/.../allocator/container_allocator.go` | `allocateSharedDrivesByCapacityWithTypes` (~550), `buildDriveCapacityMap` (~477-515), per-type maps (~679-691), no-TLC error (~680-682), VD CapacityGiB (~894-900) |
 | Device typing (QLC/TLC) | `allocator/node_info.go` (~70-91), `internal/pkg/domain/drives.go` (~87-92) | from node annotation `weka.io/weka-shared-drives` |
 | Re-alloc trigger | `internal/controllers/wekacontainer/funcs_getters.go` | `NeedsDrivesToAllocate` (~218-221) — capacity-based |

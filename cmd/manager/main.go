@@ -343,7 +343,7 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 	if config.Config.WekaHome.Reporter.Enabled {
 		idp := reporter.NewIdentityManager(
 			mgr.GetClient(),
-			config.Config.WekaHome,
+			&config.Config.WekaHome,
 			config.Config.OperatorPodNamespace,
 			config.Config.WekaHome.Reporter.IdentitySecretName,
 			logger,
@@ -351,7 +351,7 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		rep := reporter.New(
 			mgr.GetClient(),
 			mgr.GetAPIReader(),
-			config.Config.WekaHome,
+			&config.Config.WekaHome,
 			config.Config.OperatorPodNamespace,
 			idp,
 			logger,

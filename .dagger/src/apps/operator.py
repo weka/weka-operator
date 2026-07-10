@@ -4,26 +4,34 @@ from typing import List, Optional
 import dagger
 from dagger import dag, Container, Directory, Socket, Secret
 
-from containers.builders import build_go
+from containers.builders import build_go_multiple
 
 PLATFORMS = ["linux/amd64", "linux/arm64"]
 
 
 async def operator_ubi(src: Directory, sock: Socket, gh_token: Optional[Secret] = None,
                        platform: str = "") -> Container:
-    """Returns container suitable for building go applications, optionally for a specific platform."""
+    """Returns the operator UBI image, optionally for a specific platform. Ships both the operator and the
+    weka-capacity dry-run CLI, built together in one pass to reuse the module/build cache."""
     target_os, target_arch = "", ""
     if platform:
         target_os, target_arch = platform.split("/")
 
-    operator = await build_go(src, sock, gh_token, cache_deps=False, program_path="cmd/manager/main.go",
-                              go_generate=True, target_os=target_os, target_arch=target_arch)
+    built = await build_go_multiple(
+        src, sock, gh_token, cache_deps=False,
+        programs={
+            "weka-operator": "cmd/manager/main.go",
+            "weka-capacity": "./cmd/weka-capacity",
+        },
+        go_generate=True, target_os=target_os, target_arch=target_arch,
+    )
 
     base = dag.container(platform=dagger.Platform(platform)) if platform else dag.container()
     return await (
         base
         .from_("registry.access.redhat.com/ubi9/ubi")
-        .with_file("/weka-operator", operator.file("/out-binary"))
+        .with_file("/weka-operator", built.file("/out/weka-operator"))
+        .with_file("/weka-capacity", built.file("/out/weka-capacity"))
     )
 
 

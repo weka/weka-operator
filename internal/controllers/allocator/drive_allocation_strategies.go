@@ -2,10 +2,13 @@ package allocator
 
 import (
 	"sort"
+
+	"github.com/weka/weka-operator/internal/capacityplanner"
 )
 
-// Minimum chunk size: 128GiB x 3 = 384GiB
-const MinChunkSizeGiB = 128 * 3
+// Minimum chunk size: 128GiB x 3 = 384GiB. The canonical value now lives in the pure planner
+// package; re-exported here so existing allocator + validation call sites resolve unchanged.
+const MinChunkSizeGiB = capacityplanner.MinChunkSizeGiB
 
 // AllocationStrategy represents a strategy for allocating virtual drives
 // Each strategy specifies how many drives to create and what size each should be

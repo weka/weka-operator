@@ -7,38 +7,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// cluster_capacity_assignment.go holds the drive-type classification and the failure-domain label
-// resolution shared by the clusterCapacity planner (capacity_planner.go) and the controller layer.
-
-// Drive-container type tags derived from a DriveTypesRatio.
-const (
-	DriveTypeTLC   = "tlc"
-	DriveTypeQLC   = "qlc"
-	DriveTypeMixed = "mixed"
-)
-
-// RatioFromCaps builds a DriveTypesRatio as a gcd-reduced proportion of the given TLC/QLC
-// capacities, so containers carry e.g. {tlc:1,qlc:0} rather than raw GiB. Both-zero ⇒ {0,0}
-// (callers/consumers treat that as TLC-only by default — see GetTlcQlcCapacity).
-func RatioFromCaps(tlcGiB, qlcGiB int) *weka.DriveTypesRatio {
-	g := gcdInt(tlcGiB, qlcGiB)
-	if g == 0 {
-		return &weka.DriveTypesRatio{Tlc: 0, Qlc: 0}
-	}
-	return &weka.DriveTypesRatio{Tlc: tlcGiB / g, Qlc: qlcGiB / g}
-}
-
-// gcdInt returns the greatest common divisor of a and b (0 when both are 0). Duplicated here rather
-// than imported from internal/validation to avoid a new package dependency / potential import cycle.
-func gcdInt(a, b int) int {
-	for b != 0 {
-		a, b = b, a%b
-	}
-	if a < 0 {
-		return -a
-	}
-	return a
-}
+// cluster_capacity_assignment.go holds the k8s-coupled failure-domain label resolution shared by the
+// clusterCapacity planner and the controller layer. The pure drive-type classification
+// (RatioFromCaps, gcdInt, DriveType* tags) now lives in internal/capacityplanner/ratio.go.
 
 // ResolveNodeFDValue resolves a node's label-based failure-domain value from a FailureDomain config:
 // a single Label, or CompositeLabels joined with "-". It returns the RAW label value(s) WITHOUT the

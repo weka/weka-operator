@@ -19,7 +19,7 @@ type CRReporter struct {
 	// apiReader is the uncached reader used for the per-cycle events List —
 	// the cached client would informer-cache all cluster events forever.
 	apiReader  client.Reader
-	wh         config.WekaHome
+	wh         *config.WekaHome
 	namespace  string
 	identity   *IdentityManager
 	log        logr.Logger
@@ -30,7 +30,7 @@ type CRReporter struct {
 }
 
 // New constructs a CRReporter. namespace is the operator namespace.
-func New(c client.Client, apiReader client.Reader, wh config.WekaHome, namespace string, identity *IdentityManager, log logr.Logger) *CRReporter {
+func New(c client.Client, apiReader client.Reader, wh *config.WekaHome, namespace string, identity *IdentityManager, log logr.Logger) *CRReporter {
 	return &CRReporter{
 		client:    c,
 		apiReader: apiReader,

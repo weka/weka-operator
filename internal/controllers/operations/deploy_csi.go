@@ -488,13 +488,14 @@ func (o *DeployCsiOperation) cleanupOldSharedCsiNodeDaemonSet(ctx context.Contex
 		return fmt.Errorf("failed to list WekaClients: %w", err)
 	}
 
-	for _, sibling := range allClients.Items {
+	for i := range allClients.Items {
+		sibling := &allClients.Items[i]
 		if sibling.DeletionTimestamp != nil {
 			// Being deleted — it will never carry a per-client DaemonSet.
 			continue
 		}
 
-		siblingGroup, err := o.resolveClientCsiGroup(ctx, &sibling)
+		siblingGroup, err := o.resolveClientCsiGroup(ctx, sibling)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				// Target cluster is gone — this sibling can no longer belong to

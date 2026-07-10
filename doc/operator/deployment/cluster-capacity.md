@@ -536,8 +536,9 @@ Over-provision cap = 0.20 × 66 ≈ 13.2 TiB; 4 TiB is within cap.
 
 Total: 70 TiB raw (over-provisioned by 4 TiB). `ClusterCapacityOverProvisioned` fires:
 
-> *"TLC: covering +6144 GiB by 1 new failure domain(s) of 10240 GiB (over-provisioned by 4096 GiB,
-> within maxOverProvisionFraction=0.20) to avoid resizing existing containers"*
+> *"TLC: +6144 GiB covered by adding 1 new failure domain(s), each sized to a uniform 10240 GiB; this
+> over-provisions the target by 4096 GiB (within maxOverProvisionFraction=0.20) — intentional rounding to
+> keep failure domains uniformly sized, not reclaimable excess (no manual shrink needed)"*
 
 **J″ — Both create AND grow (large increase, partial spare coverage).**
 
@@ -886,7 +887,7 @@ advisories are suppressed for that reconcile (they describe placement that does 
 | `ClusterCapacityDeferred` | Normal | A drive container is alive but never scheduled — planning deferred and retried (see [§Rules](#rules-that-apply-everywhere)). Routine pod deletion does **not** cause this. |
 | `ClusterCapacityShrink` | Normal | A pool's current capacity exceeds desired by **more than `maxOverProvisionFraction` × desired**. **Never auto-applied** — delete WekaContainers manually to shrink. (An in-cap over-provision from create-new rounding stays silent — see `ClusterCapacityOverProvisioned`.) |
 | `ClusterCapacityHeterogeneousGrowth` | Warning | The heterogeneous-fallback notice: a fresh balanced (uniform) set was created on spare nodes because a fresh per-FD chunk would dwarf the existing FDs; the old smaller drive containers can be deleted manually once data has migrated. |
-| `ClusterCapacityOverProvisioned` | Normal | A pool was over-provisioned by up to one uniform chunk (`T`) to avoid resizing existing containers. The total placed exceeds the desired raw by at most `maxOverProvisionFraction` × desired. The message names the pool and reports the overshoot: `"<pool>: covering +N GiB by K new failure domain(s) of T GiB (over-provisioned by M GiB, within maxOverProvisionFraction=0.20) to avoid resizing existing containers"`. |
+| `ClusterCapacityOverProvisioned` | Normal | A pool was realized with uniformly-sized failure domains, and ceiling that uniform size lands up to one chunk above the desired raw (at most `maxOverProvisionFraction` × desired) — an intentional rounding, not reclaimable excess. The message names the pool, states the placement (growing existing FDs, adding new ones, or both), and reports the overshoot: `"<pool>: +N GiB covered by growing K existing failure domain(s), each sized to a uniform T GiB; this over-provisions the target by M GiB (within maxOverProvisionFraction=0.20) — intentional rounding to keep failure domains uniformly sized, not reclaimable excess (no manual shrink needed)"`. |
 | `ClusterCapacityInfeasible` | Warning | The plan is infeasible — no spare node has ≥ T free for a new FD, and either in-place growth is disabled, or the required grow is below `minGrowthFraction`, or the overshoot would exceed `maxOverProvisionFraction`. The operator waits (1-minute requeue) and creates/grows nothing. The message states the binding reason (e.g. "no spare node has N GiB free … Growing … would raise each by only X% (below minGrowthFraction=0.20)"). When a pool has **fewer than `minFdNum` candidate failure domains**, the message also appends a **breakdown** naming why each rejected node doesn't qualify — `no <pool> drive capacity`, `already hosts a <pool> container`, or `<drive capacity / cores / hugepages / memory> limits usable <pool> to N GiB (below the 384 GiB minimum chunk)` — with **nodes sharing a reason grouped into one clause** (e.g. `n4, n5, n6: no QLC drive capacity`; capped with `(+N more)` tails). |
 | `CapacityGrowthApplied` | Warning **or** Normal | Growth committed to an **existing** container. **Warning** when a core/hugepage change needs a manual pod termination; **Normal** when applied live (drive *capacity*-only increase). Emitted only while `enableDynamicDriveScalingForSharedDrives` is `true` — **never in the default config** (`false`), where no container is grown in place. |
 
@@ -979,6 +980,29 @@ Verify with the `WekaContainer` Capacity column:
 ```bash
 kubectl get wekacontainer -l weka.io/cluster=cluster-capacity-migration -n default
 ```
+
+## Previewing a plan: the `weka-capacity` CLI
+
+`clusterCapacity` changes are reconciled live, so before editing a real `WekaCluster` you can **preview**
+what a target (or a change to `driveTypesRatio` / protection) would do. The operator image ships a
+read-only dry-run CLI, `weka-capacity`, that reproduces the operator's exact inputs (the same node
+inventory collector and pure planner) and prints the drive/compute containers it would **create** or
+**grow**, on which nodes, and whether the plan is **feasible** — with actionable fix tips when it is not.
+
+```bash
+# Preview a migration (or a change) without touching the live cluster:
+kubectl exec -n weka-operator-system deploy/weka-operator-controller-manager -- \
+  /weka-capacity plan --cluster my-cluster -n default --cluster-capacity 11022TiB --drive-types-ratio 1:90
+
+# Preview a brand-new cluster that doesn't exist yet (spec synthesized from flags):
+weka-capacity plan --new-cluster --node-selector weka.io/supports-backends=true --cluster-capacity 11022TiB --drive-types-ratio 1:90 --stripe-width 16 --redundancy 2 --hot-spare 1
+
+# See the raw per-node capacity/resource landscape:
+weka-capacity explore-nodes
+```
+
+See **[`weka-capacity` CLI reference](../cli-tools/weka-capacity.md)** for the full command,
+flag, output, and constraint-sourcing documentation.
 
 ## Related documentation
 

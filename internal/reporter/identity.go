@@ -32,7 +32,7 @@ const tokenCacheMargin = time.Minute
 // registers with Weka Home, and signs RS256 JWTs for subsequent requests.
 type IdentityManager struct {
 	client     client.Client
-	wh         config.WekaHome
+	wh         *config.WekaHome
 	namespace  string
 	secretName string
 	log        logr.Logger
@@ -46,7 +46,7 @@ type IdentityManager struct {
 
 // NewIdentityManager constructs an IdentityManager. Identity is loaded lazily
 // on the first AuthHeader call.
-func NewIdentityManager(c client.Client, wh config.WekaHome, namespace, secretName string, log logr.Logger) *IdentityManager {
+func NewIdentityManager(c client.Client, wh *config.WekaHome, namespace, secretName string, log logr.Logger) *IdentityManager {
 	return &IdentityManager{
 		client:     c,
 		wh:         wh,
@@ -220,8 +220,10 @@ func (m *IdentityManager) Register(ctx context.Context, httpClient *http.Client)
 		return fmt.Errorf("registration request: %w", err)
 	}
 	defer func() {
+		//nolint:errcheck // draining response body before close; error is not actionable
 		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		//nolint:errcheck // best-effort close on a drained response body
+		_ = resp.Body.Close()
 	}()
 
 	switch resp.StatusCode {

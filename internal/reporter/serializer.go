@@ -78,7 +78,8 @@ func graftEvents(objBytes []byte, events []eventSummary) ([]byte, error) {
 // lines ("kind":"Node"). Each summary is already a plain struct (not a
 // client.Object), so no strip step is needed.
 func appendNodeNDJSON(buf *bytes.Buffer, summaries []nodeSummary) error {
-	for i, s := range summaries {
+	for i := range summaries {
+		s := &summaries[i]
 		objBytes, err := json.Marshal(s)
 		if err != nil {
 			return fmt.Errorf("marshal node summary at index %d: %w", i, err)
