@@ -771,10 +771,13 @@ type laidOut struct {
 	frozen bool // kept at current size (not resized) — its hugepages must not be re-derived
 }
 
-// layOutExistingCompute resolves each scheduled existing compute against the uniform target (cores +
-// perContainerHP). A container whose node has headroom for the growth delta is GROWN in place (and the
-// delta is reserved in states so the balanced fill does not double-claim that node); one whose node lacks
-// the headroom is FROZEN at its current size (no pod disruption). The prerequisite (Step 1b in
+// layOutExistingCompute resolves each existing compute with a resolved node against the uniform target
+// (cores + perContainerHP). A container whose node has headroom for the growth delta is GROWN in place
+// (and the delta is reserved in states so the balanced fill does not double-claim that node); one whose
+// node lacks the headroom, or whose pod is still Pending (ec.Unscheduled), is FROZEN at its current size
+// (no pod disruption) and counted as committed capacity — so a just-created-but-Pending compute is not
+// recreated as a duplicate on a fresh node. Only a compute with no resolved node is skipped.
+// The prerequisite (Step 1b in
 // PlanCapacity) already charged each existing compute's CURRENT footprint against states, so
 // states[node].coresFree/hugepagesMiB is the remaining headroom after it. Returns the laid-out containers
 // (in input order), the set of pinned nodes, and the cores they contribute toward the count*cores target.
@@ -788,7 +791,7 @@ func layOutExistingCompute(
 	existing = make([]laidOut, 0, len(existingCompute))
 	for i := range existingCompute {
 		ec := &existingCompute[i]
-		if ec.Node == "" || ec.Unscheduled {
+		if ec.Node == "" {
 			continue
 		}
 		ns := states[ec.Node]
@@ -798,13 +801,14 @@ func layOutExistingCompute(
 		pinned[ec.Node] = struct{}{}
 		coresDelta := cores - ec.NumCores
 		hpDelta := perContainerHP - ec.HugepagesMiB
-		if freezeExisting ||
+		if ec.Unscheduled || freezeExisting ||
 			(coresDelta > 0 && ns.coresFree < coresDelta) ||
 			(hpDelta > 0 && ns.hugepagesMiB < hpDelta) {
-			// Frozen at the current size — either because in-place growth is disabled (freezeExisting:
-			// enableDynamicDriveScalingForSharedDrives=false) or this node lacks headroom for the growth
-			// delta. No pod disruption; the shortfall it leaves is covered by the balanced fill (new
-			// containers).
+			// Frozen at the current size (no pod disruption): the pod is still Pending (ec.Unscheduled — no
+			// pod to resize, so count it as committed capacity but never grow/recreate it), or in-place
+			// growth is disabled (freezeExisting), or the node lacks headroom for the growth delta. The
+			// shortfall it leaves is covered by the balanced fill. Its current footprint was already charged
+			// against states (Step 1b of PlanCapacity), so this branch reserves nothing — no double-charge.
 			existing = append(existing, laidOut{
 				spec:   ComputeContainerSpec{Node: ec.Node, NumCores: ec.NumCores, HugepagesMiB: ec.HugepagesMiB},
 				frozen: true,
