@@ -25,6 +25,7 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 // podHugepagesRequestMiB returns the pod's hugepages request in MiB. This is the same raw-hugepages
@@ -140,7 +141,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		return err
 	}
 
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	executor, err := podexec.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
 	}
@@ -728,7 +729,7 @@ func (r *containerReconcilerLoop) MarkDrivesForRemoval(ctx context.Context) erro
 	return nil
 }
 
-func (r *containerReconcilerLoop) getKernelDrives(ctx context.Context, executor util.Exec) (map[string]domain.DriveInfo, error) {
+func (r *containerReconcilerLoop) getKernelDrives(ctx context.Context, executor podexec.Exec) (map[string]domain.DriveInfo, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "getKernelDrives")
 	defer logger.End()
 
@@ -807,7 +808,7 @@ func (r *containerReconcilerLoop) getKernelDrivesFromNodeAgent(ctx context.Conte
 	return serialIdMap, nil
 }
 
-func (r *containerReconcilerLoop) getKernelDrivesFromPod(ctx context.Context, executor util.Exec) (map[string]domain.DriveInfo, error) {
+func (r *containerReconcilerLoop) getKernelDrivesFromPod(ctx context.Context, executor podexec.Exec) (map[string]domain.DriveInfo, error) {
 	stdout, _, err := executor.ExecNamed(ctx, "FetchKernelDrives",
 		[]string{"bash", "-ce", "cat /opt/weka/k8s-runtime/drives.json"})
 	if err != nil {

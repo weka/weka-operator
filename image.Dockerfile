@@ -29,8 +29,10 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 
 # weka-capacity is the capacity-planner dry-run CLI. Built by package path (multi-file main) and shipped
 # alongside the operator so it can be invoked via `kubectl exec ... -- /weka-capacity ...`.
+# Stripped (-s -w) and trimmed (-trimpath): this binary ships only to be exec'd for a dry-run
+# preview, so debug symbols and build paths aren't needed and dropping them shrinks the image.
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build,id=gobuild-$TARGETARCH \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /dist/weka-capacity ./cmd/weka-capacity
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags "-s -w" -trimpath -o /dist/weka-capacity ./cmd/weka-capacity
 
 FROM registry.access.redhat.com/ubi9/ubi as final
 COPY --from=builder /dist/weka-operator /weka-operator

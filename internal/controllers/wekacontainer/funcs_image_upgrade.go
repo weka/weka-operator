@@ -15,7 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 func (r *containerReconcilerLoop) upgradeConditionsPass(ctx context.Context) (bool, error) {
@@ -161,7 +161,7 @@ func (r *containerReconcilerLoop) runFrontendUpgradePrepare(ctx context.Context)
 	container := r.container
 	pod := r.pod
 
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	executor, err := podexec.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
 	}
@@ -180,7 +180,7 @@ func (r *containerReconcilerLoop) runFrontendUpgradePrepare(ctx context.Context)
 	return nil
 }
 
-func (r *containerReconcilerLoop) runDriverPrepareUpgrade(ctx context.Context, executor util.Exec) error {
+func (r *containerReconcilerLoop) runDriverPrepareUpgrade(ctx context.Context, executor podexec.Exec) error {
 	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgrade", []string{"bash", "-ce", `
 if lsmod | grep wekafsio; then
 	if [ -e /proc/wekafs/interface ]; then

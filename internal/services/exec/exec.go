@@ -9,12 +9,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 
-	util2 "github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 type ExecService interface {
-	GetExecutor(ctx context.Context, container *wekav1alpha1.WekaContainer) (util2.Exec, error)
-	GetExecutorWithTimeout(ctx context.Context, container *wekav1alpha1.WekaContainer, timeout *time.Duration) (util2.Exec, error)
+	GetExecutor(ctx context.Context, container *wekav1alpha1.WekaContainer) (podexec.Exec, error)
+	GetExecutorWithTimeout(ctx context.Context, container *wekav1alpha1.WekaContainer, timeout *time.Duration) (podexec.Exec, error)
 }
 
 func NewExecService(client rest.Interface, config *rest.Config) ExecService {
@@ -29,14 +29,14 @@ type PodExecService struct {
 	restClient rest.Interface
 }
 
-func (s *PodExecService) GetExecutorWithTimeout(ctx context.Context, container *wekav1alpha1.WekaContainer, timeout *time.Duration) (util2.Exec, error) {
+func (s *PodExecService) GetExecutorWithTimeout(ctx context.Context, container *wekav1alpha1.WekaContainer, timeout *time.Duration) (podexec.Exec, error) {
 	if container == nil {
 		return nil, errors.New("container is nil")
 	}
 	config := s.getConfig()
 	nodeName := string(container.GetNodeAffinity())
 
-	executor, err := util2.NewExecWithConfig(s.restClient, config, types.NamespacedName{
+	executor, err := podexec.NewExecWithConfig(s.restClient, config, types.NamespacedName{
 		Namespace: container.Namespace,
 		Name:      container.Name,
 	}, timeout, "weka-container", nodeName)
@@ -46,7 +46,7 @@ func (s *PodExecService) GetExecutorWithTimeout(ctx context.Context, container *
 	return executor, nil
 }
 
-func (s *PodExecService) GetExecutor(ctx context.Context, container *wekav1alpha1.WekaContainer) (util2.Exec, error) {
+func (s *PodExecService) GetExecutor(ctx context.Context, container *wekav1alpha1.WekaContainer) (podexec.Exec, error) {
 	return s.GetExecutorWithTimeout(ctx, container, nil)
 }
 

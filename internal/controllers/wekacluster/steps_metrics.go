@@ -29,6 +29,7 @@ import (
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 // MonitoringServiceHashableSpec represents the fields that should trigger a monitoring service update
@@ -553,7 +554,7 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 	}
 
 	podExecTimeout := time.Minute
-	exec, err := util2.NewExecInPodByName(r.RestClient, r.Manager.GetConfig(), pod, "weka-cluster-metrics", &podExecTimeout)
+	exec, err := podexec.NewExecInPodByName(r.RestClient, r.Manager.GetConfig(), pod, "weka-cluster-metrics", &podExecTimeout)
 	if err != nil {
 		return err
 	}

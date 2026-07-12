@@ -19,7 +19,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
@@ -79,7 +79,7 @@ func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, erro
 	pod := r.pod
 	timeout := 15 * time.Second
 
-	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
+	executor, err := podexec.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
 	if err != nil {
 		logger.Error(err, "Error creating executor")
 		return false, err

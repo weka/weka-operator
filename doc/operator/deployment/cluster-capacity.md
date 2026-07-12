@@ -990,8 +990,9 @@ inventory collector and pure planner) and prints the drive/compute containers it
 **grow**, on which nodes, and whether the plan is **feasible** — with actionable fix tips when it is not.
 
 ```bash
-# Preview a migration (or a change) without touching the live cluster:
-kubectl exec -n weka-operator-system deploy/weka-operator-controller-manager -- \
+# Preview a migration (or a change) without touching the live cluster. Preferred: exec into the
+# opt-in capacity-planner toolbox pod (enable via Helm --set deployCapacityPlanner=true):
+kubectl -n weka-operator-system exec deploy/weka-operator-capacity-planner -- \
   /weka-capacity plan --cluster my-cluster -n default --cluster-capacity 11022TiB --drive-types-ratio 1:90
 
 # Preview a brand-new cluster that doesn't exist yet (spec synthesized from flags):
@@ -1002,7 +1003,7 @@ weka-capacity explore-nodes
 ```
 
 See **[`weka-capacity` CLI reference](../cli-tools/weka-capacity.md)** for the full command,
-flag, output, and constraint-sourcing documentation.
+flag, output, constraint-sourcing, and toolbox-pod deployment documentation.
 
 ## Related documentation
 

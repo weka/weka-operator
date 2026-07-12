@@ -16,6 +16,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 // Drive.Status values reported by the Weka API.
@@ -619,7 +620,7 @@ func (c *CliWekaService) GetUsers(ctx context.Context) ([]WekaUserResponse, erro
 	return existingUsers, nil
 }
 
-func (c *CliWekaService) getExecutor(ctx context.Context) (util.Exec, error) {
+func (c *CliWekaService) getExecutor(ctx context.Context) (podexec.Exec, error) {
 	return c.execService.GetExecutorWithTimeout(ctx, c.Container, c.timeout)
 }
 

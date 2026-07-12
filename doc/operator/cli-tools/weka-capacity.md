@@ -22,15 +22,23 @@ It is the safe alternative to editing a live `WekaCluster` and watching the oper
 
 ## Installation / how to run
 
-The binary ships in the operator image as `/weka-capacity`, and can also be built locally.
+The `weka-capacity` binary runs in the **capacity-planner toolbox pod** — a dedicated,
+opt-in workload — and can also be built and run locally against a kubeconfig.
+
+**In-cluster: the capacity-planner toolbox pod.** Enable it via Helm with
+`--set deployCapacityPlanner=true`, which installs a `<prefix>-capacity-planner`
+Deployment (default prefix `weka-operator`, so `weka-operator-capacity-planner`) with its
+own read-only ServiceAccount (`get`/`list`/`watch` on nodes, WekaClusters/WekaContainers,
+and Deployments — no write access). Exec into it to run `weka-capacity`:
 
 ```bash
-# In-cluster (no local build needed) — exec into the operator pod.
-# NOTE: the manager pod has two containers; select the manager one with `-c manager`.
-kubectl exec -n weka-operator-system deploy/weka-operator-controller-manager -c manager -- \
+kubectl -n weka-operator-system exec deploy/weka-operator-capacity-planner -- \
   /weka-capacity explore-nodes
+```
 
-# Locally against a kubeconfig ($KUBECONFIG or --kubeconfig):
+**Locally against a kubeconfig** (`$KUBECONFIG` or `--kubeconfig`):
+
+```bash
 make build-weka-capacity            # builds ./bin/weka-capacity
 ./bin/weka-capacity explore-nodes
 
@@ -38,8 +46,8 @@ make build-weka-capacity            # builds ./bin/weka-capacity
 make run-weka-capacity ARGS="explore-nodes"
 ```
 
-When no `--kubeconfig` is given and `$KUBECONFIG` is unset, the tool uses the in-cluster config (so it
-works unchanged inside the operator pod).
+When no `--kubeconfig` is given and `$KUBECONFIG` is unset, the tool uses the in-cluster config
+(so it works unchanged inside the toolbox pod).
 
 > **`plan` and namespaces.** There are **two** independent namespaces. `-n`/`--namespace` is the
 > **cluster** namespace — where the target `WekaCluster` lives. `--operator-namespace` is the
@@ -256,7 +264,7 @@ for the same inputs.
 With no WekaContainers yet, free == phys everywhere:
 
 ```bash
-kubectl exec -n weka-operator-system deploy/weka-operator-controller-manager -c manager -- \
+kubectl -n weka-operator-system exec deploy/weka-operator-capacity-planner -- \
   /weka-capacity explore-nodes
 ```
 ```
@@ -346,7 +354,7 @@ the live cluster.
 ### Feasible — at target (steady state)
 
 ```bash
-kubectl exec -n weka-operator-system deploy/weka-operator-controller-manager -c manager -- \
+kubectl -n weka-operator-system exec deploy/weka-operator-capacity-planner -- \
   /weka-capacity plan --cluster cap-test -n weka-operator-system
 ```
 ```

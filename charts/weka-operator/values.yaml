@@ -19,6 +19,18 @@ builderImages:
 # -- optional: name of an existing imagePullSecret to attach to operator pods
 imagePullSecret: ""
 deployController: true
+# -- deploy a standalone capacity-planner toolbox pod (runs `weka-capacity` from the
+#    operator image; exec into it to preview capacity plans without touching the operator pod)
+deployCapacityPlanner: false
+capacityPlanner:
+  # -- no resource limits (avoids CPU throttling / OOM-kills during an exec'd plan run);
+  #    small requests only, so it still schedules
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  nodeSelector: {}
+  tolerations: []
 # -- experimental: enables custtom HTTP API endpoint as alternative to K8s API
 enableClusterApi: false
 # -- enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.

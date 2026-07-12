@@ -18,7 +18,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services"
-	"github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 // ActiveStateFlow returns the steps for a container in the active state
@@ -638,7 +638,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 }
 
 func (r *containerReconcilerLoop) checkAllowForceStopInstruction(ctx context.Context, pod *v1.Pod) (bool, error) {
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	executor, err := podexec.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return false, err
 	}

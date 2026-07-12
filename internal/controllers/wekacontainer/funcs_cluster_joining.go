@@ -13,7 +13,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services"
-	"github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) error {
@@ -32,7 +32,7 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 
 	timeout := time.Second * 15
 
-	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
+	executor, err := podexec.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
 	if err != nil {
 		logger.Error(err, "Error creating executor")
 		return err

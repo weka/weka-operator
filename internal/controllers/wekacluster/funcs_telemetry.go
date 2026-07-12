@@ -22,7 +22,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 // TelemetryExportInfo represents an export from weka telemetry exports list -J
@@ -149,7 +149,7 @@ func (r *wekaClusterReconcilerLoop) validateSplunkExport(ctx context.Context, ex
 
 // writeSecretToTempFile writes a secret value to a temporary file in the pod using ExecSensitive.
 // Returns the path to the temporary file.
-func (r *wekaClusterReconcilerLoop) writeSecretToTempFile(ctx context.Context, executor util.Exec, content, prefix string) (string, error) {
+func (r *wekaClusterReconcilerLoop) writeSecretToTempFile(ctx context.Context, executor podexec.Exec, content, prefix string) (string, error) {
 	// Create a temp file path
 	tempPath := fmt.Sprintf("/tmp/%s-%d", prefix, time.Now().UnixNano())
 
@@ -167,7 +167,7 @@ func (r *wekaClusterReconcilerLoop) writeSecretToTempFile(ctx context.Context, e
 }
 
 // cleanupTempFile removes a temporary file from the pod.
-func (r *wekaClusterReconcilerLoop) cleanupTempFile(ctx context.Context, executor util.Exec, path string) {
+func (r *wekaClusterReconcilerLoop) cleanupTempFile(ctx context.Context, executor podexec.Exec, path string) {
 	if path == "" {
 		return
 	}
@@ -405,7 +405,7 @@ func (r *wekaClusterReconcilerLoop) disableAutoStartTelemetryContainer(ctx conte
 }
 
 // enableAuditCluster runs `weka audit cluster enable`
-func (r *wekaClusterReconcilerLoop) enableAuditCluster(ctx context.Context, executor util.Exec) error {
+func (r *wekaClusterReconcilerLoop) enableAuditCluster(ctx context.Context, executor podexec.Exec) error {
 	_, logger := instrumentation.CreateLogSpan(ctx, "enableAuditCluster")
 	defer logger.End()
 
@@ -426,7 +426,7 @@ func (r *wekaClusterReconcilerLoop) enableAuditCluster(ctx context.Context, exec
 }
 
 // enableAuditDefaultFs runs `weka audit fs enable default`
-func (r *wekaClusterReconcilerLoop) enableAuditDefaultFs(ctx context.Context, executor util.Exec) error {
+func (r *wekaClusterReconcilerLoop) enableAuditDefaultFs(ctx context.Context, executor podexec.Exec) error {
 	_, logger := instrumentation.CreateLogSpan(ctx, "enableAuditDefaultFs")
 	defer logger.End()
 
@@ -447,7 +447,7 @@ func (r *wekaClusterReconcilerLoop) enableAuditDefaultFs(ctx context.Context, ex
 }
 
 // listTelemetryExports runs `weka telemetry exports list -J` and parses the result
-func (r *wekaClusterReconcilerLoop) listTelemetryExports(ctx context.Context, executor util.Exec) ([]TelemetryExportInfo, error) {
+func (r *wekaClusterReconcilerLoop) listTelemetryExports(ctx context.Context, executor podexec.Exec) ([]TelemetryExportInfo, error) {
 	cmd := "weka telemetry exports list -J"
 	stdout, stderr, err := executor.ExecNamed(ctx, "ListTelemetryExports", []string{"bash", "-ce", cmd})
 	if err != nil {
@@ -463,7 +463,7 @@ func (r *wekaClusterReconcilerLoop) listTelemetryExports(ctx context.Context, ex
 }
 
 // reconcileTelemetryExport reconciles a single telemetry export
-func (r *wekaClusterReconcilerLoop) reconcileTelemetryExport(ctx context.Context, executor util.Exec, desired weka.TelemetryExport, currentByName map[string]TelemetryExportInfo) error {
+func (r *wekaClusterReconcilerLoop) reconcileTelemetryExport(ctx context.Context, executor podexec.Exec, desired weka.TelemetryExport, currentByName map[string]TelemetryExportInfo) error {
 	// Use prefixed name for the actual export in Weka
 	prefixedName := getOperatorExportName(desired.Name)
 	_, logger := instrumentation.CreateLogSpan(ctx, "reconcileTelemetryExport", "name", prefixedName)
@@ -488,7 +488,7 @@ func (r *wekaClusterReconcilerLoop) reconcileTelemetryExport(ctx context.Context
 }
 
 // addTelemetryExport adds a new telemetry export with the given name (should include operator prefix)
-func (r *wekaClusterReconcilerLoop) addTelemetryExport(ctx context.Context, executor util.Exec, export weka.TelemetryExport, exportName string) error {
+func (r *wekaClusterReconcilerLoop) addTelemetryExport(ctx context.Context, executor podexec.Exec, export weka.TelemetryExport, exportName string) error {
 	_, logger := instrumentation.CreateLogSpan(ctx, "addTelemetryExport", "name", exportName)
 	defer logger.End()
 
@@ -579,7 +579,7 @@ func (r *wekaClusterReconcilerLoop) addTelemetryExport(ctx context.Context, exec
 }
 
 // updateTelemetryExport updates an existing telemetry export
-func (r *wekaClusterReconcilerLoop) updateTelemetryExport(ctx context.Context, executor util.Exec, export weka.TelemetryExport, exportID string) error {
+func (r *wekaClusterReconcilerLoop) updateTelemetryExport(ctx context.Context, executor podexec.Exec, export weka.TelemetryExport, exportID string) error {
 	_, logger := instrumentation.CreateLogSpan(ctx, "updateTelemetryExport", "name", export.Name, "id", exportID)
 	defer logger.End()
 
@@ -652,7 +652,7 @@ func (r *wekaClusterReconcilerLoop) updateTelemetryExport(ctx context.Context, e
 }
 
 // removeTelemetryExport removes a telemetry export by ID
-func (r *wekaClusterReconcilerLoop) removeTelemetryExport(ctx context.Context, executor util.Exec, exportID, exportName string) error {
+func (r *wekaClusterReconcilerLoop) removeTelemetryExport(ctx context.Context, executor podexec.Exec, exportID, exportName string) error {
 	_, logger := instrumentation.CreateLogSpan(ctx, "removeTelemetryExport", "name", exportName, "id", exportID)
 	defer logger.End()
 
@@ -675,7 +675,7 @@ func (r *wekaClusterReconcilerLoop) removeTelemetryExport(ctx context.Context, e
 }
 
 // disableAuditCluster runs `weka audit cluster disable`
-func (r *wekaClusterReconcilerLoop) disableAuditCluster(ctx context.Context, executor util.Exec) error {
+func (r *wekaClusterReconcilerLoop) disableAuditCluster(ctx context.Context, executor podexec.Exec) error {
 	_, logger := instrumentation.CreateLogSpan(ctx, "disableAuditCluster")
 	defer logger.End()
 

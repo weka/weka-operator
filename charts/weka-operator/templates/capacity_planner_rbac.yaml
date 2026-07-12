@@ -1,0 +1,52 @@
+{{- if .Values.deployCapacityPlanner }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/name: serviceaccount
+    app.kubernetes.io/instance: capacity-planner
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: weka-operator
+    app.kubernetes.io/part-of: weka-operator
+  name: "{{ .Values.prefix }}-capacity-planner"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: weka-operator
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/part-of: weka-operator
+  name: "{{ .Values.prefix }}-capacity-planner-role"
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["weka.weka.io"]
+    resources: ["wekaclusters", "wekacontainers", "wekaclusters/status", "wekacontainers/status"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: weka-operator
+    app.kubernetes.io/instance: capacity-planner-rolebinding
+    app.kubernetes.io/name: clusterrolebinding
+    app.kubernetes.io/part-of: weka-operator
+  name: "{{ .Values.prefix }}-capacity-planner-rolebinding"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: "{{ .Values.prefix }}-capacity-planner-role"
+subjects:
+  - kind: ServiceAccount
+    name: "{{ .Values.prefix }}-capacity-planner"
+    namespace: "{{ .Release.Namespace }}"
+{{- end }}

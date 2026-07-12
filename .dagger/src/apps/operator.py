@@ -21,7 +21,10 @@ async def operator_ubi(src: Directory, sock: Socket, gh_token: Optional[Secret] 
         src, sock, gh_token, cache_deps=False,
         programs={
             "weka-operator": "cmd/manager/main.go",
-            "weka-capacity": "./cmd/weka-capacity",
+            # Stripped (-s -w) and trimmed (-trimpath): this binary only ships to be exec'd for a
+            # dry-run capacity preview, so debug symbols/build paths aren't needed. The operator
+            # binary keeps its symbols (no extra_args) for post-mortem debugging.
+            "weka-capacity": {"target": "./cmd/weka-capacity", "extra_args": ["-ldflags", "-s -w", "-trimpath"]},
         },
         go_generate=True, target_os=target_os, target_arch=target_arch,
     )

@@ -1,0 +1,66 @@
+{{- if .Values.deployCapacityPlanner }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{ .Values.prefix }}-capacity-planner"
+  labels:
+    app.kubernetes.io/component: capacity-planner
+    app.kubernetes.io/created-by: weka-operator
+    app.kubernetes.io/instance: capacity-planner
+    app.kubernetes.io/name: deployment
+    app.kubernetes.io/part-of: weka-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "{{ .Values.prefix }}-capacity-planner"
+  template:
+    metadata:
+      labels:
+        app: "{{ .Values.prefix }}-capacity-planner"
+        app.kubernetes.io/component: capacity-planner
+        app.kubernetes.io/created-by: weka-operator
+        app.kubernetes.io/part-of: weka-operator
+    spec:
+      imagePullSecrets:
+        - name: "{{ .Values.imagePullSecret }}"
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+                      - arm64
+                  - key: kubernetes.io/os
+                    operator: In
+                    values:
+                      - linux
+      {{- if .Values.capacityPlanner.tolerations }}
+      tolerations:
+        {{- toYaml .Values.capacityPlanner.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.capacityPlanner.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.capacityPlanner.nodeSelector | nindent 8 }}
+      {{- end }}
+      serviceAccountName: "{{ .Values.prefix }}-capacity-planner"
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: capacity-planner
+          image: "{{ .Values.image.repository }}:{{if not (empty .Values.image.tag)}}{{ .Values.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"
+          imagePullPolicy: Always
+          command: ["/bin/sleep"]
+          args: ["infinity"]
+          # NB: the operator image runs as root (like the manager container), so we do NOT set
+          # runAsNonRoot here — kubelet would refuse to start it. Matches manager.yaml's container.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml .Values.capacityPlanner.resources | nindent 12 }}
+{{- end }}

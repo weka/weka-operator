@@ -114,9 +114,12 @@ async def build_go_multiple(
         target_arch: str = "",
 ) -> Container:
     """Builds multiple go binaries in ONE builder pass so they share the module/build cache and any
-    `go generate` output. `programs` maps binary name -> build target (a package path like
-    `./cmd/weka-capacity`, or a `main.go` file path). Each binary is emitted at `/out/<name>`.
-    Mirrors build_go's step order (mod download -> generate -> full source -> build)."""
+    `go generate` output. `programs` maps binary name -> build target. A target is either a plain
+    string (a package path like `./cmd/weka-capacity`, or a `main.go` file path), or a dict
+    `{"target": <path>, "extra_args": [...]}` to pass per-binary go-build flags (e.g. `-ldflags`,
+    `-trimpath`) without affecting the other binaries built in the same pass. Each binary is
+    emitted at `/out/<name>`. Mirrors build_go's step order (mod download -> generate -> full
+    source -> build)."""
     programs = programs or {}
 
     cont = (
@@ -142,7 +145,13 @@ async def build_go_multiple(
         )
 
     for name, target in programs.items():
-        cont = cont.with_exec(["go", "build", "-o", f"/out/{name}", target])
+        if isinstance(target, dict):
+            target_path = target["target"]
+            extra_args = target.get("extra_args", [])
+        else:
+            target_path = target
+            extra_args = []
+        cont = cont.with_exec(["go", "build", *extra_args, "-o", f"/out/{name}", target_path])
     return await cont
 
 

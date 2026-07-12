@@ -25,7 +25,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
@@ -173,7 +173,7 @@ func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Con
 
 	timeout := 1 * time.Minute
 
-	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
+	executor, err := podexec.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
 	if err != nil {
 		return err
 	}
@@ -218,7 +218,7 @@ func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Conte
 	}
 
 	timeout := 1 * time.Minute
-	executor, err := util.NewExecInPodByName(r.RestClient, r.Manager.GetConfig(), agentPod, "node-agent", &timeout)
+	executor, err := podexec.NewExecInPodByName(r.RestClient, r.Manager.GetConfig(), agentPod, "node-agent", &timeout)
 	if err != nil {
 		return err
 	}
@@ -390,7 +390,7 @@ func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.
 
 	timeout := 12 * time.Second
 	bashTimeout := 10 * time.Second
-	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
+	executor, err := podexec.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
 	if err != nil {
 		return err
 	}
@@ -439,7 +439,7 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 
 	timeout := 1 * time.Minute
 
-	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
+	executor, err := podexec.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
 	if err != nil {
 		return err
 	}

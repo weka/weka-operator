@@ -23,6 +23,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 func (r *containerReconcilerLoop) ShouldAllocateNICs() bool {
@@ -286,7 +287,7 @@ func (r *containerReconcilerLoop) getExpectedAllocations(ctx context.Context) (*
 	return allocations, nil
 }
 
-func (r *containerReconcilerLoop) verifyResourcesJson(ctx context.Context, executor util.Exec, expectedAllocations *weka.ContainerAllocations) error {
+func (r *containerReconcilerLoop) verifyResourcesJson(ctx context.Context, executor podexec.Exec, expectedAllocations *weka.ContainerAllocations) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "verifyResourcesJson")
 	defer logger.End()
 
