@@ -19,6 +19,7 @@ type nodeSummary struct {
 	Annotations       map[string]string `json:"annotations,omitempty"`
 	ExtendedResources map[string]string `json:"extendedResources,omitempty"`
 	NodeInfo          nodeInfoSummary   `json:"nodeInfo"`
+	Events            []eventSummary    `json:"_events,omitempty"`
 }
 
 // nodeInfoSummary carries the driver-distribution-relevant subset of
