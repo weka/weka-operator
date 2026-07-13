@@ -350,6 +350,7 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		)
 		rep := reporter.New(
 			mgr.GetClient(),
+			mgr.GetAPIReader(),
 			config.Config.WekaHome,
 			config.Config.OperatorPodNamespace,
 			idp,

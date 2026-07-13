@@ -15,7 +15,10 @@ import (
 // CRReporter periodically collects all Weka CRs cluster-wide and POSTs a full
 // combined snapshot to Weka Home.
 type CRReporter struct {
-	client     client.Client
+	client client.Client
+	// apiReader is the uncached reader used for the per-cycle events List —
+	// the cached client would informer-cache all cluster events forever.
+	apiReader  client.Reader
 	wh         config.WekaHome
 	namespace  string
 	identity   *IdentityManager
@@ -27,9 +30,10 @@ type CRReporter struct {
 }
 
 // New constructs a CRReporter. namespace is the operator namespace.
-func New(c client.Client, wh config.WekaHome, namespace string, identity *IdentityManager, log logr.Logger) *CRReporter {
+func New(c client.Client, apiReader client.Reader, wh config.WekaHome, namespace string, identity *IdentityManager, log logr.Logger) *CRReporter {
 	return &CRReporter{
 		client:    c,
+		apiReader: apiReader,
 		wh:        wh,
 		namespace: namespace,
 		identity:  identity,
@@ -139,6 +143,9 @@ func (r *CRReporter) buildSnapshot(ctx context.Context) ([]byte, error) {
 	// Accumulate union of node-selectors from CR kinds that expose them.
 	var nodeSelectors []map[string]string
 
+	// Best-effort: a failed events List logs and skips enrichment this cycle.
+	evIdx := collectEventIndex(ctx, r.apiReader, r.log)
+
 	// --- CR kinds ---
 	for _, kind := range crKinds {
 		rawList, err := collectListRaw(ctx, r.client, kind)
@@ -149,7 +156,7 @@ func (r *CRReporter) buildSnapshot(ctx context.Context) ([]byte, error) {
 
 		objs := kind.items(rawList)
 
-		if err := appendNDJSON(&buf, kind.name, objs); err != nil {
+		if err := appendNDJSON(&buf, kind.name, objs, evIdx); err != nil {
 			r.log.Error(err, "Failed to serialize CRs — aborting cycle", "kind", kind.name)
 			return nil, err
 		}
@@ -166,7 +173,7 @@ func (r *CRReporter) buildSnapshot(ctx context.Context) ([]byte, error) {
 		r.log.Error(err, "Failed to collect operator Deployment — aborting cycle")
 		return nil, err
 	}
-	if err := appendNDJSON(&buf, "Deployment", deployments); err != nil {
+	if err := appendNDJSON(&buf, "Deployment", deployments, evIdx); err != nil {
 		r.log.Error(err, "Failed to serialize operator Deployment — aborting cycle")
 		return nil, err
 	}
@@ -178,7 +185,7 @@ func (r *CRReporter) buildSnapshot(ctx context.Context) ([]byte, error) {
 		r.log.Error(err, "Failed to collect operator DaemonSets — aborting cycle")
 		return nil, err
 	}
-	if err := appendNDJSON(&buf, "DaemonSet", daemonsets); err != nil {
+	if err := appendNDJSON(&buf, "DaemonSet", daemonsets, evIdx); err != nil {
 		r.log.Error(err, "Failed to serialize operator DaemonSets — aborting cycle")
 		return nil, err
 	}
@@ -190,7 +197,7 @@ func (r *CRReporter) buildSnapshot(ctx context.Context) ([]byte, error) {
 		r.log.Error(err, "Failed to collect operator Pods — aborting cycle")
 		return nil, err
 	}
-	if err := appendNDJSON(&buf, "Pod", pods); err != nil {
+	if err := appendNDJSON(&buf, "Pod", pods, evIdx); err != nil {
 		r.log.Error(err, "Failed to serialize operator Pods — aborting cycle")
 		return nil, err
 	}
@@ -202,6 +209,10 @@ func (r *CRReporter) buildSnapshot(ctx context.Context) ([]byte, error) {
 		r.log.Error(err, "Failed to collect Node projection — aborting cycle")
 		return nil, err
 	}
+	for i := range nodeSummaries {
+		nodeSummaries[i].Events = evIdx.forNode(nodeSummaries[i].Name)
+	}
+
 	if err := appendNodeNDJSON(&buf, nodeSummaries); err != nil {
 		r.log.Error(err, "Failed to serialize Node projection — aborting cycle")
 		return nil, err
