@@ -16,10 +16,11 @@ type kindTaggedLine struct {
 	Object json.RawMessage `json:"object"`
 }
 
-// appendNDJSON strips managedFields and the last-applied-configuration annotation
-// from each object, wraps it as {"kind":<kind>,"object":<stripped obj>}, and
-// appends one NDJSON line to buf. It never mutates the cached originals.
-func appendNDJSON(buf *bytes.Buffer, kind string, objs []client.Object) error {
+// appendNDJSON serializes objs as kind-tagged NDJSON lines into buf, enriching
+// each object that has events with a synthetic top-level _events key. It strips
+// managedFields and the last-applied-configuration annotation, operating on deep
+// copies — the cached informer originals are never mutated.
+func appendNDJSON(buf *bytes.Buffer, kind string, objs []client.Object, events *eventIndex) error {
 	for i, obj := range objs {
 		cp, ok := obj.DeepCopyObject().(client.Object)
 		if !ok {
@@ -41,6 +42,13 @@ func appendNDJSON(buf *bytes.Buffer, kind string, objs []client.Object) error {
 			return fmt.Errorf("marshal object at index %d (kind %s): %w", i, kind, err)
 		}
 
+		if evs := events.forUID(cp.GetUID()); len(evs) > 0 {
+			objBytes, err = graftEvents(objBytes, evs)
+			if err != nil {
+				return fmt.Errorf("graft events at index %d (kind %s): %w", i, kind, err)
+			}
+		}
+
 		line := kindTaggedLine{Kind: kind, Object: json.RawMessage(objBytes)}
 		lineBytes, err := json.Marshal(line)
 		if err != nil {
@@ -50,6 +58,20 @@ func appendNDJSON(buf *bytes.Buffer, kind string, objs []client.Object) error {
 		buf.WriteByte('\n')
 	}
 	return nil
+}
+
+// graftEvents adds the synthetic top-level _events key to a marshaled object.
+// The typed→map detour is per-object-with-events only; UseNumber keeps numeric
+// fields byte-exact through the round trip.
+func graftEvents(objBytes []byte, events []eventSummary) ([]byte, error) {
+	dec := json.NewDecoder(bytes.NewReader(objBytes))
+	dec.UseNumber()
+	var obj map[string]interface{}
+	if err := dec.Decode(&obj); err != nil {
+		return nil, err
+	}
+	obj["_events"] = events
+	return json.Marshal(obj)
 }
 
 // appendNodeNDJSON appends pre-built node summary structs as kind-tagged NDJSON
