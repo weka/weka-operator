@@ -119,6 +119,12 @@ type CapacityConstraints struct {
 	// QA/test only. Sourced from the operator-level flag by the caller so this package stays free of
 	// the globalconfig singleton.
 	AllowSingleParity bool
+	// CpuPolicy is the cluster's target cpuPolicy for FRESH containers (all roles inherit the single
+	// cluster.Spec.CpuPolicy — see container_factory.go), used (with each node's IsHt/FullPcpusOnly) to
+	// project their physical CPU reservation when charging node CPU headroom — see cpuModel in cpu.go.
+	// Empty is treated as CpuPolicyAuto (the operator default), which resolves to dedicated_ht on HT
+	// nodes (a data core then costs 2 physical CPUs).
+	CpuPolicy weka.CpuPolicy
 }
 
 // Drive-pod resource coefficients (MiB). They mirror the drive-container sizing in resources/pod.go
@@ -250,15 +256,15 @@ func recomputeCores(tlcGiB, qlcGiB int, cons *CapacityConstraints) int {
 	return max(1, cores)
 }
 
-// RequiredDriveResources returns the cores, hugepages (MiB) and memory (MiB) a drive container needs to
-// host the given per-pool capacity, using the same per-core model the cluster planner uses. The
-// container controller calls this before adding virtual drives so the pod-level feasibility gate agrees
-// with the cluster-level node-fit gate.
-func RequiredDriveResources(tlcGiB, qlcGiB int, cons *CapacityConstraints) (cores, hugepagesMiB, memoryMiB int) {
-	cores = recomputeCores(tlcGiB, qlcGiB, cons)
+// RequiredDriveResources returns the hugepages (MiB) and memory (MiB) a drive container needs to host the
+// given per-pool capacity, using the same per-core model the cluster planner uses. The container
+// controller calls this before adding virtual drives so the pod-level feasibility gate agrees with the
+// cluster-level node-fit gate.
+func RequiredDriveResources(tlcGiB, qlcGiB int, cons *CapacityConstraints) (hugepagesMiB, memoryMiB int) {
+	cores := recomputeCores(tlcGiB, qlcGiB, cons)
 	hugepagesMiB = cores * cons.driveHugepagesPerCoreMiB()
 	memoryMiB = ComputeMemoryFootprintMiB(cores, cons)
-	return cores, hugepagesMiB, memoryMiB
+	return hugepagesMiB, memoryMiB
 }
 
 // ComputeMemoryFootprintMiB returns the memory (MiB) a container of the given core count reserves, using
@@ -296,9 +302,12 @@ func perCoreCap(p poolKind, cons *CapacityConstraints) int {
 
 // nodeState tracks a node's remaining headroom as the planner consumes it across both pools.
 type nodeState struct {
-	nc           NodeCapacity
-	tlcFree      int
-	qlcFree      int
+	nc      NodeCapacity
+	tlcFree int
+	qlcFree int
+	// coresFree is the remaining PHYSICAL CPU on the node (seeded from NodeCapacity.AllocatableCPU). Data
+	// cores are converted to physical CPU when charged via cpuCost / dataCoresFit — a data core
+	// costs 2 physical CPUs on an HT node under dedicated_ht, plus 1 per container. See cpu.go.
 	coresFree    int
 	hugepagesMiB int
 	memoryMiB    int
@@ -306,6 +315,45 @@ type nodeState struct {
 	// this-cluster drive container being deleted. Used only to deprioritize the node in
 	// orderFreshFdGroups so a replacement FD prefers a node with no deleting container.
 	hasDeletingDriveContainer bool
+}
+
+// topo returns the node's CPU topology for the cpu.go conversion helpers.
+func (ns *nodeState) topo() NodeCPUTopology {
+	return NodeCPUTopology{IsHt: ns.nc.IsHt, FullPcpusOnly: ns.nc.FullPcpusOnly}
+}
+
+// cpuCost returns the PHYSICAL CPU a container of dataCores weka cores reserves on this node under the
+// given cpuPolicy (cons.CpuPolicy). includeBase adds the per-container management core (charged once per
+// NEW container, mirroring the memory base).
+func (ns *nodeState) cpuCost(policy weka.CpuPolicy, dataCores int, includeBase bool) int {
+	perCore, base := cpuModel(policy, ns.topo())
+	c := perCore * dataCores
+	if includeBase {
+		c += base
+	}
+	return c
+}
+
+// dataCoresFit returns how many DATA cores still fit in the node's physical CPU headroom under the given
+// role cpuPolicy. includeBase reserves the per-container management core (for a NEW container).
+func (ns *nodeState) dataCoresFit(policy weka.CpuPolicy, includeBase bool) int {
+	return ns.dataCoresCapacity(policy, 0, includeBase)
+}
+
+// dataCoresCapacity returns how many DATA cores a single container could hold on this node if it also
+// reclaimed extraCPU physical CPU already charged against coresFree by a container it will keep hosting
+// (a frozen/grown existing compute). extraCPU=0 reduces to dataCoresFit — plain remaining headroom.
+// includeBase reserves the per-container management core (for a NEW container).
+func (ns *nodeState) dataCoresCapacity(policy weka.CpuPolicy, extraCPU int, includeBase bool) int {
+	perCore, base := cpuModel(policy, ns.topo())
+	avail := ns.coresFree + extraCPU
+	if includeBase {
+		avail -= base
+	}
+	if avail < 0 || perCore <= 0 {
+		return 0
+	}
+	return avail / perCore
 }
 
 func (ns *nodeState) poolFree(p poolKind) int {
@@ -334,7 +382,9 @@ func (ns *nodeState) nodeHeadroomBinding(p poolKind, cons *CapacityConstraints, 
 		return 0, "pool disabled"
 	}
 	headroom, binding = ns.poolFree(p), "drive capacity"
-	if coreCap := ns.coresFree * perCap; coreCap < headroom {
+	// coresFree is physical CPU; convert it to the drive DATA cores that fit (accounting for the HT
+	// multiplier and per-container base) before turning that into pool capacity.
+	if coreCap := ns.dataCoresFit(cons.CpuPolicy, includeBase) * perCap; coreCap < headroom {
 		headroom, binding = coreCap, "cores"
 	}
 	if hpPerCore := cons.driveHugepagesPerCoreMiB(); hpPerCore > 0 {
@@ -366,7 +416,7 @@ func (ns *nodeState) consume(p poolKind, gGiB int, cons *CapacityConstraints, in
 	} else {
 		ns.qlcFree -= gGiB
 	}
-	ns.coresFree -= cores
+	ns.coresFree -= ns.cpuCost(cons.CpuPolicy, cores, includeBase)
 	ns.hugepagesMiB -= cores * cons.driveHugepagesPerCoreMiB()
 	ns.memoryMiB -= cores * cons.MemoryPerCoreMiB
 	if includeBase {
@@ -384,7 +434,7 @@ func (ns *nodeState) unconsume(p poolKind, gGiB int, cons *CapacityConstraints, 
 	} else {
 		ns.qlcFree += gGiB
 	}
-	ns.coresFree += cores
+	ns.coresFree += ns.cpuCost(cons.CpuPolicy, cores, includeBase)
 	ns.hugepagesMiB += cores * cons.driveHugepagesPerCoreMiB()
 	ns.memoryMiB += cores * cons.MemoryPerCoreMiB
 	if includeBase {
@@ -400,12 +450,15 @@ func (ns *nodeState) reserveCores(cores int, cons *CapacityConstraints) bool {
 		return true
 	}
 	hpPerCore := cons.driveHugepagesPerCoreMiB()
-	if ns.coresFree < cores ||
+	// The surplus is extra DRIVE data cores on top of an already-placed container, so charge its physical
+	// CPU without the per-container base (already charged when the container was consumed).
+	cpuNeed := ns.cpuCost(cons.CpuPolicy, cores, false)
+	if ns.coresFree < cpuNeed ||
 		(hpPerCore > 0 && ns.hugepagesMiB < cores*hpPerCore) ||
 		(cons.MemoryPerCoreMiB > 0 && ns.memoryMiB < cores*cons.MemoryPerCoreMiB) {
 		return false
 	}
-	ns.coresFree -= cores
+	ns.coresFree -= cpuNeed
 	ns.hugepagesMiB -= cores * hpPerCore
 	ns.memoryMiB -= cores * cons.MemoryPerCoreMiB
 	return true
@@ -456,7 +509,7 @@ func PlanCapacity(
 			nc:                        nc,
 			tlcFree:                   nc.TlcGiB,
 			qlcFree:                   nc.QlcGiB,
-			coresFree:                 nc.AllocatableCPU,
+			coresFree:                 nc.AllocatableCPU, // physical CPU remaining
 			hugepagesMiB:              nc.AvailableHugepagesMiB,
 			memoryMiB:                 nc.AvailableMemoryMiB,
 			hasDeletingDriveContainer: nc.HasDeletingDriveContainer,
@@ -629,12 +682,31 @@ func planCompute(
 	}
 	sort.Strings(nodes)
 
+	// A node already hosting an existing compute keeps hosting one (frozen or grown in place), so its
+	// container-hosting CAPACITY is its residual free CPU PLUS the physical CPU that compute occupies —
+	// which the inventory already netted out of coresFree at build time. Reclaim it per node so the
+	// capacity below reflects the node's full container size, not the sliver left after the existing pod.
+	// Without this, an occupied node's small residual drags hmin down in deriveComputeLayout and inflates
+	// the container count, recreating computes on fresh nodes across passes (OP-348).
+	existingComputeCPU := make(map[string]int, len(existingCompute))
+	for i := range existingCompute {
+		ec := &existingCompute[i]
+		if ec.Node == "" {
+			continue
+		}
+		if ns := states[ec.Node]; ns != nil {
+			existingComputeCPU[ec.Node] += ns.cpuCost(cons.CpuPolicy, ec.NumCores, true)
+		}
+	}
+
 	// Per-node compute-core headroom (cores left after drives). `nodes` already excludes any compute
 	// node without headroom info (states[node] == nil), so each entry maps to a real per-node budget.
+	// coresFree is physical CPU; deriveComputeLayout reasons in compute DATA cores, so convert per node,
+	// adding back any existing compute's footprint (see existingComputeCPU above).
 	coreHeadroom := make([]int, len(nodes))
 	for i, node := range nodes {
 		if ns := states[node]; ns != nil {
-			coreHeadroom[i] = max(0, ns.coresFree)
+			coreHeadroom[i] = ns.dataCoresCapacity(cons.CpuPolicy, existingComputeCPU[node], true)
 		}
 	}
 
@@ -669,10 +741,9 @@ func planCompute(
 	// clean and pre-mutation, never stranding a Pending pod.
 	fdOf := func(node string) string { return states[node].nc.FDValue }
 
-	// Freeze/grow the existing computes (mutates each grown node's reserved headroom in states). With
-	// in-place growth disabled (enableDynamicDriveScalingForSharedDrives=false) every existing compute is
-	// frozen at its current size and the resulting deficit is covered by new containers only.
-	existing, pinned, existingCores := layOutExistingCompute(existingCompute, states, cores, perContainerHP, !cons.AllowInPlaceGrowth)
+	// Freeze/grow the existing computes (mutates each grown node's reserved headroom in states). Whether
+	// growth is allowed follows cons.AllowInPlaceGrowth, applied inside layOutExistingCompute.
+	existing, pinned, existingCores := layOutExistingCompute(existingCompute, states, cores, perContainerHP, cons)
 
 	// Shortfall: the target cores the existing computes don't already supply, placed as new containers.
 	shortfall := max(count*cores-existingCores, 0)
@@ -689,7 +760,7 @@ func planCompute(
 	// prefix maximizes distinct-FD coverage: fresh-FD nodes first, each partition FD-spread round-robin.
 	// In AUTO mode (FD == node) this reduces to the plain cores-desc best-fit order — byte-for-byte
 	// unchanged. See orderFitNodesByFreshFD / orderNodesByFDSpread.
-	fitNodes := orderFitNodesByFreshFD(nodes, states, pinned, coveredFDs, cores, perContainerHP, fdOf)
+	fitNodes := orderFitNodesByFreshFD(nodes, states, pinned, coveredFDs, cores, perContainerHP, fdOf, cons)
 
 	// Balanced fill: cover the shortfall with the fewest uniform-capped (≤ `cores`) new containers, each on
 	// the next best-fitting free node, splitting the cores as evenly as possible (the first `rem` get one
@@ -752,12 +823,13 @@ func planCompute(
 			node := fitNodes[i]
 			ns := states[node]
 			cHP := computeContainerHugepagesMiB(desired.TlcRawGiB, desired.QlcRawGiB, totalCount, cCores, cons)
-			if ns.coresFree < cCores || ns.hugepagesMiB < cHP {
+			cCPU := ns.cpuCost(cons.CpuPolicy, cCores, true) // physical CPU for a NEW compute container
+			if ns.coresFree < cCPU || ns.hugepagesMiB < cHP {
 				// A new container is ≤ the uniform footprint this node already passed, so this is not
 				// expected; treat as infeasible rather than over-claim.
 				setInfeasible(plan, &InfeasibilityReport{
 					Reason: fmt.Sprintf(
-						"compute: free compute node %s cannot host a %d-core compute container (%d cores + %d MiB hugepages free)",
+						"compute: free compute node %s cannot host a %d-core compute container (%d physical CPU + %d MiB hugepages free)",
 						node, cCores, ns.coresFree, ns.hugepagesMiB),
 					Pool:    "compute",
 					Binding: "hugepages",
@@ -765,7 +837,7 @@ func planCompute(
 				})
 				return
 			}
-			ns.coresFree -= cCores
+			ns.coresFree -= cCPU
 			ns.hugepagesMiB -= cHP
 			newContainers = append(newContainers, ComputeContainerSpec{Node: node, NumCores: cCores, HugepagesMiB: cHP})
 		}
@@ -817,8 +889,11 @@ func layOutExistingCompute(
 	existingCompute []ExistingComputeContainer,
 	states map[string]*nodeState,
 	cores, perContainerHP int,
-	freezeExisting bool,
+	cons *CapacityConstraints,
 ) (existing []laidOut, pinned map[string]struct{}, existingCores int) {
+	// With in-place growth disabled every existing compute is frozen at its current size (its deficit is
+	// covered by new containers only).
+	freezeExisting := !cons.AllowInPlaceGrowth
 	pinned = make(map[string]struct{}, len(existingCompute))
 	existing = make([]laidOut, 0, len(existingCompute))
 	for i := range existingCompute {
@@ -833,8 +908,11 @@ func layOutExistingCompute(
 		pinned[ec.Node] = struct{}{}
 		coresDelta := cores - ec.NumCores
 		hpDelta := perContainerHP - ec.HugepagesMiB
+		// The existing compute's current footprint is already netted from coresFree at inventory build, so
+		// the growth delta charges physical CPU WITHOUT the per-container base.
+		coresDeltaCPU := ns.cpuCost(cons.CpuPolicy, coresDelta, false)
 		if ec.Unscheduled || freezeExisting ||
-			(coresDelta > 0 && ns.coresFree < coresDelta) ||
+			(coresDelta > 0 && ns.coresFree < coresDeltaCPU) ||
 			(hpDelta > 0 && ns.hugepagesMiB < hpDelta) {
 			// Frozen at the current size (no pod disruption): the pod is still Pending (ec.Unscheduled — no
 			// pod to resize, so count it as committed capacity but never grow/recreate it), or in-place
@@ -851,7 +929,7 @@ func layOutExistingCompute(
 		// Delta fits: reserve the growth increment (so the balanced fill does not double-claim this node)
 		// and keep it in place at the uniform target.
 		if coresDelta > 0 {
-			ns.coresFree -= coresDelta
+			ns.coresFree -= coresDeltaCPU
 		}
 		if hpDelta > 0 {
 			ns.hugepagesMiB -= hpDelta
@@ -876,7 +954,9 @@ func orderFitNodesByFreshFD(
 	pinned, coveredFDs map[string]struct{},
 	cores, perContainerHP int,
 	fdOf func(node string) string,
+	cons *CapacityConstraints,
 ) []string {
+	// coresFree is physical CPU; it is a monotonic best-fit sort key, so ordering by it is unchanged.
 	headroomOf := func(node string) int { return states[node].coresFree }
 	var freshFit, coveredFit []string
 	for _, node := range nodes {
@@ -884,7 +964,7 @@ func orderFitNodesByFreshFD(
 			continue // already carries an existing pinned compute (grown or frozen)
 		}
 		ns := states[node]
-		if ns == nil || ns.coresFree < cores || ns.hugepagesMiB < perContainerHP {
+		if ns == nil || ns.coresFree < ns.cpuCost(cons.CpuPolicy, cores, true) || ns.hugepagesMiB < perContainerHP {
 			continue
 		}
 		if _, ok := coveredFDs[fdOf(node)]; ok {

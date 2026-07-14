@@ -114,9 +114,15 @@ weka-capacity explore-nodes [--selector k=v[,k=v...]] [--fd-label <label>]
 `HP2Mi(free/alloc)`, `MEM MiB(free/alloc)`, `WC` (# containers on the node), `DEL` (hosts a
 deleting drive container?), plus a `TOTAL` row.
 
-`--detail <node>` lists each consuming WekaContainer with its cluster, role, and TLC/QLC/cores/hugepages
-charge, and flags any drive container with a **nil `driveTypesRatio`** (attributed 100% to TLC) — a
-common source of skew between the reported and realized capacity split.
+The **CPU** column is **physical CPUs**, not weka data cores. Each container's charge is the CPU its pod
+actually requests: under `cpuPolicy: auto` (the default) a container reserves `numCores*2 + 1` on a
+hyper-threaded node (`dedicated_ht`) or `numCores + 1` on a non-HT node (`dedicated`). Node HT / full-pcpus
+topology is read from the `weka.io/discovery.json` annotation. So a 2-data-core drive container shows `5`
+CPUs on an HT node, matching `kubectl`'s pod request — the same figure the `plan` feasibility gate uses.
+
+`--detail <node>` lists each consuming WekaContainer with its cluster, role, TLC/QLC, physical CPU
+(`CORES`) and hugepages charge, and flags any drive container with a **nil `driveTypesRatio`**
+(attributed 100% to TLC) — a common source of skew between the reported and realized capacity split.
 
 ## `plan`
 
@@ -293,10 +299,10 @@ carries a drive + compute + ssdproxy container:
 
 ```
 NODE    FD      TLC(free/phys)     QLC(free/phys)  CPU(free/alloc)  HP2Mi(free/alloc)  MEM MiB(free/alloc)  WC  DEL
-node07  node07  51.8TiB/62.9TiB    0B/0B           57/63            43102/60000        163600/197600        3
-node08  node08  65.7TiB/76.8TiB    0B/0B           57/63            43046/60000        163600/197600        3
-node11  node11  44.8TiB/55.9TiB    0B/0B           57/63            43102/60000        163600/197600        3
-node12  node12  58.7TiB/69.9TiB    0B/0B           57/63             3744/20698        202902/236902        3
+node07  node07  51.8TiB/62.9TiB    0B/0B           48/63            43102/60000        163600/197600        3
+node08  node08  65.7TiB/76.8TiB    0B/0B           48/63            43046/60000        163600/197600        3
+node11  node11  44.8TiB/55.9TiB    0B/0B           48/63            43102/60000        163600/197600        3
+node12  node12  58.7TiB/69.9TiB    0B/0B           48/63             3744/20698        202902/236902        3
 ...
 TOTAL           338.5TiB/405.2TiB  0B/0B                                                                    6
 ```
@@ -307,22 +313,26 @@ TOTAL           338.5TiB/405.2TiB  0B/0B                                        
 ./bin/weka-capacity explore-nodes --detail node12 -n weka-operator-system
 ```
 ```
-Node node12 (FD node12)
+Node node12 (FD node12, hyper-threaded)
   TLC free/phys: 58.7TiB/69.9TiB   QLC free/phys: 0B/0B
-  CPU free/alloc: 57/63   HP2Mi free/alloc: 3744/20698 MiB   MEM free/alloc: 202902/236902 MiB
+  CPU free/alloc: 48/63   HP2Mi free/alloc: 3744/20698 MiB   MEM free/alloc: 202902/236902 MiB
   CONTAINER                                              CLUSTER   ROLE      TLC      QLC  CORES  HP(MiB)  NILRATIO  DEL
-  cap-test-compute-0a23c834-7eaa-486c-96ef-4f1fb27bd27f  cap-test  compute   0B       0B   3      9192
-  cap-test-drive-afc2ae5f-b7ad-481d-9345-b38cdc8af971    cap-test  drive     11.1TiB  0B   3      4800
-  weka-drives-proxy-node12                               -         ssdproxy  0B       0B   0      2962
+  cap-test-compute-0a23c834-7eaa-486c-96ef-4f1fb27bd27f  cap-test  compute   0B       0B   7      9192
+  cap-test-drive-afc2ae5f-b7ad-481d-9345-b38cdc8af971    cap-test  drive     11.1TiB  0B   7      4800
+  weka-drives-proxy-node12                               -         ssdproxy  0B       0B   1      2962
 ```
 
+`CORES` is the **physical CPU** each pod reserves: on this HT node a 3-data-core `dedicated_ht` container
+requests `3*2+1 = 7`, and the ssdproxy `0+1 = 1`.
+
 **Reconciliation (verified).** The free figures equal `kubectl` node allocatable minus the summed
-container charges. For `node07` (allocatable cpu 63, hugepages-2Mi 60000, phys TLC 64381 GiB), with a
-drive (3 cores / 4800 MiB HP / 11378 GiB), compute (3 cores / 9192 MiB), and ssdproxy (0 cores / 2906 MiB):
+container charges. For an HT `node07` (allocatable cpu 63, hugepages-2Mi 60000, phys TLC 64381 GiB), with a
+drive (3 data cores → 7 physical CPU / 4800 MiB HP / 11378 GiB), compute (3 data cores → 7 CPU / 9192 MiB),
+and ssdproxy (0 data cores → 1 CPU / 2906 MiB):
 
 | Dim | allocatable − Σ charges | explore-nodes free |
 |---|---|---|
-| cores | 63 − (3+3+0) = **57** | 57 |
+| CPU | 63 − (7+7+1) = **48** | 48 |
 | hugepages MiB | 60000 − (4800+9192+2906) = **43102** | 43102 |
 | TLC GiB | 64381 − 11378 = 53003 = **51.8 TiB** | 51.8 TiB |
 

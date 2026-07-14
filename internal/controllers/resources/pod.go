@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -1155,8 +1156,7 @@ func (f *PodFactory) fullPcpusOnlyEffective() bool {
 
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetails HugePagesDetails) error {
 	totalNumCores := f.container.Spec.NumCores
-	switch f.container.Spec.Mode {
-	case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeSmbw, weka.WekaContainerModeDataServices:
+	if capacityplanner.IsDataCoreMode(f.container.Spec.Mode) {
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
@@ -1209,30 +1209,19 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 		resources = &weka.PodResourcesSpec{}
 	}
 
+	// topo drives the shared CPURequestCores helper (internal/capacityplanner/cpu.go), the SINGLE SOURCE
+	// OF TRUTH for the dedicated/dedicated_ht integer core count, so the capacity planner's node-CPU gate
+	// and this real pod request never drift. It resolves auto internally (already resolved above for the
+	// CPU_POLICY env var; passing the resolved policy keeps the two paths in lockstep).
+	cpuTopo := capacityplanner.NodeCPUTopology{IsHt: f.nodeInfo.IsHt, FullPcpusOnly: f.fullPcpusOnlyEffective()}
 	switch cpuPolicy {
-	case weka.CpuPolicyDedicatedHT:
-		totalCores := totalNumCores*2 + 1
-		if f.container.Spec.Mode == weka.WekaContainerModeEnvoy {
-			totalCores = totalNumCores // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
-		}
-		switch f.container.Spec.Mode {
-		case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeSmbw, weka.WekaContainerModeDataServices:
-			totalCores -= f.container.Spec.ExtraCores // basically reducing back what we over-allocated
-		}
-		if f.nodeInfo.IsHt && f.fullPcpusOnlyEffective() && totalCores%2 != 0 {
-			totalCores++
-		}
-		cpuRequestStr = fmt.Sprintf("%d", totalCores)
-		cpuLimitStr = cpuRequestStr
-	case weka.CpuPolicyDedicated:
-		totalCores := totalNumCores + 1
-		if f.container.Spec.Mode == weka.WekaContainerModeEnvoy {
-			totalCores = totalNumCores // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
-		}
-		if f.nodeInfo.IsHt && f.fullPcpusOnlyEffective() && totalCores%2 != 0 {
-			totalCores++
-		}
-		cpuRequestStr = fmt.Sprintf("%d", totalCores)
+	case weka.CpuPolicyDedicatedHT, weka.CpuPolicyDedicated:
+		// cpuPolicy is already the concrete resolved policy (auto handled above); feed it through so
+		// CPURequestCores computes the same integer the planner charges, and does NOT re-resolve auto
+		// (which would diverge from pod.go for auto+coreIds). See cpu.go.
+		specForCPU := f.container.Spec
+		specForCPU.CpuPolicy = cpuPolicy
+		cpuRequestStr = fmt.Sprintf("%d", capacityplanner.CPURequestCores(&specForCPU, cpuTopo))
 		cpuLimitStr = cpuRequestStr
 	case weka.CpuPolicyManual:
 		if resources.Limits.Cpu.IsZero() {

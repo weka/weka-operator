@@ -1,6 +1,10 @@
 package capacityplanner
 
-import "math"
+import (
+	"math"
+
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+)
 
 // constraints.go holds the pure capacity helpers used by the clusterCapacity planner (planner.go):
 // the minimum chunk size, the default (env-free) constraints, the per-node capacity view, and the
@@ -21,6 +25,9 @@ func DefaultConstraints() *CapacityConstraints {
 		HugepagesPerCoreMiB: HugepagesPerCoreMiB,
 		MemoryBaseMiB:       MemoryBaseMiB,
 		MemoryPerCoreMiB:    MemoryPerCoreMiB,
+		// Default to the operator's default cpuPolicy (auto): resolves to dedicated_ht on HT nodes, so
+		// the planner projects a fresh container's physical CPU as numCores*2+1 there. See cpu.go.
+		CpuPolicy: weka.CpuPolicyAuto,
 	}
 }
 
@@ -33,8 +40,16 @@ type NodeCapacity struct {
 	NodeName string
 	TlcGiB   int
 	QlcGiB   int
-	// AllocatableCPU is the cores available to this cluster on the node.
+	// AllocatableCPU is the PHYSICAL CPU available to this cluster on the node (node Allocatable CPU minus
+	// every existing container's real physical CPU request). The planner charges physical CPU against it
+	// via cpuModel (a data core costs 2 physical CPUs on an HT node under dedicated_ht, +1 per container),
+	// so it is NOT a weka data-core count. See cpu.go / NodeCPUTopology.
 	AllocatableCPU int
+	// IsHt / FullPcpusOnly describe the node's CPU topology (from the weka.io/discovery.json annotation),
+	// used to convert data cores → physical CPU reservation. FullPcpusOnly already folds in the
+	// operator-level config.Config.FullPcpusOnly flag.
+	IsHt          bool
+	FullPcpusOnly bool
 	// AvailableHugepagesMiB / AvailableMemoryMiB are the hugepages and RAM available to this cluster
 	// on the node (node Allocatable minus other/own clusters' requests).
 	AvailableHugepagesMiB int

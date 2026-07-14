@@ -96,20 +96,35 @@ func (nodeInfo *DiscoveryNodeInfo) IsRhCos() bool {
 	return nodeInfo.Os == weka.OsNameOpenshift
 }
 
+// NodeInfoFromAnnotation parses a node's weka.io/discovery.json annotation into a DiscoveryNodeInfo.
+// ok is false (and info nil) when the annotation is absent or unparsable. Single parse helper for the
+// several call sites that read node discovery info off the annotation.
+func NodeInfoFromAnnotation(node *corev1.Node) (info *DiscoveryNodeInfo, ok bool) {
+	annotation, present := node.Annotations[DiscoveryAnnotation]
+	if !present {
+		return nil, false
+	}
+	return ParseNodeInfo(annotation)
+}
+
+// ParseNodeInfo unmarshals a weka.io/discovery.json annotation value into a DiscoveryNodeInfo. ok is
+// false (info nil) when the value is unparsable. Callers that already hold the annotation string (e.g. to
+// distinguish "absent" from "present but unparsable") use this directly so the node's annotation map is
+// read only once.
+func ParseNodeInfo(annotation string) (info *DiscoveryNodeInfo, ok bool) {
+	info = &DiscoveryNodeInfo{}
+	if json.Unmarshal([]byte(annotation), info) != nil {
+		return nil, false
+	}
+	return info, true
+}
+
 // AnyNodeHasSelinux returns true if any node in the list is discovered to be an
 // RHCOS/OpenShift node (which enforces SELinux by default). Nodes with a missing
 // or unparsable discovery annotation are skipped.
 func AnyNodeHasSelinux(nodes []corev1.Node) bool {
 	for i := range nodes {
-		annotation, ok := nodes[i].Annotations[DiscoveryAnnotation]
-		if !ok {
-			continue
-		}
-		info := &DiscoveryNodeInfo{}
-		if json.Unmarshal([]byte(annotation), info) != nil {
-			continue
-		}
-		if info.IsRhCos() {
+		if info, ok := NodeInfoFromAnnotation(&nodes[i]); ok && info.IsRhCos() {
 			return true
 		}
 	}

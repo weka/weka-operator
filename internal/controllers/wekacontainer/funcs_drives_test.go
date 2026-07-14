@@ -57,12 +57,6 @@ func TestCheckDriveResourceFeasibility(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "cores shortfall blocks",
-			container: sharingContainer(),
-			pod:       drivePod(1, "3200Mi", "14000Mi"),
-			wantErr:   true,
-		},
-		{
 			name:      "hugepages shortfall blocks",
 			container: sharingContainer(),
 			pod:       drivePod(3, "1000Mi", "14000Mi"),
@@ -80,9 +74,9 @@ func TestCheckDriveResourceFeasibility(t *testing.T) {
 			name:      "weka container found by name, not index 0",
 			container: sharingContainer(),
 			pod: func() *v1.Pod {
-				p := drivePod(1, "3200Mi", "14000Mi") // weka container: 1 core (short)
+				p := drivePod(3, "1000Mi", "14000Mi") // weka container: hugepages short (1000 < 3200)
 				sidecar := v1.Container{Name: "istio-proxy", Resources: v1.ResourceRequirements{Requests: v1.ResourceList{
-					v1.ResourceCPU: resource.MustParse("8"), // well-resourced sidecar that would mask the shortfall
+					v1.ResourceName(string(v1.ResourceHugePagesPrefix) + "2Mi"): resource.MustParse("8000Mi"), // would mask the shortfall
 				}}}
 				p.Spec.Containers = append([]v1.Container{sidecar}, p.Spec.Containers...)
 				return p

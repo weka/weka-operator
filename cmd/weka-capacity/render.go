@@ -45,7 +45,7 @@ func renderNodesTable(nodes []inventory.NodeDetail, detail string) string {
 		if n.HasDeletingDriveContainer {
 			del = "yes"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s/%s\t%s/%s\t%d/%d\t%d/%d\t%d/%d\t%d\t%s\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+		fmt.Fprintf(tw, "%s\t%s\t%s / %s\t%s / %s\t%d / %d\t%d / %d\t%d / %d\t%d\t%s\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
 			n.Node, dashIfEmpty(n.FDValue),
 			util.HumanReadableGiB(n.FreeTlcGiB), util.HumanReadableGiB(n.PhysTlcGiB),
 			util.HumanReadableGiB(n.FreeQlcGiB), util.HumanReadableGiB(n.PhysQlcGiB),
@@ -58,7 +58,7 @@ func renderNodesTable(nodes []inventory.NodeDetail, detail string) string {
 		freeQLC += n.FreeQlcGiB
 		physQLC += n.PhysQlcGiB
 	}
-	fmt.Fprintf(tw, "TOTAL\t\t%s/%s\t%s/%s\t\t\t\t%d\t\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+	fmt.Fprintf(tw, "TOTAL\t\t%s / %s\t%s / %s\t\t\t\t%d\t\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
 		util.HumanReadableGiB(freeTLC), util.HumanReadableGiB(physTLC),
 		util.HumanReadableGiB(freeQLC), util.HumanReadableGiB(physQLC), len(nodes))
 	tw.Flush() //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
@@ -68,10 +68,10 @@ func renderNodesTable(nodes []inventory.NodeDetail, detail string) string {
 func renderNodeDetail(n *inventory.NodeDetail) string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "Node %s (FD %s)\n", n.Node, dashIfEmpty(n.FDValue)) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-	fmt.Fprintf(&buf, "  TLC free/phys: %s/%s   QLC free/phys: %s/%s\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+	fmt.Fprintf(&buf, "  TLC free/phys: %s / %s   QLC free/phys: %s / %s\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
 		util.HumanReadableGiB(n.FreeTlcGiB), util.HumanReadableGiB(n.PhysTlcGiB),
 		util.HumanReadableGiB(n.FreeQlcGiB), util.HumanReadableGiB(n.PhysQlcGiB))
-	fmt.Fprintf(&buf, "  CPU free/alloc: %d/%d   HP2Mi free/alloc: %d/%d MiB   MEM free/alloc: %d/%d MiB\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+	fmt.Fprintf(&buf, "  CPU free/alloc: %d / %d   HP2Mi free/alloc: %d / %d MiB   MEM free/alloc: %d / %d MiB\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
 		n.FreeCores, n.AllocatableCores, n.FreeHugepagesMiB, n.AllocatableHugepagesMiB, n.FreeMemoryMiB, n.AllocatableMemoryMiB)
 	if len(n.Consumers) == 0 {
 		fmt.Fprintln(&buf, "  (no weka containers on this node)") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice

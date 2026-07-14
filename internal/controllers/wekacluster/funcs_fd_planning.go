@@ -67,6 +67,11 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*a
 	// the same hugepages the scheduler will. Per-role, honoring cluster spec overrides.
 	cons.DriveDpdkPerCoreMiB = utils.GetDpdkBaseMemoryMbByRole(&cluster.Spec, weka.WekaContainerModeDrive)
 	cons.ComputeDpdkPerCoreMiB = utils.GetDpdkBaseMemoryMbByRole(&cluster.Spec, weka.WekaContainerModeCompute)
+	// The drive/compute PODS reserve physical CPU = f(numCores, cpuPolicy, node HT); a data core costs 2
+	// physical CPUs under dedicated_ht on an HT node. Feed the cluster's cpuPolicy (empty == auto) so the
+	// planner's node-CPU gate projects fresh containers the same way. All cluster-built containers use
+	// cluster.Spec.CpuPolicy (container_factory.go).
+	cons.CpuPolicy = cluster.Spec.CpuPolicy
 
 	// Transient-churn guard: while any of this cluster's drive containers is alive but momentarily
 	// unscheduled (its pod is being (re)created — e.g. a mass `kubectl delete pod` during a grow), the

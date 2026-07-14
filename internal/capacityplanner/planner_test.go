@@ -342,8 +342,9 @@ func Test_Greenfield_TLCplusQLC_PrefersSameNode(t *testing.T) {
 // core-consumed (mirrors Test_Compute_DisklessNodes_SizedOnComputePool).
 func Test_Greenfield_TLCplusQLC_SplitsWhenNodeCannotHoldBoth(t *testing.T) {
 	s := testScheme() // minFdNum = 6
-	// 3 cores/drive-node is exactly the TLC per-FD share's core need; once TLC lands, 0 cores remain for QLC.
-	inv := append(nodes(12, 100*tib, 100*tib, 3, "d"), nodes(8, 0, 0, 32, "c")...)
+	// 4 physical CPUs/drive-node = the TLC per-FD share's 3 data cores + the 1 per-container management core
+	// (non-HT dedicated); once TLC lands, 0 CPUs remain for QLC, so no node can hold both.
+	inv := append(nodes(12, 100*tib, 100*tib, 4, "d"), nodes(8, 0, 0, 32, "c")...)
 	computeNodes := map[string]bool{}
 	for i := 1; i <= 8; i++ {
 		computeNodes["c"+itoa(i)] = true // only the diskless pool is compute-eligible
@@ -1594,22 +1595,22 @@ func Test_Headroom_NoCapacity_ReturnsZero(t *testing.T) {
 func Test_RequiredDriveResources(t *testing.T) {
 	cons := testCons() // 5 TiB/core TLC, 50 TiB/core QLC, 1600 hp/core, 8000 + 3000/core memory
 	tests := []struct {
-		name                          string
-		tlcGiB, qlcGiB                int
-		wantCores, wantHpMiB, wantMem int
+		name               string
+		tlcGiB, qlcGiB     int
+		wantHpMiB, wantMem int
 	}{
-		{"tlc exactly one core", 5 * tib, 0, 1, 1600, 11000},
-		{"tlc rounds up", 5*tib + 1, 0, 2, 3200, 14000},
-		{"qlc only one core", 0, 50 * tib, 1, 1600, 11000},
-		{"mixed sums per-pool cores", 5 * tib, 50 * tib, 2, 3200, 14000},
-		{"zero capacity floors at one core", 0, 0, 1, 1600, 11000},
+		{"tlc exactly one core", 5 * tib, 0, 1600, 11000},
+		{"tlc rounds up", 5*tib + 1, 0, 3200, 14000},
+		{"qlc only one core", 0, 50 * tib, 1600, 11000},
+		{"mixed sums per-pool cores", 5 * tib, 50 * tib, 3200, 14000},
+		{"zero capacity floors at one core", 0, 0, 1600, 11000},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cores, hp, mem := RequiredDriveResources(tt.tlcGiB, tt.qlcGiB, cons)
-			if cores != tt.wantCores || hp != tt.wantHpMiB || mem != tt.wantMem {
-				t.Fatalf("RequiredDriveResources(%d,%d) = (cores %d, hp %d, mem %d), want (%d, %d, %d)",
-					tt.tlcGiB, tt.qlcGiB, cores, hp, mem, tt.wantCores, tt.wantHpMiB, tt.wantMem)
+			hp, mem := RequiredDriveResources(tt.tlcGiB, tt.qlcGiB, cons)
+			if hp != tt.wantHpMiB || mem != tt.wantMem {
+				t.Fatalf("RequiredDriveResources(%d,%d) = (hp %d, mem %d), want (%d, %d)",
+					tt.tlcGiB, tt.qlcGiB, hp, mem, tt.wantHpMiB, tt.wantMem)
 			}
 		})
 	}
@@ -1720,12 +1721,13 @@ func Test_Compute_BugScenario_NodeCoreAware(t *testing.T) {
 // retries before creating drive containers) when the drive-bearing nodes have no spare cores for the
 // 1:1 compute, instead of emitting unschedulable single-core compute containers.
 // raw = int(float64(200*1024*2)/0.9) = 455111 GiB; with 14 FDs: ceil(455111/14) = 32508 GiB/FD;
-// ceil(32508/5120) = 7 cores/FD. Giving each node exactly 7 cores leaves 0 spare for compute → infeasible.
+// ceil(32508/5120) = 7 data cores/FD. Giving each node 8 physical CPUs (7 data + 1 management core, non-HT
+// dedicated) fully consumes it with the drive container, leaving 0 spare for compute → infeasible.
 func Test_Compute_Infeasible_NoCoreHeadroom(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
 
-	inv := nodes(14, 100*tib, 0, 7, "n") // each node's 7 cores are fully consumed by its drive container (ceil(32508/5120)=7), 0 left for compute
+	inv := nodes(14, 100*tib, 0, 8, "n") // 7 data cores + 1 management CPU fully consume the node's 8 CPUs, 0 left for compute
 	plan := planCap(desiredFrom(200*tib, s, nil), s, nil, inv, cons)
 	if !strings.Contains(plan.Infeasible, "compute") {
 		t.Fatalf("want a compute infeasibility, got infeasible=%q (compute %dx%d)", plan.Infeasible, plan.ComputeContainers, plan.ComputeCores)
@@ -1766,9 +1768,9 @@ func Test_Compute_DisklessNodes_SizedOnComputePool(t *testing.T) {
 	cons := testCons()
 	cons.MaxComputeCoresPerNode = 16
 
-	// 6 drive nodes with exactly enough cores for their drive container (15 cores → 0 left for compute),
-	// plus 8 diskless compute-only nodes (no drives, 32 cores each).
-	inv := append(nodes(6, 100*tib, 0, 15, "d"), nodes(8, 0, 0, 32, "c")...)
+	// 6 drive nodes with exactly enough CPUs for their drive container (15 data cores + 1 management CPU =
+	// 16 → 0 left for compute), plus 8 diskless compute-only nodes (no drives, 32 cores each).
+	inv := append(nodes(6, 100*tib, 0, 16, "d"), nodes(8, 0, 0, 32, "c")...)
 	computeNodes := map[string]bool{}
 	for i := 1; i <= 8; i++ {
 		computeNodes["c"+itoa(i)] = true // only the diskless pool is compute-eligible
@@ -1846,9 +1848,9 @@ func Test_RequiredDriveResources_IncludesDpdk(t *testing.T) {
 	cons := testCons()
 	cons.DriveDpdkPerCoreMiB = 64 // GetDpdkBaseMemoryMbByRole default
 	// 5 TiB + 1 -> 2 cores; hugepages = 2 * (1600 + 64) = 3328.
-	cores, hp, _ := RequiredDriveResources(5*tib+1, 0, cons)
-	if cores != 2 || hp != 2*(1600+64) {
-		t.Fatalf("got (cores %d, hp %d), want (2, %d)", cores, hp, 2*(1600+64))
+	hp, _ := RequiredDriveResources(5*tib+1, 0, cons)
+	if hp != 2*(1600+64) {
+		t.Fatalf("got hp %d, want %d", hp, 2*(1600+64))
 	}
 }
 

@@ -18,11 +18,14 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
@@ -140,7 +143,20 @@ func (c Collector) NodeInventory(ctx context.Context, cluster *weka.WekaCluster,
 		}
 	}
 
-	consumed, err := c.consumedNodeResources(ctx, cons)
+	// Per-node CPU topology (HT / full-pcpus) for converting weka data cores → physical CPU when charging
+	// existing containers and sizing headroom. Union of both role node sets; computeNodeList aliases
+	// driveNodes when the selectors match, so build once and only add compute-only nodes when they differ
+	// (avoids re-parsing every node's discovery.json annotation twice on the reconcile path).
+	topos := buildNodeTopos(driveNodes)
+	if !maps.Equal(driveSelector, computeSelector) {
+		for i := range computeNodeList {
+			if _, ok := topos[computeNodeList[i].Name]; !ok {
+				topos[computeNodeList[i].Name] = nodeCPUTopology(&computeNodeList[i])
+			}
+		}
+	}
+
+	consumed, err := c.consumedNodeResources(ctx, cons, topos)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NodeInventory: %w", err)
 	}
@@ -195,6 +211,7 @@ func (c Collector) NodeInventory(ctx context.Context, cluster *weka.WekaCluster,
 		tlcGiB := max(0, physTLC-consumed.tlc[node.Name])
 		qlcGiB := max(0, physQLC-consumed.qlc[node.Name])
 		cpu, hugepagesMiB, memoryMiB := headroom(node)
+		topo := topos[node.Name]
 		driveInv = append(driveInv, capacityplanner.NodeCapacity{
 			NodeName:                  node.Name,
 			FDValue:                   fdValue,
@@ -203,6 +220,8 @@ func (c Collector) NodeInventory(ctx context.Context, cluster *weka.WekaCluster,
 			AllocatableCPU:            cpu,
 			AvailableHugepagesMiB:     hugepagesMiB,
 			AvailableMemoryMiB:        memoryMiB,
+			IsHt:                      topo.IsHt,
+			FullPcpusOnly:             topo.FullPcpusOnly,
 			HasDeletingDriveContainer: deletingDriveNodes[node.Name],
 		})
 	}
@@ -216,12 +235,15 @@ func (c Collector) NodeInventory(ctx context.Context, cluster *weka.WekaCluster,
 			continue
 		}
 		cpu, hugepagesMiB, memoryMiB := headroom(node)
+		topo := topos[node.Name]
 		computeInv = append(computeInv, capacityplanner.NodeCapacity{
 			NodeName:              node.Name,
 			FDValue:               fdValue,
 			AllocatableCPU:        cpu,
 			AvailableHugepagesMiB: hugepagesMiB,
 			AvailableMemoryMiB:    memoryMiB,
+			IsHt:                  topo.IsHt,
+			FullPcpusOnly:         topo.FullPcpusOnly,
 		})
 	}
 
@@ -244,7 +266,8 @@ func (c Collector) ExploreNodes(ctx context.Context, selector map[string]string,
 	if err != nil {
 		return nil, fmt.Errorf("ExploreNodes: listing weka containers: %w", err)
 	}
-	used := aggregateContainerResources(allContainers, cons)
+	topos := buildNodeTopos(nodes)
+	used := aggregateContainerResources(allContainers, cons, topos)
 	consumersByNode := map[string][]Consumer{}
 	for i := range allContainers {
 		wc := &allContainers[i]
@@ -252,7 +275,7 @@ func (c Collector) ExploreNodes(ctx context.Context, selector map[string]string,
 		if node == "" {
 			continue
 		}
-		consumersByNode[node] = append(consumersByNode[node], consumerFrom(wc, cons))
+		consumersByNode[node] = append(consumersByNode[node], consumerFrom(wc, cons, topos[node]))
 	}
 
 	out := make([]NodeDetail, 0, len(nodes))
@@ -355,22 +378,26 @@ type nodeResources struct {
 // consumedNodeResources returns, per node, the TLC/QLC shared-drive capacity, CPU cores, hugepages (MiB)
 // and memory (MiB) already claimed by EVERY WekaContainer scheduled or pinned to the node (all modes,
 // both other clusters' and this cluster's own).
-func (c Collector) consumedNodeResources(ctx context.Context, cons *capacityplanner.CapacityConstraints) (nodeResources, error) {
+func (c Collector) consumedNodeResources(ctx context.Context, cons *capacityplanner.CapacityConstraints, topos map[string]capacityplanner.NodeCPUTopology) (nodeResources, error) {
 	kubeService := kubernetes.NewKubeService(c.Client)
 	containers, err := kubeService.GetWekaContainersSimple(ctx, "", "", nil)
 	if err != nil {
 		return nodeResources{}, fmt.Errorf("listing weka containers: %w", err)
 	}
-	return aggregateContainerResources(containers, cons), nil
+	return aggregateContainerResources(containers, cons, topos), nil
 }
 
 // aggregateContainerResources sums, per node, the resource footprint of weka containers by mode (skipping
 // containers marked for deletion — their resources are about to be freed):
-//   - drive (drive-sharing only): cores/hugepages/memory derived from per-pool CAPACITY via the shared
-//     sizing model (capacityplanner.RequiredDriveResources), plus TLC/QLC capacity.
-//   - compute: cores/hugepages from spec; memory from the shared base+per-core model.
-//   - other modes (e.g. ssdproxy): cores and 2Mi hugepages from spec; memory not charged.
-func aggregateContainerResources(containers []weka.WekaContainer, cons *capacityplanner.CapacityConstraints) nodeResources {
+//   - CPU (all modes): the container's real PHYSICAL CPU request via capacityplanner.CPURequestCores
+//     (numCores*2+1 under dedicated_ht on an HT node), so the charge matches what the kube-scheduler
+//     reserves — NOT the weka data-core count. topos supplies each node's HT/full-pcpus topology; a node
+//     absent from topos is treated as non-HT.
+//   - drive (drive-sharing only): hugepages/memory derived from per-pool CAPACITY via the shared sizing
+//     model (capacityplanner.RequiredDriveResources), plus TLC/QLC capacity.
+//   - compute: hugepages from spec; memory from the shared base+per-core model.
+//   - other modes (e.g. ssdproxy): 2Mi hugepages from spec; memory not charged.
+func aggregateContainerResources(containers []weka.WekaContainer, cons *capacityplanner.CapacityConstraints, topos map[string]capacityplanner.NodeCPUTopology) nodeResources {
 	res := nodeResources{
 		tlc:       map[string]int{},
 		qlc:       map[string]int{},
@@ -387,28 +414,58 @@ func aggregateContainerResources(containers []weka.WekaContainer, cons *capacity
 		if node == "" {
 			continue
 		}
+		cpu := capacityplanner.CPURequestCores(&c.Spec, topos[node])
 		switch c.Spec.Mode {
 		case weka.WekaContainerModeDrive:
 			if !c.UsesDriveSharing() {
 				continue
 			}
 			t, q := DriveContainerCapacities(c)
-			cores, hugepagesMiB, memoryMiB := capacityplanner.RequiredDriveResources(t, q, cons)
-			res.cores[node] += cores
+			hugepagesMiB, memoryMiB := capacityplanner.RequiredDriveResources(t, q, cons)
+			res.cores[node] += cpu
 			res.hugepages[node] += hugepagesMiB
 			res.memory[node] += memoryMiB
 			res.tlc[node] += t
 			res.qlc[node] += q
 		case weka.WekaContainerModeCompute:
-			res.cores[node] += c.Spec.NumCores
+			res.cores[node] += cpu
 			res.hugepages[node] += spec2MiHugepages(c)
 			res.memory[node] += capacityplanner.ComputeMemoryFootprintMiB(c.Spec.NumCores, cons)
 		default:
-			res.cores[node] += c.Spec.NumCores
+			res.cores[node] += cpu
 			res.hugepages[node] += spec2MiHugepages(c)
 		}
 	}
 	return res
+}
+
+// nodeCPUTopology reads a node's HT / full-pcpus-only topology from its weka.io/discovery.json annotation
+// (the operator-level config.Config.FullPcpusOnly flag forces full-pcpus on). A node without the
+// annotation (or an unparsable one) is treated as non-HT — the same CPU charge the planner used before
+// this became topology-aware.
+func nodeCPUTopology(node *corev1.Node) capacityplanner.NodeCPUTopology {
+	topo := capacityplanner.NodeCPUTopology{}
+	if ann, present := node.Annotations[discovery.DiscoveryAnnotation]; present {
+		if info, ok := discovery.ParseNodeInfo(ann); ok {
+			topo.IsHt = info.IsHt
+			topo.FullPcpusOnly = info.NodeFullPcpusOnly
+		} else {
+			log.Log.Info("capacityplanner/inventory: unparsable discovery.json; treating node as non-HT for CPU accounting", "node", node.Name)
+		}
+	}
+	if config.Config.FullPcpusOnly {
+		topo.FullPcpusOnly = true
+	}
+	return topo
+}
+
+// buildNodeTopos indexes nodeCPUTopology by node name for the given node set.
+func buildNodeTopos(nodes []corev1.Node) map[string]capacityplanner.NodeCPUTopology {
+	m := make(map[string]capacityplanner.NodeCPUTopology, len(nodes))
+	for i := range nodes {
+		m[nodes[i].Name] = nodeCPUTopology(&nodes[i])
+	}
+	return m
 }
 
 // nodeDetails builds the per-node NodeDetail slice for explore-nodes from the drive-candidate inventory,
@@ -419,18 +476,6 @@ func (c Collector) nodeDetails(ctx context.Context, cluster *weka.WekaCluster, o
 	allContainers, err := kubeService.GetWekaContainersSimple(ctx, "", "", nil)
 	if err != nil {
 		return nil, fmt.Errorf("nodeDetails: listing weka containers: %w", err)
-	}
-
-	// Per-node consumers + per-resource used totals (net of marked-for-deletion, mirroring the planner).
-	consumersByNode := map[string][]Consumer{}
-	used := aggregateContainerResources(allContainers, cons)
-	for i := range allContainers {
-		wc := &allContainers[i]
-		node := string(wc.GetNodeAffinity())
-		if node == "" {
-			continue
-		}
-		consumersByNode[node] = append(consumersByNode[node], consumerFrom(wc, cons))
 	}
 
 	deletingDriveNodes := map[string]bool{}
@@ -461,6 +506,19 @@ func (c Collector) nodeDetails(ctx context.Context, cluster *weka.WekaCluster, o
 			return nil, fmt.Errorf("nodeDetails: %w", err)
 		}
 		nodes = append(nodes, computeOnly...)
+	}
+
+	// Per-node CPU topology + used totals + consumers (net of marked-for-deletion, mirroring the planner).
+	topos := buildNodeTopos(nodes)
+	used := aggregateContainerResources(allContainers, cons, topos)
+	consumersByNode := map[string][]Consumer{}
+	for i := range allContainers {
+		wc := &allContainers[i]
+		node := string(wc.GetNodeAffinity())
+		if node == "" {
+			continue
+		}
+		consumersByNode[node] = append(consumersByNode[node], consumerFrom(wc, cons, topos[node]))
 	}
 
 	seen := map[string]struct{}{}
@@ -519,8 +577,9 @@ func (c Collector) nodeDetails(ctx context.Context, cluster *weka.WekaCluster, o
 	return out, nil
 }
 
-// consumerFrom builds a Consumer describing how the collector charges one WekaContainer.
-func consumerFrom(c *weka.WekaContainer, cons *capacityplanner.CapacityConstraints) Consumer {
+// consumerFrom builds a Consumer describing how the collector charges one WekaContainer. Cores is the
+// container's real PHYSICAL CPU request (CPURequestCores under topo), matching the per-node UsedCores.
+func consumerFrom(c *weka.WekaContainer, cons *capacityplanner.CapacityConstraints, topo capacityplanner.NodeCPUTopology) Consumer {
 	out := Consumer{
 		Name:              c.Name,
 		Namespace:         c.Namespace,
@@ -528,21 +587,22 @@ func consumerFrom(c *weka.WekaContainer, cons *capacityplanner.CapacityConstrain
 		Role:              string(c.Spec.Mode),
 		MarkedForDeletion: c.IsMarkedForDeletion(),
 	}
+	cpu := capacityplanner.CPURequestCores(&c.Spec, topo)
 	switch c.Spec.Mode {
 	case weka.WekaContainerModeDrive:
 		if !c.UsesDriveSharing() {
 			return out
 		}
 		t, q := DriveContainerCapacities(c)
-		cores, hp, mem := capacityplanner.RequiredDriveResources(t, q, cons)
-		out.TlcGiB, out.QlcGiB, out.Cores, out.HugepagesMiB, out.MemoryMiB = t, q, cores, hp, mem
+		hp, mem := capacityplanner.RequiredDriveResources(t, q, cons)
+		out.TlcGiB, out.QlcGiB, out.Cores, out.HugepagesMiB, out.MemoryMiB = t, q, cpu, hp, mem
 		out.NilRatio = c.Spec.DriveCapacity <= 0 && c.Spec.DriveTypesRatio == nil
 	case weka.WekaContainerModeCompute:
-		out.Cores = c.Spec.NumCores
+		out.Cores = cpu
 		out.HugepagesMiB = spec2MiHugepages(c)
 		out.MemoryMiB = capacityplanner.ComputeMemoryFootprintMiB(c.Spec.NumCores, cons)
 	default:
-		out.Cores = c.Spec.NumCores
+		out.Cores = cpu
 		out.HugepagesMiB = spec2MiHugepages(c)
 	}
 	return out

@@ -131,6 +131,9 @@ func (cmd *planCommand) Execute(_ []string) error {
 	// Per-role DPDK base memory from the cluster spec, exactly as planClusterCapacity feeds the planner.
 	cons.DriveDpdkPerCoreMiB = utils.GetDpdkBaseMemoryMbByRole(&cluster.Spec, weka.WekaContainerModeDrive)
 	cons.ComputeDpdkPerCoreMiB = utils.GetDpdkBaseMemoryMbByRole(&cluster.Spec, weka.WekaContainerModeCompute)
+	// Cluster cpuPolicy (empty == auto), so the planner projects fresh containers' physical CPU the same
+	// way the controller does. See funcs_fd_planning.go / cpu.go.
+	cons.CpuPolicy = cluster.Spec.CpuPolicy
 
 	s := allocator.ProtectionScheme{
 		StripeWidth:     cluster.Spec.StripeWidth,

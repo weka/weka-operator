@@ -23,7 +23,8 @@ WekaClusterReconcile
 | Concern | File | Symbols (approx line) |
 |---|---|---|
 | Steady-state / cluster plan | `internal/controllers/wekacluster/funcs_fd_planning.go` | `planClusterCapacity` (orchestrator), `steadyStatePlan`, `summarizeDriveContainers`; node inventory + existing views now come from `inventory.Collector` (below) |
-| Node inventory + existing views | `internal/capacityplanner/inventory/collect.go` | `Collector.NodeInventory`/`Collect`/`ExploreNodes`, `ExistingDrives`/`ExistingCompute`, `aggregateContainerResources`, `DriveContainerCapacities` |
+| Node inventory + existing views | `internal/capacityplanner/inventory/collect.go` | `Collector.NodeInventory`/`Collect`/`ExploreNodes`, `ExistingDrives`/`ExistingCompute`, `aggregateContainerResources`, `DriveContainerCapacities`, `nodeCPUTopology` (HT/full-pcpus from `weka.io/discovery.json`) |
+| Physical CPU model (data cores → pod CPU) | `internal/capacityplanner/cpu.go` | `CPURequestCores`/`cpuModel`/`NodeCPUTopology` — SINGLE SOURCE OF TRUTH mirroring `resources/pod.go setResources`; `dedicated_ht` = `numCores*2+1`. `NodeCapacity.AllocatableCPU`/`nodeState.coresFree` are PHYSICAL CPU; `driveCPUCost`/`computeCPUCost` convert at charge sites. `pod.go` and `funcs_fd_planning.go` (sets `cons.Drive/ComputeCpuPolicy`) both feed it |
 | Create/grow drive containers | `internal/controllers/wekacluster/steps_cluster_creation.go` | create (~401-402), `applyClusterCapacityGrowth` (~414-445) |
 | Per-FD sizing & pool math | `internal/capacityplanner/planner.go` | `planPoolUniformIncrease`, `maxPerFdCap = desiredRaw/minFd`; `RatioFromCaps` in `internal/capacityplanner/ratio.go` |
 | Fresh greenfield placement | `internal/capacityplanner/planner.go` | `planPoolFreshUniform` → `selectUniform` → `pickPreferringColocated` |

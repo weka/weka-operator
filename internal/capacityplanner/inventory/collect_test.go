@@ -66,34 +66,36 @@ func invByName(inv []capacityplanner.NodeCapacity) map[string]capacityplanner.No
 
 // TestAggregateContainerResources_Drives verifies the per-node DRIVE footprint summed across ALL
 // drive-sharing containers (this cluster's own AND other clusters') by aggregateContainerResources — the
-// basis for the planner's remaining-headroom inventory. Cores/hugepages/memory are derived from each
-// container's capacity via the shared sizing model (NOT read from Spec.NumCores/Hugepages, which may be
-// stale), so the headroom lines up with how the planner sizes and consumes containers. Unpinned
-// containers contribute nothing.
+// basis for the planner's remaining-headroom inventory. HUGEPAGES/MEMORY are derived from each
+// container's capacity via the shared sizing model (NOT read from the possibly-stale Spec.Hugepages).
+// CPU is the container's real PHYSICAL pod reservation via CPURequestCores (spec.NumCores + 1 per
+// container under non-HT dedicated here — topos is nil), matching what the kube-scheduler reserves.
+// Unpinned containers contribute nothing.
 func TestAggregateContainerResources_Drives(t *testing.T) {
 	cons := testCons()
-	// Each n1 container: tlc=20TiB (ceil(20/5)=4 cores) + qlc=80TiB (ceil(80/50)=2 cores) = 6 cores.
+	// Each n1 container: tlc=20TiB (ceil(20/5)=4 cores) + qlc=80TiB (ceil(80/50)=2 cores) = 6 data cores,
+	// used for the capacity-derived hugepages/memory footprint.
 	const perContainerCores = 6
 
-	// Spec.NumCores/Hugepages are deliberately set to values that do NOT match the capacity-derived
-	// figure, to prove the aggregation ignores the (possibly stale) pod spec for drives.
+	// Spec.Hugepages is deliberately stale to prove hugepages come from the capacity model, not the spec.
+	// Spec.NumCores matches the capacity-derived count (6), the value the real pod reserves CPU from.
 	other := ownedDriveContainer("cluster-other", "n1", 100*tib, 1, 4) // tlc=20TiB, qlc=80TiB
-	other.Spec.NumCores = 10
+	other.Spec.NumCores = 6
 	other.Spec.Hugepages = 1000
 
 	mine := ownedDriveContainer("cluster-me", "n1", 100*tib, 1, 4) // included too (own + other)
-	mine.Spec.NumCores = 99
+	mine.Spec.NumCores = 6
 	mine.Spec.Hugepages = 2000
 
 	labelOwned := ownedDriveContainer("", "n2", 50*tib, 1, 0) // tlc=50TiB → ceil(50/5)=10 cores
-	labelOwned.Spec.NumCores = 5
+	labelOwned.Spec.NumCores = 10
 
 	// Unscheduled / unpinned (no node): contributes nothing.
 	noNode := ownedDriveContainer("cluster-other", "", 100*tib, 1, 4)
 	noNode.Spec.NumCores = 7
 
 	containers := []weka.WekaContainer{other, mine, labelOwned, noNode}
-	res := aggregateContainerResources(containers, cons)
+	res := aggregateContainerResources(containers, cons, nil) // nil topos → non-HT (cpu = numCores+1)
 
 	if res.tlc["n1"] != 40*tib { // 20 (other) + 20 (mine)
 		t.Errorf("n1 TLC = %d, want 40TiB (own + other)", res.tlc["n1"])
@@ -101,8 +103,8 @@ func TestAggregateContainerResources_Drives(t *testing.T) {
 	if res.qlc["n1"] != 160*tib {
 		t.Errorf("n1 QLC = %d, want 160TiB", res.qlc["n1"])
 	}
-	if res.cores["n1"] != 2*perContainerCores { // capacity-derived, not 10+99
-		t.Errorf("n1 cores = %d, want %d", res.cores["n1"], 2*perContainerCores)
+	if want := (6 + 1) + (6 + 1); res.cores["n1"] != want { // physical CPU: two dedicated containers, numCores+1 each
+		t.Errorf("n1 cores = %d, want %d (physical CPU, spec.NumCores+1 per container)", res.cores["n1"], want)
 	}
 	if want := 2 * perContainerCores * capacityplanner.HugepagesPerCoreMiB; res.hugepages["n1"] != want {
 		t.Errorf("n1 hugepages = %d, want %d", res.hugepages["n1"], want)
@@ -114,8 +116,8 @@ func TestAggregateContainerResources_Drives(t *testing.T) {
 	if res.tlc["n2"] != 50*tib || res.qlc["n2"] != 0 {
 		t.Errorf("n2 = (tlc %d, qlc %d), want (50TiB, 0)", res.tlc["n2"], res.qlc["n2"])
 	}
-	if res.cores["n2"] != 10 { // ceil(50TiB / 5TiB) = 10
-		t.Errorf("n2 cores = %d, want 10", res.cores["n2"])
+	if res.cores["n2"] != 10+1 { // physical CPU: spec.NumCores(10) + 1
+		t.Errorf("n2 cores = %d, want 11", res.cores["n2"])
 	}
 }
 
@@ -144,10 +146,11 @@ func TestAggregateContainerResources_ComputeAndOther(t *testing.T) {
 	s3 := modeContainer(weka.WekaContainerModeS3, "h6-9-c", 4, 1500)
 
 	res := aggregateContainerResources(
-		[]weka.WekaContainer{otherCompute, ssdproxy, oneGi, noNode, s3}, cons)
+		[]weka.WekaContainer{otherCompute, ssdproxy, oneGi, noNode, s3}, cons, nil) // nil topos → non-HT
 
-	if want := 8 + 2 + 3; res.cores["h6-9-b"] != want { // compute + ssdproxy + 1Gi client cores
-		t.Errorf("h6-9-b cores = %d, want %d (compute+ssdproxy+1Gi)", res.cores["h6-9-b"], want)
+	// CPU is the physical pod reservation (numCores+1 per container under non-HT dedicated).
+	if want := (8 + 1) + (2 + 1) + (3 + 1); res.cores["h6-9-b"] != want { // compute + ssdproxy + 1Gi client
+		t.Errorf("h6-9-b cores = %d, want %d (physical CPU: compute+ssdproxy+1Gi, numCores+1 each)", res.cores["h6-9-b"], want)
 	}
 	if want := 19572 + 2962; res.hugepages["h6-9-b"] != want { // 1Gi excluded from 2Mi pool
 		t.Errorf("h6-9-b hugepages = %d, want %d (compute+ssdproxy; 1Gi excluded)", res.hugepages["h6-9-b"], want)
@@ -155,8 +158,8 @@ func TestAggregateContainerResources_ComputeAndOther(t *testing.T) {
 	if want := capacityplanner.ComputeMemoryFootprintMiB(8, cons); res.memory["h6-9-b"] != want { // compute only
 		t.Errorf("h6-9-b memory = %d, want %d (compute footprint)", res.memory["h6-9-b"], want)
 	}
-	if res.cores["h6-9-c"] != 4 || res.hugepages["h6-9-c"] != 1500 {
-		t.Errorf("h6-9-c = (cores %d, hugepages %d), want (4, 1500)", res.cores["h6-9-c"], res.hugepages["h6-9-c"])
+	if res.cores["h6-9-c"] != 4+1 || res.hugepages["h6-9-c"] != 1500 { // s3: physical CPU numCores(4)+1
+		t.Errorf("h6-9-c = (cores %d, hugepages %d), want (5, 1500)", res.cores["h6-9-c"], res.hugepages["h6-9-c"])
 	}
 }
 
@@ -180,11 +183,11 @@ func TestAggregateContainerResources_SkipsMarkedForDeletion(t *testing.T) {
 	delCompute.DeletionTimestamp = &now
 	delCompute.Finalizers = []string{"x"}
 
-	res := aggregateContainerResources([]weka.WekaContainer{live, deleting, delCompute}, cons)
+	res := aggregateContainerResources([]weka.WekaContainer{live, deleting, delCompute}, cons, nil)
 
 	// Build a reference result from ONLY the live container and compare map-by-map, to avoid hardcoding
 	// derived numbers and directly prove the two deleting containers contribute zero.
-	resLiveOnly := aggregateContainerResources([]weka.WekaContainer{live}, cons)
+	resLiveOnly := aggregateContainerResources([]weka.WekaContainer{live}, cons, nil)
 
 	if res.tlc["n1"] != resLiveOnly.tlc["n1"] {
 		t.Errorf("n1 TLC: got %d, want %d (only live container; deleting drive must be skipped)",

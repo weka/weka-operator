@@ -87,20 +87,22 @@ func (r *containerReconcilerLoop) checkDriveResourceFeasibility(ctx context.Cont
 	}
 
 	cons := allocator.CapacityConstraintsFromConfig()
-	reqCores, reqHpMiB, reqMemMiB := allocator.RequiredDriveResources(tlcGiB, qlcGiB, cons)
+	reqHpMiB, reqMemMiB := allocator.RequiredDriveResources(tlcGiB, qlcGiB, cons)
 
-	availCores := int(c.Resources.Requests.Cpu().Value())
 	availHpMiB := podHugepagesRequestMiB(c)
 	availMemMiB := int(c.Resources.Requests.Memory().Value() / (1 << 20))
 
+	// Both hugepages and memory scale with the drive-core count, so a pod whose NumCores lags the grown
+	// capacity trips one of these before the drives are added. CPU is deliberately NOT gated here: the
+	// pod's CPU request is PHYSICAL (numCores*2+1 under dedicated_ht) while the drive-core requirement is
+	// in weka DATA cores, so comparing them is meaningless — and the hugepages/memory checks already catch
+	// the same under-sizing. Physical-CPU headroom is enforced at cluster-plan time (capacityplanner/cpu.go).
 	var shortfall string
 	switch {
-	case availCores < reqCores:
-		shortfall = fmt.Sprintf("cores: pod reserves %d, need %d for %d GiB TLC + %d GiB QLC", availCores, reqCores, tlcGiB, qlcGiB)
 	case availHpMiB < reqHpMiB:
-		shortfall = fmt.Sprintf("hugepages: pod requests %d MiB, need %d MiB (%d cores)", availHpMiB, reqHpMiB, reqCores)
+		shortfall = fmt.Sprintf("hugepages: pod requests %d MiB, need %d MiB", availHpMiB, reqHpMiB)
 	case availMemMiB < reqMemMiB:
-		shortfall = fmt.Sprintf("memory: pod requests %d MiB, need %d MiB (%d cores)", availMemMiB, reqMemMiB, reqCores)
+		shortfall = fmt.Sprintf("memory: pod requests %d MiB, need %d MiB", availMemMiB, reqMemMiB)
 	}
 	if shortfall == "" {
 		return nil
