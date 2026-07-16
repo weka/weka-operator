@@ -31,6 +31,7 @@ capacityPlanner:
       memory: 64Mi
   nodeSelector: {}
   tolerations: []
+
 # -- experimental: enables custtom HTTP API endpoint as alternative to K8s API
 enableClusterApi: false
 # -- enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.

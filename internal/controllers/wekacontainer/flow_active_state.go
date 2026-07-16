@@ -47,6 +47,14 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.GetNode,
 		},
 		&lifecycle.SimpleStep{
+			Name: "ReconcileAwsTerminationLifecycle",
+			Run:  r.reconcileAwsTerminationLifecycle,
+			Predicates: lifecycle.Predicates{
+				r.NodeIsAwsProvider,
+			},
+			ContinueOnError: true,
+		},
+		&lifecycle.SimpleStep{
 			Run: r.GetWekaClient,
 			Predicates: lifecycle.Predicates{
 				r.WekaContainerManagesCsi,
