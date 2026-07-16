@@ -249,6 +249,24 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			ContinueOnError: true,
 		},
+		// Ensure SSD proxy container exists before setting proxy UID (for drive sharing)
+		&lifecycle.SimpleStep{
+			Run: r.ensureProxyContainer,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				r.container.UsesDriveSharing,
+				r.HasNodeAffinity,
+			},
+		},
+		// Wait for the SSD proxy container to be up (Running + READY) before scheduling the drive pod
+		&lifecycle.SimpleStep{
+			Run: r.waitForProxyReady,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				r.container.UsesDriveSharing,
+				r.HasNodeAffinity,
+			},
+		},
 		&lifecycle.SimpleStep{
 			Run: r.ensurePod,
 			Predicates: lifecycle.Predicates{
@@ -302,15 +320,6 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				// the check fires naturally on the next restart/reconcile cycle.
 				func() bool { return r.container.Status.Status != weka.Running },
 				func() bool { return r.pod.DeletionTimestamp == nil },
-			},
-		},
-		// Ensure SSD proxy container exists before setting proxy UID (for drive sharing)
-		&lifecycle.SimpleStep{
-			Run: r.ensureProxyContainer,
-			Predicates: lifecycle.Predicates{
-				r.container.IsDriveContainer,
-				r.container.UsesDriveSharing,
-				r.HasNodeAffinity,
 			},
 		},
 		&lifecycle.SimpleStep{

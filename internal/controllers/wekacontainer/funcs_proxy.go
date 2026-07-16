@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	apiutil "github.com/weka/weka-k8s-api/util"
@@ -97,6 +99,51 @@ func (r *containerReconcilerLoop) ensureProxyContainer(ctx context.Context) erro
 
 	logger.Info("Proxy container created successfully")
 
+	return nil
+}
+
+// waitForProxyReady blocks the drive container flow until the SSD proxy container
+// on the same node is fully up (Status == Running and InternalStatus == READY).
+// This ensures the proxy is serving before drive pods are scheduled.
+func (r *containerReconcilerLoop) waitForProxyReady(ctx context.Context) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "waitForProxyReady")
+	defer logger.End()
+
+	nodeName := r.container.GetNodeAffinity()
+	if nodeName == "" {
+		return errors.New("container has no node affinity, cannot wait for proxy")
+	}
+
+	proxyName := getProxyContainerName(nodeName)
+	logger.SetValues("proxyName", proxyName, "node", nodeName)
+
+	operatorNamespace, err := util.GetPodNamespace()
+	if err != nil {
+		return errors.Wrap(err, "failed to get operator namespace")
+	}
+
+	proxy := &weka.WekaContainer{}
+	err = r.Get(ctx, client.ObjectKey{
+		Name:      proxyName,
+		Namespace: operatorNamespace,
+	}, proxy)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return lifecycle.NewWaitErrorWithDuration(
+				errors.Errorf("proxy container %s not found yet", proxyName), 10*time.Second)
+		}
+		return errors.Wrap(err, "failed to get proxy container")
+	}
+
+	if proxy.Status.Status != weka.Running || proxy.Status.InternalStatus != "READY" {
+		logger.SetValues("proxyStatus", proxy.Status.Status, "proxyInternalStatus", proxy.Status.InternalStatus)
+		logger.Info("Waiting for proxy container to be ready")
+		return lifecycle.NewWaitErrorWithDuration(
+			errors.Errorf("proxy container %s not ready yet (status=%s, internalStatus=%s)",
+				proxyName, proxy.Status.Status, proxy.Status.InternalStatus), 10*time.Second)
+	}
+
+	logger.Debug("Proxy container is ready")
 	return nil
 }
 
