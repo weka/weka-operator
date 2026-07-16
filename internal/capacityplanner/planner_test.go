@@ -406,6 +406,85 @@ func Test_UniformIncrease_AntiFragmentation_FewestContainers(t *testing.T) {
 	}
 }
 
+func Test_UniformIncrease_HeterogeneousReadd_RecreatesOneHighFD(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	cons := testCons()
+
+	var existingDrives []ExistingContainer
+	var inv []NodeCapacity
+
+	// 6 small FDs left over from earlier heterogeneous growth.
+	for i := 1; i <= 6; i++ {
+		n := "small" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 512, NumCores: 1})
+		inv = append(inv, node(n, 0, 0, 64)) // drive-full
+	}
+	// 5 high-tier FDs still present after one (of an original 6) was deleted.
+	for i := 1; i <= 5; i++ {
+		n := "high" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "h" + itoa(i), Node: n, FDValue: n, TlcGiB: 40960, NumCores: 4})
+		inv = append(inv, node(n, 0, 0, 64)) // drive-full
+	}
+	// Fresh capacity: the freed node plus a spare, both empty with plenty of headroom.
+	inv = append(inv, nodes(2, 100*tib, 0, 64, "new")...)
+
+	desired := DesiredCapacity{TlcRawGiB: 6 * 40960} // target: 6 high FDs restored
+	plan := planCap(desired, s, existingDrives, inv, cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Grow) != 0 {
+		t.Fatalf("old nodes are drive-full; want 0 grows, got %d: %+v", len(plan.Grow), plan.Grow)
+	}
+	// Pre-fix: detectImbalance(37888, existingAvg=18897) was true (37888 >= 2*18897=37794), so k=1 was
+	// rejected and the delta fragmented into 2 new FDs of 18944 GiB (~18.5 TiB) each — neither matching the
+	// small nor the high tier. Post-fix, a candidate size <= Tmax (the largest existing FD, 40960) is exempt
+	// from the imbalance guard, so k=1 succeeds and a single high-tier FD is recreated instead.
+	if len(plan.Create) != 1 {
+		t.Fatalf("want exactly 1 new FD (recreate the deleted high-tier FD), got %d: %+v", len(plan.Create), plan.Create)
+	}
+	if plan.Create[0].TlcGiB < 37*tib {
+		t.Fatalf("want the new FD sized to the high tier (>= 37 TiB), got %+v", plan.Create[0])
+	}
+	if len(plan.OverProvisions) != 0 {
+		t.Fatalf("even-split reaches desired exactly; want no over-provision advisory, got %v", plan.OverProvisions)
+	}
+}
+
+func Test_UniformIncrease_Homogeneous_ReaddSameSize_Unchanged(t *testing.T) {
+	s := testScheme()
+	cons := testCons()
+
+	var existingDrives []ExistingContainer
+	var inv []NodeCapacity
+	for i := 1; i <= 5; i++ {
+		n := "old" + itoa(i)
+		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 20 * tib, NumCores: 4})
+		inv = append(inv, node(n, 0, 0, 64)) // drive-full
+	}
+	inv = append(inv, nodes(1, 100*tib, 0, 64, "new")...)
+
+	desired := DesiredCapacity{TlcRawGiB: 120 * tib}
+	plan := planCap(desired, s, existingDrives, inv, cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Grow) != 0 {
+		t.Fatalf("old nodes are drive-full; want 0 grows, got %d: %+v", len(plan.Grow), plan.Grow)
+	}
+	if len(plan.Create) != 1 {
+		t.Fatalf("want exactly 1 new FD (matches existing size), got %d: %+v", len(plan.Create), plan.Create)
+	}
+	if plan.Create[0].TlcGiB != 20*tib {
+		t.Fatalf("want the new FD sized identically to existing FDs (20 TiB; T0==Tmax so the guard is a no-op), got %+v", plan.Create[0])
+	}
+	if len(plan.OverProvisions) != 0 {
+		t.Fatalf("even-split reaches desired exactly; want no over-provision advisory, got %v", plan.OverProvisions)
+	}
+}
+
 // Increase path with fresh candidate nodes INDIVIDUALLY SMALLER than the existing FDs (review scenario):
 // the fewest-containers search must still cover the delta on those nodes (kMax = CeilDiv(delta, T0) keeps
 // the count high enough to fall to per-FD sizes the small nodes can hold) — it must NOT go infeasible.

@@ -1586,12 +1586,21 @@ func planPoolUniformIncrease(
 	}
 	numExisting := len(perFd)
 	minFdCap := 0
+	maxFdCap := 0
 	for _, v := range perFd {
 		if minFdCap == 0 || v < minFdCap {
 			minFdCap = v
 		}
+		if v > maxFdCap {
+			maxFdCap = v
+		}
 	}
 	T0 := max(cons.MinChunkSizeGiB, minFdCap)
+	// Tmax is the largest existing per-FD level. A replacement sized <= Tmax merely matches a size the
+	// cluster already has, so it must never be treated as "imbalanced" (see the Step-4 guard below). This is
+	// what lets a deleted high-tier FD be recreated at the high size instead of fragmenting into small FDs
+	// when smaller (deletable, post-heterogeneous-growth) FDs are still present and drag poolAvg down.
+	Tmax := max(cons.MinChunkSizeGiB, maxFdCap)
 
 	// --- Fresh candidate FDs (FDs not hosting pool p, per-node headroom >= MinChunk), best-headroom first.
 	// When in-place growth is off, freshExclusion bars EVERY occupied node (not just this pool's), so a
@@ -1719,8 +1728,8 @@ func planPoolUniformIncrease(
 			if perFd > maxPerFdCap {
 				continue // still above the per-FD ceiling — need more (smaller) FDs
 			}
-			if detectImbalance(perFd, existingAvg, cons) {
-				continue // this size would dwarf the existing FDs — try more (smaller) FDs
+			if perFd > Tmax && detectImbalance(perFd, existingAvg, cons) {
+				continue // dwarfs even the LARGEST existing FD — try more (smaller) FDs
 			}
 			if freshCountAtLeast(perFd) < k {
 				continue // not enough spare nodes for k FDs this size; try more (smaller) FDs
