@@ -152,6 +152,16 @@ func startAsNodeAgent(ctx context.Context, logger logr.Logger) {
 		}
 	}()
 
+	// The EKS ASG lifecycle-hook watcher is opt-in and AWS-only; it also no-ops internally when
+	// disabled or when IMDS is unreachable. Run it in the background and never let it crash the
+	// node-agent HTTP server.
+	go func() {
+		watcher := node_agent.NewTerminationLifecycleWatcher(logger)
+		if watcherErr := watcher.Run(ctx); watcherErr != nil {
+			logger.Error(watcherErr, "node lifecycle watcher exited with an error")
+		}
+	}()
+
 	err = agent.Run(ctx, httpServer)
 	if err != nil {
 		logger.Error(err, "Failed to start node agent")

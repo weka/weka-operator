@@ -235,6 +235,16 @@ nodeAgent:
   affinity: {}
   # default set for generic OSes, can be overridden /root/k8s-weka for openshift, /mnt/stateful_partition/k8s-weka for google container OS
   persistencePaths: /opt/k8s-weka
+  # -- AWS-specific node-agent settings (mirrors the operator's AwsConfig).
+  aws:
+    # -- EKS ASG lifecycle-hook drain-gating. Set `name` to the name of an AWS ASG lifecycle
+    # hook you have registered on the drive node group(s) to ENABLE it: the node-agent then
+    # watches for a pending EC2_INSTANCE_TERMINATING lifecycle action and holds instance
+    # termination until the node's drive WekaContainer is gone. Leave empty to disable. The hold
+    # is bounded AWS-side by the hook's HeartbeatTimeout (set at registration); poll/heartbeat/
+    # backstop cadences are fixed constants in the operator.
+    lifecycleHook:
+      name: ""
 
 metrics:
   clusters:

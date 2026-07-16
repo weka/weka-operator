@@ -1,0 +1,22 @@
+# ClusterRole granting the node-agent (SA "{prefix}-maintenance") the minimum permission the
+# EKS ASG lifecycle-hook watcher needs: list WekaContainers to find this node's drive container
+# and hold instance termination while that CR still exists (driveContainerPresenceChecker in
+# internal/node_agent/termination_lifecycle_watcher.go).
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: weka-operator
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/part-of: weka-operator
+  name: "{{ .Values.prefix }}-maintenance-role"
+rules:
+  - apiGroups:
+      - weka.weka.io
+    resources:
+      - wekacontainers
+    verbs:
+      - list
+      - watch
