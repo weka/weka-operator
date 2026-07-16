@@ -46,7 +46,12 @@ func (r *containerReconcilerLoop) refreshPod(ctx context.Context) error {
 func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
-	if NodeIsUnschedulable(r.node) {
+	// A force-resign-drives adhoc-op helper is deliberately scheduled onto the node whose
+	// drives it resigns; during a scale-down drain that node is already cordoned. Its pod
+	// carries the tolerations to run on a cordoned node, so exempt it from this guard —
+	// otherwise the drive container's deletion deadlocks at the ResignDrives step and the
+	// node's lifecycle hold never releases. All other containers still respect the cordon.
+	if NodeIsUnschedulable(r.node) && !isForceResignDrivesContainer(r.container) {
 		err := errors.Errorf("node %s is unschedulable, cannot create pod", r.node.Name)
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
 	}
