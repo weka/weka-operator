@@ -52,6 +52,32 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	// otherwise the drive container's deletion deadlocks at the ResignDrives step and the
 	// node's lifecycle hold never releases. All other containers still respect the cordon.
 	if NodeIsUnschedulable(r.node) && !isForceResignDrivesContainer(r.container) {
+		// If the pod has already been released (e.g. evicted by a scale-down drain) and the
+		// node can no longer host it, a drive/compute backend can never be recreated here.
+		// Looping on this guard would strand the container in `active`/Error indefinitely,
+		// which also keeps the node's lifecycle hold from ever releasing the instance. Hand it
+		// to the deletion flow instead. This is safe regardless of cluster health: the deleting
+		// flow treats a container already gone from the cluster as a deactivation success and
+		// paces any real drive removal on WEKA's own protection backpressure, so no data is
+		// removed unsafely.
+		// Gate on ClusterContainerID: only a backend that actually joined the cluster is
+		// reclaimed this way. A container that never started (no cluster id yet) is left to the
+		// normal WaitError so a transiently-cordoned node doesn't trigger a delete/recreate churn.
+		if r.PodNotSet() && r.container.Status.ClusterContainerID != nil &&
+			(r.container.IsDriveContainer() || r.container.IsComputeContainer()) {
+			// Debounce against a momentary pod gap (e.g. a pod being re-created): only reclaim once
+			// the pod has been gone for a grace period. TimestampStopAttempt is stamped by
+			// handlePodTermination when the pod is first seen Terminating; a pod merely being
+			// (re)created was never Terminating, so it can't satisfy this. Until the grace elapses
+			// (or if the pod was never observed terminating) we fall through to the normal wait.
+			const podReleasedReclaimGrace = 30 * time.Second
+			if since, ok := r.container.Status.Timestamps[string(weka.TimestampStopAttempt)]; ok &&
+				time.Since(since.Time) >= podReleasedReclaimGrace {
+				logger.Info("pod released on unschedulable node; moving backend container to deletion",
+					"node", r.node.Name, "mode", r.container.Spec.Mode, "podGoneFor", time.Since(since.Time).String())
+				return r.ensureStateDeleting(ctx)
+			}
+		}
 		err := errors.Errorf("node %s is unschedulable, cannot create pod", r.node.Name)
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
 	}
