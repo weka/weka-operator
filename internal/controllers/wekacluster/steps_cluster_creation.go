@@ -99,6 +99,10 @@ func GetClusterCreationSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			Run: loop.InitialContainersReady,
 		},
 		&lifecycle.SimpleStep{
+			Name: "EnsureAwsTerminationLifecycleHook",
+			Run:  loop.ensureAwsTerminationLifecycleHook,
+		},
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondClusterCreated,
 			},
