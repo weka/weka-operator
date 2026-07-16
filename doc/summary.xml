@@ -33,7 +33,7 @@
         <summary>Reference for weka-capacity, the read-only capacity-planner dry-run CLI shipped in the operator image. Explains the two subcommands — explore-nodes (per-node free-vs-physical drive capacity and CPU/hugepages/memory headroom net of all WekaContainers, plus per-node consumers) and plan (dry-run the planner for a live WekaCluster with spec/constraint flag overrides, showing DESIRED/CURRENT, feasibility, create/grow drive+compute sets, and infeasibility fix tips; it can now also plan a not-yet-existing cluster via --new-cluster, synthesizing a spec from flags so a greenfield cluster shows up as all-CREATE) — the three-layer constraint sourcing (operator env defaults, deployed-operator scrape, flag overrides), global options, exit codes, how it reuses the operator's exact collector/planner code so a dry-run matches the controller, and how to run it via the opt-in `deployCapacityPlanner` toolbox pod Deployment (or locally against a kubeconfig). Includes a Scalar-lab worked-examples section.</summary>
     </file>
 
-    <file relpath="operator/deployment/cluster-aws-eks.md">
+    <file relpath="providers/aws/eks.md">
         <tags>AWS, EKS, provisioning, IAM role, subnet, security groups, node group, instance type, converged, separate, dataNICsNumber, quay.io secret, wekacluster ports, basePort, pre-requisites, ensure nics, sign drives, instance types</tags>
         <summary>Guide on provisioning Weka clusters in AWS EKS. Covers EKS setup requirements, IAM roles, node group configuration, secrets management, port configuration, and pre-requisite policies like ensure-nics and sign-drives.</summary>
     </file>
