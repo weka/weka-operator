@@ -40,6 +40,20 @@ func NodeIsUnschedulable(node *v1.Node) bool {
 	return node.Spec.Unschedulable
 }
 
+// isForceResignDrivesContainer reports whether c is the adhoc-op helper that
+// force-resigns a drive node's drives during container deletion (ResignDrives step).
+// Such a helper is pinned to the very node being drained, which during a scale-down
+// is already cordoned (unschedulable), and its pod is built with tolerations to run
+// there anyway. It is therefore exempt from the unschedulable-node guard in ensurePod;
+// without the exemption the drive container's deletion deadlocks (resign can never run,
+// the finalizer is never cleared, and the node's lifecycle hold never releases).
+func isForceResignDrivesContainer(c *weka.WekaContainer) bool {
+	return c != nil &&
+		c.Spec.Mode == weka.WekaContainerModeAdhocOp &&
+		c.Spec.Instructions != nil &&
+		c.Spec.Instructions.Type == weka.InstructionTypeForceResignDrives
+}
+
 func CanExecInPod(pod *v1.Pod) bool {
 	// Review uses/split into few functions
 	// pod deletion check is too aggressive, and matters mostly for s3/nfs, while openshift that has problem with deletiontimestamp is not in scope right now
