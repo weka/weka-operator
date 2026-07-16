@@ -53,6 +53,37 @@ func IsSupportedCloudProvider(providerID string) bool {
 	return ProviderFromID(providerID) != ProviderUnknown
 }
 
+// InstanceIDAndRegionFromProviderID parses an AWS node ProviderID of the form
+// "aws:///<az>/<instance-id>" (e.g. "aws:///eu-west-1a/i-0123456789abcdef0") into its EC2
+// instance-id and region (the AZ with its trailing zone letter stripped, e.g. "eu-west-1a" ->
+// "eu-west-1"). Returns ok=false for non-"aws://" or malformed ProviderIDs.
+func InstanceIDAndRegionFromProviderID(providerID string) (instanceID, region string, ok bool) {
+	if ProviderFromID(providerID) != ProviderAWS {
+		return "", "", false
+	}
+
+	trimmed := strings.TrimPrefix(providerID, "aws://")
+	trimmed = strings.Trim(trimmed, "/")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) < 2 {
+		return "", "", false
+	}
+
+	instanceID = parts[len(parts)-1]
+	az := parts[len(parts)-2]
+	if instanceID == "" || az == "" {
+		return "", "", false
+	}
+
+	// Strip the trailing availability-zone letter (e.g. "eu-west-1a" -> "eu-west-1").
+	region = strings.TrimRight(az, "abcdefghijklmnopqrstuvwxyz")
+	if region == "" {
+		return "", "", false
+	}
+
+	return instanceID, region, true
+}
+
 type DiscoveryNodeInfo struct {
 	IsHt               bool     `json:"is_ht"`
 	KubernetesDistro   string   `json:"kubernetes_distro,omitempty"`
@@ -63,7 +94,7 @@ type DiscoveryNodeInfo struct {
 	InitContainerImage string   `json:"init_container_image,omitempty"`
 	NumCpus            int      `json:"num_cpus,omitempty"`
 	Provider           Provider `json:"provider,omitempty"`
-	Arch               string   `json:"arch,omitempty"` // k8s-normalized, e.g. "amd64", "arm64"; set by Enrich()
+	Arch               string   `json:"arch,omitempty"`            // k8s-normalized, e.g. "amd64", "arm64"; set by Enrich()
 	NodeFullPcpusOnly  bool     `json:"full_pcpus_only,omitempty"` // kubelet cpuManagerPolicyOptions full-pcpus-only; set by Enrich
 	// this field is for internal use only, is populated by DiscoverNodeOperation.Enrich
 	// Node *corev1.Node `json:"-"` // this is not necessarily aligned with a node

@@ -52,6 +52,11 @@ const (
 	AnnotationVirtualDriveClaims = "weka.io/virtual-drive-claims"
 )
 
+// LifecycleHeartbeatTimestamp is the key under WekaContainer Status.Timestamps used to throttle
+// AWS ASG lifecycle-hook heartbeats (RecordLifecycleActionHeartbeat) to once per hour from
+// reconcileTerminationLifecycle. See internal/controllers/wekacontainer/funcs_aws_termination_lifecycle.go.
+const LifecycleHeartbeatTimestamp = "lifecycleHeartbeat"
+
 // PodConfigVersionAnnotation is the annotation key set on pods at creation time
 // to record which pod config version the pod was created with.
 const PodConfigVersionAnnotation = "weka.io/pod-config-version"

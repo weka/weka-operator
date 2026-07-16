@@ -252,6 +252,17 @@ type BuilderImagesConfig struct {
 	Ubuntu24 string
 }
 
+// AwsConfig holds AWS-specific settings.
+type AwsConfig struct {
+	// NodeLifecycleHookName gates the node-agent's EKS ASG lifecycle-hook watcher (opt-in,
+	// AWS-only): when set to a registered hook name, the watcher holds the EC2 instance in
+	// Terminating:Wait until the node's drive WekaContainer is gone, escaping the ~15min ceiling
+	// of a managed-node-group drain. Empty (the default) disables the watcher. The poll/heartbeat
+	// cadences and the hold backstop are fixed constants in the node_agent package; the effective
+	// max hold is governed AWS-side by the hook's HeartbeatTimeout, set at registration.
+	NodeLifecycleHookName string
+}
+
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
 	if t == nil || !t.EnableIgnoredTaints {
 		return nil
@@ -337,6 +348,7 @@ var Config struct {
 	DriveSharing           DriveSharingConfig
 	PortAllocation         PortAllocationConfig
 	HugepagesUpdate        HugepagesUpdateConfig
+	Aws                    AwsConfig
 	ComputeMaxHugepagesMiB int
 
 	PodConfigVersion                     string
@@ -576,6 +588,9 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DeleteUnschedulablePodsAfter = getDurationEnvOrDefault("DELETE_UNSCHEDULABLE_PODS_AFTER", 1*time.Minute)
 	Config.UnschedulableDriveContainerGCTimeout = getDurationEnvOrDefault("UNSCHEDULABLE_DRIVE_CONTAINER_GC_TIMEOUT", 2*time.Minute)
 	Config.RemoveFailedDrivesFromWeka = getBoolEnvOrDefault("REMOVE_FAILED_DRIVES_FROM_WEKA", false)
+	// A non-empty hook name enables the node-agent's lifecycle-hook watcher; empty disables it.
+	// Poll/heartbeat/hold cadences are fixed constants in the node_agent package.
+	Config.Aws.NodeLifecycleHookName = env.GetString("NODE_LIFECYCLE_HOOK_NAME", "")
 	Config.AllowMultipleProtocolsPerNode = getBoolEnvOrDefault("ALLOW_MULTIPLE_PROTOCOLS_PER_NODE", false)
 	Config.PodConfigVersion = env.GetString("POD_CONFIG_VERSION", "1")
 	Config.EnablePodConfigCodeVersionRotation = getBoolEnvOrDefault("ENABLE_POD_CONFIG_CODE_VERSION_ROTATION", false)

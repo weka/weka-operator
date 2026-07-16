@@ -119,6 +119,8 @@ spec:
               value: node-agent
             - name: NODE_AGENT_BIND_ADDRESS
               value: ":8090"
+            - name: NODE_LIFECYCLE_HOOK_NAME
+              value: "{{ .Values.nodeAgent.aws.lifecycleHook.name }}"
             - name: LOG_LEVEL
               value: "{{ .Values.manager.loggerSettings.level }}"
             - name: LOG_FORMAT

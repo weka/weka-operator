@@ -25,6 +25,14 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.GetNode,
 		},
 		&lifecycle.SimpleStep{
+			Name: "ReconcileTerminationLifecycle",
+			Run:  r.reconcileTerminationLifecycle,
+			Predicates: lifecycle.Predicates{
+				lifecycle.IsNotFunc(r.NodeNotSet),
+			},
+			ContinueOnError: true,
+		},
+		&lifecycle.SimpleStep{
 			Run: r.refreshPod,
 		},
 		&lifecycle.SimpleStep{
