@@ -18,6 +18,7 @@ import (
 	"k8s.io/utils/exec"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 )
 
 type Exec interface {
@@ -61,7 +62,7 @@ func NewExecInPodWithTimeout(restClient rest.Interface, cfg *rest.Config, pod *v
 		Namespace: pod.Namespace,
 		Name:      pod.Name,
 	}
-	return NewExecWithConfig(restClient, cfg, namespacedObject, timeout, "weka-container", pod.Spec.NodeName)
+	return NewExecWithConfig(restClient, cfg, namespacedObject, timeout, consts.WekaContainerName, pod.Spec.NodeName)
 }
 
 func NewExecInPodByName(restClient rest.Interface, cfg *rest.Config, pod *v1.Pod, containerName string, timeout *time.Duration) (Exec, error) {

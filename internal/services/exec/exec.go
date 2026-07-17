@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
@@ -39,7 +40,7 @@ func (s *PodExecService) GetExecutorWithTimeout(ctx context.Context, container *
 	executor, err := podexec.NewExecWithConfig(s.restClient, config, types.NamespacedName{
 		Namespace: container.Namespace,
 		Name:      container.Name,
-	}, timeout, "weka-container", nodeName)
+	}, timeout, consts.WekaContainerName, nodeName)
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not create executor")
 	}

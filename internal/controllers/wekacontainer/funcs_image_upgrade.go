@@ -10,7 +10,6 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -50,19 +49,18 @@ func (r *containerReconcilerLoop) upgradeConditionsPass(ctx context.Context) (bo
 
 	// check if all pods have same image
 	for i := range pods {
-		for j := range pods[i].Spec.Containers {
-			podContainer := &pods[i].Spec.Containers[j]
-			pod := &pods[i]
-			if r.pod != nil && pod.UID == r.pod.UID {
-				// skip self
-				continue
-			}
-			if podContainer.Name == "weka-container" {
-				if podContainer.Image != r.container.Spec.Image {
-					err := fmt.Errorf("pod %s on same node %s has different image %s", pod.Name, nodeName, podContainer.Image)
-					return false, err
-				}
-			}
+		pod := &pods[i]
+		if r.pod != nil && pod.UID == r.pod.UID {
+			// skip self
+			continue
+		}
+		podContainer, err := resources.GetWekaPodContainer(pod)
+		if err != nil {
+			// pod has no weka container to compare against
+			continue
+		}
+		if podContainer.Image != r.container.Spec.Image {
+			return false, fmt.Errorf("pod %s on same node %s has different image %s", pod.Name, nodeName, podContainer.Image)
 		}
 	}
 	return true, nil
@@ -75,7 +73,6 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 	container := r.container
 	pod := r.pod
 
-	var wekaPodContainer v1.Container
 	wekaPodContainer, err := resources.GetWekaPodContainer(pod)
 	if err != nil {
 		return err

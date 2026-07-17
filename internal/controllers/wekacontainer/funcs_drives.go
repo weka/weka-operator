@@ -21,6 +21,7 @@ import (
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
@@ -41,21 +42,6 @@ func podHugepagesRequestMiB(c *v1.Container) int {
 	return 0
 }
 
-// wekaPodContainer returns the pod's main weka container spec (matched by name), or nil when the pod
-// has no such container. Resource requests must be read from this container specifically — assuming
-// index 0 would read an injected sidecar's requests if one is ever placed first.
-func wekaPodContainer(pod *v1.Pod) *v1.Container {
-	if pod == nil {
-		return nil
-	}
-	for i := range pod.Spec.Containers {
-		if pod.Spec.Containers[i].Name == consts.WekaContainerName {
-			return &pod.Spec.Containers[i]
-		}
-	}
-	return nil
-}
-
 // checkDriveResourceFeasibility verifies the live pod has enough cores, hugepages and RSS to host the
 // virtual-drive capacity about to be added, using the same per-core model as planClusterCapacity.
 // clusterCapacity grows containerCapacity live (it is excluded from the pod config hash), so the running
@@ -66,8 +52,9 @@ func (r *containerReconcilerLoop) checkDriveResourceFeasibility(ctx context.Cont
 	if !container.UsesDriveSharing() || container.Status.Allocations == nil {
 		return nil
 	}
-	c := wekaPodContainer(r.pod)
-	if c == nil {
+	c, err := resources.GetWekaPodContainer(r.pod)
+	if err != nil {
+		// no weka container to size against (nil pod or not found) — skip the feasibility check
 		return nil
 	}
 

@@ -2,7 +2,6 @@ package wekacontainer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -17,10 +16,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/consts"
+	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -156,12 +154,10 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 	)
 
 	// Calculate hugepages based on shared drives on the node
-	hugepagesMiB, err := r.calculateProxyHugepages(ctx, nodeName)
+	hugepagesTotal, hugepagesOffset, err := r.desiredProxyHugepages(ctx, nodeName)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to calculate hugepages for proxy container")
 	}
-
-	hugepagesOffset := config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB
 
 	image := cluster.Spec.Image
 	if override := config.Config.DriveSharing.SsdProxyImageOverride; override != "" {
@@ -185,7 +181,7 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 			DriversLoaderImage: cluster.Spec.GetOverrides().DriversLoaderImage,
 			DriversBuildId:     cluster.Spec.GetOverrides().DriversBuildId,
 			Tolerations:        apiutil.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations),
-			Hugepages:          hugepagesMiB + config.Consts.SsdProxyDpdkMemoryMiB + hugepagesOffset,
+			Hugepages:          hugepagesTotal,
 			HugepagesOffset:    hugepagesOffset,
 			HugepagesSize:      "2Mi",
 		},
@@ -206,19 +202,15 @@ func (r *containerReconcilerLoop) calculateProxyHugepages(ctx context.Context, n
 		return 0, errors.Wrap(err, "failed to get node")
 	}
 
-	// Parse shared drives annotation
-	sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]
-	if !ok || sharedDrivesStr == "" {
-		return 0, errors.New("node has no shared drives annotation")
+	// Parse shared drives via the canonical allocator reader, which excludes blocked drives
+	// (weka.io/blocked-drives serials and weka.io/blocked-drives-physical-uuids UUIDs).
+	info, err := allocator.ParseAllocatorNodeInfo(node)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to parse allocator node info")
 	}
-
-	var sharedDrives []domain.SharedDriveInfo
-	if err := json.Unmarshal([]byte(sharedDrivesStr), &sharedDrives); err != nil {
-		return 0, errors.Wrap(err, "failed to parse shared drives annotation")
-	}
-
+	sharedDrives := info.SharedDrives
 	if len(sharedDrives) == 0 {
-		return 0, errors.New("no shared drives found in annotation")
+		return 0, errors.New("node has no shared drives")
 	}
 
 	// Calculate maxDrives and expectedMaxDriveTiB
@@ -243,6 +235,69 @@ func (r *containerReconcilerLoop) calculateProxyHugepages(ctx context.Context, n
 	)
 
 	return hugepagesMiB, nil
+}
+
+// calculateProxyHugepagesTotal returns the total hugepages (MiB) that should be configured
+// on the ssd_proxy container: drive-derived hugepages, plus DPDK memory, plus the configured offset.
+func (r *containerReconcilerLoop) calculateProxyHugepagesTotal(ctx context.Context, nodeName weka.NodeName) (int, error) {
+	hugepagesMiB, err := r.calculateProxyHugepages(ctx, nodeName)
+	if err != nil {
+		return 0, err
+	}
+	return hugepagesMiB + config.Consts.SsdProxyDpdkMemoryMiB + config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB, nil
+}
+
+// desiredProxyHugepages returns the hugepages total and offset an ssdproxy container should have,
+// derived from the node's shared drives. Same values used at container creation.
+func (r *containerReconcilerLoop) desiredProxyHugepages(ctx context.Context, nodeName weka.NodeName) (hugepages, offset int, err error) {
+	total, err := r.calculateProxyHugepagesTotal(ctx, nodeName)
+	if err != nil {
+		return 0, 0, err
+	}
+	return total, config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB, nil
+}
+
+// reconcileProxyHugepagesSpec keeps the ssdproxy container's hugepages spec in sync with the node's
+// current shared-drive capacity, using the same calculation as container creation. The operator does
+// not recreate the pod itself: like compute/drive containers, it surfaces a Warning event and leaves
+// pod recreation to the user (the new hugepages/memory take effect only after a manual pod restart).
+func (r *containerReconcilerLoop) reconcileProxyHugepagesSpec(ctx context.Context) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	nodeName := r.container.GetNodeAffinity()
+	if nodeName == "" {
+		return nil
+	}
+
+	desiredHugepages, desiredOffset, err := r.desiredProxyHugepages(ctx, nodeName)
+	if err != nil {
+		logger.Info("Skipping ssdproxy hugepages spec reconcile, failed to calculate hugepages", "error", err)
+		return nil
+	}
+
+	// Increase-only policy: never propagate a decrease (would shrink MEMORY and needlessly recreate the pod).
+	if desiredHugepages <= r.container.Spec.Hugepages {
+		if desiredHugepages < r.container.Spec.Hugepages {
+			logger.Info("Skipping ssdproxy hugepages decrease (increase-only policy)",
+				"currentHugepages", r.container.Spec.Hugepages, "desiredHugepages", desiredHugepages)
+		}
+		return nil
+	}
+
+	oldHugepages := r.container.Spec.Hugepages
+	oldOffset := r.container.Spec.HugepagesOffset
+	logger.Info("Updating ssdproxy container hugepages spec",
+		"oldHugepages", oldHugepages, "newHugepages", desiredHugepages,
+		"oldOffset", oldOffset, "newOffset", desiredOffset)
+	r.container.Spec.Hugepages = desiredHugepages
+	r.container.Spec.HugepagesOffset = desiredOffset
+	if err := r.Update(ctx, r.container); err != nil {
+		return errors.Wrap(err, "failed to update ssdproxy hugepages spec")
+	}
+	_ = r.RecordEvent(v1.EventTypeWarning, "CapacityGrowthApplied", //nolint:errcheck // error return value intentionally not checked
+		fmt.Sprintf("ssdproxy hugepages increased from %dMiB (offset %dMiB) to %dMiB (offset %dMiB); the pod must be manually recreated to apply the new hugepages/memory",
+			oldHugepages, oldOffset, desiredHugepages, desiredOffset))
+	return nil
 }
 
 // findSSDProxyOnNode finds the ssdproxy container on the same node as the current drive container

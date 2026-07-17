@@ -13,6 +13,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services"
 )
 
@@ -39,12 +40,8 @@ func (r *containerReconcilerLoop) deleteEnvoyIfProcessNotExists(ctx context.Cont
 
 	// Find the weka-container status to get start time
 	var containerStartTime *time.Time
-	for i := range pod.Status.ContainerStatuses {
-		cs := &pod.Status.ContainerStatuses[i]
-		if cs.Name == "weka-container" && cs.State.Running != nil {
-			containerStartTime = &cs.State.Running.StartedAt.Time
-			break
-		}
+	if cs, err := resources.GetWekaPodContainerStatus(pod); err == nil && cs.State.Running != nil {
+		containerStartTime = &cs.State.Running.StartedAt.Time
 	}
 
 	if containerStartTime == nil {

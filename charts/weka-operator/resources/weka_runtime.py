@@ -3508,12 +3508,38 @@ async def ensure_ssdproxy_container():
     proxy_memory = os.getenv("MEMORY")
     if not proxy_memory:
         raise Exception("MEMORY environment variable must be set for ssdproxy")
-    cmd = dedent(f"""
-        weka local ps | grep ssdproxy || weka local setup ssdproxy --memory={proxy_memory} --base-port 13000 --enable-ssdproxy-nginx
-    """)
-    _, _, ec = await run_command(cmd)
-    if ec != 0:
-        raise Exception(f"Failed to ensure ssdproxy container")
+
+    stdout, _, _ = await run_command("weka local ps | grep ssdproxy || true")
+    ssdproxy_exists = b"ssdproxy" in stdout
+
+    if not ssdproxy_exists:
+        cmd = dedent(f"""
+            weka local setup ssdproxy --memory={proxy_memory} --base-port 13000 --enable-ssdproxy-nginx
+        """)
+        _, _, ec = await run_command(cmd)
+        if ec != 0:
+            raise Exception("Failed to setup ssdproxy container")
+    else:
+        stdout, stderr, ec = await run_command("weka local resources -C ssdproxy --json", log_output=False)
+        if ec != 0:
+            raise Exception(f"Failed to get ssdproxy resources: {stderr}")
+
+        current = json.loads(stdout)
+        current_memory = current.get("memory")
+        desired_memory = convert_to_bytes(proxy_memory)
+
+        if current_memory != desired_memory:
+            logging.info(f"Updating ssdproxy memory: {current_memory} -> {desired_memory} ({proxy_memory})")
+
+            _, stderr, ec = await run_command(f"weka local resources -C ssdproxy memory {proxy_memory}")
+            if ec != 0:
+                raise Exception(f"Failed to set ssdproxy memory: {stderr}")
+
+            _, stderr, ec = await run_command("weka local resources apply -C ssdproxy -f")
+            if ec != 0:
+                raise Exception(f"Failed to apply ssdproxy resources: {stderr}")
+        else:
+            logging.info(f"ssdproxy memory is already up to date ({current_memory} bytes)")
 
     if not os.path.exists("/usr/bin/weka-sign-drive"):
         os.symlink("/opt/weka/dist/extracted/weka-sign-drive", "/usr/bin/weka-sign-drive")

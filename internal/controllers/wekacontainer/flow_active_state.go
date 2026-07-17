@@ -323,6 +323,12 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.reconcileProxyHugepagesSpec,
+			Predicates: lifecycle.Predicates{
+				r.container.IsSSDProxyContainer,
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.EnsureDrivers, // drivers might be off at this point if we had to wait for node affinity
 			Predicates: lifecycle.Predicates{
 				r.container.RequiresDrivers,
@@ -678,19 +684,13 @@ func (r *containerReconcilerLoop) checkPodUnhealthy(ctx context.Context) error {
 
 	if !podContainersReady {
 		// check pod's RESTARTS
-		for i := range pod.Status.ContainerStatuses {
-			containerStatus := &pod.Status.ContainerStatuses[i]
-			if containerStatus.Name == "weka-container" {
-				if containerStatus.RestartCount > 0 {
-					err := r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy)
-					if err != nil {
-						return err
-					}
-					// stop here, no reason to go to the next steps
-					err = errors.New("pod is unhealthy")
-					return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
-				}
+		cs, err := resources.GetWekaPodContainerStatus(pod)
+		if err == nil && cs.RestartCount > 0 {
+			if statusErr := r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy); statusErr != nil {
+				return statusErr
 			}
+			// stop here, no reason to go to the next steps
+			return lifecycle.NewWaitErrorWithDuration(errors.New("pod is unhealthy"), time.Second*15)
 		}
 	}
 	return nil

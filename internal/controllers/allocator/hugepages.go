@@ -14,7 +14,6 @@ import (
 
 	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
-	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
 func CalculateDriveHugepages(template ClusterTemplate) int { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
@@ -144,19 +143,19 @@ func ComputeCapacityFromMostRecentDriveContainerAllocation(
 		return 0, fmt.Errorf("failed to get node %s for drive capacity lookup: %w", nodeName, err)
 	}
 
-	fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
-	if fullAnnotation == "" {
-		return 0, fmt.Errorf("node %s has no %s annotation yet", nodeName, consts.AnnotationWekaFullDrives)
-	}
-	entries, err := domain.ReadDriveAnnotations(fullAnnotation)
+	// Read available (non-blocked) full drives via the canonical allocator reader so blocked
+	// drives are excluded from the capacity lookup. Behavior-neutral today (blocked drives are
+	// never allocated, so the sum below never references them), kept for a structural invariant.
+	info, err := ParseAllocatorNodeInfo(node)
 	if err != nil {
-		return 0, fmt.Errorf("failed to read %s annotation on node %s: %w", consts.AnnotationWekaFullDrives, nodeName, err)
+		return 0, fmt.Errorf("failed to parse allocator node info for node %s: %w", nodeName, err)
 	}
+	entries := info.AvailableDrives
 	if len(entries) == 0 {
-		return 0, fmt.Errorf("node %s has %s annotation but all entries have zero capacity", nodeName, consts.AnnotationWekaFullDrives)
+		return 0, fmt.Errorf("node %s has no available (non-blocked) full drives with capacity", nodeName)
 	}
 
-	// Build serial → capacity_gib lookup
+	// Build serial → capacity_gib lookup (blocked drives excluded)
 	capacityBySerial := make(map[string]int, len(entries))
 	for _, e := range entries {
 		capacityBySerial[e.Serial] = e.CapacityGiB

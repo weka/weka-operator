@@ -213,7 +213,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			Containers: []corev1.Container{
 				{
 					Image:           image,
-					Name:            "weka-container",
+					Name:            consts.WekaContainerName,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Command:         []string{"python3", "/opt/weka_runtime.py"},
 					SecurityContext: &corev1.SecurityContext{
@@ -1726,11 +1726,32 @@ func GetPodShutdownInstructionPathOnAgent(bootId string, pod *corev1.Pod) string
 	return path.Join("/host-binds/shared/containers/", string(containerUid), "instructions", string(podUid), bootId)
 }
 
-func GetWekaPodContainer(pod *corev1.Pod) (corev1.Container, error) {
+// GetWekaPodContainer returns a pointer to the weka container within the pod's
+// spec, looked up by name (consts.WekaContainerName) rather than by index so
+// callers never depend on container ordering. The returned pointer aliases the
+// pod's slice, so mutations through it are reflected in the pod.
+func GetWekaPodContainer(pod *corev1.Pod) (*corev1.Container, error) {
+	if pod == nil {
+		return nil, errors.New("nil pod")
+	}
 	for i := range pod.Spec.Containers {
-		if pod.Spec.Containers[i].Name == "weka-container" {
-			return pod.Spec.Containers[i], nil
+		if pod.Spec.Containers[i].Name == consts.WekaContainerName {
+			return &pod.Spec.Containers[i], nil
 		}
 	}
-	return corev1.Container{}, errors.New("weka container not found in pod")
+	return nil, errors.New("weka container not found in pod")
+}
+
+// GetWekaPodContainerStatus returns a pointer to the weka container's status,
+// looked up by name rather than index.
+func GetWekaPodContainerStatus(pod *corev1.Pod) (*corev1.ContainerStatus, error) {
+	if pod == nil {
+		return nil, errors.New("nil pod")
+	}
+	for i := range pod.Status.ContainerStatuses {
+		if pod.Status.ContainerStatuses[i].Name == consts.WekaContainerName {
+			return &pod.Status.ContainerStatuses[i], nil
+		}
+	}
+	return nil, errors.New("weka container status not found in pod")
 }

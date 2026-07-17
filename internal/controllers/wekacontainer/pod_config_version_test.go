@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 )
 
 var _ = Describe("Pod config version drift detection", func() {
@@ -330,7 +331,7 @@ var _ = Describe("Pod config version drift detection", func() {
 					ObjectMeta: metav1.ObjectMeta{Name: "test-c", Namespace: "default"},
 					Spec: v1.PodSpec{
 						Containers: []v1.Container{
-							{Name: "weka-container", Image: testImage},
+							{Name: consts.WekaContainerName, Image: testImage},
 						},
 					},
 				}
@@ -363,7 +364,7 @@ var _ = Describe("Pod config version drift detection", func() {
 					ObjectMeta: metav1.ObjectMeta{Name: "test-c", Namespace: "default"},
 					Spec: v1.PodSpec{
 						Containers: []v1.Container{
-							{Name: "weka-container", Image: testImage},
+							{Name: consts.WekaContainerName, Image: testImage},
 						},
 					},
 				}
