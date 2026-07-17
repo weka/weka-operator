@@ -32,8 +32,10 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: false
+      {{- with .Values.imagePullSecret }}
       imagePullSecrets:
-        - name: "{{ .Values.imagePullSecret }}"
+        - name: "{{ . }}"
+      {{- end }}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
