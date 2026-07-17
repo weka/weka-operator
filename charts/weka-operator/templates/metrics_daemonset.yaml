@@ -36,8 +36,10 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: false
+      {{- with .Values.imagePullSecret }}
       imagePullSecrets:
-        - name: "{{ .Values.imagePullSecret }}"
+        - name: "{{ . }}"
+      {{- end }}
       {{ if .Values.nodeAgent.nodeSelector }}
       nodeSelector:
         {{- toYaml .Values.nodeAgent.nodeSelector | nindent 8 }}
