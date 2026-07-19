@@ -18,8 +18,6 @@ import (
 )
 
 func (r *containerReconcilerLoop) HandleNodeNotReady(ctx context.Context) error {
-	logger := instrumentation.CurrentSpanLogger(ctx)
-
 	if r.node == nil {
 		return errors.New("node is not set")
 	}
@@ -28,9 +26,17 @@ func (r *containerReconcilerLoop) HandleNodeNotReady(ctx context.Context) error 
 	pod := r.pod
 
 	if !NodeIsReady(node) {
+		ctx, logger := instrumentation.CreateLogSpan(ctx, "NodeNotReady", "node", node.Name) //nolint:govet // shadowed ctx intentionally scoped to this block
+		defer logger.End()
+
 		err := fmt.Errorf("node %s is not ready", node.Name)
 
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
+
+		if !r.container.IsDriversContainer() {
+			logger.Info("Skipping pod deletion on NotReady node for non-drivers container")
+			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
+		}
 
 		// if node is not ready, we should terminate the pod and let it be rescheduled
 		if pod != nil && pod.Status.Phase == v1.PodRunning {
