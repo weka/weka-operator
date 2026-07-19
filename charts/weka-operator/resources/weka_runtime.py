@@ -2964,7 +2964,7 @@ async def configure_persistency():
 
         if [ -d /host-binds/shared-netns ]; then
             mkdir -p /opt/weka/external-mounts/shared-netns
-            mount -o bind /host-binds/shared-netns /opt/weka/external-mounts/shared-netns
+            mount --rbind /host-binds/shared-netns /opt/weka/external-mounts/shared-netns
             mount --make-rshared /opt/weka/external-mounts/shared-netns
         fi
 
