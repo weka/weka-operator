@@ -170,6 +170,8 @@ spec:
               value: "{{ .Values.gkeCompatibility.hugepageConfiguration.hugepageCount }}"
             - name: WEKA_COS_SERVICE_ACCOUNT_SECRET
               value: "{{ .Values.gkeCompatibility.gkeServiceAccountSecret }}"
+            - name: NODE_LIFECYCLE_HOOK_NAME
+              value: "{{ .Values.nodeAgent.aws.lifecycleHook.name }}"
             - name: FULL_PCPUS_ONLY
               value: "{{ .Values.fullPcpusOnly }}"
             - name: SKIP_UNHEALTHY_TOLERATION

@@ -18,6 +18,7 @@ var (
 		&clusterDataservicesFeCores{},
 		&clusterCapacityProtection{},
 		&clusterCapacityChunkFeasibility{},
+		&clusterAWSLifecycleHook{},
 	}
 	WekaClient = []Validator{
 		&clientTargetClusterExists{},
