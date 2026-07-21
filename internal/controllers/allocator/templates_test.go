@@ -11,9 +11,80 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
+
+// TestGetDriveCores_DerivesFromCapacity verifies the static template path sizes drive cores from
+// per-container capacity (matching the per-add feasibility gate's recomputeCores model) instead of
+// defaulting to 1 — the fix for DriveCapacityResourceShortfall on a freshly formed drive-sharing cluster.
+func TestGetDriveCores_DerivesFromCapacity(t *testing.T) {
+	// Set the per-core capacity caps deterministically (LoadCapacityEnv isn't called in unit tests).
+	prevTlc := globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB
+	prevQlc := globalconfig.Config.ClusterCapacity.QlcCapacityPerCoreGiB
+	globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = 5 * 1024  // 5120 GiB/core
+	globalconfig.Config.ClusterCapacity.QlcCapacityPerCoreGiB = 50 * 1024 // 51200 GiB/core
+	t.Cleanup(func() {
+		globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = prevTlc
+		globalconfig.Config.ClusterCapacity.QlcCapacityPerCoreGiB = prevQlc
+	})
+
+	tests := []struct {
+		name              string
+		containerCapacity int
+		driveCores        int
+		driveTypesRatio   *weka.DriveTypesRatio
+		expected          int
+	}{
+		{
+			name:              "6000 GiB TLC needs 2 cores (was under-cored at 1)",
+			containerCapacity: 6000, // ceil(6000/5120)=2
+			expected:          2,
+		},
+		{
+			name:              "5000 GiB TLC fits in 1 core",
+			containerCapacity: 5000, // ceil(5000/5120)=1
+			expected:          1,
+		},
+		{
+			name:              "full-drives mode (no containerCapacity) keeps default",
+			containerCapacity: 0,
+			expected:          1,
+		},
+		{
+			name:              "explicit driveCores below requirement is raised",
+			containerCapacity: 6000,
+			driveCores:        1,
+			expected:          2,
+		},
+		{
+			name:              "explicit driveCores above requirement is preserved",
+			containerCapacity: 6000,
+			driveCores:        3,
+			expected:          3,
+		},
+		{
+			name:              "QLC-only capacity uses QLC per-core cap",
+			containerCapacity: 60000, // all QLC: ceil(60000/51200)=2
+			driveTypesRatio:   &weka.DriveTypesRatio{Tlc: 0, Qlc: 1},
+			expected:          2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &weka.WekaClusterTemplate{
+				ContainerCapacity: tt.containerCapacity,
+				DriveCores:        tt.driveCores,
+				DriveTypesRatio:   tt.driveTypesRatio,
+			}
+			if got := GetWekaContainerCores(config).Drive; got != tt.expected {
+				t.Errorf("drive cores = %d, want %d", got, tt.expected)
+			}
+		})
+	}
+}
 
 func TestGetContainerHugepages_Compute(t *testing.T) {
 	scheme := runtime.NewScheme()

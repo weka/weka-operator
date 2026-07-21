@@ -35,6 +35,7 @@ var (
 	CapacityCoverTarget       = capacityplanner.CapacityCoverTarget
 	RatioFromCaps             = capacityplanner.RatioFromCaps
 	RequiredDriveResources    = capacityplanner.RequiredDriveResources
+	RequiredDriveCores        = capacityplanner.RequiredDriveCores
 	ComputeMemoryFootprintMiB = capacityplanner.ComputeMemoryFootprintMiB
 	ComputeLayoutWouldGrow    = capacityplanner.ComputeLayoutWouldGrow
 	TlcDriveCores             = capacityplanner.TlcDriveCores

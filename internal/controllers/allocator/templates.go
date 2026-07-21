@@ -110,13 +110,35 @@ func GetWekaContainerCores(config *weka.WekaClusterTemplate) IntPerWekaRole {
 
 	return IntPerWekaRole{
 		Compute:      util.GetNonZeroOrDefault(config.ComputeCores, 1),
-		Drive:        util.GetNonZeroOrDefault(config.DriveCores, 1),
+		Drive:        getDriveCores(config),
 		S3:           util.GetNonZeroOrDefault(config.S3Cores, 1),
 		Nfs:          util.GetNonZeroOrDefault(config.NfsCores, 1),
 		Smbw:         util.GetNonZeroOrDefault(config.SmbwCores, 1),
 		DataServices: util.GetNonZeroOrDefault(config.DataServicesCores, 1),
 		Envoy:        util.GetNonZeroOrDefault(config.EnvoyCores, 1),
 	}
+}
+
+// getDriveCores returns the drive-core count for a drive container, taking the larger of the
+// user-configured driveCores and the cores that the per-container capacity physically requires.
+//
+// The static template path previously defaulted drive cores to 1 without checking capacity. A
+// containerCapacity larger than one core's worth (TlcCapacityPerCoreGiB / QlcCapacityPerCoreGiB)
+// therefore produced a drive container sized for 1 core while its target virtual-drive capacity
+// needs more — the per-add feasibility gate (checkDriveResourceFeasibility -> RequiredDriveResources,
+// same recomputeCores model) then defers the drive add forever with DriveCapacityResourceShortfall.
+// Deriving cores from capacity here keeps the born container consistent with that gate.
+//
+// Only applies to drive-sharing mode (containerCapacity > 0). Full-drives mode (containerCapacity == 0,
+// numDrives-based) and clusterCapacity mode (planner-assigned cores) are unaffected.
+func getDriveCores(config *weka.WekaClusterTemplate) int {
+	cores := util.GetNonZeroOrDefault(config.DriveCores, 1)
+	if config.ContainerCapacity <= 0 {
+		return cores
+	}
+	tlcGiB, qlcGiB := weka.GetTlcQlcCapacity(config.ContainerCapacity, config.DriveTypesRatio)
+	required := RequiredDriveCores(tlcGiB, qlcGiB, CapacityConstraintsFromConfig())
+	return max(cores, required)
 }
 
 func GetDefaultDataServicesExtraCores(config *weka.WekaClusterTemplate) int {

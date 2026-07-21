@@ -256,6 +256,14 @@ func recomputeCores(tlcGiB, qlcGiB int, cons *CapacityConstraints) int {
 	return max(1, cores)
 }
 
+// RequiredDriveCores returns the drive-core count a container needs to host the given per-pool capacity,
+// using the same per-core model (recomputeCores) as the cluster planner and the container feasibility gate.
+// The template cluster-formation path uses this to size drive cores from containerCapacity instead of
+// defaulting to 1, so a freshly formed drive container is not born under-cored for its target capacity.
+func RequiredDriveCores(tlcGiB, qlcGiB int, cons *CapacityConstraints) int {
+	return recomputeCores(tlcGiB, qlcGiB, cons)
+}
+
 // RequiredDriveResources returns the hugepages (MiB) and memory (MiB) a drive container needs to host the
 // given per-pool capacity, using the same per-core model the cluster planner uses. The container
 // controller calls this before adding virtual drives so the pod-level feasibility gate agrees with the
