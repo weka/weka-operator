@@ -16,7 +16,8 @@ builderImages:
   default: "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22-v1"
   ubuntu24: "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24-v1"
 
-imagePullSecret: quay-io-robot-secret
+# -- optional: name of an existing imagePullSecret to attach to operator pods
+imagePullSecret: ""
 deployController: true
 # -- experimental: enables custtom HTTP API endpoint as alternative to K8s API
 enableClusterApi: false
