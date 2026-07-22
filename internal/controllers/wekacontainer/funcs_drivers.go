@@ -14,6 +14,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"go.opentelemetry.io/otel/codes"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -48,24 +49,56 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 		details.Image = wekaPodContainer.Image
 	}
 
-	if !operations.DriversLoaded(r.node, details.Image, r.container.HasFrontend()) {
-		err := r.updateStatusWaitForDrivers(ctx)
-		if err != nil {
+	priority := driverPriority(r.container)
+	isFrontend := r.container.HasFrontend()
+	decision, loadedImage := operations.EvaluateDrivers(r.node, details.Image, priority, isFrontend)
+	switch decision {
+	case operations.DriverSatisfied, operations.DriverDefer:
+		// our exact version is loaded, or we are lenient and tolerate what's there
+		return nil
+	case operations.DriverConflict:
+		// strict frontend, but a >=-order incompatible driver is already loaded on
+		// the node; we cannot run on it and must not churn the shared loader
+		msg := fmt.Sprintf(
+			"cannot load drivers for image %s: incompatible driver image %s already loaded on node %s",
+			details.Image, loadedImage, r.node.Name)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "DriversVersionConflict", msg, time.Minute) //nolint:errcheck // event recording is best-effort
+		if err := r.updateStatusWaitForDrivers(ctx); err != nil {
 			return err
 		}
-	} else {
-		return nil
+		return lifecycle.NewWaitErrorWithDuration(errors.New(msg), time.Second*30)
 	}
 
-	logger.Info("Loading drivers", "image", details.Image)
+	// decision == DriverLoad
+	if err := r.updateStatusWaitForDrivers(ctx); err != nil {
+		return err
+	}
+
+	logger.Info("Loading drivers", "image", details.Image, "priority", priority)
 
 	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversLoaderImage,
-		r.container.Spec.DriversBuildId, r.container.Spec.DriversDistService, r.container.HasFrontend(), false)
+		r.container.Spec.DriversBuildId, r.container.Spec.DriversDistService, priority, isFrontend, false)
 	err := operations.ExecuteOperation(ctx, driversLoader)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+// driverPriority ranks a container in the (priority, version) total order that
+// selects the node's single loaded driver version. Frontends are strict (need
+// their exact version, so they dictate → highest); backend-only containers are
+// lenient (tolerate any loaded version → middle); ssdproxy is auxiliary and
+// lenient → lowest. Only meaningful for RequiresDrivers() containers.
+func driverPriority(c *weka.WekaContainer) int {
+	switch {
+	case c.IsSSDProxyContainer():
+		return 1
+	case c.HasFrontend():
+		return 3
+	default:
+		return 2
+	}
 }
 
 func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, error) {

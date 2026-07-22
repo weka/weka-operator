@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/drivers"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,6 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/utils"
+	"github.com/weka/weka-operator/internal/drivers"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
@@ -25,8 +28,130 @@ import (
 
 const driversLoadedAnnotation = "weka.io/drivers-loaded"
 
-func getExpectedDriversVersion(image, bootId string) string {
-	return fmt.Sprintf("%s:%s", image, bootId)
+// driverPriorityLabel records the priority rank of the container a loader is
+// loading for, so a concurrent reconcile can order itself against an in-flight
+// loader (see compareDriverOrder) without re-deriving the rank.
+const driverPriorityLabel = "weka.io/driver-priority"
+
+// driverBootIDLabel records the node boot id a loader was created for. After a
+// reboot the node's kernel modules are gone and a leftover loader carries a
+// pre-reboot ExecutionResult (a persisted CR status field); the stamp lets a
+// reconcile tell such a stale loader from one freshly created for the current
+// boot, so the stale one is deleted rather than re-recorded as loaded.
+const driverBootIDLabel = "weka.io/driver-boot-id"
+
+// loadedDrivers is the value stored in the drivers-loaded node annotation. A node
+// has exactly one loaded driver version per boot; the record tracks which image
+// was loaded and the priority of the container that dictated it, so a higher-order
+// caller (strict frontend, or a newer version) can decide whether to preempt.
+type loadedDrivers struct {
+	BootID   string `json:"boot_id"`
+	Image    string `json:"image"`
+	Priority int    `json:"priority"`
+}
+
+// parseLoadedDrivers reads the drivers-loaded annotation. It understands both the
+// current JSON format and the legacy "image:bootId" single-value format (so
+// drivers loaded before this operator version are not re-loaded needlessly); a
+// legacy record carries no priority (→ 0).
+func parseLoadedDrivers(node *v1.Node) *loadedDrivers {
+	raw, ok := node.Annotations[driversLoadedAnnotation]
+	if !ok || raw == "" {
+		return nil
+	}
+	var ld loadedDrivers
+	if err := json.Unmarshal([]byte(raw), &ld); err == nil && ld.BootID != "" {
+		return &ld
+	}
+	// legacy "image:bootId" format; image may itself contain ':' (tag), so split
+	// on the last ':'
+	idx := strings.LastIndex(raw, ":")
+	if idx <= 0 {
+		return nil
+	}
+	return &loadedDrivers{BootID: raw[idx+1:], Image: raw[:idx]}
+}
+
+// compareDriverOrder imposes the total order used to select the node's single
+// loaded driver: priority first, then weka version. Returns >0 if (prioA,imgA)
+// outranks (prioB,imgB), <0 if outranked, 0 if equal (including unparsable /
+// equal versions at the same priority).
+func compareDriverOrder(prioA int, imgA string, prioB int, imgB string) int {
+	if prioA != prioB {
+		if prioA > prioB {
+			return 1
+		}
+		return -1
+	}
+	return utils.CompareVersions(utils.GetSoftwareVersion(imgA), utils.GetSoftwareVersion(imgB))
+}
+
+// DriverDecision is the outcome of evaluating a container against the node's
+// currently-loaded driver record.
+type DriverDecision int
+
+const (
+	DriverLoad      DriverDecision = iota // nothing valid loaded, or we preempt → load our version
+	DriverSatisfied                       // our exact image is already loaded
+	DriverDefer                           // lenient: some valid version is loaded, tolerate it
+	DriverConflict                        // strict: a higher-order version is loaded, we cannot get ours
+)
+
+// EvaluateDrivers decides what a container should do given the node's current
+// loaded-driver record. isFrontend marks a strict caller (needs its exact driver
+// version); non-frontends are lenient (any loaded version suffices). The returned
+// string is the currently-loaded image ("" when nothing valid is loaded).
+func EvaluateDrivers(node *v1.Node, image string, priority int, isFrontend bool) (decision DriverDecision, img string) {
+	ld := parseLoadedDrivers(node)
+	if ld == nil || ld.BootID != node.Status.NodeInfo.BootID || ld.Image == "" {
+		return DriverLoad, ""
+	}
+	if ld.Image == image {
+		return DriverSatisfied, ld.Image
+	}
+	if !isFrontend {
+		// lenient: backends/ssdproxy run fine on any loaded driver version
+		return DriverDefer, ld.Image
+	}
+	order := compareDriverOrder(priority, image, ld.Priority, ld.Image)
+	if order > 0 {
+		// strict: we outrank what's loaded, so preempt and load our exact version
+		return DriverLoad, ld.Image
+	}
+	if order == 0 {
+		// strict, but the loaded driver has the same priority and weka version —
+		// only the image string differs (e.g. a different registry/mirror, a
+		// tag→digest swap, or a rebuilt base image). The loaded drivers are
+		// compatible, so tolerate them rather than deadlock on a reload we cannot win.
+		return DriverDefer, ld.Image
+	}
+	// strict: a higher-order version is loaded and it isn't ours — genuine conflict
+	return DriverConflict, ld.Image
+}
+
+// loaderPriorityFromLabels reads the priority rank stamped on a loader container.
+// Loaders created by this operator always carry it; anything else (legacy) → 0.
+func loaderPriorityFromLabels(c *weka.WekaContainer) int {
+	if c.Labels == nil {
+		return 0
+	}
+	if v, ok := c.Labels[driverPriorityLabel]; ok {
+		if p, err := strconv.Atoi(v); err == nil {
+			return p
+		}
+	}
+	return 0
+}
+
+// loaderBootIDFromLabels reads the boot id a loader container was created for.
+// Loaders created by this operator stamp it (see driverBootIDLabel); anything
+// without it (legacy) → "", which never equals a live boot id and so is always
+// treated as stale.
+func loaderBootIDFromLabels(c *weka.WekaContainer) string {
+	if c.Labels == nil {
+		return ""
+	}
+	return c.Labels[driverBootIDLabel]
 }
 
 type DriversNotLoadedError struct {
@@ -41,18 +166,6 @@ func (e *DriversNotLoadedError) Error() string {
 	return fmt.Sprintf("DriversNotLoadedError: %v", e.Err)
 }
 
-func DriversLoaded(node *v1.Node, image string, isFrontend bool) bool {
-	annotations := node.Annotations
-	current, ok := annotations[driversLoadedAnnotation]
-	if ok && !isFrontend {
-		return true
-	}
-	if current == getExpectedDriversVersion(image, node.Status.NodeInfo.BootID) {
-		return true
-	}
-	return false
-}
-
 type LoadDrivers struct {
 	mgr                 ctrl.Manager
 	client              client.Client
@@ -65,13 +178,14 @@ type LoadDrivers struct {
 	distServiceEndpoint string
 	container           *weka.WekaContainer
 	namespace           string
-	isFrontend          bool // defines whether we should enforce latest version, or suffice with any version
+	priority            int  // rank in the (priority, version) total order used to pick the node driver
+	isFrontend          bool // strict caller: requires its exact version rather than tolerating any
 	force               bool // ignores existing node annotation
 }
 
 func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwnerDetails, //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	driversLoaderImage string, driversBuildId *string,
-	distServiceEndpoint string, isFrontend, force bool) *LoadDrivers {
+	distServiceEndpoint string, priority int, isFrontend, force bool) *LoadDrivers {
 	kclient := mgr.GetClient()
 	ns, _ := util.GetPodNamespace() //nolint:errcheck // namespace used for object metadata only; failure falls back to empty string
 	return &LoadDrivers{
@@ -85,6 +199,7 @@ func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwner
 		node:                node,
 		distServiceEndpoint: distServiceEndpoint,
 		namespace:           ns,
+		priority:            priority,
 		isFrontend:          isFrontend,
 		force:               force,
 	}
@@ -100,10 +215,9 @@ func (o *LoadDrivers) AsStep() lifecycle.Step {
 func (o *LoadDrivers) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
 		&lifecycle.SimpleStep{Name: "GetCurrentContainer", Run: o.GetCurrentContainer},
-		&lifecycle.SimpleStep{Name: "UpdateContainerImage", Run: o.UpdateContainerImage, Predicates: lifecycle.Predicates{o.imageHasChanged}},
 		&lifecycle.SimpleStep{Name: "HandleNodeReboot", Run: o.HandleNodeReboot, Predicates: lifecycle.Predicates{o.NodeRebooted}},
-		&lifecycle.SimpleStep{Name: "CleanupIfLoaded", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsLoaded}, FinishOnSuccess: true},
-		//TODO: We might be deleting container created by client here, IsLoaded would be true on mismatch. Just timing wise, this is unlikely to happen, as backends supposed to be upgraded
+		&lifecycle.SimpleStep{Name: "CleanupIfLoaded", Run: o.CleanupIfLoaded, Predicates: lifecycle.Predicates{o.IsLoaded}, FinishOnSuccess: true},
+		&lifecycle.SimpleStep{Name: "HandleExistingLoader", Run: o.HandleExistingLoader, Predicates: lifecycle.Predicates{o.HasContainer}},
 		&lifecycle.SimpleStep{Name: "CreateContainer", Run: o.CreateContainer, Predicates: lifecycle.Predicates{o.HasNotContainer}},
 		&lifecycle.SimpleStep{Name: "PollResults", Run: o.PollResults},
 		&lifecycle.SimpleStep{Name: "ProcessResult", Run: o.ProcessResult},
@@ -115,19 +229,23 @@ func (o *LoadDrivers) GetJsonResult() string {
 	panic("not implemented due to no interfaced use")
 }
 
+// HandleNodeReboot clears the drivers-loaded record left by the previous boot so
+// drivers are re-loaded for the current one. A stale loader left over from a
+// previous boot is deleted in HandleExistingLoader instead — that runs whenever a
+// loader exists rather than only behind the NodeRebooted() predicate, so the stale
+// check holds even when discovery info is missing (see HandleExistingLoader).
 func (o *LoadDrivers) HandleNodeReboot(ctx context.Context) error {
 	annotations := o.node.Annotations
 	if annotations == nil {
 		return nil
 	}
-	if _, ok := annotations[driversLoadedAnnotation]; ok {
-		delete(annotations, driversLoadedAnnotation)
-		o.node.Annotations = annotations
-		err := o.client.Update(ctx, o.node)
-		if err != nil {
-			err = errors.Wrap(err, "failed to update node annotations")
-			return lifecycle.NewWaitError(err)
-		}
+	if _, ok := annotations[driversLoadedAnnotation]; !ok {
+		return nil
+	}
+	delete(annotations, driversLoadedAnnotation)
+	o.node.Annotations = annotations
+	if err := o.client.Update(ctx, o.node); err != nil {
+		return lifecycle.NewWaitError(errors.Wrap(err, "failed to update node annotations"))
 	}
 	return nil
 }
@@ -149,34 +267,79 @@ func (o *LoadDrivers) NodeRebooted() bool {
 	return discoveryNodeInfo.BootID != o.node.Status.NodeInfo.BootID
 }
 
+// IsLoaded reports whether our exact image's drivers are already recorded as
+// loaded for the current boot. force ignores the annotation (always reload).
 func (o *LoadDrivers) IsLoaded() bool {
 	if o.force {
 		return false
 	}
-	return DriversLoaded(o.node, o.containerDetails.Image, o.isFrontend)
+	ld := parseLoadedDrivers(o.node)
+	return ld != nil && ld.BootID == o.node.Status.NodeInfo.BootID && ld.Image == o.containerDetails.Image
 }
 
-func (o *LoadDrivers) GetExpectedDriversVersion() string {
-	return getExpectedDriversVersion(o.containerDetails.Image, o.node.Status.NodeInfo.BootID)
+// CleanupIfLoaded removes a leftover loader once our drivers are loaded. It runs
+// only when IsLoaded() holds (our exact version is recorded), so deleting any
+// loader still present is safe — there is no not-yet-recorded load to interrupt.
+func (o *LoadDrivers) CleanupIfLoaded(ctx context.Context) error {
+	return o.DeleteContainers(ctx)
 }
 
-func (o *LoadDrivers) ExitIfLoaded(ctx context.Context) error {
-	return nil
-}
-
-func (o *LoadDrivers) imageHasChanged() bool {
-	if o.container == nil {
-		return false
+// HandleExistingLoader resolves the race when a loader already exists on the node.
+// It orders the in-flight loader against our own by (priority, then version):
+//   - stale boot id    → delete it and create ours (o.container = nil).
+//   - same image       → keep it; we poll it to completion.
+//   - we outrank it     → preempt: delete it and create ours (o.container = nil).
+//   - otherwise        → defer to the >=-order load in flight (requeue).
+func (o *LoadDrivers) HandleExistingLoader(ctx context.Context) error {
+	// A loader whose boot-id stamp does not match the node's current boot id is
+	// stale: the reboot unloaded its drivers and its persisted ExecutionResult
+	// predates the reboot, so reusing it (on the image match below) would let
+	// PollResults/ProcessResult re-record drivers as loaded without an actual
+	// reload. This runs whenever a loader exists — unlike reboot detection, which
+	// is gated on the discovery annotation and is missed when it is absent — so it
+	// is the single place that guarantees a stale loader is never polled. A legacy
+	// loader (no stamp → "") never matches a live boot id and is likewise stale.
+	if loaderBootIDFromLabels(o.container) != o.node.Status.NodeInfo.BootID {
+		if err := o.DeleteContainers(ctx); err != nil {
+			return err
+		}
+		o.container = nil
+		return nil
 	}
-	return o.container.Spec.Image != o.containerDetails.Image
+	loaderImage := o.container.Spec.Image
+	if loaderImage == o.containerDetails.Image {
+		return nil
+	}
+	loaderPriority := loaderPriorityFromLabels(o.container)
+	if compareDriverOrder(o.priority, o.containerDetails.Image, loaderPriority, loaderImage) > 0 {
+		if err := o.DeleteContainers(ctx); err != nil {
+			return err
+		}
+		o.container = nil
+		return nil
+	}
+	return lifecycle.NewWaitErrorWithDuration(fmt.Errorf(
+		"drivers loader for image %s (priority %d) is in flight, deferring load of %s (priority %d)",
+		loaderImage, loaderPriority, o.containerDetails.Image, o.priority), time.Second*10)
 }
 
-func (o *LoadDrivers) UpdateContainerImage(ctx context.Context) error {
-	o.container.Spec.Image = o.containerDetails.Image
-	o.container.Spec.ImagePullSecret = o.containerDetails.ImagePullSecret
-	err := o.client.Update(ctx, o.container)
+// recordDriversLoaded sets the node's single loaded-drivers record for this boot.
+func (o *LoadDrivers) recordDriversLoaded(ctx context.Context, image string, priority int) error {
+	ld := &loadedDrivers{
+		BootID:   o.node.Status.NodeInfo.BootID,
+		Image:    image,
+		Priority: priority,
+	}
+	raw, err := json.Marshal(ld)
 	if err != nil {
 		return err
+	}
+	if o.node.Annotations == nil {
+		o.node.Annotations = make(map[string]string)
+	}
+	o.node.Annotations[driversLoadedAnnotation] = string(raw)
+	if err := o.client.Update(ctx, o.node); err != nil {
+		return fmt.Errorf("updating %s annotation: %w", driversLoadedAnnotation, err)
 	}
 	return nil
 }
@@ -206,6 +369,10 @@ func (o *LoadDrivers) GetCurrentContainer(ctx context.Context) error {
 	return nil
 }
 
+func (o *LoadDrivers) HasContainer() bool {
+	return o.container != nil
+}
+
 func (o *LoadDrivers) HasNotContainer() bool {
 	return o.container == nil
 }
@@ -216,7 +383,9 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	loaderImage := drivers.GetLoaderImageForNode(ctx, o.node, o.containerDetails.Image)
 
 	labels := map[string]string{
-		"weka.io/mode": weka.WekaContainerModeDriversLoader, // need to make this somehow more generic and not per place
+		"weka.io/mode":      weka.WekaContainerModeDriversLoader, // need to make this somehow more generic and not per place
+		driverPriorityLabel: strconv.Itoa(o.priority),
+		driverBootIDLabel:   o.node.Status.NodeInfo.BootID, // boot this loader is loading for; a reboot makes it stale
 	}
 	labels = util.MergeMaps(o.containerDetails.Labels, labels)
 
@@ -258,8 +427,10 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 
 	err := o.client.Create(ctx, loaderContainer)
 	if err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			return lifecycle.NewWaitError(fmt.Errorf("container already exists"))
+		if apierrors.IsAlreadyExists(err) {
+			// another WekaContainer created the loader first; requeue so the next
+			// pass fetches and drives the existing loader
+			return lifecycle.NewWaitError(fmt.Errorf("drivers loader %s already exists", name))
 		}
 		return err
 	}
@@ -294,17 +465,15 @@ func (o *LoadDrivers) ProcessResult(ctx context.Context) error {
 
 	if !loadResults.Loaded {
 		_ = o.DeleteContainers(ctx) //nolint:errcheck // best-effort cleanup; returning primary error
-		return NewDriversNotLoadedError(nil)
+		return NewDriversNotLoadedError(errors.New("drivers loader reported drivers not loaded, re-create container"))
 	}
 
-	annotations := o.node.Annotations
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-	annotations[driversLoadedAnnotation] = o.GetExpectedDriversVersion()
-	o.node.Annotations = annotations
-	err = o.client.Update(ctx, o.node)
-	if err != nil {
+	// Record the image this loader actually loaded (its own spec image) together
+	// with the priority stamped on the loader — that is the rank that dictated the
+	// node's driver version, and later callers order preemption against it.
+	loadedImage := o.container.Spec.Image
+	loadedPriority := loaderPriorityFromLabels(o.container)
+	if err = o.recordDriversLoaded(ctx, loadedImage, loadedPriority); err != nil {
 		return lifecycle.NewWaitError(err)
 	}
 
@@ -314,7 +483,7 @@ func (o *LoadDrivers) ProcessResult(ctx context.Context) error {
 func (o *LoadDrivers) DeleteContainers(ctx context.Context) error {
 	if o.container != nil {
 		err := o.client.Delete(ctx, o.container)
-		if err != nil {
+		if err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}

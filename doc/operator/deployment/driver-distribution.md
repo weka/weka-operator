@@ -140,3 +140,10 @@ Dist container can be found by:
 `weka.io/mode: drivers-dist`
 
 Policies `status.status` will be set to Done once completed
+
+## See also
+
+Distribution produces and serves the driver files. For how the operator then loads those
+drivers into the kernel on each node (the per-node drivers-loader, the
+`weka.io/drivers-loaded` annotation, and the frontend/backend priority model), see
+[Drivers Loading](../operations/drivers-loading.md).
