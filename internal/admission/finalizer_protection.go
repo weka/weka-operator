@@ -26,6 +26,7 @@ type FinalizerProtectionHandler struct {
 // by the operator's own service account.
 var protectedFinalizers = []string{
 	consts.WekaFinalizer,
+	consts.WekaFinalizerDeprecated,
 }
 
 func (h *FinalizerProtectionHandler) Handle(_ context.Context, req admission.Request) admission.Response { //nolint:gocritic // req is admission.Handler's fixed interface signature, cannot pass by pointer
