@@ -3505,46 +3505,52 @@ def write_telemetry_config_override():
 
 async def ensure_ssdproxy_container():
     logging.info("ensuring ssdproxy container")
+    resources_dir = f"/opt/weka/data/{NAME}/container"
+    os.makedirs(resources_dir, exist_ok=True)
+
     proxy_memory = os.getenv("MEMORY")
     if not proxy_memory:
         raise Exception("MEMORY environment variable must be set for ssdproxy")
-
-    stdout, _, _ = await run_command("weka local ps | grep ssdproxy || true")
-    ssdproxy_exists = b"ssdproxy" in stdout
-
-    if not ssdproxy_exists:
-        cmd = dedent(f"""
-            weka local setup ssdproxy --memory={proxy_memory} --base-port 13000 --enable-ssdproxy-nginx
-        """)
-        _, _, ec = await run_command(cmd)
-        if ec != 0:
-            raise Exception("Failed to setup ssdproxy container")
-    else:
-        stdout, stderr, ec = await run_command("weka local resources -C ssdproxy --json", log_output=False)
-        if ec != 0:
-            raise Exception(f"Failed to get ssdproxy resources: {stderr}")
-
-        current = json.loads(stdout)
-        current_memory = current.get("memory")
-        desired_memory = convert_to_bytes(proxy_memory)
-
-        if current_memory != desired_memory:
-            logging.info(f"Updating ssdproxy memory: {current_memory} -> {desired_memory} ({proxy_memory})")
-
-            _, stderr, ec = await run_command(f"weka local resources -C ssdproxy memory {proxy_memory}")
-            if ec != 0:
-                raise Exception(f"Failed to set ssdproxy memory: {stderr}")
-
-            _, stderr, ec = await run_command("weka local resources apply -C ssdproxy -f")
-            if ec != 0:
-                raise Exception(f"Failed to apply ssdproxy resources: {stderr}")
-        else:
-            logging.info(f"ssdproxy memory is already up to date ({current_memory} bytes)")
 
     if not os.path.exists("/usr/bin/weka-sign-drive"):
         os.symlink("/opt/weka/dist/extracted/weka-sign-drive", "/usr/bin/weka-sign-drive")
         logging.info("Created symlink /usr/bin/weka-sign-drive -> /opt/weka/dist/extracted/weka-sign-drive")
 
+    _, stderr, ec = await run_command("weka-sign-drive kernelize")
+    if ec != 0:
+        logging.warning(f"weka-sign-drive kernelize failed (continuing)")
+
+    # create-if-missing / handle-existing, reusing the regular container helpers
+    current_containers = await get_containers()
+    container = next((c for c in current_containers if c['name'] == NAME), None)
+
+    if container is None:
+        logging.info("no pre-existing ssdproxy container, creating")
+        # --no-start --disable so we can stage resources.json and apply them on first start
+        cmd = dedent(f"""
+            weka local setup ssdproxy --memory={proxy_memory} --base-port 13000 --enable-ssdproxy-nginx --no-start --disable
+        """)
+        _, _, ec = await run_command(cmd)
+        if ec != 0:
+            raise Exception("Failed to setup ssdproxy container")
+    else:
+        await handle_existing_container(container, resources_dir)
+
+    # reconfigure resources via the versioned-JSON rewrite + relink mechanism
+    resources = await get_weka_local_resources()
+    resources['memory'] = convert_to_bytes(proxy_memory)
+    resources['reserve_1g_hugepages'] = False
+
+    resource_gen = str(uuid.uuid4())
+    file_name = f"weka-resources.{resource_gen}.json"
+    resource_file = os.path.join(resources_dir, file_name)
+    with open(resource_file, "w") as f:
+        json.dump(resources, f)
+
+    await link_resources_file(file_name, resources_dir)
+
+    # start the --disable'd container so the staged resources take effect
+    await start_weka_container()
 
 def write_file(path, content):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -4369,8 +4375,11 @@ async def main():
 
     if MODE == "ssdproxy":
         await assert_ssdproxy_iommu_supported()
-        await ensure_ssdproxy_container()
+        # force weka version set first so the dist (incl. weka-sign-drive under
+        # /opt/weka/dist/extracted) is laid down before ensure_ssdproxy_container's
+        # symlink + kernelize step needs it
         await ensure_weka_version(force_set=True)
+        await ensure_ssdproxy_container()
         await configure_traces() # TODO: fragile code, we are entering configure_traces into multiple places, re-write in go and using our API will be more suitable
         return
 
