@@ -38,6 +38,7 @@ func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 		return err
 	}
 	controllerutil.RemoveFinalizer(r.container, consts.WekaFinalizer)
+	controllerutil.RemoveFinalizer(r.container, consts.WekaFinalizerDeprecated)
 	err = r.Update(ctx, r.container)
 	if err != nil {
 		logger.Error(err, "Error removing finalizer")
@@ -366,6 +367,22 @@ func (r *containerReconcilerLoop) deletePod(ctx context.Context, pod *v1.Pod) er
 
 	if pod == nil {
 		return errors.New("pod is nil")
+	}
+
+	// This is a controller-initiated delete, so it is safe to let the pod object be reaped: strip the
+	// weka finalizer we set at creation (and its deprecated alias, for pods created by an older
+	// operator). Do this BEFORE the deletionTimestamp short-circuit below — if the pod was already
+	// force-removed (manually or automatically) it carries a deletionTimestamp AND our finalizer, and
+	// returning early without clearing it would wedge the pod in Terminating forever.
+	base := pod.DeepCopy()
+	removed := controllerutil.RemoveFinalizer(pod, consts.WekaFinalizer)
+	removed = controllerutil.RemoveFinalizer(pod, consts.WekaFinalizerDeprecated) || removed
+	if removed {
+		if err := r.Patch(ctx, pod, client.MergeFrom(base)); err != nil {
+			logger.Error(err, "Error removing weka finalizer from pod", "pod", pod.Name)
+			return errors.Wrap(err, "Failed to remove weka finalizer from pod")
+		}
+		logger.Info("Removed weka finalizer from pod", "pod", pod.Name)
 	}
 
 	if pod.GetDeletionTimestamp() != nil {

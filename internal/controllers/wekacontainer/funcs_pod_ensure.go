@@ -15,6 +15,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
@@ -168,6 +169,15 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 
 	if refErr := ctrl.SetControllerReference(container, desiredPod, r.Scheme); refErr != nil {
 		return errors.Wrapf(refErr, "Error setting controller reference")
+	}
+
+	// Protect backend pods from being force-removed (manually or automatically) before the operator is
+	// ready — e.g. a drive pod deleted mid-drain would drop its drive before the data rebuilds. The
+	// finalizer keeps the pod object present so a delete only marks it Terminating; the operator strips
+	// it in deletePod once it is ready to remove the pod. Backends only: aux/one-off pods are cleaned up
+	// via paths that don't route through deletePod, so they must not carry it.
+	if container.IsBackend() {
+		controllerutil.AddFinalizer(desiredPod, consts.WekaFinalizer)
 	}
 
 	if createErr := r.Create(ctx, desiredPod); createErr != nil {

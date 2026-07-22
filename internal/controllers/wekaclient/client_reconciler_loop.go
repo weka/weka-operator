@@ -249,7 +249,8 @@ func (c *clientReconcilerLoop) clientManagesCsiDeployment() bool {
 func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
-	if !controllerutil.ContainsFinalizer(c.wekaClient, consts.WekaFinalizer) {
+	if !controllerutil.ContainsFinalizer(c.wekaClient, consts.WekaFinalizer) &&
+		!controllerutil.ContainsFinalizer(c.wekaClient, consts.WekaFinalizerDeprecated) {
 		return nil
 	}
 
@@ -262,6 +263,7 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	}
 
 	controllerutil.RemoveFinalizer(c.wekaClient, consts.WekaFinalizer)
+	controllerutil.RemoveFinalizer(c.wekaClient, consts.WekaFinalizerDeprecated)
 	if err := c.Update(ctx, c.wekaClient); err != nil {
 		logger.Error(err, "Error removing finalizer")
 		return errors.Wrap(err, "failed to update wekaClient")

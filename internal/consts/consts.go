@@ -2,8 +2,19 @@ package consts
 
 // Kubernetes finalizer
 const (
-	// WekaFinalizer is the finalizer added to Weka resources to ensure proper cleanup
-	WekaFinalizer = "weka.weka.io/finalizer"
+	// WekaFinalizer is added to Weka resources — both the CRs (WekaContainer/Cluster/Client) and the
+	// pods they own — to protect them from being force-removed out from under the operator, whether
+	// manually (e.g. kubectl delete) or automatically (e.g. by a controller during a scale-down).
+	// Such a delete only sets the object's deletionTimestamp; the object persists until the operator
+	// finishes its cleanup safely and removes the finalizer itself. On a drive pod this keeps the pod
+	// object present (Terminating) so the drive can drain gracefully instead of vanishing mid-rebuild.
+	WekaFinalizer = "weka.weka.io/do-not-force-delete-unsafe"
+
+	// WekaFinalizerDeprecated is the previous name of WekaFinalizer. It is no longer added, but the
+	// operator still removes it everywhere it removes WekaFinalizer, so resources created by an older
+	// operator (which carry this name) are never stranded in Terminating on deletion. Retire it in a
+	// later release once no live object carries it.
+	WekaFinalizerDeprecated = "weka.weka.io/finalizer"
 )
 
 // WekaContainerName is the name of the main weka container within a weka pod (as opposed to init
