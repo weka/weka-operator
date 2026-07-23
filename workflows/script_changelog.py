@@ -104,45 +104,104 @@ def get_file_patch(commit, path):
 SUBMODULE_PATH = "pkg/weka-k8s-api"
 
 
-def get_submodule_hash_change(commit: str) -> tuple[str, str] | None:
-    """Detect if a commit updates the weka-k8s-api submodule, return (old_hash, new_hash)."""
+def get_submodule_ref_at(ref: str) -> str | None:
+    """Return the weka-k8s-api submodule commit recorded at the given operator ref.
+
+    Uses `git rev-parse <ref>:<submodule-path>` to read the gitlink pointer as of
+    that operator commit/tag. Returns None if the submodule did not exist at that
+    ref (e.g. it was added later in history).
+
+    Distinguishes that benign "not present at this ref" case from unexpected git
+    failures (bad ref, corrupt repo, permission issues): the latter are logged as
+    warnings so they do not silently drop API-change detection and produce
+    incomplete release notes.
+    """
     result = subprocess.run(
-        ['git', 'diff-tree', '--no-commit-id', '-r', commit, '--', SUBMODULE_PATH],
+        ['git', 'rev-parse', f'{ref}:{SUBMODULE_PATH}'],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
-    if result.returncode != 0 or not result.stdout:
+    if result.returncode != 0:
+        stderr = result.stderr.decode().strip()
+        # git reports a missing tree path as "... does not exist in ..." /
+        # "exists on disk, but not in ...". Anything else is an unexpected error.
+        if "does not exist" in stderr or "exists on disk, but not in" in stderr:
+            logger.debug(f"Submodule {SUBMODULE_PATH} not present at ref {ref}: {stderr}")
+        else:
+            logger.warning(f"Unexpected git error reading submodule ref at {ref}: {stderr}")
         return None
-
-    # Format: :160000 160000 old_hash new_hash M pkg/weka-k8s-api
-    line = result.stdout.decode().strip()
-    if not line:
-        return None
-
-    parts = line.split()
-    if len(parts) >= 4:
-        return (parts[2], parts[3])
-    return None
+    sha = result.stdout.decode().strip()
+    return sha or None
 
 
 def get_submodule_commits(old_hash: str, new_hash: str) -> list[str]:
-    """Get list of commit SHAs in the API submodule between old and new hashes."""
+    """Get API submodule commit SHAs newly introduced by new_hash vs old_hash.
+
+    The weka-k8s-api submodule keeps parallel release branches, so the pointers at
+    two operator releases frequently diverge (neither is an ancestor of the other),
+    and a change is commonly re-landed on each branch under a *new* SHA. A plain
+    old_hash..new_hash DAG range therefore reports commits whose change already
+    shipped in an earlier release. We drop those re-lands two ways:
+
+      * ``--cherry-pick --right-only old...new`` (symmetric difference) removes
+        commits that are patch-identical to a commit already reachable from
+        old_hash;
+      * a subject-based filter removes commits whose one-line subject already exists
+        in old_hash's history. This catches re-lands whose patch was edited during
+        the port (different patch-id), which ``--cherry-pick`` alone misses.
+
+    old_hash may be empty/falsy when there is no lower bound (submodule was added
+    during the range); in that case all ancestors of new_hash are returned with no
+    filtering.
+    """
     # Ensure submodule is initialized and has the commits
     if not os.path.exists(os.path.join(SUBMODULE_PATH, '.git')):
         logger.warning(f"Submodule at {SUBMODULE_PATH} not initialized")
         return []
 
-    # Fetch to ensure we have the commits
-    subprocess.run(['git', '-C', SUBMODULE_PATH, 'fetch', '--all'],
-                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # Fetch to ensure we have the commits. A failed fetch may leave us missing
+    # commits in the requested range, so warn rather than silently continuing.
+    fetch = subprocess.run(['git', '-C', SUBMODULE_PATH, 'fetch', '--all'],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if fetch.returncode != 0:
+        logger.warning(f"Failed to fetch submodule {SUBMODULE_PATH}; commit range may be incomplete: {fetch.stderr.decode().strip()}")
 
+    # With no lower bound, list the full ancestry of new_hash. Otherwise use the
+    # cherry-pick-aware symmetric difference so commits re-applied identically on
+    # the new-hash branch (same patch-id as an old-hash commit) are not reported.
+    if old_hash:
+        rev_args = ['--cherry-pick', '--right-only', f'{old_hash}...{new_hash}']
+    else:
+        rev_args = [new_hash]
     result = subprocess.run(
-        ['git', '-C', SUBMODULE_PATH, 'rev-list', '--reverse', f'{old_hash}..{new_hash}'],
+        ['git', '-C', SUBMODULE_PATH, 'rev-list', '--reverse'] + rev_args,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
     if result.returncode != 0:
         logger.error(f"Failed to get submodule commits: {result.stderr.decode()}")
         return []
-    return result.stdout.decode().strip().splitlines()
+    commits = result.stdout.decode().strip().splitlines()
+
+    if not old_hash or not commits:
+        return commits
+
+    # Drop commits whose subject already appears in old_hash's history: on divergent
+    # release branches the same change is re-landed with an edited patch (new
+    # patch-id), so it survives --cherry-pick but is not actually new to this range.
+    seen = subprocess.run(
+        ['git', '-C', SUBMODULE_PATH, 'log', '--format=%s', old_hash],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    seen_subjects = set(seen.stdout.decode().splitlines()) if seen.returncode == 0 else set()
+
+    filtered = []
+    for sha in commits:
+        msg = get_submodule_commit_message(sha)
+        subj = msg.splitlines()[0] if msg else ""
+        if subj and subj in seen_subjects:
+            logger.info(f"API commit {sha[:7]} '{subj}' already present before range (re-land); skipping.")
+            continue
+        filtered.append(sha)
+    return filtered
 
 
 def get_submodule_commit_message(commit: str) -> str:
@@ -163,6 +222,39 @@ def get_submodule_commit_show(commit: str) -> str:
     return result.stdout.decode() if result.returncode == 0 else ""
 
 
+# Generated-artifact paths in the weka-k8s-api submodule. The CRD YAMLs under
+# crds/ and the *zz_generated* Go files are produced mechanically from the
+# hand-written types (`make manifests` / deepcopy-gen); they never carry
+# release-note information beyond the source commit that changed the types.
+# On the submodule's divergent release branches a manifest regeneration
+# ("fix: update manifests") also re-introduces the descriptions of features
+# whose type change was cherry-picked/re-landed and already shipped, so a
+# generated-only commit surfaces already-released features as if new.
+GENERATED_PATH_PREFIXES = ("crds/",)
+GENERATED_BASENAME_SUBSTRINGS = ("zz_generated",)
+
+
+def _is_generated_path(path: str) -> bool:
+    if any(path.startswith(prefix) for prefix in GENERATED_PATH_PREFIXES):
+        return True
+    base = path.rsplit("/", 1)[-1]
+    return any(sub in base for sub in GENERATED_BASENAME_SUBSTRINGS)
+
+
+def get_submodule_commit_files(commit: str) -> list[str]:
+    """List paths changed by a single API submodule commit."""
+    result = subprocess.run(
+        ['git', '-C', SUBMODULE_PATH, 'show', '--name-only', '--format=', commit],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    if result.returncode != 0:
+        # An empty list makes the caller treat the commit as non-generated and keep
+        # it; log so a genuine git failure here is visible rather than silent.
+        logger.warning(f"Failed to list files for API commit {commit[:7]}: {result.stderr.decode().strip()}")
+        return []
+    return [line for line in result.stdout.decode().splitlines() if line.strip()]
+
+
 def process_api_commit(commit: str, dry_run: bool = False) -> CommitInfo | None:
     """Process a single commit from the weka-k8s-api submodule."""
     message = get_submodule_commit_message(commit)
@@ -176,6 +268,15 @@ def process_api_commit(commit: str, dry_run: bool = False) -> CommitInfo | None:
     # Skip non-user-facing commits
     if ctype not in ('fix', 'feature', 'breaking'):
         logger.info(f"API commit {commit[:7]} type '{ctype}' not fix/feature/breaking. Ignoring.")
+        return None
+
+    # Skip commits that touch only generated artifacts (CRD YAMLs, zz_generated
+    # files). These are mechanical regenerations of the hand-written types and
+    # carry no information beyond their source commit; on divergent release
+    # branches they otherwise re-describe already-shipped features.
+    files = get_submodule_commit_files(commit)
+    if files and all(_is_generated_path(f) for f in files):
+        logger.info(f"API commit {commit[:7]} '{subject}' touches only generated files; skipping (derivative regeneration).")
         return None
 
     # Use prefixed SHA to distinguish API commits
@@ -231,24 +332,15 @@ def extract_release_notes_tag(pr_body):
 
 # agent_generate_release_notes is replaced by the imported generate_release_notes
 
-def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: str, dry_run=False) -> tuple[CommitInfo | None, list[CommitInfo]]:
-    """Process a commit and return both operator CommitInfo and any API CommitInfos from submodule changes."""
-    api_commit_infos = []
+def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: str, dry_run=False) -> CommitInfo | None:
+    """Process a single operator commit and return its CommitInfo.
 
-    # Check for submodule update and process API commits
-    submodule_change = get_submodule_hash_change(commit)
-    if submodule_change:
-        old_hash, new_hash = submodule_change
-        logger.info(f"Commit {commit[:7]}: Detected API submodule update {old_hash[:7]}..{new_hash[:7]}")
-
-        api_commits = get_submodule_commits(old_hash, new_hash)
-        logger.info(f"Found {len(api_commits)} commits in API submodule")
-
-        for api_commit in api_commits:
-            api_ci = process_api_commit(api_commit, dry_run)
-            if api_ci and not api_ci.ignored:
-                api_commit_infos.append(api_ci)
-
+    API (weka-k8s-api submodule) changes are NOT derived here. Summing per-commit
+    submodule bumps double-counts and misattributes commits whenever the pointer
+    oscillates (cherry-picks/backports on release branches). API commits are
+    resolved once, end-to-end, in main() via the submodule pointer at each range
+    boundary.
+    """
     message = get_commit_message(commit)
     subject = message.splitlines()[0]
     # Use imported infer_type
@@ -258,7 +350,7 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
     if ctype not in ('fix', 'feature', 'breaking'):
         logger.info(f"Commit {commit[:7]} type '{ctype}' is not fix/feature/breaking. Marking as ignored.")
         # Create CommitInfo marked as ignored and return with any API commits
-        return (CommitInfo(sha=commit, subject=subject, ctype=ctype, ignored=True, release_notes="Ignored (type)"), api_commit_infos)
+        return CommitInfo(sha=commit, subject=subject, ctype=ctype, ignored=True, release_notes="Ignored (type)")
 
     # If type is valid, proceed with creating CommitInfo and finding PR
     commit_info = CommitInfo(sha=commit, subject=subject, ctype=ctype)
@@ -286,11 +378,11 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
                 commit_info.release_notes = "Ignored"
                 commit_info.ignored = True
                 logger.info(f"Commit {commit[:7]}: Found existing 'Ignored' tag in PR #{pr_number}. Skipping.")
-                return (commit_info, api_commit_infos)  # Already processed and ignored
+                return commit_info  # Already processed and ignored
             else:
                 commit_info.release_notes = rn_tag
                 logger.info(f"Commit {commit[:7]}: Found existing release notes tag in PR #{pr_number}.")
-                return (commit_info, api_commit_infos)  # Use existing notes
+                return commit_info  # Use existing notes
 
         # No valid <release_notes> tag found in matched PR, generate and update PR
         logger.info(f"Commit {commit[:7]}: No release notes tag in PR #{pr_number}. Preparing diff and generating...")
@@ -351,7 +443,7 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
                 # Decide if we should return commit_info even if update failed
                 # return commit_info # Or maybe return None or raise
 
-        return (commit_info, api_commit_infos)
+        return commit_info
 
     # If we reach here, no PR was matched by title.
     if not matched_pr:
@@ -393,7 +485,7 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
     else:
         logger.info(f"Commit {commit[:7]}: Generated release notes (no PR).")
 
-    return (commit_info, api_commit_infos)
+    return commit_info
 
 
 def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, abort_on_miss=False):
@@ -409,7 +501,12 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, a
     input_items = []
     for ci in included:
         input_item = "<item>"
-        input_item += f"Commit: {ci.sha[:7]}:\n {ci.release_notes}"
+        # API commit SHAs are prefixed with "api:", so keep 7 hex chars after the
+        # prefix (11 total). Plain SHAs keep 7 chars. Must match the validation
+        # logic below, otherwise the aggregator only ever sees a 3-char stub
+        # (e.g. "api:9f0") and emits an unusable commit reference.
+        display_sha = ci.sha[:11] if ci.sha.startswith("api:") else ci.sha[:7]
+        input_item += f"Commit: {display_sha}:\n {ci.release_notes}"
         if review_mode and ci.pr_number and repo_name_for_links:
             pr_link = f"https://github.com/{repo_name_for_links}/pull/{ci.pr_number}"
             input_item += f"\nPR: {pr_link}"
@@ -665,24 +762,45 @@ def main():
         sys.exit(1)
 
     commit_infos = []
-    api_commit_infos = []  # Collect API changes from submodule updates
     processed_commit_count = 0
     repo_name = args.repo  # Pass repo name for potential use in process_commit
     for commit in commits:
         processed_commit_count += 1
         logger.info(f"Processing commit {processed_commit_count}/{num_commits}: {commit[:7]}...")
         try:
-            ci, api_cis = process_commit(commit, recent_prs, github_client, repo_name, dry_run=args.dry_run)
+            ci = process_commit(commit, recent_prs, github_client, repo_name, dry_run=args.dry_run)
             # process_commit now handles the case where no matching PR is found
             if ci:
                 commit_infos.append(ci)
-            api_commit_infos.extend(api_cis)  # Collect API changes
         except GitHubError as e:
             logger.error(f"GitHub error processing commit {commit[:7]}: {e}. Skipping commit.")
             # Optionally add placeholder or mark as failed
         except Exception as e:
             logger.error(f"Unexpected error processing commit {commit[:7]}: {e}. Skipping commit.")
         # Removed early exit if PR not found, process_commit handles it
+
+    # --- API (weka-k8s-api submodule) changes, resolved end-to-end ---
+    # Read the submodule pointer as of the range start (gfrom, exclusive lower
+    # bound = previous release state) and the range end (gto). This yields exactly
+    # the API commits newly present in this release, regardless of how many times
+    # the pointer oscillated in between (cherry-picks/backports on release branches).
+    api_commit_infos = []
+    from_sub = get_submodule_ref_at(gfrom)
+    to_sub = get_submodule_ref_at(gto)
+    if not to_sub:
+        logger.info(f"No weka-k8s-api submodule at {gto}; skipping API change detection.")
+    elif from_sub == to_sub:
+        logger.info("weka-k8s-api submodule unchanged across the range; no API changes.")
+    else:
+        if not from_sub:
+            logger.warning(
+                f"weka-k8s-api submodule not present at {gfrom}; listing full API history up to {to_sub[:7]}.")
+        api_commits = get_submodule_commits(from_sub or "", to_sub)
+        logger.info(f"Found {len(api_commits)} API commits ({(from_sub or 'root')[:7]}..{to_sub[:7]})")
+        for api_commit in api_commits:
+            api_ci = process_api_commit(api_commit, dry_run=args.dry_run)
+            if api_ci and not api_ci.ignored:
+                api_commit_infos.append(api_ci)
 
     # Combine operator and API changes for aggregation
     all_commit_infos = commit_infos + api_commit_infos
