@@ -38,7 +38,7 @@ Container states and their flow files:
 | `funcs_status_updates.go` | Status field updates |
 | `funcs_events.go` | K8s event emission |
 | `funcs_migrations.go` | Data migrations |
-| `funcs_oneoff.go` | One-off operations |
+| `funcs_oneoff.go` | One-off operations, stuck adhoc-op reaping |
 | `funcs_not_used.go` | Deprecated/unused |
 
 ## CSI Integration

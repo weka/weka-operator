@@ -18,6 +18,7 @@ Key config categories:
 - Proxy settings (HTTP/HTTPS)
 - Port allocation settings (starting port for cluster port ranges)
 - `ClusterCapacityConfig` — clusterCapacity pod-resource constraints (`TlcCapacityPerCoreGiB`, `QlcCapacityPerCoreGiB`, `MaxComputeCoresPerNode`, `ImbalanceFactor`); Helm names in `cluster-capacity.md` Helm constraints table. (`Consts.UnschedulableDriveContainerGCTimeout` gates GC of long-unscheduled drive containers.)
+- Stuck adhoc-op pod timeouts (`STUCK_ADHOC_POD_TIMEOUT`, `STUCK_ADHOC_POD_STARTING_TIMEOUT`) — used by `funcs_oneoff.go`
 - Pod-level securityContext injection (`WEKA_POD_SECURITY_CONTEXT` — JSON-encoded `corev1.PodSecurityContext`) — applied to every privileged/hostPath pod produced by the operator: WekaContainer pods (`pod.go`), CSI node DaemonSet, CSI controller, and prepull/trace/cleanup/pvc-migrate Jobs. Mgmt-proxy and metrics pods are excluded (non-privileged, no hostPath). Today only `appArmorProfile` is propagated (used to satisfy Kyverno `require-apparmor-on-privileged-or-hostpath`); other PodSecurityContext fields parse but `mergePodSecurityContext` ignores them — add a line there to support more. Helper: `internal/controllers/resources/security_context.go` (`ApplySecurityProfile` + `mergePodSecurityContext`). Helm value: `podSecurityContext` (default `{}`).
 
 ## Helm Chart

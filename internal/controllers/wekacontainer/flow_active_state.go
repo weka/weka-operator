@@ -306,6 +306,24 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.reportAdhocPodNotProgressing,
+			Predicates: lifecycle.Predicates{
+				r.container.IsAdhocOpContainer,
+				r.PodIsSet,
+				r.adhocPodNotProgressing,
+			},
+		},
+		&lifecycle.SimpleStep{
+			Run: r.deleteStuckAdhocContainer,
+			Predicates: lifecycle.Predicates{
+				r.container.IsAdhocOpContainer,
+				r.PodIsSet,
+				r.adhocPodNotProgressing,
+				r.adhocPodStuckTimeoutElapsed,
+			},
+			FinishOnSuccess: true,
+		},
+		&lifecycle.SimpleStep{
 			Run: r.checkPodUnhealthy,
 			Predicates: lifecycle.Predicates{
 				func() bool {

@@ -299,6 +299,11 @@ defaultIntervals:
   # How long a clusterCapacity drive container may stay unscheduled before the operator deletes it
   # so the planner can re-place its capacity on a node that can host it.
   unschedulableDriveContainerGCTimeout: 2m
+  # How long an adhoc-op container's pod may fail to produce a result before the operator
+  # deletes the container. The "starting" variant applies while the pod is still pulling
+  # its image / creating containers, which legitimately takes longer.
+  stuckAdhocPodTimeout: 10m
+  stuckAdhocPodStartingTimeout: 30m
 
 # NFS global configuration
 nfs:

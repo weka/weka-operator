@@ -317,14 +317,21 @@ var Config struct {
 	// How long a clusterCapacity drive container may stay unscheduled before the operator deletes it
 	// so the planner can re-place its capacity on a node that can host it.
 	UnschedulableDriveContainerGCTimeout time.Duration
-	RemoveFailedDrivesFromWeka           bool
-	AllowMultipleProtocolsPerNode        bool
-	NetnsEnabled                         bool
-	ManagementProxyHostNetwork           bool
-	ManagementProxyIngressBaseDomain     string
-	ManagementProxyIngressClass          string
-	EvictedPodCleanupEnabled             bool
-	EvictedPodCleanupInterval            time.Duration
+	// How long an adhoc-op container's pod may fail to produce a result before the
+	// operator deletes the container, so a pod that can never run cannot leak the CR
+	// forever. StuckAdhocPodStartingTimeout applies while the pod is still legitimately
+	// starting up (image pull / container creation), which can take much longer than a
+	// hard failure like ImagePullBackOff or Unschedulable.
+	StuckAdhocPodTimeout             time.Duration
+	StuckAdhocPodStartingTimeout     time.Duration
+	RemoveFailedDrivesFromWeka       bool
+	AllowMultipleProtocolsPerNode    bool
+	NetnsEnabled                     bool
+	ManagementProxyHostNetwork       bool
+	ManagementProxyIngressBaseDomain string
+	ManagementProxyIngressClass      string
+	EvictedPodCleanupEnabled         bool
+	EvictedPodCleanupInterval        time.Duration
 
 	BuilderImages          BuilderImagesConfig
 	Csi                    EmbeddedCsiSettings
@@ -578,6 +585,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DeleteTelemetryWithoutComputeNeighborTimeout = getDurationEnvOrDefault("DELETE_TELEMETRY_WITHOUT_COMPUTE_NEIGHBOR_TIMEOUT", 5*time.Minute)
 	Config.DeleteUnschedulablePodsAfter = getDurationEnvOrDefault("DELETE_UNSCHEDULABLE_PODS_AFTER", 1*time.Minute)
 	Config.UnschedulableDriveContainerGCTimeout = getDurationEnvOrDefault("UNSCHEDULABLE_DRIVE_CONTAINER_GC_TIMEOUT", 2*time.Minute)
+	Config.StuckAdhocPodTimeout = getDurationEnvOrDefault("STUCK_ADHOC_POD_TIMEOUT", 10*time.Minute)
+	Config.StuckAdhocPodStartingTimeout = getDurationEnvOrDefault("STUCK_ADHOC_POD_STARTING_TIMEOUT", 30*time.Minute)
 	Config.RemoveFailedDrivesFromWeka = getBoolEnvOrDefault("REMOVE_FAILED_DRIVES_FROM_WEKA", false)
 	Config.AllowMultipleProtocolsPerNode = getBoolEnvOrDefault("ALLOW_MULTIPLE_PROTOCOLS_PER_NODE", false)
 	Config.PodConfigVersion = env.GetString("POD_CONFIG_VERSION", "1")

@@ -16,9 +16,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
 )
 
 func (r *containerReconcilerLoop) fetchResults(ctx context.Context) error {
@@ -89,6 +91,201 @@ func (r *containerReconcilerLoop) isFeatureFlagsOperation() bool {
 	return r.container.Spec.Mode == weka.WekaContainerModeAdhocOpWC &&
 		r.container.Spec.Instructions != nil &&
 		r.container.Spec.Instructions.Type == weka.InstructionTypeFeatureFlagsUpdate
+}
+
+// reportAdhocPodNotProgressing surfaces an abnormal not-progressing adhoc-op pod
+// (Unschedulable, ImagePullBackOff, CrashLoopBackOff, config errors, ...) as a
+// throttled warning, so operators do not have to wait for the deletion timeout to
+// learn something is wrong. Pods that are still legitimately starting up are not
+// worth warning about.
+func (r *containerReconcilerLoop) reportAdhocPodNotProgressing(ctx context.Context) error {
+	reason, detail := podNotRunningReason(r.pod)
+	if isStartingUpReason(reason) {
+		return nil
+	}
+
+	_ = r.RecordEventThrottled( //nolint:errcheck // best-effort event
+		v1.EventTypeWarning,
+		"AdhocPodNotProgressing",
+		fmt.Sprintf("Adhoc-op pod stuck (%s) for %s, will delete container after %s%s",
+			reason, time.Since(podStuckSince(r.pod)).Round(time.Second),
+			config.Config.StuckAdhocPodTimeout, eventDetailSuffix(detail)),
+		time.Minute,
+	)
+	return nil
+}
+
+// deleteStuckAdhocContainer marks an adhoc-op container for deletion once its pod
+// has failed to produce a result for too long. Adhoc-op containers are node-pinned
+// and only produce a result once their pod runs, so a pod that can never run
+// (ImagePullBackOff / unschedulable / crash-looping) would otherwise leak the CR
+// forever: the finished-cleanup path is gated on CondResultsProcessed, which is only
+// set after fetchResults execs into a running pod.
+func (r *containerReconcilerLoop) deleteStuckAdhocContainer(ctx context.Context) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	reason, detail := podNotRunningReason(r.pod)
+	stuckFor := time.Since(podStuckSince(r.pod)).Round(time.Second)
+
+	_ = r.RecordEvent( //nolint:errcheck // best-effort event
+		v1.EventTypeWarning,
+		"AdhocPodStuck",
+		fmt.Sprintf("Adhoc-op pod stuck (%s) for %s, deleting container%s",
+			reason, stuckFor, eventDetailSuffix(detail)),
+	)
+	logger.Info("Deleting stuck adhoc-op container", "reason", reason, "detail", detail, "stuck_for", stuckFor)
+	return services.SetContainerStateDeleting(ctx, r.container, r.Client)
+}
+
+// adhocPodNotProgressing reports whether an adhoc-op pod is not doing useful work:
+// either its phase is not Running, or the phase is Running but a container is stuck
+// in a restart backoff after a failed run.
+func (r *containerReconcilerLoop) adhocPodNotProgressing() bool {
+	return r.pod.Status.Phase != v1.PodRunning || podCrashLoopingAfterFailure(r.pod)
+}
+
+// adhocPodStuckTimeoutElapsed reports whether the pod has been stuck long enough to
+// delete the container.
+func (r *containerReconcilerLoop) adhocPodStuckTimeoutElapsed() bool {
+	return podStuckTimeoutElapsed(
+		r.pod,
+		time.Now(),
+		config.Config.StuckAdhocPodTimeout,
+		config.Config.StuckAdhocPodStartingTimeout,
+	)
+}
+
+// podStuckTimeoutElapsed reports whether the pod has been stuck past the applicable
+// timeout. A pod that is still starting up gets the longer startingTimeout: a
+// first-time pull of the weka image on a cold node can legitimately outlast the
+// timeout used for hard failures.
+func podStuckTimeoutElapsed(pod *v1.Pod, now time.Time, timeout, startingTimeout time.Duration) bool {
+	reason, _ := podNotRunningReason(pod)
+	if isStartingUpReason(reason) {
+		timeout = startingTimeout
+	}
+	return now.Sub(podStuckSince(pod)) > timeout
+}
+
+// podStuckSince returns the point in time from which the pod stopped making progress
+// toward producing a result.
+//
+// For a pod that never ran (Pending / unschedulable / ImagePullBackOff) or that
+// crash-loops, that is its creation time: an adhoc-op pod is expected to run within
+// minutes of being created. For a pod that ran and then went terminal (evicted, node
+// lost), creation time can be hours in the past, which would leave no grace period at
+// all and report a misleading duration, so the ContainersReady transition is used
+// instead - it marks when the pod actually stopped running.
+//
+// ContainersReady is deliberately not consulted for a crash-looping pod: it flaps as
+// the container restarts, which would reset the clock on every restart.
+func podStuckSince(pod *v1.Pod) time.Time {
+	if pod.Status.Phase == v1.PodFailed || pod.Status.Phase == v1.PodSucceeded {
+		if c := podCondition(pod, v1.ContainersReady); c != nil &&
+			c.Status == v1.ConditionFalse && !c.LastTransitionTime.IsZero() {
+			return c.LastTransitionTime.Time
+		}
+	}
+	return pod.CreationTimestamp.Time
+}
+
+// podCrashLoopingAfterFailure reports whether one of the pod's containers is waiting
+// in a restart backoff after a failed run.
+//
+// The exit-code check is load-bearing: adhoc-op pods do not set RestartPolicy, so they
+// get the API default Always, and a one-off command that *succeeds* is restarted too
+// and is eventually reported as CrashLoopBackOff as well. Those must not be deleted
+// here - they are reaped by the results-processed path (cleanupFinishedOneOff), which
+// runs earlier in the flow. Init containers need no handling: a crash-looping init
+// container keeps the phase at Pending, which is already covered.
+func podCrashLoopingAfterFailure(pod *v1.Pod) bool {
+	for i := range pod.Status.ContainerStatuses {
+		status := &pod.Status.ContainerStatuses[i]
+		if w := status.State.Waiting; w == nil || w.Reason != "CrashLoopBackOff" {
+			continue
+		}
+		if t := status.LastTerminationState.Terminated; t != nil && t.ExitCode != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// isStartingUpReason reports whether a pod's not-running reason means it is still
+// legitimately starting up, as opposed to a hard failure (Unschedulable,
+// ImagePullBackOff, CrashLoopBackOff, config errors, ...).
+func isStartingUpReason(reason string) bool {
+	switch reason {
+	case "Pending", "ContainerCreating", "PodInitializing":
+		return true
+	default:
+		return false
+	}
+}
+
+// podNotRunningReason returns a short reason describing why the pod is not producing a
+// result, plus an optional longer detail message for events and logs. Precedence: the
+// first init-container or container Waiting.Reason (ImagePullBackOff,
+// CreateContainerConfigError, ...); then, for a terminal pod, a container
+// Terminated.Reason (OOMKilled, Error) or the pod-level reason (Evicted); then an
+// explicit scheduling failure (Unschedulable) from the PodScheduled condition; else
+// the phase.
+func podNotRunningReason(pod *v1.Pod) (reason, detail string) {
+	statusLists := [][]v1.ContainerStatus{pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses}
+	for _, statuses := range statusLists {
+		for i := range statuses {
+			if w := statuses[i].State.Waiting; w != nil && w.Reason != "" {
+				return w.Reason, w.Message
+			}
+		}
+	}
+
+	if pod.Status.Phase == v1.PodFailed || pod.Status.Phase == v1.PodSucceeded {
+		for _, statuses := range statusLists {
+			for i := range statuses {
+				if t := statuses[i].State.Terminated; t != nil && t.Reason != "" {
+					return t.Reason, t.Message
+				}
+			}
+		}
+		// Pod-level failure with no container status, e.g. an eviction.
+		if pod.Status.Reason != "" {
+			return pod.Status.Reason, pod.Status.Message
+		}
+	}
+
+	// No container reason yet (e.g. pod not scheduled). Surface an explicit scheduling
+	// failure if present, else fall back to phase.
+	for i := range pod.Status.Conditions {
+		if c := &pod.Status.Conditions[i]; c.Type == v1.PodScheduled &&
+			c.Status == v1.ConditionFalse && c.Reason != "" {
+			return c.Reason, c.Message
+		}
+	}
+	return string(pod.Status.Phase), ""
+}
+
+// podCondition returns the pod condition of the given type, or nil.
+func podCondition(pod *v1.Pod, condType v1.PodConditionType) *v1.PodCondition {
+	for i := range pod.Status.Conditions {
+		if pod.Status.Conditions[i].Type == condType {
+			return &pod.Status.Conditions[i]
+		}
+	}
+	return nil
+}
+
+// eventDetailSuffix formats an optional detail message for inclusion in an event,
+// truncated because Kubernetes caps event messages at 1024 characters.
+func eventDetailSuffix(detail string) string {
+	const maxDetailLen = 200
+	if detail == "" {
+		return ""
+	}
+	if len(detail) > maxDetailLen {
+		detail = detail[:maxDetailLen] + "..."
+	}
+	return ": " + detail
 }
 
 func (r *containerReconcilerLoop) isSignOrDiscoverDrivesOperation(ctx context.Context) bool {
