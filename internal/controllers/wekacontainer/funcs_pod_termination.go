@@ -9,11 +9,33 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/services/discovery"
 )
+
+// managedNodesPodTerminationTimeout is the podTerminationDeactivationTimeout default for managed cloud
+// nodegroups (AWS/EKS, OCI/OKE): we allow a container 30 minutes in PodTerminating before moving it to
+// the deactivation flow.
+const managedNodesPodTerminationTimeout = 30 * time.Minute
+
+// resolveDeactivationTimeout returns the effective timeout after which a terminating backend pod is
+// forced into the graceful deactivate flow. Precedence (most specific wins):
+//  1. explicit per-cluster override (spec.overrides.podTerminationDeactivationTimeout), including 0 = never;
+//  2. managed cloud node (AWS/EKS or OCI/OKE providerID) -> 30m;
+//  3. global default (POD_TERMINATION_DEACTIVATION_TIMEOUT, 0 = never).
+func resolveDeactivationTimeout(node *v1.Node, override *metav1.Duration, globalDefault time.Duration) time.Duration {
+	if override != nil {
+		return override.Duration
+	}
+	if node != nil && discovery.IsSupportedCloudProvider(node.Spec.ProviderID) {
+		return managedNodesPodTerminationTimeout
+	}
+	return globalDefault
+}
 
 func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
@@ -126,20 +148,15 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 					return updateErr
 				}
 			} else {
-				// Get timeout from cluster overrides
-				deactivationTimeout := config.Config.Timeouts.PodTerminationDeactivationTimeout // default value
 				cluster, clusterErr := r.getCluster(ctx)
 				if clusterErr != nil {
 					return clusterErr
-				} else if cluster.Spec.GetOverrides().PodTerminationDeactivationTimeout != nil {
-					timeoutDuration := cluster.Spec.GetOverrides().PodTerminationDeactivationTimeout.Duration
-					if timeoutDuration == 0 {
-						// 0 means never deactivate - set to a very large duration
-						deactivationTimeout = time.Duration(0)
-					} else {
-						deactivationTimeout = timeoutDuration
-					}
 				}
+				deactivationTimeout := resolveDeactivationTimeout(
+					r.node,
+					cluster.Spec.GetOverrides().PodTerminationDeactivationTimeout,
+					config.Config.Timeouts.PodTerminationDeactivationTimeout,
+				)
 
 				// Only deactivate if timeout is not 0 (disabled) and has exceeded
 				shouldDeactivate := deactivationTimeout > 0 && time.Since(since.Time) > deactivationTimeout
