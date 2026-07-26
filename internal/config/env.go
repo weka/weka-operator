@@ -503,7 +503,10 @@ func ConfigureEnv(ctx context.Context) {
 	Config.EnableLeaderElection = getBoolEnvOrDefault("ENABLE_LEADER_ELECTION", false)
 	Config.EnableClusterApi = getBoolEnvOrDefault("ENABLE_CLUSTER_API", false)
 	Config.Timeouts.KubeExecTimeout = getDurationEnvOrDefault("KUBE_EXEC_TIMEOUT", 5*time.Minute)
-	Config.Timeouts.PodTerminationDeactivationTimeout = getDurationEnvOrDefault("POD_TERMINATION_DEACTIVATION_TIMEOUT", 24*time.Hour)
+	// Default 0 = never auto-deactivate a terminating backend pod. On managed cloud nodes (AWS/EKS,
+	// OCI/OKE) the operator overrides this to 30m (see resolveDeactivationTimeout) so managed-nodegroup
+	// drains don't hang.
+	Config.Timeouts.PodTerminationDeactivationTimeout = getDurationEnvOrDefault("POD_TERMINATION_DEACTIVATION_TIMEOUT", 0)
 	Config.Timeouts.ReconcileTimeout = getDurationEnvOrDefault("RECONCILE_TIMEOUT", 30*time.Minute)
 	Config.Otel.DeploymentIdentifier = os.Getenv("OTEL_DEPLOYMENT_IDENTIFIER")
 	Config.Otel.ExporterOtlpEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")

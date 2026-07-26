@@ -70,7 +70,11 @@ wekahome:
 
 reconcileTimeout: 30m
 kubeExecTimeout: 5m
-podTerminationDeactivationTimeout: 24h
+# -- How long a terminating backend pod may sit before the operator forces graceful
+# deactivation. 0 = never (default). On managed cloud nodes (AWS/EKS, OCI/OKE) the operator
+# overrides this to 30m so managed-nodegroup drains don't hang. Per-cluster override:
+# spec.overrides.podTerminationDeactivationTimeout.
+podTerminationDeactivationTimeout: 0
 # -- maximum number of workers for each reconciler (for each resource type)
 maxWorkers:
   wekaCluster: 5
