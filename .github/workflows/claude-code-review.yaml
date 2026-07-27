@@ -31,6 +31,19 @@ jobs:
           CURRENT_BRANCH="${{ github.head_ref }}"
           HAS_LABEL="${{ contains(github.event.pull_request.labels.*.name, 'claude-review') }}"
 
+          # Skip Graphite merge-queue temporary PRs (branch prefix gtmq_).
+          # These are created/triggered by the graphite-app bot, which the
+          # Claude action rejects as a non-human actor, and reviewing them is
+          # redundant with the review already done on the source PR.
+          case "$CURRENT_BRANCH" in
+            gtmq_*)
+              echo "### Claude Code Review skipped" >> $GITHUB_STEP_SUMMARY
+              echo "Branch \`$CURRENT_BRANCH\` is a Graphite merge-queue temporary PR — skipping review." >> $GITHUB_STEP_SUMMARY
+              echo "should_review=false" >> $GITHUB_OUTPUT
+              exit 0
+              ;;
+          esac
+
           if [ "$HAS_LABEL" = "true" ]; then
             echo "PR has 'claude-review' label — forcing review" >> $GITHUB_STEP_SUMMARY
             echo "should_review=true" >> $GITHUB_OUTPUT
