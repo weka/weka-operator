@@ -46,6 +46,7 @@
 | nodeSelector | map[string]string |  |
 | wekaSecretRef | string |  |
 | network | Network |  |
+| ipv6 | bool | use ipv6 for weka client networking configuration. applied only when the client<br>containers are first created; changing it on an existing WekaClient has no effect —<br>recreate the WekaClient to switch IP family. |
 | driversDistService | string |  |
 | joinIpPorts | []string |  |
 | targetCluster | ObjectReference |  |

@@ -3375,6 +3375,13 @@
           "optional": true
         },
         {
+          "name": "Ipv6",
+          "jsonName": "ipv6",
+          "type": "bool",
+          "description": "use ipv6 for weka client networking configuration. applied only when the client\ncontainers are first created; changing it on an existing WekaClient has no effect —\nrecreate the WekaClient to switch IP family.",
+          "optional": true
+        },
+        {
           "name": "DriversDistService",
           "jsonName": "driversDistService",
           "type": "string",
