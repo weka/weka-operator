@@ -173,7 +173,7 @@ func (r *CRReporter) buildSnapshot(ctx context.Context) ([]byte, error) {
 		r.log.Error(err, "Failed to collect operator Deployment — aborting cycle")
 		return nil, err
 	}
-	if err := appendNDJSON(&buf, "Deployment", deployments, evIdx); err != nil {
+	if err = appendNDJSON(&buf, "Deployment", deployments, evIdx); err != nil {
 		r.log.Error(err, "Failed to serialize operator Deployment — aborting cycle")
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func (r *CRReporter) buildSnapshot(ctx context.Context) ([]byte, error) {
 		r.log.Error(err, "Failed to collect operator DaemonSets — aborting cycle")
 		return nil, err
 	}
-	if err := appendNDJSON(&buf, "DaemonSet", daemonsets, evIdx); err != nil {
+	if err = appendNDJSON(&buf, "DaemonSet", daemonsets, evIdx); err != nil {
 		r.log.Error(err, "Failed to serialize operator DaemonSets — aborting cycle")
 		return nil, err
 	}
@@ -197,7 +197,7 @@ func (r *CRReporter) buildSnapshot(ctx context.Context) ([]byte, error) {
 		r.log.Error(err, "Failed to collect operator Pods — aborting cycle")
 		return nil, err
 	}
-	if err := appendNDJSON(&buf, "Pod", pods, evIdx); err != nil {
+	if err = appendNDJSON(&buf, "Pod", pods, evIdx); err != nil {
 		r.log.Error(err, "Failed to serialize operator Pods — aborting cycle")
 		return nil, err
 	}
