@@ -49,6 +49,24 @@ type policyLoop struct {
 	Op     operations.Operation
 }
 
+func ownerDetailsFromPolicy(policy *weka.WekaPolicy) weka.WekaOwnerDetails {
+	var image, imagePullSecret string
+	if policy.Spec.Image != nil {
+		image = *policy.Spec.Image
+	}
+	if policy.Spec.ImagePullSecret != nil {
+		imagePullSecret = *policy.Spec.ImagePullSecret
+	}
+
+	return weka.WekaOwnerDetails{
+		Image:              image,
+		ImagePullSecret:    imagePullSecret,
+		Tolerations:        policy.Spec.Tolerations,
+		Labels:             policy.GetLabels(),
+		ServiceAccountName: policy.Spec.ServiceAccountName,
+	}
+}
+
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies/finalizers,verbs=update
@@ -125,13 +143,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return r.Status().Update(ctx, wekaPolicy)
 	}
 
-	var image, imagePullSecret string
-	if wekaPolicy.Spec.Image != nil {
-		image = *wekaPolicy.Spec.Image
-	}
-	if wekaPolicy.Spec.ImagePullSecret != nil {
-		imagePullSecret = *wekaPolicy.Spec.ImagePullSecret
-	}
+	ownerDetails := ownerDetailsFromPolicy(wekaPolicy)
 
 	switch wekaPolicy.Spec.Type {
 	case weka.WekaPolicyTypeSignDrives:
@@ -139,12 +151,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.Mgr,
 			wekaPolicy.Spec.Payload.SignDrives,
 			wekaPolicy,
-			weka.WekaOwnerDetails{
-				Image:           image,
-				ImagePullSecret: imagePullSecret,
-				Tolerations:     wekaPolicy.Spec.Tolerations,
-				Labels:          wekaPolicy.GetLabels(),
-			},
+			ownerDetails,
 			wekaPolicy.Status.Status,
 			onSuccess,
 			onFailure,
@@ -156,12 +163,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.Mgr,
 			wekaPolicy.Spec.Payload.DiscoverDrives,
 			wekaPolicy,
-			weka.WekaOwnerDetails{
-				Image:           image,
-				ImagePullSecret: imagePullSecret,
-				Tolerations:     wekaPolicy.Spec.Tolerations,
-				Labels:          wekaPolicy.GetLabels(),
-			},
+			ownerDetails,
 			wekaPolicy.Status.Status,
 			onSuccess,
 			false,
@@ -172,12 +174,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.Mgr,
 			wekaPolicy.Spec.Payload.EnsureNICs,
 			wekaPolicy,
-			weka.WekaOwnerDetails{
-				Image:           image,
-				ImagePullSecret: imagePullSecret,
-				Tolerations:     wekaPolicy.Spec.Tolerations,
-				Labels:          wekaPolicy.GetLabels(),
-			},
+			ownerDetails,
 			wekaPolicy.Status.Status,
 			onSuccess,
 		)
@@ -186,25 +183,11 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if wekaPolicy.Spec.Payload.DriverDistPayload == nil {
 			wekaPolicy.Spec.Payload.DriverDistPayload = &weka.DriverDistPayload{}
 		}
-		opImage := ""
-		if wekaPolicy.Spec.Image != nil {
-			opImage = *wekaPolicy.Spec.Image
-		}
-		opImagePullSecret := ""
-		if wekaPolicy.Spec.ImagePullSecret != nil {
-			opImagePullSecret = *wekaPolicy.Spec.ImagePullSecret
-		}
-
 		enableLocalDriversDistOp := operations.NewEnsureDistServiceOperation(
 			r.Mgr,
 			wekaPolicy.Spec.Payload.DriverDistPayload,
 			wekaPolicy,
-			weka.WekaOwnerDetails{
-				Image:           opImage,
-				ImagePullSecret: opImagePullSecret,
-				Tolerations:     wekaPolicy.Spec.Tolerations,
-				Labels:          wekaPolicy.GetLabels(),
-			},
+			ownerDetails,
 			wekaPolicy.Status.Status,
 			onSuccess,
 			onFailure,
@@ -221,12 +204,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.RestClient,
 			wekaPolicy.Spec.Payload.RemoteTracesSession,
 			wekaPolicy,
-			weka.WekaOwnerDetails{
-				Image:           image,
-				ImagePullSecret: imagePullSecret,
-				Tolerations:     wekaPolicy.Spec.Tolerations,
-				Labels:          wekaPolicy.GetLabels(),
-			},
+			ownerDetails,
 			nil,
 			onSuccess,
 			onFailure,

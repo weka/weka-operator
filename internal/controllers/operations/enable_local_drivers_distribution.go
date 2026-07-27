@@ -450,15 +450,16 @@ func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) er
 
 	_, err = controllerutil.CreateOrUpdate(ctx, o.client, wc, func() error {
 		wc.Spec = weka.WekaContainerSpec{
-			Image:             o.containerDetails.Image, // Image from WekaPolicy.Spec.Image
-			ImagePullSecret:   o.containerDetails.ImagePullSecret,
-			Mode:              weka.WekaContainerModeDriversDist,
-			WekaContainerName: "dist",
-			AgentPort:         60001,
-			Port:              60002,
-			NumCores:          1,
-			Tolerations:       o.containerDetails.Tolerations,
-			NodeSelector:      o.payload.DistNodeSelector, // Use the new DistNodeSelector
+			Image:              o.containerDetails.Image, // Image from WekaPolicy.Spec.Image
+			ImagePullSecret:    o.containerDetails.ImagePullSecret,
+			Mode:               weka.WekaContainerModeDriversDist,
+			WekaContainerName:  "dist",
+			AgentPort:          60001,
+			Port:               60002,
+			NumCores:           1,
+			Tolerations:        o.containerDetails.Tolerations,
+			NodeSelector:       o.payload.DistNodeSelector, // Use the new DistNodeSelector
+			ServiceAccountName: o.containerDetails.ServiceAccountName,
 			// Affinity, Resources etc. as needed for a dist service
 			// This container needs to run on a node that can host the service.
 		}
@@ -567,15 +568,16 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 
 			_, err = controllerutil.CreateOrUpdate(ctx, o.client, wc, func() error {
 				wc.Spec = weka.WekaContainerSpec{
-					Image:             image,                              // The Weka image for which to build drivers
-					ImagePullSecret:   o.containerDetails.ImagePullSecret, // Assuming same pull secret for all
-					Mode:              weka.WekaContainerModeDriversBuilder,
-					WekaContainerName: "dist",
-					AgentPort:         60001,
-					Port:              60002,
-					NumCores:          1,
-					UploadResultsTo:   distContainerName,
-					Tolerations:       o.containerDetails.Tolerations,
+					Image:              image,                              // The Weka image for which to build drivers
+					ImagePullSecret:    o.containerDetails.ImagePullSecret, // Assuming same pull secret for all
+					Mode:               weka.WekaContainerModeDriversBuilder,
+					WekaContainerName:  "dist",
+					AgentPort:          60001,
+					Port:               60002,
+					NumCores:           1,
+					UploadResultsTo:    distContainerName,
+					Tolerations:        o.containerDetails.Tolerations,
+					ServiceAccountName: o.containerDetails.ServiceAccountName,
 					// NodeSelector logic:
 					// Merge payload selector (ka.nodeSelector), specific kernel/arch.
 					// Specifics (kernel, arch) take precedence if keys overlap.

@@ -241,7 +241,8 @@ func (o *MaintainTraceSession) EnsureDeployment(ctx context.Context) error {
 					Annotations: annotations,
 				},
 				Spec: v1.PodSpec{
-					SecurityContext: resources.GetSecurityProfile(),
+					SecurityContext:    resources.GetSecurityProfile(),
+					ServiceAccountName: o.containerDetails.ServiceAccountName,
 					ImagePullSecrets: []v1.LocalObjectReference{
 						{Name: o.containerDetails.ImagePullSecret},
 					},
@@ -366,6 +367,12 @@ func (o *MaintainTraceSession) EnsureDeployment(ctx context.Context) error {
 			err = o.mgr.GetClient().Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, &deployment)
 			if err != nil {
 				return err
+			}
+			if deployment.Spec.Template.Spec.ServiceAccountName != o.containerDetails.ServiceAccountName {
+				deployment.Spec.Template.Spec.ServiceAccountName = o.containerDetails.ServiceAccountName
+				if err = o.mgr.GetClient().Update(ctx, &deployment); err != nil {
+					return err
+				}
 			}
 			o.deployment = &deployment
 			return nil
