@@ -66,14 +66,15 @@ var _ = Describe("nodeAttributes StringKey", func() {
 
 var _ = Describe("EnsureBuilderContainers", func() {
 	var (
-		ctx       context.Context
-		scheme    *runtime.Scheme
-		policy    *weka.WekaPolicy
-		namespace string
-		image     string
-		kernel    string
-		arch      string
-		osImage   string
+		ctx                context.Context
+		scheme             *runtime.Scheme
+		policy             *weka.WekaPolicy
+		namespace          string
+		image              string
+		kernel             string
+		arch               string
+		osImage            string
+		serviceAccountName string
 	)
 
 	BeforeEach(func() {
@@ -83,6 +84,7 @@ var _ = Describe("EnsureBuilderContainers", func() {
 		kernel = "5.15.0-100-generic"
 		arch = "amd64"
 		osImage = "Ubuntu 22.04.5 LTS"
+		serviceAccountName = "weka-runtime"
 
 		scheme = runtime.NewScheme()
 		Expect(weka.AddToScheme(scheme)).To(Succeed())
@@ -129,7 +131,8 @@ var _ = Describe("EnsureBuilderContainers", func() {
 				EnsureImages: []string{image1, image2},
 			},
 			containerDetails: weka.WekaOwnerDetails{
-				Image: image,
+				Image:              image,
+				ServiceAccountName: serviceAccountName,
 			},
 			discoveredImages: map[string]bool{image1: true, image2: true},
 			targetKernelArchs: map[string]nodeAttributes{
@@ -168,8 +171,11 @@ var _ = Describe("EnsureBuilderContainers", func() {
 		Expect(builderNames).To(ContainElement(expectedName1))
 		Expect(builderNames).To(ContainElement(expectedName2))
 
-		// Verify each builder has the correct image in its spec
+		// Verify each builder has the correct image and service account in its spec
 		for _, wc := range allContainers.Items {
+			if wc.Spec.Mode == weka.WekaContainerModeDriversBuilder {
+				Expect(wc.Spec.ServiceAccountName).To(Equal(serviceAccountName))
+			}
 			if wc.Name == expectedName1 {
 				Expect(wc.Spec.Image).To(Equal(image1))
 			}
@@ -262,5 +268,61 @@ var _ = Describe("EnsureBuilderContainers", func() {
 			}
 		}
 		Expect(builderCount).To(Equal(1), "Exactly one builder container should exist")
+	})
+})
+
+var _ = Describe("EnsureDistContainer", func() {
+	var (
+		ctx                context.Context
+		scheme             *runtime.Scheme
+		policy             *weka.WekaPolicy
+		namespace          string
+		image              string
+		serviceAccountName string
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		namespace = "default"
+		image = "quay.io/weka.io/weka-in-container:4.5.0.100"
+		serviceAccountName = "weka-runtime"
+
+		scheme = runtime.NewScheme()
+		Expect(weka.AddToScheme(scheme)).To(Succeed())
+
+		policy = &weka.WekaPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-policy",
+				Namespace: namespace,
+				UID:       "test-policy-uid",
+			},
+		}
+	})
+
+	It("should propagate the service account to the dist container", func() {
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			Build()
+
+		op := &EnsureDistServiceOperation{
+			client:  fakeClient,
+			scheme:  scheme,
+			policy:  policy,
+			payload: &weka.DriverDistPayload{},
+			containerDetails: weka.WekaOwnerDetails{
+				Image:              image,
+				ServiceAccountName: serviceAccountName,
+			},
+		}
+
+		err := op.EnsureDistContainer(ctx)
+		Expect(err).NotTo(HaveOccurred())
+
+		var containers weka.WekaContainerList
+		err = fakeClient.List(ctx, &containers, &client.ListOptions{Namespace: namespace})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(containers.Items).To(HaveLen(1))
+		Expect(containers.Items[0].Spec.Mode).To(Equal(weka.WekaContainerModeDriversDist))
+		Expect(containers.Items[0].Spec.ServiceAccountName).To(Equal(serviceAccountName))
 	})
 })
