@@ -2,6 +2,7 @@ package wekacontainer
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -35,6 +36,30 @@ const lifecycleHeartbeatTimestamp = "lifecycleHeartbeat"
 // (scripts/eks/register-lifecycle-hook.sh defaults to 2h) so heartbeats always land before it lapses.
 const lifecycleHeartbeatThrottle = time.Hour
 
+// requiredHookHeartbeatTimeoutSeconds is the minimum acceptable HeartbeatTimeout for the
+// EC2_INSTANCE_TERMINATING lifecycle hook. Below this, the ASG could complete termination before
+// the drive has been safely rebuilt off the instance.
+const requiredHookHeartbeatTimeoutSeconds int32 = 7200
+
+// noTerminationLifecycleHookReason is the Warning event reason emitted when the operator cannot
+// ensure the ASG's termination lifecycle hook (missing ASG, or PutLifecycleHook denied/failed).
+const noTerminationLifecycleHookReason = "NoTerminationLifecycleHook"
+
+// asgResolutionFailedReason is the Warning event reason emitted when the operator cannot resolve
+// the Auto Scaling group for a node (DescribeInstance failing repeatedly).
+const asgResolutionFailedReason = "ASGResolutionFailed"
+
+// asgResolveFailureWarnThreshold is the number of consecutive DescribeInstance failures for a node
+// before we emit a Warning event. A single transient failure fails open silently (fail-open); this
+// avoids crying wolf on brief AWS API hiccups.
+const asgResolveFailureWarnThreshold = 3
+
+// verifiedHookTTL bounds how long a node/ASG stays "verified" in-memory before the ensure step
+// re-asserts the hook. This repairs IaC drift (e.g. terraform reconciling the ASG and deleting the
+// hook the operator created) within the TTL, instead of the drift persisting until the operator
+// restarts, and it bounds the cache maps (stale entries are pruned on read).
+const verifiedHookTTL = 6 * time.Hour
+
 var (
 	// lifecycleClientsMu guards lifecycleClients.
 	lifecycleClientsMu sync.Mutex
@@ -44,6 +69,83 @@ var (
 	// newLifecycleClient builds a LifecycleClient for a region. Overridable in tests.
 	newLifecycleClient = awslib.NewLifecycleClient
 )
+
+var (
+	// verifiedHookMu guards verifiedHookASGs and verifiedHookNodes.
+	verifiedHookMu sync.Mutex
+	// verifiedHookASGs caches ASGs whose termination lifecycle hook is confirmed good (present with
+	// an adequate HeartbeatTimeout), keyed by "asgName/hookName", until verifiedHookTTL elapses.
+	verifiedHookASGs = map[string]time.Time{}
+	// verifiedHookNodes caches nodes whose ASG's termination lifecycle hook is confirmed good, so we
+	// can skip even the DescribeInstance call on subsequent reconciles, until verifiedHookTTL elapses.
+	verifiedHookNodes = map[string]time.Time{}
+	// asgResolveFailures counts consecutive DescribeInstance failures per node, so we only warn after
+	// asgResolveFailureWarnThreshold consecutive failures instead of on every transient error.
+	asgResolveFailures = map[string]int{}
+)
+
+// hookNodeVerified reports whether node's ASG lifecycle hook was already confirmed good within
+// verifiedHookTTL. Stale entries are pruned on read.
+func hookNodeVerified(node string) bool {
+	verifiedHookMu.Lock()
+	defer verifiedHookMu.Unlock()
+	t, ok := verifiedHookNodes[node]
+	if !ok {
+		return false
+	}
+	if time.Since(t) >= verifiedHookTTL {
+		delete(verifiedHookNodes, node)
+		return false
+	}
+	return true
+}
+
+// markHookNodeVerified caches node as having a confirmed-good ASG lifecycle hook.
+func markHookNodeVerified(node string) {
+	verifiedHookMu.Lock()
+	defer verifiedHookMu.Unlock()
+	verifiedHookNodes[node] = time.Now()
+}
+
+// hookASGVerified reports whether asgName's hookName lifecycle hook was already confirmed good
+// within verifiedHookTTL. Stale entries are pruned on read.
+func hookASGVerified(asgName, hookName string) bool {
+	verifiedHookMu.Lock()
+	defer verifiedHookMu.Unlock()
+	key := asgName + "/" + hookName
+	t, ok := verifiedHookASGs[key]
+	if !ok {
+		return false
+	}
+	if time.Since(t) >= verifiedHookTTL {
+		delete(verifiedHookASGs, key)
+		return false
+	}
+	return true
+}
+
+// markHookASGVerified caches asgName's hookName as having a confirmed-good lifecycle hook.
+func markHookASGVerified(asgName, hookName string) {
+	verifiedHookMu.Lock()
+	defer verifiedHookMu.Unlock()
+	verifiedHookASGs[asgName+"/"+hookName] = time.Now()
+}
+
+// incrAsgResolveFailure increments node's consecutive DescribeInstance-failure counter and returns
+// the new count.
+func incrAsgResolveFailure(node string) int {
+	verifiedHookMu.Lock()
+	defer verifiedHookMu.Unlock()
+	asgResolveFailures[node]++
+	return asgResolveFailures[node]
+}
+
+// resetAsgResolveFailure clears node's consecutive DescribeInstance-failure counter.
+func resetAsgResolveFailure(node string) {
+	verifiedHookMu.Lock()
+	defer verifiedHookMu.Unlock()
+	delete(asgResolveFailures, node)
+}
 
 // getLifecycleClient returns the cached LifecycleClient for region, creating one if needed.
 func getLifecycleClient(region string) awslib.LifecycleClient {
@@ -227,4 +329,72 @@ func (r *containerReconcilerLoop) allBackendPodsOnNodeExited(ctx context.Context
 		}
 	}
 	return true, nil
+}
+
+// reconcileEnsureAwsLifecycleHook ensures the backend node's ASG has the configured EC2_INSTANCE_TERMINATING
+// lifecycle hook with an adequate HeartbeatTimeout, creating or fixing it if needed. If it cannot
+// (no ASG, or PutLifecycleHook denied), it emits a throttled Warning event. AWS errors fail open.
+func (r *containerReconcilerLoop) reconcileEnsureAwsLifecycleHook(ctx context.Context) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	if !r.container.IsBackend() {
+		return nil
+	}
+	if r.node == nil {
+		return nil
+	}
+	if discovery.ProviderFromID(r.node.Spec.ProviderID) != discovery.ProviderAWS {
+		return nil
+	}
+	hookName := lifecycleHookName
+
+	if hookNodeVerified(r.node.Name) {
+		return nil
+	}
+
+	instanceID, region, ok := discovery.InstanceIDAndRegionFromProviderID(r.node.Spec.ProviderID)
+	if !ok {
+		return nil
+	}
+
+	client := getLifecycleClient(region)
+
+	asgName, _, err := client.DescribeInstance(ctx, instanceID)
+	if err != nil {
+		n := incrAsgResolveFailure(r.node.Name)
+		logger.Info("failed to describe ASG instance while ensuring termination lifecycle hook, skipping (fail-open)",
+			"instanceID", instanceID, "node", r.node.Name, "consecutiveFailures", n, "error", err.Error())
+		if n >= asgResolveFailureWarnThreshold {
+			_ = r.RecordEventThrottled( //nolint:errcheck // best-effort, failure to record event should not block reconcile
+				v1.EventTypeWarning,
+				asgResolutionFailedReason,
+				fmt.Sprintf("could not resolve the Auto Scaling group for node %q after %d attempts (%v) — cannot verify or create its termination lifecycle hook; scale-down may risk data loss", r.node.Name, n, err),
+				10*time.Minute,
+			)
+		}
+		return nil
+	}
+	resetAsgResolveFailure(r.node.Name)
+
+	if hookASGVerified(asgName, hookName) {
+		markHookNodeVerified(r.node.Name)
+		return nil
+	}
+
+	if err := client.PutTerminationHook(ctx, asgName, hookName, requiredHookHeartbeatTimeoutSeconds); err != nil {
+		logger.Info("failed to ensure termination lifecycle hook, will retry next reconcile (fail-open)",
+			"instanceID", instanceID, "node", r.node.Name, "asg", asgName, "hookName", hookName, "error", err.Error())
+		_ = r.RecordEventThrottled( //nolint:errcheck // best-effort, failure to record event should not block reconcile
+			v1.EventTypeWarning,
+			noTerminationLifecycleHookReason,
+			fmt.Sprintf("could not create the termination lifecycle hook %q on Auto Scaling group %q for node %q (%v) — scale-down can risk data loss", hookName, asgName, r.node.Name, err),
+			10*time.Minute,
+		)
+		return nil
+	}
+
+	logger.Info("ensured termination lifecycle hook", "instanceID", instanceID, "node", r.node.Name, "asg", asgName, "hookName", hookName)
+	markHookASGVerified(asgName, hookName)
+	markHookNodeVerified(r.node.Name)
+	return nil
 }

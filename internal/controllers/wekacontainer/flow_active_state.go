@@ -55,6 +55,19 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			ContinueOnError: true,
 		},
 		&lifecycle.SimpleStep{
+			Name: "EnsureAwsTerminationLifecycleHook",
+			Run:  r.reconcileEnsureAwsLifecycleHook,
+			Predicates: lifecycle.Predicates{
+				lifecycle.IsNotFunc(r.NodeNotSet),
+				r.NodeIsAwsProvider,
+			},
+			ContinueOnError: true,
+			// DisableRandomPreSetInterval so the hook is ensured on the FIRST reconcile after a backend
+			// container lands on a node (immediate protection), not after a randomized 0-15m delay. The interval
+			// only bounds retries; the verified-node/ASG caches make the steady-state case free anyway.
+			Throttling: &throttling.ThrottlingSettings{Interval: 15 * time.Minute, DisableRandomPreSetInterval: true},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.GetWekaClient,
 			Predicates: lifecycle.Predicates{
 				r.WekaContainerManagesCsi,

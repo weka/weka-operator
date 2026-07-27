@@ -3,14 +3,17 @@ package wekacontainer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/weka/go-steps-engine/throttling"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	awslib "github.com/weka/weka-operator/internal/services/aws"
@@ -26,10 +29,21 @@ type fakeLifecycleClient struct {
 	heartbeatCalls int
 	completeCalls  int
 	completeResult string
+
+	describeInstanceErr error
+
+	putErr           error
+	putCalls         int
+	lastPutAsgName   string
+	lastPutHookName  string
+	lastPutHeartbeat int32
 }
 
 func (f *fakeLifecycleClient) DescribeInstance(ctx context.Context, instanceID string) (string, string, error) {
 	f.describeCalls++
+	if f.describeInstanceErr != nil {
+		return "", "", f.describeInstanceErr
+	}
 	return f.asgName, f.lifecycleState, nil
 }
 
@@ -42,6 +56,14 @@ func (f *fakeLifecycleClient) CompleteAction(ctx context.Context, hookName, asgN
 	f.completeCalls++
 	f.completeResult = result
 	return nil
+}
+
+func (f *fakeLifecycleClient) PutTerminationHook(ctx context.Context, asgName, hookName string, heartbeatTimeout int32) error {
+	f.putCalls++
+	f.lastPutAsgName = asgName
+	f.lastPutHookName = hookName
+	f.lastPutHeartbeat = heartbeatTimeout
+	return f.putErr
 }
 
 // fakeKubeService is a KubeService test double: only GetPods is exercised here (by
@@ -233,5 +255,136 @@ var _ = Describe("reconcileAwsTerminationLifecycle", func() {
 
 		Expect(fakeAsg.completeCalls).To(Equal(0))
 		Expect(fakeAsg.heartbeatCalls).To(Equal(1))
+	})
+})
+
+var _ = Describe("reconcileEnsureAwsLifecycleHook", func() {
+	var (
+		scheme    *runtime.Scheme
+		container *weka.WekaContainer
+		node      *v1.Node
+		pod       *v1.Pod
+		fakeAsg   *fakeLifecycleClient
+	)
+
+	BeforeEach(func() {
+		scheme = runtime.NewScheme()
+		Expect(v1.AddToScheme(scheme)).To(Succeed())
+		Expect(weka.AddToScheme(scheme)).To(Succeed())
+
+		container = &weka.WekaContainer{
+			ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "default"},
+			Spec:       weka.WekaContainerSpec{Mode: weka.WekaContainerModeDrive},
+		}
+		node = &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+			Spec: v1.NodeSpec{
+				ProviderID: "aws:///eu-west-1a/i-0123456789abcdef0",
+			},
+		}
+		pod = &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "default"}}
+
+		fakeAsg = &fakeLifecycleClient{asgName: "my-asg"}
+
+		lifecycleClientsMu.Lock()
+		lifecycleClients = map[string]awslib.LifecycleClient{}
+		newLifecycleClient = func(region string) awslib.LifecycleClient { return fakeAsg }
+		lifecycleClientsMu.Unlock()
+
+		verifiedHookMu.Lock()
+		verifiedHookASGs = map[string]time.Time{}
+		verifiedHookNodes = map[string]time.Time{}
+		asgResolveFailures = map[string]int{}
+		verifiedHookMu.Unlock()
+	})
+
+	AfterEach(func() {
+		lifecycleClientsMu.Lock()
+		lifecycleClients = map[string]awslib.LifecycleClient{}
+		newLifecycleClient = awslib.NewLifecycleClient
+		lifecycleClientsMu.Unlock()
+
+		verifiedHookMu.Lock()
+		verifiedHookASGs = map[string]time.Time{}
+		verifiedHookNodes = map[string]time.Time{}
+		asgResolveFailures = map[string]int{}
+		verifiedHookMu.Unlock()
+	})
+
+	newReconciler := func() *containerReconcilerLoop {
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithRuntimeObjects(container).
+			WithStatusSubresource(container).
+			Build()
+		return &containerReconcilerLoop{
+			Client:        fakeClient,
+			container:     container,
+			node:          node,
+			pod:           pod,
+			Recorder:      record.NewFakeRecorder(10),
+			ThrottlingMap: throttling.NewSyncMapThrottler(),
+		}
+	}
+
+	It("no-ops when the node is not on AWS", func() {
+		node.Spec.ProviderID = "gce://my-project/us-central1-a/instance-1"
+		r := newReconciler()
+
+		Expect(r.reconcileEnsureAwsLifecycleHook(context.Background())).To(Succeed())
+
+		Expect(fakeAsg.describeCalls).To(Equal(0))
+	})
+
+	It("always calls PutTerminationHook (create-or-update) with a 7200s heartbeat and caches node+ASG", func() {
+		r := newReconciler()
+
+		Expect(r.reconcileEnsureAwsLifecycleHook(context.Background())).To(Succeed())
+
+		Expect(fakeAsg.putCalls).To(Equal(1))
+		Expect(fakeAsg.lastPutHeartbeat).To(Equal(int32(7200)))
+		Expect(hookNodeVerified(node.Name)).To(BeTrue())
+		Expect(hookASGVerified(fakeAsg.asgName, "weka-drive-drain")).To(BeTrue())
+	})
+
+	It("emits a NoTerminationLifecycleHook Warning and does not cache when PutTerminationHook fails", func() {
+		fakeAsg.putErr = fmt.Errorf("AccessDenied")
+		r := newReconciler()
+
+		Expect(r.reconcileEnsureAwsLifecycleHook(context.Background())).To(Succeed())
+
+		Expect(hookNodeVerified(node.Name)).To(BeFalse())
+
+		recorder := r.Recorder.(*record.FakeRecorder)
+		Eventually(recorder.Events).Should(Receive(ContainSubstring("Warning")))
+		Consistently(recorder.Events).ShouldNot(Receive())
+	})
+
+	It("makes no further AWS calls on a second reconcile after a successful verify", func() {
+		r := newReconciler()
+
+		Expect(r.reconcileEnsureAwsLifecycleHook(context.Background())).To(Succeed())
+		describeCallsAfterFirst := fakeAsg.describeCalls
+
+		Expect(r.reconcileEnsureAwsLifecycleHook(context.Background())).To(Succeed())
+
+		Expect(fakeAsg.describeCalls).To(Equal(describeCallsAfterFirst))
+	})
+
+	It("does not warn on a single transient DescribeInstance failure but warns after N consecutive", func() {
+		fakeAsg.describeInstanceErr = fmt.Errorf("throttled")
+		r := newReconciler()
+		recorder := r.Recorder.(*record.FakeRecorder)
+
+		Expect(r.reconcileEnsureAwsLifecycleHook(context.Background())).To(Succeed())
+		Expect(r.reconcileEnsureAwsLifecycleHook(context.Background())).To(Succeed())
+
+		Expect(fakeAsg.putCalls).To(Equal(0))
+		Consistently(recorder.Events).ShouldNot(Receive())
+
+		Expect(r.reconcileEnsureAwsLifecycleHook(context.Background())).To(Succeed())
+
+		Eventually(recorder.Events).Should(Receive(ContainSubstring("ASGResolutionFailed")))
+		Consistently(recorder.Events).ShouldNot(Receive())
 	})
 })

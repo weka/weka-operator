@@ -24,6 +24,9 @@ type LifecycleClient interface {
 	// proceed with the instance's termination. Idempotent: completing an already-resolved action is
 	// treated as success.
 	CompleteAction(ctx context.Context, hookName, asgName, instanceID, result string) error
+	// PutTerminationHook creates or updates an EC2_INSTANCE_TERMINATING lifecycle hook named hookName on asgName
+	// with the given HeartbeatTimeout and DefaultResult=CONTINUE (no notification target/role).
+	PutTerminationHook(ctx context.Context, asgName, hookName string, heartbeatTimeout int32) error
 }
 
 // realLifecycleClient is the real AWS-backed implementation of LifecycleClient.
@@ -101,4 +104,19 @@ func (a *realLifecycleClient) CompleteAction(ctx context.Context, hookName, asgN
 		return nil
 	}
 	return errors.Wrap(err, "CompleteLifecycleAction failed")
+}
+
+func (a *realLifecycleClient) PutTerminationHook(ctx context.Context, asgName, hookName string, heartbeatTimeout int32) error {
+	c, err := a.ensureClient(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = c.PutLifecycleHook(ctx, &autoscaling.PutLifecycleHookInput{
+		AutoScalingGroupName: aws.String(asgName),
+		LifecycleHookName:    aws.String(hookName),
+		LifecycleTransition:  aws.String("autoscaling:EC2_INSTANCE_TERMINATING"),
+		HeartbeatTimeout:     aws.Int32(heartbeatTimeout),
+		DefaultResult:        aws.String("CONTINUE"),
+	})
+	return errors.Wrap(err, "PutLifecycleHook failed")
 }
