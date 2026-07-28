@@ -368,12 +368,6 @@ func (o *MaintainTraceSession) EnsureDeployment(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			if deployment.Spec.Template.Spec.ServiceAccountName != o.containerDetails.ServiceAccountName {
-				deployment.Spec.Template.Spec.ServiceAccountName = o.containerDetails.ServiceAccountName
-				if err = o.mgr.GetClient().Update(ctx, &deployment); err != nil {
-					return err
-				}
-			}
 			o.deployment = &deployment
 			return nil
 		}
