@@ -284,11 +284,6 @@ type WekaContainerSpec struct {
 	DataServicesConfig *DataServicesConfig `json:"dataServicesConfig,omitempty"`
 }
 
-type AWSNetwork struct {
-	// should provide list of additional nics indexes starting from 1, index 0 is reserved for kernel networking
-	DeviceSlots []int `json:"deviceSlots,omitempty"`
-}
-
 // VirtualDrive represents a virtual drive allocation in drive sharing mode
 type VirtualDrive struct {
 	// VirtualUUID is the virtual drive identifier
