@@ -49,24 +49,6 @@ type policyLoop struct {
 	Op     operations.Operation
 }
 
-func ownerDetailsFromPolicy(policy *weka.WekaPolicy) weka.WekaOwnerDetails {
-	var image, imagePullSecret string
-	if policy.Spec.Image != nil {
-		image = *policy.Spec.Image
-	}
-	if policy.Spec.ImagePullSecret != nil {
-		imagePullSecret = *policy.Spec.ImagePullSecret
-	}
-
-	return weka.WekaOwnerDetails{
-		Image:              image,
-		ImagePullSecret:    imagePullSecret,
-		Tolerations:        policy.Spec.Tolerations,
-		Labels:             policy.GetLabels(),
-		ServiceAccountName: policy.Spec.ServiceAccountName,
-	}
-}
-
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies/finalizers,verbs=update
@@ -143,7 +125,13 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return r.Status().Update(ctx, wekaPolicy)
 	}
 
-	ownerDetails := ownerDetailsFromPolicy(wekaPolicy)
+	ownerDetails := ownerDetailsFrom(ownerDetailsInput{
+		Image:              wekaPolicy.Spec.Image,
+		ImagePullSecret:    wekaPolicy.Spec.ImagePullSecret,
+		Tolerations:        wekaPolicy.Spec.Tolerations,
+		Labels:             wekaPolicy.GetLabels(),
+		ServiceAccountName: wekaPolicy.Spec.ServiceAccountName,
+	})
 
 	switch wekaPolicy.Spec.Type {
 	case weka.WekaPolicyTypeSignDrives:

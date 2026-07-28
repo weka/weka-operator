@@ -22,6 +22,10 @@ All reconciliation logic lives in `internal/controllers/`.
 ## Shared Components
 
 ```
+owner_details.go    # Single construction site for weka.WekaOwnerDetails (image/pull-secret/
+                    #   tolerations/labels/serviceAccountName) shared by the WekaPolicy and
+                    #   WekaManualOperation reconcilers → propagated to every generated workload
+
 allocator/          # Resource allocation (ports, IPs, drives)
   allocator.go      # Main allocation logic
   templates.go      # Container templates

@@ -115,13 +115,13 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return r.Status().Update(ctx, wekaManualOperation)
 	}
 
-	var image, imagePullSecret string
-	if wekaManualOperation.Spec.Image != nil {
-		image = *wekaManualOperation.Spec.Image
-	}
-	if wekaManualOperation.Spec.ImagePullSecret != nil {
-		imagePullSecret = *wekaManualOperation.Spec.ImagePullSecret
-	}
+	ownerDetails := ownerDetailsFrom(ownerDetailsInput{
+		Image:              wekaManualOperation.Spec.Image,
+		ImagePullSecret:    wekaManualOperation.Spec.ImagePullSecret,
+		Tolerations:        wekaManualOperation.Spec.Tolerations,
+		Labels:             wekaManualOperation.GetLabels(),
+		ServiceAccountName: wekaManualOperation.Spec.ServiceAccountName,
+	})
 
 	switch wekaManualOperation.Spec.Action {
 	case weka.WekaManualOperationActionSignDrives:
@@ -129,13 +129,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.SignDrives,
 			wekaManualOperation,
-			weka.WekaOwnerDetails{
-				Image:              image,
-				ImagePullSecret:    imagePullSecret,
-				Tolerations:        wekaManualOperation.Spec.Tolerations,
-				Labels:             wekaManualOperation.GetLabels(),
-				ServiceAccountName: wekaManualOperation.Spec.ServiceAccountName,
-			},
+			ownerDetails,
 			wekaManualOperation.Status.Status,
 			onSuccess,
 			onFailure,
@@ -147,12 +141,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.ForceResignDrives,
 			wekaManualOperation,
-			weka.WekaOwnerDetails{
-				Image:           image,
-				ImagePullSecret: imagePullSecret,
-				Tolerations:     wekaManualOperation.Spec.Tolerations,
-				Labels:          wekaManualOperation.GetLabels(),
-			},
+			ownerDetails,
 			&wekaManualOperation.Status.Status,
 			onSuccess,
 			onFailure,
@@ -181,12 +170,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.DiscoverDrives,
 			wekaManualOperation,
-			weka.WekaOwnerDetails{
-				Image:           image,
-				ImagePullSecret: imagePullSecret,
-				Tolerations:     wekaManualOperation.Spec.Tolerations,
-				Labels:          wekaManualOperation.GetLabels(),
-			},
+			ownerDetails,
 			wekaManualOperation.Status.Status,
 			onSuccess,
 			false,
@@ -207,12 +191,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			r.RestClient,
 			payload,
 			wekaManualOperation,
-			weka.WekaOwnerDetails{
-				Image:           image,
-				ImagePullSecret: imagePullSecret,
-				Tolerations:     wekaManualOperation.Spec.Tolerations,
-				Labels:          wekaManualOperation.GetLabels(),
-			},
+			ownerDetails,
 			onRunning,
 			onSuccess,
 			onFailure,
@@ -224,12 +203,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.EnsureNICs,
 			wekaManualOperation,
-			weka.WekaOwnerDetails{
-				Image:           image,
-				ImagePullSecret: imagePullSecret,
-				Tolerations:     wekaManualOperation.Spec.Tolerations,
-				Labels:          wekaManualOperation.GetLabels(),
-			},
+			ownerDetails,
 			wekaManualOperation.Status.Status,
 			onSuccess,
 		)
