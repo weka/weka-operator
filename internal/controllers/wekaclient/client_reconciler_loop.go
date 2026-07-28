@@ -164,6 +164,12 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 					func() bool { return loop.targetCluster != nil },
 				},
 			},
+			&lifecycle.SimpleStep{
+				Run: loop.validateClientClusterIpFamily,
+				Predicates: lifecycle.Predicates{
+					func() bool { return loop.targetCluster != nil },
+				},
+			},
 			&lifecycle.SimpleStep{Run: loop.EnsureClientsWekaContainers},
 			&lifecycle.SimpleStep{
 				State:              &lifecycle.State{Name: condition.CondCsiDeployed},
@@ -502,6 +508,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			CoreIds:             wekaClient.Spec.CoreIds,
 			NonDatapathCoreIds:  wekaClient.Spec.NonDatapathCoreIds,
 			Network:             wekaClient.Spec.Network,
+			Ipv6:                wekaClient.Spec.Ipv6,
 			Hugepages:           c.getClientHugePages(),
 			HugepagesOffset:     c.getHugepagesOffset(),
 			HugepagesSize:       "2Mi",
@@ -741,6 +748,13 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
+	// Note: Ipv6 is intentionally not reconciled here. It is create-time only, matching
+	// WekaCluster (which sets container Ipv6 only at creation, container_factory.go, and
+	// never propagates it on update). IS_IPV6 is baked into the pod at creation
+	// (resources.pod.go) and no spec-diff recreates the pod, so a live change could only
+	// take effect silently at the next unrelated pod replacement. To change IP family,
+	// recreate the WekaClient. See NewUpdatableClientSpec.
+
 	newTolerations := util.ExpandTolerations([]v1.Toleration{}, newClientSpec.Tolerations, newClientSpec.RawTolerations)
 	oldTolerations := util.NormalizeTolerations(container.Spec.Tolerations)
 	if !reflect.DeepEqual(oldTolerations, newTolerations) {
@@ -941,6 +955,82 @@ func (c *clientReconcilerLoop) ValidateClientVersionCompatibility(ctx context.Co
 
 		return lifecycle.NewWaitErrorWithDuration(errors.New(msg), 30*time.Second)
 	}
+
+	return nil
+}
+
+// validateClientClusterIpFamily emits a best-effort warning when the client's ipv6
+// setting diverges from its target cluster. IS_IPV6 selects the address family of the
+// client's own management IP (weka_runtime.py get_single_device_ip); if WEKA management
+// is single-family for this cluster, a client registering the wrong family can't complete
+// management RPC with the backends and fails to join/mount with an opaque error.
+//
+// Ipv6 is create-time only for client containers: IS_IPV6 is baked into the pod when it
+// is first created (internal/controllers/resources/pod.go) and is never reconciled onto a
+// running pod. So the value that actually governs join/mount is the one the existing
+// containers hold, not the desired spec — comparing spec-to-cluster alone would fall
+// silent the moment a user edits spec.ipv6, even though no pod changed. We therefore
+// inspect the running containers when they exist, and fall back to the spec only before
+// any container has been created.
+//
+// This is a heuristic, not a hard rule, so we only warn and never block:
+//   - on a dual-stack node the client may be reachable on both families, making a
+//     mismatch legitimate;
+//   - Ipv6 is a plain bool, so an unset field is indistinguishable from explicit false —
+//     a cluster with ipv6=true and any client that simply omits the field will trip this.
+func (c *clientReconcilerLoop) validateClientClusterIpFamily(ctx context.Context) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	if c.targetCluster == nil {
+		return nil
+	}
+	clusterIpv6 := c.targetCluster.Spec.Ipv6
+
+	var reason string
+	switch {
+	case len(c.containers) > 0:
+		for _, container := range c.containers {
+			if container.Spec.Ipv6 != clusterIpv6 {
+				reason = fmt.Sprintf("client container %q runs ipv6=%t but target cluster %q has ipv6=%t; recreate the WekaClient to switch IP family",
+					container.Name, container.Spec.Ipv6, c.targetCluster.Name, clusterIpv6)
+			} else if c.wekaClient.Spec.Ipv6 != container.Spec.Ipv6 {
+				reason = fmt.Sprintf("spec.ipv6=%t does not match running client container %q (ipv6=%t); ipv6 applies only at creation, so the change takes effect only after the WekaClient is recreated",
+					c.wekaClient.Spec.Ipv6, container.Name, container.Spec.Ipv6)
+			}
+			if reason != "" {
+				break
+			}
+		}
+	case c.wekaClient.Spec.Ipv6 != clusterIpv6:
+		reason = fmt.Sprintf("spec.ipv6=%t differs from target cluster %q ipv6=%t",
+			c.wekaClient.Spec.Ipv6, c.targetCluster.Name, clusterIpv6)
+	}
+
+	if reason == "" {
+		return nil
+	}
+
+	// Per-object throttle: c.ThrottlingMap is the global, unpartitioned map shared by every
+	// WekaClient reconcile, so a key of just eventtype+reason would let one mismatched client
+	// starve the events of all others. Key on the client's namespace/name instead, and gate
+	// both the log and the event on it so a persistent mismatch isn't re-logged every reconcile.
+	key := fmt.Sprintf("ipv6-mismatch-%s/%s", c.wekaClient.Namespace, c.wekaClient.Name)
+	if !c.ThrottlingMap.ShouldRun(key, &throttling.ThrottlingSettings{
+		Interval:                    30 * time.Second,
+		DisableRandomPreSetInterval: true,
+	}) {
+		return nil
+	}
+
+	msg := fmt.Sprintf("%s. If the management network is single-family this may cause join/mount failures (safe to ignore on dual-stack).", reason)
+	logger.Warn("Client/cluster ipv6 mismatch",
+		"client", c.wekaClient.Name,
+		"clientSpecIpv6", c.wekaClient.Spec.Ipv6,
+		"targetCluster", c.targetCluster.Name,
+		"clusterIpv6", clusterIpv6,
+	)
+	eventType := v1.EventTypeWarning
+	_ = c.RecordEvent(&eventType, "ClientClusterIpv6Mismatch", msg) //nolint:errcheck // best-effort event
 
 	return nil
 }
@@ -1196,15 +1286,17 @@ type UpdatableClientSpec struct {
 	Annotations        *util2.HashableMap
 	// NodeSelector is propagated to client containers for container-level node selector
 	// mismatch validation. Not used for scheduling (clients use NodeAffinity).
-	NodeSelector            *util2.HashableMap
-	AutoRemoveTimeout       metav1.Duration
-	ForceDrain              bool
-	SkipActiveMountsCheck   bool
-	UmountOnHost            bool
-	PvcConfig               *weka.PVCConfig
-	TracesConfiguration     *weka.TracesConfiguration
-	CpuPolicy               weka.CpuPolicy
-	Network                 weka.Network
+	NodeSelector          *util2.HashableMap
+	AutoRemoveTimeout     metav1.Duration
+	ForceDrain            bool
+	SkipActiveMountsCheck bool
+	UmountOnHost          bool
+	PvcConfig             *weka.PVCConfig
+	TracesConfiguration   *weka.TracesConfiguration
+	CpuPolicy             weka.CpuPolicy
+	Network               weka.Network
+	// Ipv6 is deliberately excluded: it is create-time only (see updateContainerIfChanged),
+	// so it must not participate in the spec-change hash / update path.
 	DropAffinityConstraints bool
 	DpdkBaseMemoryMb        int
 }
