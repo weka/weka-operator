@@ -101,6 +101,7 @@ type EnsureNICsPayload struct {
 	DataNICsNumber int               `json:"dataNICsNumber,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.driveTypeOverrides) || (has(self.shared) && self.shared)",message="driveTypeOverrides is only supported when shared is true"
 type SignDrivesPayload struct {
 	// +kubebuilder:validation:Enum=aws-all;gcp-all;device-identifiers;device-paths;all-not-root
 	Type         string            `json:"type"`
@@ -128,6 +129,12 @@ type SignDrivesPayload struct {
 	// - Physical UUIDs, serial IDs, and capacities are captured
 	// - Enables multi-tenant drive sharing via SSD proxy
 	Shared bool `json:"shared,omitempty"`
+	// DriveTypeOverrides forces the reported TLC/QLC type for matching drives instead of
+	// deriving it from the drive's IU size. Only meaningful when Shared is true.
+	// Persisted on the node in the weka.io/drive-type-overrides annotation and re-applied
+	// on every later sign-drives run. Omit the field to keep whatever is already persisted
+	// on the node; set an empty rules list to clear all overrides.
+	DriveTypeOverrides *DriveTypeOverrides `json:"driveTypeOverrides,omitempty"`
 }
 
 type SignOptions struct {
@@ -135,6 +142,30 @@ type SignOptions struct {
 	AllowEraseNonWekaPartitions bool `json:"allowEraseNonWekaPartitions,omitempty"`
 	AllowNonEmptyDevice         bool `json:"allowNonEmptyDevice,omitempty"`
 	SkipTrimFormat              bool `json:"skipTrimFormat,omitempty"`
+}
+
+type DriveTypeOverrides struct {
+	// Rules are evaluated in order; the first rule matching a drive wins.
+	// An empty list clears all previously persisted overrides on the node.
+	Rules []DriveTypeOverrideRule `json:"rules"`
+}
+
+// DriveTypeOverrideRule forces the drive type for drives matching Model and/or CapacityGiB.
+// When both Model and CapacityGiB are set, BOTH must match (AND semantics) — this lets you
+// target one SKU shipped in several capacities where only some are QLC.
+// +kubebuilder:validation:XValidation:rule="(has(self.model) && size(self.model) > 0) || (has(self.capacityGiB) && self.capacityGiB != 0)",message="at least one of model or capacityGiB must be set"
+type DriveTypeOverrideRule struct {
+	// Model matches the device model exactly, case-insensitively, ignoring surrounding
+	// whitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1
+	// Empty means "do not match on model".
+	Model string `json:"model,omitempty"`
+	// CapacityGiB matches the drive capacity in GiB exactly, as reported in the
+	// weka.io/weka-shared-drives annotation. 0 means "do not match on capacity".
+	// +kubebuilder:validation:Minimum=1
+	CapacityGiB int `json:"capacityGiB,omitempty"`
+	// Type is the drive type to report for matching drives.
+	// +kubebuilder:validation:Enum=TLC;QLC
+	Type string `json:"type"`
 }
 
 type ForceResignDrivesPayload struct {

@@ -222,6 +222,55 @@ spec:
                         items:
                           type: string
                         type: array
+                      driveTypeOverrides:
+                        description: |-
+                          DriveTypeOverrides forces the reported TLC/QLC type for matching drives instead of
+                          deriving it from the drive's IU size. Only meaningful when Shared is true.
+                          Persisted on the node in the weka.io/drive-type-overrides annotation and re-applied
+                          on every later sign-drives run. Omit the field to keep whatever is already persisted
+                          on the node; set an empty rules list to clear all overrides.
+                        properties:
+                          rules:
+                            description: |-
+                              Rules are evaluated in order; the first rule matching a drive wins.
+                              An empty list clears all previously persisted overrides on the node.
+                            items:
+                              description: |-
+                                DriveTypeOverrideRule forces the drive type for drives matching Model and/or CapacityGiB.
+                                When both Model and CapacityGiB are set, BOTH must match (AND semantics) — this lets you
+                                target one SKU shipped in several capacities where only some are QLC.
+                              properties:
+                                capacityGiB:
+                                  description: |-
+                                    CapacityGiB matches the drive capacity in GiB exactly, as reported in the
+                                    weka.io/weka-shared-drives annotation. 0 means "do not match on capacity".
+                                  minimum: 1
+                                  type: integer
+                                model:
+                                  description: |-
+                                    Model matches the device model exactly, case-insensitively, ignoring surrounding
+                                    whitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1
+                                    Empty means "do not match on model".
+                                  type: string
+                                type:
+                                  description: Type is the drive type to report for
+                                    matching drives.
+                                  enum:
+                                  - TLC
+                                  - QLC
+                                  type: string
+                              required:
+                              - type
+                              type: object
+                              x-kubernetes-validations:
+                              - message: at least one of model or capacityGiB must
+                                  be set
+                                rule: (has(self.model) && size(self.model) > 0) ||
+                                  (has(self.capacityGiB) && self.capacityGiB != 0)
+                            type: array
+                        required:
+                        - rules
+                        type: object
                       nodeSelector:
                         additionalProperties:
                           type: string
@@ -289,6 +338,11 @@ spec:
                     required:
                     - type
                     type: object
+                    x-kubernetes-validations:
+                    - message: driveTypeOverrides is only supported when shared is
+                        true
+                      rule: '!has(self.driveTypeOverrides) || (has(self.shared) &&
+                        self.shared)'
                   waitForPolicies:
                     items:
                       type: string
