@@ -589,7 +589,21 @@ func (w *WekaContainer) IsServiceContainer() bool {
 }
 
 func (w *WekaContainer) IsHostNetwork() bool {
+	// ensure-nics reaches the node-local instance metadata service (IMDS), which
+	// can be unreachable from the pod network (e.g. EKS with an IMDSv2 hop limit of
+	// 1), so it runs on the host network. It shares the adhoc-op-with-container
+	// mode with get-feature-flags, so we distinguish it by instruction type rather
+	// than by mode (mirrors IsDriversLoaderMode).
+	if w.IsEnsureNICs() {
+		return true
+	}
 	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsSSDProxyContainer() && !w.IsTelemetry()
+}
+
+func (w *WekaContainer) IsEnsureNICs() bool {
+	return w.Spec.Mode == WekaContainerModeAdhocOpWC &&
+		w.Spec.Instructions != nil &&
+		w.Spec.Instructions.Type == InstructionTypeEnsureNICs
 }
 
 func (w *WekaContainer) ShouldJoinCluster() bool {
