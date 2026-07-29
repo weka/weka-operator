@@ -627,6 +627,20 @@ async def sign_device_paths_for_proxy_batch(device_paths: List[str], options: Si
     return infos
 
 
+def _resolve_block_device_sysfs_path(device_name: str) -> str:
+    """
+    Resolve a block device name (e.g., nvme0n1, sda, nvme0n1p1) to its canonical
+    path under /sys/class/block. Pure path resolution - no subprocess, so it does
+    not block the event loop and takes no shell. Callers handle/log errors.
+
+    On NVMe multipath/ANA setups this can resolve under
+    /sys/devices/virtual/nvme-subsystem/..., whose parent has no `model` file; the
+    caller warns and leaves Model empty, which suppresses model-rule reporting
+    rather than misreporting it.
+    """
+    return os.path.realpath(f"/sys/class/block/{device_name}")
+
+
 async def get_device_serial_id(device_path: str) -> str:
     """
     Get serial ID for a block device.
@@ -638,11 +652,7 @@ async def get_device_serial_id(device_path: str) -> str:
         device_name = os.path.basename(device_path)
 
         # Resolve to the actual device in sysfs
-        pci_device_path = subprocess.check_output(
-            f"readlink -f /sys/class/block/{device_name}",
-            shell=True,
-            timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC,
-        ).decode().strip()
+        pci_device_path = _resolve_block_device_sysfs_path(device_name)
 
         if "nvme" in device_name.lower():
             # NVMe device: serial is 1 directory up from the namespace
@@ -678,6 +688,65 @@ async def get_device_serial_id(device_path: str) -> str:
     except (Exception, subprocess.TimeoutExpired) as e:
         logging.warning(f"Failed to get serial ID for {device_path}: {e}")
         return ""
+
+
+async def get_device_model(device_path: str) -> str:
+    """
+    Get the device model string for a block device or one of its partitions.
+    Supports both NVMe (e.g. nvme0n1, nvme0n1p1) and SCSI/SATA (e.g. sda, sda1)
+    devices. Returns the model string, or empty string if not found (and logs a
+    warning so a missing model is observable rather than silently swallowed).
+    """
+    try:
+        # Get the block device name (e.g., nvme0n1, sda, nvme0n1p1)
+        device_name = os.path.basename(device_path)
+
+        # Resolve to the actual device in sysfs
+        sysfs_path = _resolve_block_device_sysfs_path(device_name)
+
+        # A partition's sysfs directory is nested inside the whole-device directory and
+        # contains a "partition" marker file; step up so resolution below is device-agnostic.
+        if os.path.exists(os.path.join(sysfs_path, "partition")):
+            sysfs_path = os.path.dirname(sysfs_path)
+
+        if "nvme" in device_name.lower():
+            # NVMe: model lives on the controller directory, one level above the
+            # namespace directory, e.g. .../nvme/nvme0/nvme0n1 -> .../nvme/nvme0/model
+            model_path = os.path.join(os.path.dirname(sysfs_path), "model")
+        else:
+            # SCSI/SATA: model lives at <whole-device>/device/model
+            model_path = os.path.join(sysfs_path, "device", "model")
+
+        with open(model_path, "r") as f:
+            return f.read().strip()
+
+    # Deliberately broad, matching get_device_serial_id: a model string is never worth losing a
+    # drive over. UnicodeDecodeError (a ValueError, from .decode() or a sysfs field with non-UTF-8
+    # bytes) is not an OSError, and callers do not contain it — list_weka_proxy_drives_with_sign_tool
+    # catches only (KeyError, TypeError) per device and returns [] from its function-level handler,
+    # so one odd model byte would silently drop every drive on the node.
+    except Exception as e:
+        logging.warning(f"Failed to get model for {device_path}: {e}")
+        return ""
+
+
+async def resolve_drive_model(hardware: dict, device_path: str) -> str:
+    """
+    Resolve a drive's model string, preferring the model reported in hardware info and falling
+    back to sysfs-based resolution via get_device_model. Returns '' when neither source has one;
+    callers decide whether a missing model is worth warning about. Logs which source won, since
+    only this function knows that - callers must not re-derive it.
+    """
+    hardware = hardware or {}
+    model = str(hardware.get('model') or hardware.get('model_number') or '').strip()
+    if model:
+        logging.debug(f"Model from hardware info: {model}")
+        return model
+    if device_path:
+        model = await get_device_model(device_path)
+        if model:
+            logging.debug(f"Model from get_device_model: {model}")
+    return model
 
 
 async def get_proxy_drive_info(device_path: str):
@@ -726,6 +795,11 @@ async def get_proxy_drive_info(device_path: str):
             if serial:
                 logging.debug(f"Serial from get_device_serial_id: {serial}")
 
+        # 2b. Resolve model from hardware info, falling back to sysfs resolution
+        model = await resolve_drive_model(hardware_info, device_path)
+        if not model:
+            logging.warning(f"Could not determine model for {device_path}")
+
         # Get capacity in GiB from partition size
         capacity_bytes = partition.get('size', 0)
 
@@ -745,7 +819,7 @@ async def get_proxy_drive_info(device_path: str):
 
         capacity_gib = capacity_bytes // (1024 ** 3) if capacity_bytes > 0 else 0
 
-        logging.info(f"Drive info extracted: UUID={physical_uuid}, Serial={serial or 'UNKNOWN'}, Capacity={capacity_gib} GiB, IU Size={iu_size}")
+        logging.info(f"Drive info extracted: UUID={physical_uuid}, Serial={serial or 'UNKNOWN'}, Capacity={capacity_gib} GiB, IU Size={iu_size}, Model={model or 'UNKNOWN'}")
 
         return {
             'physical_uuid': physical_uuid,
@@ -753,6 +827,7 @@ async def get_proxy_drive_info(device_path: str):
             'capacity_gib': capacity_gib,
             'device_path': device_path,
             'type': iu_size_to_drive_type(iu_size),
+            'model': model,
         }
     except (json.JSONDecodeError, KeyError) as e:
         raise SignException(f"Failed to parse drive info for {device_path}: {e}")
@@ -1095,6 +1170,13 @@ async def list_weka_proxy_drives_with_sign_tool():
                 serial = hardware.get('serial_number', '')
                 iu_size = hardware.get('iu_size', 0)
 
+                # Get model from hardware info, falling back to sysfs if not present
+                device_path = device_data.get('path', '')
+                model = await resolve_drive_model(hardware, device_path)
+
+                if not model:
+                    logging.warning(f"Could not determine model for drive {device_path or 'unknown'}")
+
                 # Calculate capacity in GiB from size_bytes
                 size_bytes = hardware.get('size_bytes', 0)
                 if size_bytes > 0:
@@ -1103,11 +1185,14 @@ async def list_weka_proxy_drives_with_sign_tool():
                     logging.error(f"Drive {device_data.get('path', 'unknown')} has invalid size_bytes: {size_bytes}")
                     continue
 
+                logging.debug(f"Drive {device_path or 'unknown'} resolved model: {model or 'UNKNOWN'}")
+
                 drives.append({
                     'physical_uuid': physical_uuid,
                     'serial': serial,
                     'capacity_gib': capacity_gib,
                     'type': iu_size_to_drive_type(iu_size),
+                    'model': model,
                 })
 
             except (KeyError, TypeError) as e:

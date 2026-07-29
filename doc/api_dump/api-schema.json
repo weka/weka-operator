@@ -732,7 +732,8 @@
         "Draining",
         "Completed",
         "Building",
-        "StoppingAttempt"
+        "StoppingAttempt",
+        "Stale"
       ],
       "baseType": "string",
       "usedBy": [
@@ -1016,6 +1017,58 @@
       "usedBy": [
         "WekaCluster",
         "WekaContainer"
+      ]
+    },
+    "DriveTypeOverrideRule": {
+      "kind": "struct",
+      "description": "DriveTypeOverrideRule forces the drive type for drives matching Model and/or CapacityGiB.\nWhen both Model and CapacityGiB are set, BOTH must match (AND semantics) — this lets you\ntarget one SKU shipped in several capacities where only some are QLC.",
+      "fields": [
+        {
+          "name": "Model",
+          "jsonName": "model",
+          "type": "string",
+          "description": "Model matches the device model exactly, case-insensitively, ignoring surrounding\nwhitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1\nEmpty means \"do not match on model\".",
+          "optional": true
+        },
+        {
+          "name": "CapacityGiB",
+          "jsonName": "capacityGiB",
+          "type": "int",
+          "description": "CapacityGiB matches the drive capacity in GiB exactly, as reported in the\nweka.io/weka-shared-drives annotation. 0 means \"do not match on capacity\".",
+          "optional": true
+        },
+        {
+          "name": "Type",
+          "jsonName": "type",
+          "type": "string",
+          "description": "Type is the drive type to report for matching drives.",
+          "optional": false
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation",
+        "WekaPolicy"
+      ]
+    },
+    "DriveTypeOverrides": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Rules",
+          "jsonName": "rules",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/DriveTypeOverrideRule"
+            }
+          },
+          "description": "Rules are evaluated in order; the first rule matching a drive wins.\nAn empty list clears all previously persisted overrides on the node.",
+          "optional": false
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation",
+        "WekaPolicy"
       ]
     },
     "DriveTypesRatio": {
@@ -2592,6 +2645,16 @@
           "type": "bool",
           "description": "Shared enables shared drive signing for proxy mode (defaults to false).\nWhen enabled:\n- Drives are signed for proxy using 'weka-sign-drive sign proxy' command\n- Drives are signed with a proxy system GUID\n- Results are stored in weka.io/shared-drives annotation (instead of weka.io/weka-drives)\n- Physical UUIDs, serial IDs, and capacities are captured\n- Enables multi-tenant drive sharing via SSD proxy",
           "optional": true
+        },
+        {
+          "name": "DriveTypeOverrides",
+          "jsonName": "driveTypeOverrides",
+          "type": {
+            "$ref": "#/definitions/DriveTypeOverrides"
+          },
+          "description": "DriveTypeOverrides forces the reported TLC/QLC type for matching drives instead of\nderiving it from the drive's IU size. Only meaningful when Shared is true.\nPersisted on the node in the weka.io/drive-type-overrides annotation and re-applied\non every later sign-drives run. Omit the field to keep whatever is already persisted\non the node; set an empty rules list to clear all overrides.",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [

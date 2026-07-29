@@ -1,0 +1,24 @@
+# WekaManualOperation to sign shared drives while forcing TLC/QLC type for specific drives
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: sign-shared-drives-override
+  namespace: weka-operator-system
+spec:
+  action: sign-drives
+  payload:
+    signDrivesPayload:
+      type: all-not-root
+      nodeSelector:
+        weka.io/role: backend
+      shared: true  # required: overrides are shared (proxy) mode only
+      driveTypeOverrides:
+        rules:
+          # Force this exact model (case-insensitive, whitespace-trimmed) to QLC,
+          # e.g. because its IU size is missing/defaults to 0 and gets misclassified as TLC.
+          - model: "SAMSUNG MZWLO7T6HBLA-00A07"
+            type: QLC
+          # Force drives already recorded at exactly 3500 GiB in weka.io/weka-shared-drives to TLC.
+          # capacityGiB matches exactly, so same-model drives a few GiB apart won't both match.
+          - capacityGiB: 3500
+            type: TLC

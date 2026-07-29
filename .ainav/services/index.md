@@ -107,7 +107,7 @@ IP handling, tolerations, HTTP client, etc.
 
 Shared constants used across controllers:
 - `WekaFinalizer` - Kubernetes finalizer for Weka resources
-- Node annotations for drive management (WekaDrives, BlockedDrives, SharedDrives, DriveClaims, PortClaims, VirtualDriveClaims)
+- Node annotations for drive management (WekaDrives, BlockedDrives, SharedDrives, DriveTypeOverrides)
 - Extended resource names (ResourceDrives, ResourceSharedDrivesCapacity)
 
 ## REST API Server (Optional)

@@ -20,7 +20,7 @@ Manual operations, policies, CSI, and driver management.
 
 | File | Purpose |
 |------|---------|
-| `sign_drives.go` | Drive signing for weka use |
+| `sign_drives.go` | Drive signing for weka use; TLC/QLC type overrides |
 | `block_drives.go` | Block drives operation |
 | `discover_drives.go` | Drive discovery via node-agent |
 | `resign_drives.go` | Force drive re-signing |

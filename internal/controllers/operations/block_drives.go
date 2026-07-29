@@ -10,7 +10,6 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -308,6 +307,15 @@ func (o *BlockDrivesOperation) BlockSharedDrives(ctx context.Context) error {
 		}
 	}
 
+	// blockedSerials tracks drives blocked by serial (weka.io/blocked-drives), e.g. because
+	// appendMissingDrivesToBlocked found them missing from the kernel view. The capacity
+	// resources below must exclude these too, or a serial-blocked drive's capacity gets
+	// silently added back the next time this UUID-keyed path recomputes them.
+	blockedSerials, err := domain.ReadBlockedDriveSerials(node)
+	if err != nil {
+		return err
+	}
+
 	sharedDrives := []domain.SharedDriveInfo{}
 	if sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]; ok {
 		err := json.Unmarshal([]byte(sharedDrivesStr), &sharedDrives)
@@ -359,26 +367,10 @@ func (o *BlockDrivesOperation) BlockSharedDrives(ctx context.Context) error {
 	}
 	node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids] = string(newBlockedDrivesStr)
 
-	// update weka.io/shared-drives-capacity extended resource
-	tlcDriveCapacityGiB := int64(0)
-	qlcDriveCapacityGiB := int64(0)
-
-	for _, drive := range sharedDrives {
-		// Only count non-blocked drives
-		if !slices.Contains(blockedDriveUuids, drive.PhysicalUUID) {
-			if drive.Type == "QLC" {
-				qlcDriveCapacityGiB += int64(drive.CapacityGiB)
-			} else {
-				tlcDriveCapacityGiB += int64(drive.CapacityGiB)
-			}
-		}
-	}
-
-	node.Status.Capacity[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(tlcDriveCapacityGiB, resource.DecimalSI)
-	node.Status.Allocatable[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(tlcDriveCapacityGiB, resource.DecimalSI)
-
-	node.Status.Capacity[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
-	node.Status.Allocatable[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
+	// update weka.io/shared-drives-capacity extended resources (TLC + QLC), excluding
+	// drives blocked by either physical UUID (this operation) or serial (funcs_oneoff.go's
+	// updateProxyModeAnnotations), so all writers of these resources agree.
+	domain.SetSharedDriveCapacityResources(node, sharedDrives, blockedDriveUuids, blockedSerials)
 
 	if err := o.client.Status().Update(ctx, node); err != nil {
 		err = fmt.Errorf("error updating node status: %w", err)
@@ -419,6 +411,15 @@ func (o *BlockDrivesOperation) UnblockSharedDrives(ctx context.Context) error {
 			err = fmt.Errorf("failed to unmarshal blocked-drives annotation: %w", err)
 			return err
 		}
+	}
+
+	// blockedSerials tracks drives blocked by serial (weka.io/blocked-drives), e.g. because
+	// appendMissingDrivesToBlocked found them missing from the kernel view. The capacity
+	// resources below must exclude these too, or a serial-blocked drive's capacity gets
+	// silently added back the next time this UUID-keyed path recomputes them.
+	blockedSerials, err := domain.ReadBlockedDriveSerials(node)
+	if err != nil {
+		return err
 	}
 
 	sharedDrives := []domain.SharedDriveInfo{}
@@ -472,16 +473,13 @@ func (o *BlockDrivesOperation) UnblockSharedDrives(ctx context.Context) error {
 	}
 	node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids] = string(newBlockedDrivesStr)
 
-	// update weka.io/shared-drives-capacity extended resource
-	totalCapacityGiB := int64(0)
-	for _, drive := range sharedDrives {
-		// Only count non-blocked drives
-		if !slices.Contains(updatedBlockedDriveUuids, drive.PhysicalUUID) {
-			totalCapacityGiB += int64(drive.CapacityGiB)
-		}
-	}
-	node.Status.Capacity[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(totalCapacityGiB, resource.DecimalSI)
-	node.Status.Allocatable[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(totalCapacityGiB, resource.DecimalSI)
+	// update weka.io/shared-drives-capacity extended resources (TLC + QLC). Previously this
+	// summed TLC and QLC drives together into a single total and wrote it only to the TLC
+	// resource, silently leaving the QLC resource stale (never zeroed, never updated) — fixed
+	// here to match BlockSharedDrives above by delegating to the same domain helper. Also
+	// excludes drives blocked by serial (weka.io/blocked-drives) so this path agrees with the
+	// other writers of these resources.
+	domain.SetSharedDriveCapacityResources(node, sharedDrives, updatedBlockedDriveUuids, blockedSerials)
 
 	if err := o.client.Status().Update(ctx, node); err != nil {
 		err = fmt.Errorf("error updating node status: %w", err)

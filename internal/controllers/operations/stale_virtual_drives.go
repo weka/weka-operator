@@ -443,23 +443,7 @@ func (o *StaleVirtualDrivesOperation) MaybeDelete(ctx context.Context) error {
 
 // previousResult parses the previous run's JSON result from the owner status.
 func (o *StaleVirtualDrivesOperation) previousResult() *weka.StaleVirtualDrivesResult {
-	var raw string
-	switch owner := o.ownerRef.(type) {
-	case *weka.WekaManualOperation:
-		raw = owner.Status.Result
-	case *weka.WekaPolicy:
-		raw = owner.Status.LastResult
-	default:
-		return nil
-	}
-	if raw == "" {
-		return nil
-	}
-	var prev weka.StaleVirtualDrivesResult
-	if err := json.Unmarshal([]byte(raw), &prev); err != nil {
-		return nil
-	}
-	return &prev
+	return decodePreviousOwnerResult[weka.StaleVirtualDrivesResult](o.ownerRef)
 }
 
 // scannedVID is a virtual drive observed on a proxy together with its node.

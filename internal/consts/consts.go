@@ -38,9 +38,18 @@ const (
 	AnnotationBlockedDrives = "weka.io/blocked-drives"
 
 	// AnnotationSharedDrives stores shared drive information for proxy mode
-	// Format: [[uuid, serial, capacityGiB, devicePath], ...]
-	// Example: [["550e8400-e29b-41d4-a716-446655440000", "SERIAL123", 7000, "/dev/nvme0n1"]]
+	// Format: JSON array of objects matching domain.SharedDriveInfo: physical_uuid, serial,
+	// capacity_gib, type, model.
+	// Example: [{"physical_uuid":"e30cbc29-1b0d-47af-b775-b8d43d2d2e72","serial":"22184A1DEC21",
+	// "capacity_gib":7153,"type":"TLC","model":"Micron_7450_MTFDKCC7T6TFR"}]
 	AnnotationSharedDrives = "weka.io/weka-shared-drives"
+
+	// AnnotationDriveTypeOverrides stores drive type (TLC/QLC) override rules persisted from
+	// the last sign-drives operation that specified them. Re-applied on every sign-drives run.
+	// capacity_gib is the truncated GiB value from the annotation above, not the vendor's
+	// marketing capacity — a 7.68 TB drive appears as 7153, so rules must use that.
+	// Format: [{"model":"Micron_7450_MTFDKCC7T6TFR","type":"QLC"},{"capacityGiB":7153,"type":"TLC"}]
+	AnnotationDriveTypeOverrides = "weka.io/drive-type-overrides"
 
 	// AnnotationBlockedDrivesPhysicalUuids stores blocked drive physical UUIDs
 	// Format: ["uuid1", "uuid2", ...]
@@ -49,18 +58,6 @@ const (
 	// AnnotationSignDrivesHash stores hash of signed drives to track changes
 	// Used to determine if drives need to be re-signed
 	AnnotationSignDrivesHash = "weka.io/sign-drives-hash"
-
-	// AnnotationDriveClaims stores drive allocation claims per container (hybrid allocation model)
-	// Format: {"serial1": "clusterName:namespace:containerName", ...}
-	AnnotationDriveClaims = "weka.io/drive-claims"
-
-	// AnnotationPortClaims stores port allocation claims per container (hybrid allocation model)
-	// Format: {"basePort,count": "clusterName:namespace:containerName", ...}
-	AnnotationPortClaims = "weka.io/port-claims"
-
-	// AnnotationVirtualDriveClaims stores virtual drive allocation claims (drive sharing mode)
-	// Format: {"virtualUUID": {"container": "clusterName:namespace:containerName", "physicalUUID": "550e8400-...", "capacityGiB": 2048}, ...}
-	AnnotationVirtualDriveClaims = "weka.io/virtual-drive-claims"
 )
 
 // PodConfigVersionAnnotation is the annotation key set on pods at creation time
