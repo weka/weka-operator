@@ -149,16 +149,6 @@ Existing deployments with node annotations:
 2. New allocations use Status only
 3. Gradual migration as containers are recreated
 
-### Cleanup Old Annotations (Optional)
-
-```bash
-# List nodes with old allocation annotations
-kubectl get nodes -o json | jq '.items[] | select(.metadata.annotations["weka.io/drive-claims"] != null) | .metadata.name'
-
-# Remove old annotations (if desired)
-kubectl annotate node <node-name> weka.io/drive-claims- weka.io/port-claims- weka.io/virtual-drive-claims-
-```
-
 ## Testing
 
 ### Verify Status-Only Allocation

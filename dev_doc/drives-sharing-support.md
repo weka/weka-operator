@@ -148,6 +148,24 @@ For each strategy, the allocator:
 - Type information comes from the `weka-sign-drive show --json` output during proxy signing
 - If physical drives don't have type information, drive type ratio allocation will fail
 
+**Drive Type Overrides:**
+- Default classification (`iu_size_to_drive_type()` in `weka_runtime.py`) can be wrong when IU size
+  is missing/defaults to 0 on some firmware, silently yielding TLC
+- `signDrivesPayload.driveTypeOverrides.rules` (WekaManualOperation/WekaPolicy) forces the type for
+  drives matching a `model` and/or `capacityGiB` rule (first match wins)
+- **Enforced operator-side (Go)**, not in python: python only reports the device `model` in its
+  drive info output; matching, precedence, and the resulting annotation/extended-resource rewrite
+  are all done by the operator
+- Rules are persisted on the node in a new `weka.io/drive-type-overrides` annotation and are
+  re-applied over the **whole merged drive set** (not just newly-signed drives) on every later
+  sign-drives run, in `updateProxyModeAnnotations`
+- `SharedDriveInfo` gained a `Model` field; the merge of incoming vs. persisted drive info is
+  field-wise, so an empty incoming `model` (drive not freshly scanned) never erases an already-known
+  persisted model
+- See `doc/operator/operations/drive-signing.md` (Drive type overrides section) for the
+  user-facing semantics (matching rules, persistence, exact-capacity caveats, claimed-drive
+  warning)
+
 **Minimum Drive Count Constraint:**
 The minimum drive count constraint behavior is controlled by the `enforceMinDrivesPerTypePerCore` Helm value (default: `true`).
 
@@ -276,15 +294,12 @@ The minimum drive count constraint behavior is controlled by the `enforceMinDriv
 - See **Drive Allocation Modes** section above for detailed strategy information
 
 **Result stored:**
-1. **Container Status:**
+1. **Container Status (the actual allocation-tracking mechanism):**
    - `Status.Allocations.VirtualDrives`: List of allocated virtual drives
    - Each entry: `{VirtualUUID, PhysicalUUID, CapacityGiB, Serial, Type}`
-
-2. **Node Annotation:**
-   - Annotation: `weka.io/virtual-drive-claims`
-   - Format: `{"virtualUUID": [container, physicalUUID, capacityGiB], ...}` (compact map)
-   - Prevents double-allocation of capacity
-   - Example: `{"31de939a-...": ["ns:default:container-abc", "fb05d910-...", 4000]}`
+   - This is the only place virtual drive claims are tracked — there is no node annotation for it.
+     To see all claims against a node's physical drives, reconstruct them from
+     `WekaContainer.Status.Allocations.VirtualDrives` across the containers on that node.
 
 ---
 
@@ -468,9 +483,8 @@ The minimum drive count constraint behavior is controlled by the `enforceMinDriv
    - Includes total capacity per drive
    - Set during proxy signing
 
-2. **Allocation Level** - `weka.io/virtual-drive-claims` annotation
-   - Maps virtual UUIDs to containers
-   - Tracks claimed capacity
+2. **Allocation Level** - `WekaContainer.Status.Allocations.VirtualDrives` (per-container status, not a node annotation)
+   - Maps virtual UUIDs to physical drives with claimed capacity
    - Prevents double-allocation
 
 3. **Extended Resource** - `weka.io/shared-drives-capacity`

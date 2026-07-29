@@ -93,11 +93,9 @@ func (r *containerReconcilerLoop) isFeatureFlagsOperation() bool {
 		r.container.Spec.Instructions.Type == weka.InstructionTypeFeatureFlagsUpdate
 }
 
-// reportAdhocPodNotProgressing surfaces an abnormal not-progressing adhoc-op pod
-// (Unschedulable, ImagePullBackOff, CrashLoopBackOff, config errors, ...) as a
-// throttled warning, so operators do not have to wait for the deletion timeout to
-// learn something is wrong. Pods that are still legitimately starting up are not
-// worth warning about.
+// reportAdhocPodNotProgressing surfaces an abnormal not-progressing adhoc-op pod (Unschedulable,
+// ImagePullBackOff, CrashLoopBackOff, config errors, ...) as a throttled warning, so operators
+// don't have to wait for the deletion timeout to learn something is wrong.
 func (r *containerReconcilerLoop) reportAdhocPodNotProgressing(ctx context.Context) error {
 	reason, detail := podNotRunningReason(r.pod)
 	if isStartingUpReason(reason) {
@@ -115,12 +113,10 @@ func (r *containerReconcilerLoop) reportAdhocPodNotProgressing(ctx context.Conte
 	return nil
 }
 
-// deleteStuckAdhocContainer marks an adhoc-op container for deletion once its pod
-// has failed to produce a result for too long. Adhoc-op containers are node-pinned
-// and only produce a result once their pod runs, so a pod that can never run
-// (ImagePullBackOff / unschedulable / crash-looping) would otherwise leak the CR
-// forever: the finished-cleanup path is gated on CondResultsProcessed, which is only
-// set after fetchResults execs into a running pod.
+// deleteStuckAdhocContainer marks an adhoc-op container for deletion once its pod has failed to
+// produce a result for too long. Adhoc-op containers are node-pinned and only produce a result
+// once their pod runs, so a pod that can never run would otherwise leak the CR forever: cleanup
+// is gated on CondResultsProcessed, set only after fetchResults execs into a running pod.
 func (r *containerReconcilerLoop) deleteStuckAdhocContainer(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
@@ -167,18 +163,12 @@ func podStuckTimeoutElapsed(pod *v1.Pod, now time.Time, timeout, startingTimeout
 	return now.Sub(podStuckSince(pod)) > timeout
 }
 
-// podStuckSince returns the point in time from which the pod stopped making progress
-// toward producing a result.
-//
-// For a pod that never ran (Pending / unschedulable / ImagePullBackOff) or that
-// crash-loops, that is its creation time: an adhoc-op pod is expected to run within
-// minutes of being created. For a pod that ran and then went terminal (evicted, node
-// lost), creation time can be hours in the past, which would leave no grace period at
-// all and report a misleading duration, so the ContainersReady transition is used
-// instead - it marks when the pod actually stopped running.
-//
-// ContainersReady is deliberately not consulted for a crash-looping pod: it flaps as
-// the container restarts, which would reset the clock on every restart.
+// podStuckSince returns the point in time from which the pod stopped making progress toward
+// producing a result. For a pod that never ran or that crash-loops, that is its creation time.
+// For a pod that ran and then went terminal (evicted, node lost), creation time could be hours
+// in the past and report a misleading duration, so the ContainersReady transition is used
+// instead - except for a crash-looping pod, where it flaps on every restart and would reset
+// the clock.
 func podStuckSince(pod *v1.Pod) time.Time {
 	if pod.Status.Phase == v1.PodFailed || pod.Status.Phase == v1.PodSucceeded {
 		if c := podCondition(pod, v1.ContainersReady); c != nil &&
@@ -189,15 +179,12 @@ func podStuckSince(pod *v1.Pod) time.Time {
 	return pod.CreationTimestamp.Time
 }
 
-// podCrashLoopingAfterFailure reports whether one of the pod's containers is waiting
-// in a restart backoff after a failed run.
-//
-// The exit-code check is load-bearing: adhoc-op pods do not set RestartPolicy, so they
-// get the API default Always, and a one-off command that *succeeds* is restarted too
-// and is eventually reported as CrashLoopBackOff as well. Those must not be deleted
-// here - they are reaped by the results-processed path (cleanupFinishedOneOff), which
-// runs earlier in the flow. Init containers need no handling: a crash-looping init
-// container keeps the phase at Pending, which is already covered.
+// podCrashLoopingAfterFailure reports whether one of the pod's containers is waiting in a
+// restart backoff after a failed run. The exit-code check is load-bearing: adhoc-op pods get
+// the API default RestartPolicy Always, so a one-off command that *succeeds* is restarted too
+// and eventually also reports CrashLoopBackOff - those must not be deleted here, they're reaped
+// by cleanupFinishedOneOff earlier in the flow. Init containers need no handling: a
+// crash-looping init container keeps the pod phase at Pending, which is already covered elsewhere.
 func podCrashLoopingAfterFailure(pod *v1.Pod) bool {
 	for i := range pod.Status.ContainerStatuses {
 		status := &pod.Status.ContainerStatuses[i]
@@ -223,13 +210,10 @@ func isStartingUpReason(reason string) bool {
 	}
 }
 
-// podNotRunningReason returns a short reason describing why the pod is not producing a
-// result, plus an optional longer detail message for events and logs. Precedence: the
-// first init-container or container Waiting.Reason (ImagePullBackOff,
-// CreateContainerConfigError, ...); then, for a terminal pod, a container
-// Terminated.Reason (OOMKilled, Error) or the pod-level reason (Evicted); then an
-// explicit scheduling failure (Unschedulable) from the PodScheduled condition; else
-// the phase.
+// podNotRunningReason returns a short reason describing why the pod is not producing a result,
+// plus an optional longer detail for events and logs. Precedence: first init/container
+// Waiting.Reason; then, for a terminal pod, a container Terminated.Reason or pod-level reason;
+// then an explicit PodScheduled failure (Unschedulable); else the phase.
 func podNotRunningReason(pod *v1.Pod) (reason, detail string) {
 	statusLists := [][]v1.ContainerStatus{pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses}
 	for _, statuses := range statusLists {
@@ -329,8 +313,22 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		return err
 	}
 
-	// Check if this is a proxy mode operation
+	// Check if this is a proxy (shared) mode operation. For sign-drives, prefer the "shared" flag
+	// from the instruction payload over inferring it from ProxyDrives length: a shared run that
+	// legitimately signs zero proxy drives would otherwise fall through to the non-proxy branch
+	// and corrupt the node's drive bookkeeping. Fall back to the length check when the payload
+	// is absent/unparseable, or the instruction is discover-drives (no "shared" field).
 	isProxyMode := len(opResult.ProxyDrives) > 0
+	if r.container.Spec.Instructions != nil && r.container.Spec.Instructions.Type == weka.InstructionTypeSignDrives {
+		var payload weka.SignDrivesPayload
+		// Decoded into a local rather than the enclosing err: the payload is operator-generated,
+		// so a parse failure here is our own bug — logged, not swallowed.
+		if payloadErr := json.Unmarshal([]byte(r.container.Spec.Instructions.Payload), &payload); payloadErr != nil {
+			logger.Warn("Failed to parse sign-drives instruction payload; inferring proxy mode from reported drives", "error", payloadErr, "proxyDrives", len(opResult.ProxyDrives))
+		} else {
+			isProxyMode = payload.Shared
+		}
+	}
 
 	if isProxyMode {
 		return r.updateProxyModeAnnotations(ctx, node, opResult)
@@ -492,31 +490,49 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 		}
 	}
 
-	// Read existing shared drives from annotation
-	existingDrives := []domain.SharedDriveInfo{}
-	if existingDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]; ok {
-		_ = json.Unmarshal([]byte(existingDrivesStr), &existingDrives) //nolint:errcheck // error return value intentionally not checked
+	// Read existing shared drives from annotation. A malformed annotation is a hard error, not a
+	// silent empty read: the merge below writes this list back, so discarding the parse error
+	// would rewrite the annotation from this run's report alone — dropping every drive the run
+	// didn't re-report, including the persisted Model that model-based overrides match on.
+	// The "signed" result is discarded: the capacity guard further down needs mere annotation
+	// presence, not signed-ness.
+	existingDrives, _, err := domain.ReadNodeSharedDrives(node)
+	if err != nil {
+		return fmt.Errorf("error reading existing shared drives: %w", err)
 	}
+	_, hadSharedDrivesAnnotation := node.Annotations[consts.AnnotationSharedDrives]
 
 	// Build map keyed by serial for efficient merge
 	drivesBySerial := make(map[string]domain.SharedDriveInfo)
+	// annotatedTypes snapshots the type each drive carried in the annotation BEFORE this run's
+	// report is merged in. warnOverriddenDriveTypes compares against it rather than the post-merge
+	// state: the agent always reports the IU-derived type and MergeSharedDriveInfo prefers a
+	// non-empty incoming Type, so an overridden drive looks "changed" on every single re-sign
+	// forever. Comparing against what was persisted makes the warning fire only when a drive's type
+	// genuinely moved, which is when virtual drives carved from it can actually disagree with it.
+	annotatedTypes := make(map[string]string, len(existingDrives))
 	for _, drive := range existingDrives {
 		if drive.Serial != "" {
 			drivesBySerial[drive.Serial] = drive
+			annotatedTypes[drive.Serial] = drive.Type
 		}
 	}
 
-	// Merge new results: update existing or add new drives
-	// This does NOT delete drives that aren't in opResult.ProxyDrives
+	// Merge new results: update existing or add new drives; does NOT delete drives absent from
+	// opResult.ProxyDrives. Existing entries merge field-wise via domain.MergeSharedDriveInfo
+	// rather than being overwritten, so an agent that fails to report Model never erases a
+	// persisted Model and silently disarms model-based overrides.
 	newDrivesFound := 0
 	for _, drive := range opResult.ProxyDrives {
 		if drive.Serial == "" {
 			continue // skip drives without serial
 		}
-		if _, exists := drivesBySerial[drive.Serial]; !exists {
+		if existing, exists := drivesBySerial[drive.Serial]; exists {
+			drivesBySerial[drive.Serial] = domain.MergeSharedDriveInfo(existing, drive)
+		} else {
 			newDrivesFound++
+			drivesBySerial[drive.Serial] = drive
 		}
-		drivesBySerial[drive.Serial] = drive
 	}
 
 	if newDrivesFound == 0 {
@@ -527,24 +543,61 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 	for s := range drivesBySerial {
 		annotatedSerials = append(annotatedSerials, s)
 	}
+	slices.Sort(annotatedSerials)
 	var missingDrives []string
 	blockedDrives, missingDrives = appendMissingDrivesToBlocked(annotatedSerials, opResult, blockedDrives)
 	for _, s := range missingDrives {
 		logger.Info("Blocking missing drive", "serial_id", s)
 	}
 
-	// Convert map back to slice and calculate capacities
-	mergedDrives := make([]domain.SharedDriveInfo, 0, len(drivesBySerial))
-	tlcDriveCapacityGiB := int64(0)
-	qlcDriveCapacityGiB := int64(0)
+	// Built from the sorted serials above so the marshalled annotation is deterministic across
+	// runs — map iteration order alone would make weka.io/weka-shared-drives look "changed" on
+	// every pass even when the drive set is identical.
+	mergedDrives := make([]domain.SharedDriveInfo, 0, len(annotatedSerials))
+	for _, s := range annotatedSerials {
+		mergedDrives = append(mergedDrives, drivesBySerial[s])
+	}
 
-	for _, drive := range drivesBySerial {
-		mergedDrives = append(mergedDrives, drive)
-		if drive.Type == "QLC" {
-			qlcDriveCapacityGiB += int64(drive.CapacityGiB)
-		} else {
-			tlcDriveCapacityGiB += int64(drive.CapacityGiB)
+	// Re-apply any persisted drive-type override rules before computing capacities, so the
+	// TLC/QLC split below (and the annotation we write) reflect the override.
+	rules, err := domain.ReadDriveTypeOverrides(node)
+	if err != nil {
+		return fmt.Errorf("error reading drive type overrides: %w", err)
+	}
+	if len(rules) > 0 {
+		var changed int
+		var unmatchedRules []int
+		mergedDrives, changed, unmatchedRules = domain.ApplyDriveTypeOverrides(mergedDrives, rules)
+		if changed > 0 {
+			logger.Info("Applied drive type overrides", "changed", changed)
+			// Name the drives whose type flipped relative to what was persisted — virtual drives
+			// already allocated from them keep their recorded type until their containers are
+			// reallocated. Compared against annotatedTypes, not the post-merge state, so a re-sign
+			// that merely re-derives the same override does not re-warn (see annotatedTypes above).
+			warnOverriddenDriveTypes(logger, annotatedTypes, mergedDrives)
 		}
+		for _, idx := range unmatchedRules {
+			rule := rules[idx]
+			logger.Warn("Drive type override rule matched no drive", "ruleIndex", idx, "model", rule.Model, "capacityGiB", rule.CapacityGiB, "type", rule.Type)
+		}
+	}
+
+	// A proxy-mode run that ends with zero known shared drives is only trustworthy when the kernel
+	// view was complete. With an incomplete view we must not persist an empty annotation together
+	// with a fresh weka.io/sign-drives-hash: sign_drives.go skips nodes on non-force runs once their
+	// hash matches, so writing that pair here would permanently mark the node "signed" with zero
+	// capacity even once a later, complete scan finds drives.
+	//
+	// This is a terminal failure, NOT a WaitError: fetchResults short-circuits on a non-nil
+	// container.Status.ExecutionResult, so every later reconcile would just re-derive this same
+	// verdict from the same frozen results.json — the implied wait would never end.
+	if len(mergedDrives) == 0 && !opResult.KernelViewComplete {
+		err = fmt.Errorf("proxy mode drive discovery for node %s has an incomplete kernel view and produced zero shared drives; refusing to persist an empty %s annotation and a fresh %s to avoid permanently locking the node out of future re-scans. Check that this node's NVMe devices are bound to the kernel \"nvme\" driver, then re-run sign-drives with force",
+			node.Name, consts.AnnotationSharedDrives, consts.AnnotationSignDrivesHash)
+		if eventErr := r.RecordEvent(v1.EventTypeWarning, "IncompleteKernelView", err.Error()); eventErr != nil {
+			logger.Warn("Failed to record IncompleteKernelView event", "error", eventErr)
+		}
+		return err
 	}
 
 	// Write merged proxy drives to annotation
@@ -562,13 +615,22 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 	}
 	node.Annotations[consts.AnnotationBlockedDrives] = string(blockedDrivesStr)
 
-	// Update weka.io/shared-drives-capacity extended resource
-	// TLC drive type
-	node.Status.Capacity[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(tlcDriveCapacityGiB, resource.DecimalSI)
-	node.Status.Allocatable[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(tlcDriveCapacityGiB, resource.DecimalSI)
-	// QLC drive type
-	node.Status.Capacity[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
-	node.Status.Allocatable[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
+	blockedPhysicalUUIDs, err := domain.ReadBlockedDrivePhysicalUUIDs(node)
+	if err != nil {
+		return err
+	}
+
+	// Update weka.io/shared-drives-capacity extended resources (TLC + QLC), now deliberately
+	// excluding blocked drives to agree with block_drives.go's BlockSharedDrives. Skip creating
+	// the resources when this node never had a weka.io/weka-shared-drives annotation and still
+	// has none now — mirrors the weka.io/drives guard above; don't conjure capacity resources
+	// for a node that has never reported any shared drives.
+	// Sums come back from the setter rather than being recomputed for the log line below. When the
+	// guard skips the write, mergedDrives is empty, so both sums are zero by construction.
+	var tlcDriveCapacityGiB, qlcDriveCapacityGiB int64
+	if hadSharedDrivesAnnotation || len(mergedDrives) > 0 {
+		tlcDriveCapacityGiB, qlcDriveCapacityGiB = domain.SetSharedDriveCapacityResources(node, mergedDrives, blockedPhysicalUUIDs, blockedDrives)
+	}
 
 	logger.Info("Updated proxy mode annotations", "drives", len(mergedDrives), "newDrives", newDrivesFound, "tlcCapacityGiB", tlcDriveCapacityGiB, "qlcCapacityGiB", qlcDriveCapacityGiB)
 
@@ -584,6 +646,23 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 	// Mark container as completed
 	r.container.Status.Status = weka.Completed
 	return r.Status().Update(ctx, r.container)
+}
+
+// warnOverriddenDriveTypes logs a Warn naming every drive whose Type an override changed.
+// Virtual drives already allocated from those physical drives keep their own recorded type
+// (and pool) until reallocated, so allocatable can temporarily disagree with what's running —
+// surfaced so it isn't mistaken for a bug.
+func warnOverriddenDriveTypes(logger *instrumentation.SpanLogger, beforeTypes map[string]string, after []domain.SharedDriveInfo) {
+	for _, drive := range after {
+		priorType, existed := beforeTypes[drive.Serial]
+		// A drive absent from beforeTypes is newly discovered, so nothing was ever allocated from
+		// it and there is nothing to disagree with — not worth a warning.
+		if !existed || priorType == drive.Type {
+			continue
+		}
+		logger.Warn("Drive type overridden; virtual drives already allocated from this drive keep their recorded type until their containers are reallocated",
+			"serial", drive.Serial, "physicalUUID", drive.PhysicalUUID, "previousType", priorType, "newType", drive.Type)
+	}
 }
 
 // appendMissingDrivesToBlocked extends blockedDrives with any annotatedSerial

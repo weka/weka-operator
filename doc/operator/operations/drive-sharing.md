@@ -200,7 +200,9 @@ spec:
 
 **Requirements:**
 - Physical drives must have type information (TLC or QLC)
-- Type information comes from `weka-sign-drive show --json` during proxy signing
+- Type information comes from `weka-sign-drive show --json` during proxy signing, by default
+  inferred from IU size — if that inference is wrong, it can be forced per-drive with
+  `signDrivesPayload.driveTypeOverrides`; see [Drive type overrides](drive-signing.md#drive-type-overrides-tlcqlc-shared-mode-only) in drive-signing.md
 - Separate physical drive pools for TLC and QLC must have sufficient capacity
 
 **Allocation strategy:** See [Virtual Drive Allocation Strategies](#virtual-drive-allocation-strategies) for details.
@@ -710,7 +712,7 @@ spec:
 - Each cluster uses different `basePort` to avoid conflicts
 - Both clusters share the same physical drives via proxy containers
 - Total capacity request: (6000 + 3000) × 6 containers = 54TB must be available
-- Virtual drive claims tracked in node annotation: `weka.io/virtual-drive-claims`
+- Virtual drive claims are tracked in the owning WekaContainer's `.status.allocations.virtualDrives` (not a node annotation)
 
 ---
 
@@ -743,21 +745,20 @@ SHARED_CAPACITY:.status.capacity.weka\.io/shared-drives-capacity
 
 ### Check Virtual Drive Allocations
 
-View virtual drive claims per node:
+Virtual drive claims are tracked per container in `.status.allocations.virtualDrives`, not in a
+node annotation. View them across all drive containers in a namespace:
 
 ```bash
-kubectl get node <node-name> -o jsonpath='{.metadata.annotations.weka\.io/virtual-drive-claims}' | jq
+kubectl get wekacontainers -n <namespace> -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.allocations.virtualDrives}{"\n"}{end}'
 ```
 
 **Example output:**
-```json
-{
-  "31de939a-...": ["default:prod-cluster-drive-0", "fb05d910-...", 2000],
-  "7b3f82cd-...": ["development:dev-cluster-drive-0", "fb05d910-...", 1500]
-}
+```
+prod-cluster-drive-0   [{"virtualUUID":"31de939a-...","physicalUUID":"fb05d910-...","capacityGiB":2000,"serial":"S5XYNS0T...","type":"TLC"}]
+dev-cluster-drive-0    [{"virtualUUID":"7b3f82cd-...","physicalUUID":"fb05d910-...","capacityGiB":1500,"serial":"S5XYNS0T...","type":"TLC"}]
 ```
 
-Format: `{"virtualUUID": ["namespace:container", "physicalUUID", capacityGiB]}`
+Each entry is a `VirtualDrive` (`virtualUUID`, `physicalUUID`, `capacityGiB`, `serial`, `type`).
 
 ### Check Cluster Status
 

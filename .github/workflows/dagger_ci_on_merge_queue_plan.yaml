@@ -210,7 +210,8 @@ jobs:
                 "cleanup": "on-start",
                 "runs-in-lab": true,
                 "with-s3": true,
-                "with-data-services": true
+                "with-data-services": true,
+                "local-builder": true
               }
             }')
 
