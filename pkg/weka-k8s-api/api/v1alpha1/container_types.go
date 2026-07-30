@@ -150,6 +150,9 @@ const (
 	Completed            ContainerStatus = "Completed"
 	Building             ContainerStatus = "Building"
 	TimestampStopAttempt ContainerStatus = "StoppingAttempt"
+	// Stale indicates the container's node has been removed from the k8s cluster and it is
+	// within the graceful-removal grace period before the operator deletes it.
+	Stale ContainerStatus = "Stale"
 )
 
 type WekaContainerSpecOverrides struct {
