@@ -28,21 +28,6 @@
     }
   },
   "definitions": {
-    "AWSNetwork": {
-      "kind": "struct",
-      "fields": [
-        {
-          "name": "DeviceSlots",
-          "jsonName": "deviceSlots",
-          "type": {
-            "type": "array",
-            "items": "int"
-          },
-          "description": "should provide list of additional nics indexes starting from 1, index 0 is reserved for kernel networking",
-          "optional": true
-        }
-      ]
-    },
     "AdditionalMemory": {
       "kind": "struct",
       "fields": [
