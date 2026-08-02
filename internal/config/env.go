@@ -21,6 +21,20 @@ type BindAddress struct {
 	NodeAgent   string
 }
 
+type CleanupRemovedNodesMode string
+
+const (
+	CleanupRemovedNodesOff  CleanupRemovedNodesMode = "false"
+	CleanupRemovedNodesOn   CleanupRemovedNodesMode = "true"
+	CleanupRemovedNodesAuto CleanupRemovedNodesMode = "auto"
+)
+
+// CleansOnNodeRemoval reports whether the mode intends eventual cleanup of a
+// removed node's backend container (immediate for On, after a grace period for Auto).
+func (m CleanupRemovedNodesMode) CleansOnNodeRemoval() bool {
+	return m == CleanupRemovedNodesOn || m == CleanupRemovedNodesAuto
+}
+
 type Timeouts struct {
 	ReconcileTimeout                  time.Duration // Reconcile timeout
 	KubeExecTimeout                   time.Duration // Kubernetes ssh commands executor timeout
@@ -322,7 +336,7 @@ var Config struct {
 		ImagePrePullEnabled              bool
 		ImagePrePullTimeout              time.Duration
 	}
-	CleanupRemovedNodes                          bool
+	CleanupRemovedNodes                          CleanupRemovedNodesMode
 	CleanupBackendsOnNodeSelectorMismatch        bool
 	CleanupClientsOnNodeSelectorMismatch         bool
 	CleanupContainersOnTolerationsMismatch       bool
@@ -598,7 +612,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.SkipClientNoScheduleToleration = getBoolEnvOrDefault("SKIP_CLIENT_NO_SCHEDULE_TOLERATION", false)
 	Config.SkipAuxNoScheduleToleration = getBoolEnvOrDefault("SKIP_AUX_NO_SCHEDULE_TOLERATION", false)
 	Config.SkipAwsTerminationLifecycleHook = getBoolEnvOrDefault("SKIP_AWS_TERMINATION_LIFECYCLE_HOOK", false)
-	Config.CleanupRemovedNodes = getBoolEnvOrDefault("CLEANUP_REMOVED_NODES", false)
+	Config.CleanupRemovedNodes = getCleanupRemovedNodesMode()
 	Config.CleanupBackendsOnNodeSelectorMismatch = getBoolEnvOrDefault("CLEANUP_BACKENDS_ON_NODE_SELECTOR_MISMATCH", false)
 	Config.CleanupClientsOnNodeSelectorMismatch = getBoolEnvOrDefault("CLEANUP_CLIENTS_ON_NODE_SELECTOR_MISMATCH", false)
 	Config.CleanupContainersOnTolerationsMismatch = getBoolEnvOrDefault("CLEANUP_CONTAINERS_ON_TOLERATIONS_MISMATCH", false)
@@ -783,6 +797,23 @@ func getBoolEnvOrDefault(envKey string, defaultVal bool) bool {
 		os.Exit(1)
 	}
 	return ival
+}
+
+func getCleanupRemovedNodesMode() CleanupRemovedNodesMode {
+	val := strings.ToLower(strings.TrimSpace(env.GetString("CLEANUP_REMOVED_NODES", string(CleanupRemovedNodesAuto))))
+
+	switch CleanupRemovedNodesMode(val) {
+	case CleanupRemovedNodesOff:
+		return CleanupRemovedNodesOff
+	case CleanupRemovedNodesOn:
+		return CleanupRemovedNodesOn
+	case CleanupRemovedNodesAuto, "": // "" == set-but-empty, treat as default
+		return CleanupRemovedNodesAuto
+	default:
+		// Unrecognized value: fail closed to Off rather than silently enabling cleanup on a typo.
+		klog.Warningf("invalid CLEANUP_REMOVED_NODES value %q, disabling removed-node cleanup; set one of false/true/auto", val)
+		return CleanupRemovedNodesOff
+	}
 }
 
 func getIntEnvOrDefault(envKey string, defaultVal int) int {

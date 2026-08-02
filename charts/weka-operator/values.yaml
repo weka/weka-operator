@@ -171,8 +171,16 @@ deploymentIdentifier: ""
 # Operator behavior toggles for cleanup on environment drift, eviction,
 # throttling, and toleration shaping. Defaults below; only set what you change.
 
-# -- Delete backend WekaContainers whose target node is no longer in the K8s cluster.
-cleanupRemovedNodes: false
+# -- Removed-node backend cleanup mode when a backend WekaContainer's target node
+# leaves the K8s cluster. Tri-state (quote the value):
+#   "false" - never delete the container (previous default).
+#   "true"  - delete the container immediately.
+#   "auto"  - (default) hold the container in Stale status for a grace period, then
+#             delete only if the node is still gone. Grace is 30m on managed cloud
+#             (AWS/OCI) and 24h otherwise; if the node returns within the window the
+#             container recovers instead of being torn down.
+# An unset/empty value uses "auto"; an unrecognized value fails closed to "false".
+cleanupRemovedNodes: "auto"
 # -- Delete backend WekaContainers when their nodeSelector no longer matches the
 # assigned node. Aux containers are unaffected.
 cleanupOnNodeSelectorMismatch: false

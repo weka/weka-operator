@@ -12,6 +12,7 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
+	v1 "k8s.io/api/core/v1"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services"
@@ -67,6 +68,25 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		// if cluster marked container state as deleting, update status and put deletion timestamp
 		&lifecycle.SimpleStep{
 			Run: r.handleStateDeleting,
+		},
+		// A backend pod that has already exited (terminal phase) AND is already being force-removed
+		// (deletionTimestamp set) no longer needs the do-not-force-delete finalizer — its weka process is
+		// gone, so there is nothing left to drain, yet the finalizer wedges it in Terminating behind
+		// DeactivateWekaContainer (which never completes once the node/process is gone). Strip it and reap
+		// the pod up front, before the deactivate/resign steps, so it is not blocked by them. The
+		// deletionTimestamp gate is deliberate: a pod that merely exited Succeeded/Failed mid-teardown
+		// (no deletionTimestamp) is left to the normal flow, so we do not reap-then-recreate a healthy pod.
+		&lifecycle.SimpleStep{
+			Name: "ReleaseTerminalPodOnDeletion",
+			Run:  r.releaseTerminalPodOnDeletion,
+			Predicates: lifecycle.Predicates{
+				lifecycle.IsNotFunc(r.PodNotSet),
+				r.container.IsBackend,
+				func() bool {
+					return r.pod.GetDeletionTimestamp() != nil &&
+						(r.pod.Status.Phase == v1.PodSucceeded || r.pod.Status.Phase == v1.PodFailed)
+				},
+			},
 		},
 		// this will allow go back into deactivate flow if we detected that container joined the cluster
 		// at this point we would be stuck on weka local stop if container just-joined cluster, while we decided to delete it
