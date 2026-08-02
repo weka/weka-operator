@@ -23,7 +23,7 @@ import (
 
 // assertRequeue asserts that err is a *lifecycle.WaitError (the go-steps-engine idiom for "not
 // failed, come back and try again"), not a plain error and not nil.
-func assertRequeue(t *testing.T, err error) {
+func assertRequeue(t testing.TB, err error) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("expected a requeue (*lifecycle.WaitError), got nil (treated as success)")
