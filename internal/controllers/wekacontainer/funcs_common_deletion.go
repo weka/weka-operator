@@ -413,6 +413,36 @@ func (r *containerReconcilerLoop) deletePod(ctx context.Context, pod *v1.Pod) er
 	return nil
 }
 
+// releaseTerminalPodOnDeletion strips the do-not-force-delete finalizer from, and reaps, a backend pod
+// that has already reached a terminal phase (Succeeded/Failed) while its container is being deleted.
+//
+// The finalizer exists to keep a *running* backend pod from being force-removed mid-drain so its drives
+// can drain gracefully. Once the pod is terminal that protection is moot — the weka process has already
+// exited, there is no active drive I/O, and Kubernetes will not resurrect a terminal pod in place. Holding
+// the finalizer at that point only wedges the pod in Terminating behind the rest of the deleting flow,
+// which can never complete when the node/process is gone (DeactivateWekaContainer waits forever on a
+// container the cluster reports as DEACTIVATING). Reaping the terminal pod up front lets it disappear
+// immediately regardless of whether deactivation can progress.
+//
+// Unlike reapExitedBackendPod (active flow) this does not wait for recreation — the container is being
+// torn down, so there is nothing to recreate.
+func (r *containerReconcilerLoop) releaseTerminalPodOnDeletion(ctx context.Context) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	pod := r.pod
+	logger.Info("Releasing terminal backend pod during deletion, removing weka finalizer",
+		"pod", pod.Name, "phase", pod.Status.Phase)
+
+	if err := r.deletePod(ctx, pod); err != nil {
+		return err
+	}
+
+	return lifecycle.NewWaitErrorWithDuration(
+		errors.New("terminal backend pod released during deletion, refetching"),
+		time.Second*5,
+	)
+}
+
 func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.Pod, force bool) error {
 	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "runWekaLocalStop")
 	defer spanLogger.End()
@@ -586,7 +616,7 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 	// Note: we only check NodeIsReady, not NodeIsUnschedulable, because cordoned nodes
 	// are still functional and the resign drives pod has tolerations to be scheduled there
 	if nodeName != "" && !NodeIsReady(r.node) {
-		if config.Config.CleanupRemovedNodes {
+		if config.Config.CleanupRemovedNodes.CleansOnNodeRemoval() {
 			_, err := r.KubeService.GetNode(ctx, k8sTypes.NodeName(nodeName))
 			if err != nil {
 				if apierrors.IsNotFound(err) {

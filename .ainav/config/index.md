@@ -24,4 +24,6 @@ Use this map for operator settings, deployment templates and CRD definitions.
   not admission-validated) carry their own `extraVolumes`/`extraVolumeMounts` — e.g. a CA bundle.
   See [extra-volumes.md](../../doc/operator/deployment/extra-volumes.md).
 
+- Removed-node backend cleanup: `CLEANUP_REMOVED_NODES` / Helm `cleanupRemovedNodes`, tri-state `false`/`true`/`auto` (default `auto`), grace-period logic in `wekacontainer/funcs_handle_node_statuses.go`. See [helm-install.md](../../doc/operator/deployment/helm-install.md).
+
 To add configuration, update `env.go`, Helm defaults and deployment wiring together; see [tasks.md](../tasks.md).
