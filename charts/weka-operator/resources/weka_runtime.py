@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import socket
 import struct
 import subprocess
@@ -2617,11 +2618,69 @@ async def configure_traces():
 
 
 async def ensure_nics(num: int):
-    command = dedent(f"""
-        set -e
-        mkdir -p /opt/weka/k8s-scripts
-        weka local run --container {NAME} /weka/go-helpers/cloud-helper ensure-nics -n {num}
-        """)
+    # `weka local run` does not forward the pod environment
+    # into the nested container, so cloud-helper finds no AWS_ROLE_ARN /
+    # AWS_WEB_IDENTITY_TOKEN_FILE and the AWS SDK falls back to IMDS (the node instance
+    # role) instead of the WekaPolicy service-account identity.
+    #
+    # To hand it the IRSA identity WITHOUT copying the token to the shared /opt/weka
+    # hostPath (readable by sibling pods / persisted on node disk), we stream the projected
+    # token over `weka local run`'s stdin into a tmpfs file that exists ONLY inside the
+    # nested container (/dev/shm), export the identity to cloud-helper, then delete it. The
+    # token value never touches node persistent/shared disk, argv, or logs — only the pipe
+    # (memory) and the nested container's tmpfs.
+    # num flows from a JSON instruction payload into a shell command; coerce to int so a
+    # malformed value fails fast here rather than breaking (or injecting into) the shell.
+    num = int(num)
+
+    role_arn = os.environ.get("AWS_ROLE_ARN")
+    token_file = os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE")
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or ""
+    use_web_identity = bool(role_arn and token_file and exists(token_file))
+
+    helper_cmd = f"/weka/go-helpers/cloud-helper ensure-nics -n {num}"
+
+    if use_web_identity:
+        # runs INSIDE the nested container; reads the token from stdin. role_arn/region are
+        # not secret so inlining them in argv is fine; the token only arrives via stdin.
+        #
+        # The token file lives in the long-lived {NAME} container's tmpfs, NOT this pod's, so
+        # its lifetime is decoupled from us: set -e + a trap ensure it is removed even if the
+        # command fails or the nested shell is signalled, and the non-empty check turns a
+        # missing/empty stdin (e.g. `weka local run` not forwarding stdin) into a clear error
+        # instead of an opaque STS InvalidIdentityToken deep inside cloud-helper.
+        region_env = f"AWS_REGION={region} AWS_DEFAULT_REGION={region} " if region else ""
+        nested = dedent(f"""
+            set -e
+            umask 177
+            trap 'rm -f /dev/shm/aws-web-identity-token' EXIT INT TERM
+            cat > /dev/shm/aws-web-identity-token
+            if [ ! -s /dev/shm/aws-web-identity-token ]; then
+                echo "web identity token not received on stdin - 'weka local run' did not forward stdin" >&2
+                exit 1
+            fi
+            AWS_ROLE_ARN={role_arn} AWS_WEB_IDENTITY_TOKEN_FILE=/dev/shm/aws-web-identity-token {region_env}AWS_STS_REGIONAL_ENDPOINTS=regional {helper_cmd}
+        """).strip()
+        command = (
+            f"set -e\n"
+            f"cat {shlex.quote(token_file)} | "
+            f"weka local run --container {NAME} sh -c {shlex.quote(nested)}\n"
+        )
+        logging.info("ensure_nics: streaming IRSA web-identity (role=%s) into nested container via stdin", role_arn)
+    else:
+        # No IRSA identity in the pod env: cloud-helper falls back to the node instance role
+        # via IMDS -- exactly the #2698 failure. Log why so a misconfigured ServiceAccount /
+        # IRSA annotation is diagnosable from the pod log alone.
+        logging.warning(
+            "ensure_nics: no IRSA web-identity in pod env (role_arn=%s, token_file=%s, token_present=%s); "
+            "falling back to node instance role via IMDS",
+            role_arn, token_file, bool(token_file and exists(token_file)),
+        )
+        command = dedent(f"""
+            set -e
+            weka local run --container {NAME} {helper_cmd}
+            """)
+
     stdout, stderr, ec = await run_command(command)
     if ec != 0:
         raise Exception(f"Failed to ensure NICs: {stderr}")
