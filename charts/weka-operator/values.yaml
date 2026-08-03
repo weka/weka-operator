@@ -207,6 +207,11 @@ skipUnhealthyToleration: false
 skipClientNoScheduleToleration: false
 # -- Aux pods (drivers, adhoc ops, telemetry) omit auto-generated NoSchedule tolerations.
 skipAuxNoScheduleToleration: false
+# -- Disable all operator management of the AWS ASG termination lifecycle hook (detection and
+# creation). Scale-down drive-drain protection is unavailable while set. Do not combine with a
+# manually registered weka-drive-drain hook: the operator will not release held instances, so they
+# will sit in Terminating:Wait until the hook's HeartbeatTimeout expires.
+skipAwsTerminationLifecycleHook: false
 # -- Skip taint/toleration validation for client containers — assume all nodes
 # tolerate all clients.
 skipClientsTolerationValidation: true

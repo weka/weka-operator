@@ -294,8 +294,14 @@ var Config struct {
 	SkipUnhealthyToleration        bool
 	SkipClientNoScheduleToleration bool
 	SkipAuxNoScheduleToleration    bool
-	MetricsServerEnv               MetricsServerEnv
-	Upgrade                        struct {
+	// SkipAwsTerminationLifecycleHook disables all operator management of the AWS ASG
+	// EC2_INSTANCE_TERMINATING lifecycle hook: the operator neither resolves a backend node's ASG nor
+	// creates the hook, and never holds or releases an instance through it. Escape hatch for
+	// environments where the operator has no autoscaling IAM authority or hooks are managed out of
+	// band. Scale-down drive-drain protection is unavailable while set.
+	SkipAwsTerminationLifecycleHook bool
+	MetricsServerEnv                MetricsServerEnv
+	Upgrade                         struct {
 		ComputeThresholdPercent          int
 		DriveThresholdPercent            int
 		MaxDeactivatingContainersPercent int
@@ -571,6 +577,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.SkipUnhealthyToleration = getBoolEnvOrDefault("SKIP_UNHEALTHY_TOLERATION", false)
 	Config.SkipClientNoScheduleToleration = getBoolEnvOrDefault("SKIP_CLIENT_NO_SCHEDULE_TOLERATION", false)
 	Config.SkipAuxNoScheduleToleration = getBoolEnvOrDefault("SKIP_AUX_NO_SCHEDULE_TOLERATION", false)
+	Config.SkipAwsTerminationLifecycleHook = getBoolEnvOrDefault("SKIP_AWS_TERMINATION_LIFECYCLE_HOOK", false)
 	Config.CleanupRemovedNodes = getBoolEnvOrDefault("CLEANUP_REMOVED_NODES", false)
 	Config.CleanupBackendsOnNodeSelectorMismatch = getBoolEnvOrDefault("CLEANUP_BACKENDS_ON_NODE_SELECTOR_MISMATCH", false)
 	Config.CleanupClientsOnNodeSelectorMismatch = getBoolEnvOrDefault("CLEANUP_CLIENTS_ON_NODE_SELECTOR_MISMATCH", false)

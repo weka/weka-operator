@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/weka/weka-operator/internal/config"
 	awslib "github.com/weka/weka-operator/internal/services/aws"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
@@ -248,5 +249,17 @@ var _ = Describe("reconcileAwsTerminationLifecycle", func() {
 
 		Expect(fakeAsg.completeCalls).To(Equal(0))
 		Expect(fakeAsg.heartbeatCalls).To(Equal(1))
+	})
+
+	It("makes no AWS call when SkipAwsTerminationLifecycleHook is set", func() {
+		config.Config.SkipAwsTerminationLifecycleHook = true
+		defer func() { config.Config.SkipAwsTerminationLifecycleHook = false }()
+		r := newReconciler()
+
+		Expect(r.reconcileAwsTerminationLifecycle(context.Background())).To(Succeed())
+
+		Expect(fakeAsg.describeCalls).To(Equal(0))
+		Expect(fakeAsg.heartbeatCalls).To(Equal(0))
+		Expect(fakeAsg.completeCalls).To(Equal(0))
 	})
 })
