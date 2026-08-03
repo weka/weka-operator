@@ -74,6 +74,36 @@ func (f *fakeClusterLifecycleClient) PutTerminationHook(ctx context.Context, asg
 	return f.putErr
 }
 
+// multiInstanceLifecycleClient is a test double for awslib.LifecycleClient that routes calls to a
+// per-instance-ID fakeClusterLifecycleClient, for tests with more than one AWS instance behaving
+// differently (e.g. one real ASG member, one Karpenter-style instance with no ASG).
+type multiInstanceLifecycleClient struct {
+	byInstanceID map[string]*fakeClusterLifecycleClient
+}
+
+func (m *multiInstanceLifecycleClient) DescribeInstance(ctx context.Context, instanceID string) (string, string, error) {
+	return m.byInstanceID[instanceID].DescribeInstance(ctx, instanceID)
+}
+
+func (m *multiInstanceLifecycleClient) RecordHeartbeat(ctx context.Context, hookName, asgName, instanceID string) error {
+	return m.byInstanceID[instanceID].RecordHeartbeat(ctx, hookName, asgName, instanceID)
+}
+
+func (m *multiInstanceLifecycleClient) CompleteAction(ctx context.Context, hookName, asgName, instanceID, result string) error {
+	return m.byInstanceID[instanceID].CompleteAction(ctx, hookName, asgName, instanceID, result)
+}
+
+func (m *multiInstanceLifecycleClient) PutTerminationHook(ctx context.Context, asgName, hookName string, heartbeatTimeout int32) error {
+	// PutTerminationHook is keyed by ASG, not instance ID; route by matching asgName against the
+	// per-instance fakes (only one entry will match a given asgName in these tests).
+	for _, f := range m.byInstanceID {
+		if f.asgName == asgName {
+			return f.PutTerminationHook(ctx, asgName, hookName, heartbeatTimeout)
+		}
+	}
+	return nil
+}
+
 func driveContainerOnNode(name, node string) *weka.WekaContainer {
 	c := &weka.WekaContainer{ObjectMeta: metav1.ObjectMeta{Name: name}}
 	c.Spec.Mode = weka.WekaContainerModeDrive
@@ -222,6 +252,125 @@ var _ = Describe("ensureAwsTerminationLifecycleHook", func() {
 		var waitErr *lifecycle.WaitError
 		Expect(err).To(BeAssignableToTypeOf(waitErr))
 		Expect(fakeAsg.putCalls).To(Equal(1))
+	})
+
+	It("skips a node the AWS API reports is not in any ASG, with no error, even during initial provisioning", func() {
+		fakeAsg.asgName = "" // AWS reports no ASG for this instance
+		loop := newLoop(true)
+
+		Expect(loop.ensureAwsTerminationLifecycleHook(context.Background())).To(Succeed())
+
+		Expect(fakeAsg.describeCalls).To(Equal(1))
+		Expect(fakeAsg.putCalls).To(Equal(0))
+		Expect(verifiedHookNodes.Has("node1")).To(BeTrue())
+		// Not-in-ASG is logged, not evented: no Warning is recorded for it.
+		Expect(recorder.Events).To(HaveLen(0))
+	})
+
+	It("skips every not-in-ASG node in a multi-node cluster without erroring or eventing", func() {
+		node2 := &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "node2"},
+			Spec:       v1.NodeSpec{ProviderID: "aws:///eu-west-1a/i-0fedcba9876543210"},
+		}
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(node, node2).
+			Build()
+
+		multiAsg := &multiInstanceLifecycleClient{
+			byInstanceID: map[string]*fakeClusterLifecycleClient{
+				"i-0123456789abcdef0": {asgName: ""},
+				"i-0fedcba9876543210": {asgName: ""},
+			},
+		}
+		newClusterLifecycleClient = func(region string) awslib.LifecycleClient { return multiAsg }
+
+		globalThrottler := throttling.NewSyncMapThrottler()
+		loop := &wekaClusterReconcilerLoop{
+			Manager:  &fakeManager{client: fakeClient},
+			Recorder: recorder,
+			cluster:  cluster,
+			containers: []*weka.WekaContainer{
+				driveContainerOnNode("c1", "node1"),
+				driveContainerOnNode("c2", "node2"),
+			},
+			GlobalThrottler: globalThrottler,
+			Throttler:       globalThrottler.WithPartition("cluster/cluster-uid"),
+		}
+
+		Expect(loop.ensureAwsTerminationLifecycleHook(context.Background())).To(Succeed())
+
+		Expect(multiAsg.byInstanceID["i-0123456789abcdef0"].putCalls).To(Equal(0))
+		Expect(multiAsg.byInstanceID["i-0fedcba9876543210"].putCalls).To(Equal(0))
+		Expect(verifiedHookNodes.Has("node1")).To(BeTrue())
+		Expect(verifiedHookNodes.Has("node2")).To(BeTrue())
+		Expect(recorder.Events).To(HaveLen(0))
+	})
+
+	It("still hard-errors on initial provisioning when DescribeInstance fails (fail-closed preserved)", func() {
+		fakeAsg.describeInstanceErr = fmt.Errorf("AccessDenied: not authorized to perform autoscaling:DescribeAutoScalingInstances")
+		loop := newLoop(true)
+
+		err := loop.ensureAwsTerminationLifecycleHook(context.Background())
+
+		Expect(err).To(HaveOccurred())
+		Expect(fakeAsg.putCalls).To(Equal(0))
+		Eventually(recorder.Events).Should(Receive(ContainSubstring("ASGResolutionFailed")))
+	})
+
+	It("fails open (returns nil) on an already-formed cluster when DescribeInstance fails", func() {
+		fakeAsg.describeInstanceErr = fmt.Errorf("AccessDenied: not authorized to perform autoscaling:DescribeAutoScalingInstances")
+		loop := newLoop(false)
+
+		err := loop.ensureAwsTerminationLifecycleHook(context.Background())
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(fakeAsg.putCalls).To(Equal(0))
+		Eventually(recorder.Events).Should(Receive(ContainSubstring("ASGResolutionFailed")))
+	})
+
+	It("only ensures the hook on the real ASG node in a mixed cluster (one Karpenter-style node, one ASG-backed node)", func() {
+		node2 := &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "node2"},
+			Spec: v1.NodeSpec{
+				ProviderID: "aws:///eu-west-1a/i-0fedcba9876543210",
+			},
+		}
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(node, node2).
+			Build()
+
+		multiAsg := &multiInstanceLifecycleClient{
+			byInstanceID: map[string]*fakeClusterLifecycleClient{
+				"i-0123456789abcdef0": {asgName: "my-asg"},
+				"i-0fedcba9876543210": {asgName: ""},
+			},
+		}
+		newClusterLifecycleClient = func(region string) awslib.LifecycleClient { return multiAsg }
+
+		globalThrottler := throttling.NewSyncMapThrottler()
+		loop := &wekaClusterReconcilerLoop{
+			Manager:  &fakeManager{client: fakeClient},
+			Recorder: recorder,
+			cluster:  cluster,
+			containers: []*weka.WekaContainer{
+				driveContainerOnNode("c1", "node1"),
+				driveContainerOnNode("c2", "node2"),
+			},
+			GlobalThrottler: globalThrottler,
+			Throttler:       globalThrottler.WithPartition("cluster/cluster-uid"),
+		}
+
+		Expect(loop.ensureAwsTerminationLifecycleHook(context.Background())).To(Succeed())
+
+		Expect(multiAsg.byInstanceID["i-0123456789abcdef0"].putCalls).To(Equal(1))
+		Expect(multiAsg.byInstanceID["i-0fedcba9876543210"].putCalls).To(Equal(0))
+		Expect(verifiedHookNodes.Has("node1")).To(BeTrue())
+		Expect(verifiedHookNodes.Has("node2")).To(BeTrue())
+		Expect(recorder.Events).To(HaveLen(0))
 	})
 })
 
