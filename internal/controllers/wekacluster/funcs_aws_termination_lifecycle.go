@@ -60,8 +60,15 @@ var (
 // True) a failure to ensure returns an error, aborting the flow so an unprotected cluster is never
 // formed (self-heals on retry once e.g. IAM is fixed). On an already-formed cluster it FAILS OPEN —
 // emits a Warning on the WekaCluster and returns nil, so a transient AWS/IAM problem never disrupts a
-// running cluster. Non-AWS clusters are a no-op. In-memory per-node/per-ASG TTL caches keep the steady
-// state free of AWS calls and repair drift within the TTL.
+// running cluster. Non-AWS clusters are a no-op. The AWS API itself is the sole authority on ASG
+// membership: DescribeInstance returning an empty asgName with no error is a FACT about the instance (e.g.
+// Karpenter provisions instances directly via ec2:RunInstances and joins no ASG; so can EKS Auto Mode,
+// Fargate, or Hybrid Nodes); it is logged and skipped rather than blocking cluster formation.
+// Any other DescribeInstance/PutTerminationHook error (IAM denied, throttling, an AWS outage) is a
+// FAILURE to look up a genuine ASG member and keeps the existing fail-closed hard error on initial
+// provisioning — that is the actual data-loss guard and must never be weakened by a heuristic (a label,
+// an instance-lifecycle field, etc.) that could false-negative on a real ASG-backed node. In-memory
+// per-node/per-ASG TTL caches keep the steady state free of AWS calls and repair drift within the TTL.
 func (loop *wekaClusterReconcilerLoop) ensureAwsTerminationLifecycleHook(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
@@ -144,6 +151,16 @@ func (loop *wekaClusterReconcilerLoop) ensureAwsTerminationLifecycleHook(ctx con
 		markAttempt() // reached real AWS work — start/refresh the throttle window
 		asgClient := newClusterLifecycleClient(region)
 		asgName, _, err := asgClient.DescribeInstance(ctx, instanceID)
+		if err == nil && asgName == "" {
+			// AWS answered successfully and reported no ASG for this instance (e.g. Karpenter provisions
+			// instances directly from a NodeClaim), so no lifecycle hook can exist for it. This is a fact
+			// about the node, not a transient failure — never block cluster formation on it. Drain safety
+			// on these nodes rests on the provisioner's own graceful termination plus the operator's
+			// do-not-force-delete-unsafe finalizer / eviction gate.
+			logger.Info("backend node is not a member of any Auto Scaling group; skipping termination lifecycle hook", "node", nodeName)
+			verifiedHookNodes.Mark(nodeName) // nothing to ensure here; re-checked after the 6h TTL
+			continue
+		}
 		if err != nil {
 			logger.Info("failed to resolve ASG while ensuring termination lifecycle hook", "node", nodeName, "error", err.Error())
 			msg := fmt.Sprintf("could not resolve the Auto Scaling group for a backend node (%s) — cluster is in risk of data loss", awslib.APIErrorSummary(err))

@@ -94,7 +94,11 @@ func (a *realLifecycleClient) DescribeInstance(ctx context.Context, instanceID s
 		return "", "", errors.Wrap(err, "DescribeAutoScalingInstances failed")
 	}
 	if len(out.AutoScalingInstances) == 0 {
-		return "", "", errors.Errorf("no ASG instance found for instance-id %s", instanceID)
+		// Not an error: DescribeAutoScalingInstances returns an empty list for an instance that is not
+		// an ASG member (e.g. Karpenter calls ec2:RunInstances directly from a NodeClaim, joining no
+		// ASG). An empty asgName is how callers learn that; a returned error is reserved for an actual
+		// failure to ask AWS.
+		return "", "", nil
 	}
 	inst := out.AutoScalingInstances[0]
 	return aws.ToString(inst.AutoScalingGroupName), aws.ToString(inst.LifecycleState), nil
@@ -132,6 +136,12 @@ func (a *realLifecycleClient) CompleteAction(ctx context.Context, hookName, asgN
 }
 
 func (a *realLifecycleClient) PutTerminationHook(ctx context.Context, asgName, hookName string, heartbeatTimeout int32) error {
+	// DescribeInstance returns an empty asgName for an instance that is in no ASG. Reaching here with
+	// one means a caller skipped that check; fail with something legible rather than letting AWS
+	// answer with an opaque ValidationError.
+	if asgName == "" {
+		return errors.New("PutLifecycleHook requires an Auto Scaling group name, got empty")
+	}
 	c, err := a.ensureClient(ctx)
 	if err != nil {
 		return err
