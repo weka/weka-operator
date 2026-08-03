@@ -128,3 +128,24 @@ backend ASGs and, on scale-in, hold each instance until its data has been safely
   it learns the instance isn't an ASG member. Managed nodegroups and self-managed ASGs are both
   real ASG members and get the hook the same way.
 - Non-AWS clusters (bare-metal / OCI) are a no-op and need none of this.
+
+## Opting out entirely: `skipAwsTerminationLifecycleHook`
+
+If the operator cannot be granted the Auto Scaling permissions above (no autoscaling IAM authority in
+the account/cluster), or the `weka-drive-drain` hook is managed by something else out of band, set the
+Helm value `skipAwsTerminationLifecycleHook: true` (env `SKIP_AWS_TERMINATION_LIFECYCLE_HOOK`). With
+this set the operator does none of the work described in this document: it never resolves a backend
+node's ASG, never calls `DescribeAutoScalingInstances`/`PutLifecycleHook`, and never emits
+`NoAwsTerminationLifecycleHook` / `ASGResolutionFailed` events. It also stops
+holding/releasing instances through the hook on the container side, so no
+`RecordLifecycleActionHeartbeat`/`CompleteLifecycleAction` calls are made either. Initial cluster
+provisioning is no longer gated on any of this — it proceeds without a hook.
+
+Scale-down drive-drain protection is unavailable while this is set: a scale-in can terminate an
+instance before its data has been rebuilt/replicated off it.
+
+**Foot-gun:** do not combine this flag with a `weka-drive-drain` hook registered out of band (e.g. by
+Terraform, or `aws autoscaling put-lifecycle-hook`). With the flag set, nothing in the operator ever calls
+`CompleteLifecycleAction`, so an instance held by that hook will sit in `Terminating:Wait` until the
+hook's `HeartbeatTimeout` (up to 2h) expires and `DefaultResult=CONTINUE` fires on its own — the ASG
+scale-in simply stalls for that long instead of failing outright.

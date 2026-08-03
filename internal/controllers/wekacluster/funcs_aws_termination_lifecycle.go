@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/config"
 	awslib "github.com/weka/weka-operator/internal/services/aws"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -69,8 +70,16 @@ var (
 // provisioning — that is the actual data-loss guard and must never be weakened by a heuristic (a label,
 // an instance-lifecycle field, etc.) that could false-negative on a real ASG-backed node. In-memory
 // per-node/per-ASG TTL caches keep the steady state free of AWS calls and repair drift within the TTL.
+// Escape hatch: config.Config.SkipAwsTerminationLifecycleHook (SKIP_AWS_TERMINATION_LIFECYCLE_HOOK)
+// short-circuits this entirely — no node reads, no AWS calls, no events — for environments with no
+// autoscaling IAM authority or where the hook is managed out of band. See the flag's doc comment.
 func (loop *wekaClusterReconcilerLoop) ensureAwsTerminationLifecycleHook(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	if config.Config.SkipAwsTerminationLifecycleHook {
+		logger.Info("SKIP_AWS_TERMINATION_LIFECYCLE_HOOK is set; skipping ASG lifecycle hook management")
+		return nil
+	}
 
 	initialProvisioning := !meta.IsStatusConditionTrue(loop.cluster.Status.Conditions, condition.CondClusterCreated)
 

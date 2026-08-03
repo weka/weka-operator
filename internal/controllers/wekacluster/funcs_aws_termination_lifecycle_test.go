@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/weka/weka-operator/internal/config"
 	awslib "github.com/weka/weka-operator/internal/services/aws"
 )
 
@@ -371,6 +372,36 @@ var _ = Describe("ensureAwsTerminationLifecycleHook", func() {
 		Expect(verifiedHookNodes.Has("node1")).To(BeTrue())
 		Expect(verifiedHookNodes.Has("node2")).To(BeTrue())
 		Expect(recorder.Events).To(HaveLen(0))
+	})
+
+	Context("SkipAwsTerminationLifecycleHook", func() {
+		AfterEach(func() {
+			config.Config.SkipAwsTerminationLifecycleHook = false
+		})
+
+		It("makes no AWS calls and returns nil on initial provisioning when DescribeInstance would otherwise fail (AccessDenied)", func() {
+			config.Config.SkipAwsTerminationLifecycleHook = true
+			fakeAsg.describeInstanceErr = fmt.Errorf("AccessDenied: not authorized to perform autoscaling:DescribeAutoScalingInstances")
+			loop := newLoop(true)
+
+			Expect(loop.ensureAwsTerminationLifecycleHook(context.Background())).To(Succeed())
+
+			Expect(fakeAsg.describeCalls).To(Equal(0))
+			Expect(fakeAsg.putCalls).To(Equal(0))
+			Expect(recorder.Events).To(HaveLen(0))
+		})
+
+		It("makes no AWS calls and returns nil when PutTerminationHook would otherwise fail", func() {
+			config.Config.SkipAwsTerminationLifecycleHook = true
+			fakeAsg.putErr = fmt.Errorf("AccessDenied")
+			loop := newLoop(true)
+
+			Expect(loop.ensureAwsTerminationLifecycleHook(context.Background())).To(Succeed())
+
+			Expect(fakeAsg.describeCalls).To(Equal(0))
+			Expect(fakeAsg.putCalls).To(Equal(0))
+			Expect(recorder.Events).To(HaveLen(0))
+		})
 	})
 })
 

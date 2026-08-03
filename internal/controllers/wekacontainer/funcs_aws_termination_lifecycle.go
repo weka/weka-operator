@@ -10,6 +10,7 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	awslib "github.com/weka/weka-operator/internal/services/aws"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -76,6 +77,11 @@ func (r *containerReconcilerLoop) NodeIsAwsProvider() bool {
 // local termination signal (node cordoned or pod terminating); and DescribeInstance reports the
 // instance is actually held (Terminating:Wait). All AWS errors
 // fail open (logged, reconcile continues) so a transient AWS outage never blocks the reconcile loop.
+//
+// Gated by config.Config.SkipAwsTerminationLifecycleHook (SKIP_AWS_TERMINATION_LIFECYCLE_HOOK): when
+// set, the operator never creates the hook in the first place (see wekacluster's
+// ensureAwsTerminationLifecycleHook), so this side is already a near-no-op — the early return here
+// just removes a per-reconcile DescribeInstance call for every cordoned-node backend container.
 func (r *containerReconcilerLoop) reconcileAwsTerminationLifecycle(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
@@ -87,6 +93,9 @@ func (r *containerReconcilerLoop) reconcileAwsTerminationLifecycle(ctx context.C
 	}
 	if discovery.ProviderFromID(r.node.Spec.ProviderID) != discovery.ProviderAWS {
 		return nil
+	}
+	if config.Config.SkipAwsTerminationLifecycleHook {
+		return nil // operator does not manage the termination lifecycle hook
 	}
 	hookName := awslib.LifecycleHookName
 
