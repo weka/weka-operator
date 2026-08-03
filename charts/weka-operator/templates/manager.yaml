@@ -292,6 +292,13 @@ spec:
               value: "{{ .Values.allowRotateNonAnnotatedPodConfigHash }}"
             - name: MANAGEMENT_PROXY_HOST_NETWORK
               value: "{{ .Values.managementProxy.hostNetwork }}"
+            - name: MANAGEMENT_PROXY_REPLICAS
+              value: "{{ .Values.managementProxy.replicas | default 2 }}"
+            {{- /* `default` would swallow an explicit 0, which is the value most worth setting */}}
+            - name: MANAGEMENT_PROXY_HEALTHY_PANIC_THRESHOLD
+              value: "{{ if kindIs "invalid" .Values.managementProxy.healthyPanicThreshold }}50{{ else }}{{ .Values.managementProxy.healthyPanicThreshold }}{{ end }}"
+            - name: MANAGEMENT_PROXY_ADMIN_BIND_ADDRESS
+              value: "{{ .Values.managementProxy.adminBindAddress | default "0.0.0.0" }}"
             - name: MANAGEMENT_PROXY_INGRESS_BASE_DOMAIN
               value: "{{ .Values.managementProxy.ingressBaseDomain }}"
             - name: MANAGEMENT_PROXY_INGRESS_CLASS

@@ -322,16 +322,19 @@ var Config struct {
 	// forever. StuckAdhocPodStartingTimeout applies while the pod is still legitimately
 	// starting up (image pull / container creation), which can take much longer than a
 	// hard failure like ImagePullBackOff or Unschedulable.
-	StuckAdhocPodTimeout             time.Duration
-	StuckAdhocPodStartingTimeout     time.Duration
-	RemoveFailedDrivesFromWeka       bool
-	AllowMultipleProtocolsPerNode    bool
-	NetnsEnabled                     bool
-	ManagementProxyHostNetwork       bool
-	ManagementProxyIngressBaseDomain string
-	ManagementProxyIngressClass      string
-	EvictedPodCleanupEnabled         bool
-	EvictedPodCleanupInterval        time.Duration
+	StuckAdhocPodTimeout                 time.Duration
+	StuckAdhocPodStartingTimeout         time.Duration
+	RemoveFailedDrivesFromWeka           bool
+	AllowMultipleProtocolsPerNode        bool
+	NetnsEnabled                         bool
+	ManagementProxyHostNetwork           bool
+	ManagementProxyIngressBaseDomain     string
+	ManagementProxyIngressClass          string
+	ManagementProxyReplicas              int
+	ManagementProxyHealthyPanicThreshold int
+	ManagementProxyAdminBindAddress      string
+	EvictedPodCleanupEnabled             bool
+	EvictedPodCleanupInterval            time.Duration
 
 	BuilderImages          BuilderImagesConfig
 	Csi                    EmbeddedCsiSettings
@@ -595,6 +598,11 @@ func ConfigureEnv(ctx context.Context) {
 	Config.ManagementProxyHostNetwork = getBoolEnvOrDefault("MANAGEMENT_PROXY_HOST_NETWORK", false)
 	Config.ManagementProxyIngressBaseDomain = env.GetString("MANAGEMENT_PROXY_INGRESS_BASE_DOMAIN", "")
 	Config.ManagementProxyIngressClass = env.GetString("MANAGEMENT_PROXY_INGRESS_CLASS", "")
+	Config.ManagementProxyReplicas = getIntEnvOrDefault("MANAGEMENT_PROXY_REPLICAS", 2)
+	// Envoy's own default is 50. Set to 0 to disable panic mode, so the proxy
+	// only ever routes to upstreams that pass their health check.
+	Config.ManagementProxyHealthyPanicThreshold = getIntEnvOrDefault("MANAGEMENT_PROXY_HEALTHY_PANIC_THRESHOLD", 50)
+	Config.ManagementProxyAdminBindAddress = env.GetString("MANAGEMENT_PROXY_ADMIN_BIND_ADDRESS", "0.0.0.0")
 
 	// Metrics server environment configuration
 	Config.MetricsServerEnv.NodeName = env.GetString("NODE_NAME", "")
