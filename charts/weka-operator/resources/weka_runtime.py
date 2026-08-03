@@ -63,6 +63,7 @@ AGENT_PORT = os.environ.get("AGENT_PORT", "")
 RESOURCES = {}  # to be populated at later stage
 MEMORY = os.environ.get("MEMORY", "")
 JOIN_IPS = os.environ.get("JOIN_IPS", "")
+MANAGEMENT_IP = os.environ.get("MANAGEMENT_IP", "")
 DIST_SERVICE = os.environ.get("DIST_SERVICE")
 DRIVERS_BUILD_ID = os.environ.get("DRIVERS_BUILD_ID", "")
 OS_DISTRO = ""
@@ -76,7 +77,7 @@ POD_NAMESPACE = os.environ.get("POD_NAMESPACE", "")
 FAILURE_DOMAIN = os.environ.get("FAILURE_DOMAIN", None)
 MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
 NET_GATEWAY = os.environ.get("NET_GATEWAY", None)
-IS_IPV6 = os.environ.get("IS_IPV6", "false") == "true"
+IS_IPV6 = os.environ.get("IS_IPV6", "false") == "true" or (MANAGEMENT_IP and ipaddress.ip_address(MANAGEMENT_IP).version == 6)
 MANAGEMENT_IPS = []  # to be populated at later stage
 UDP_MODE = os.environ.get("UDP_MODE", "false") == "true"
 DUMPER_CONFIG_MODE = os.environ.get("DUMPER_CONFIG_MODE", "auto")
@@ -2854,9 +2855,9 @@ async def ensure_weka_container():
         # update backend_endpoints
         backend_endpoints = []
         for join_ip in JOIN_IPS.split(','):
-            ip, port = join_ip.split(':')
+            ip, port = join_ip.rsplit(':', 1)
             backend_endpoints.append({
-                "ip": ip,
+                "ip": ip.strip('[]'),
                 "port": int(port),
             })
         resources['backend_endpoints'] = backend_endpoints
@@ -4013,8 +4014,8 @@ async def write_management_ips():
 
     ipAddresses = []
 
-    if os.environ.get("MANAGEMENT_IP") and should_allocate_vf_per_ionode():
-        ipAddresses.append(os.environ.get("MANAGEMENT_IP"))
+    if MANAGEMENT_IP and should_allocate_vf_per_ionode():
+        ipAddresses.append(MANAGEMENT_IP)
     elif MANAGEMENT_IPS_SELECTORS:
         devices_info = await get_devices_by_selectors(MANAGEMENT_IPS_SELECTORS)
         for d in devices_info:
@@ -4291,9 +4292,14 @@ async def main():
             def log_message(self, format, *args):
                 logging.info(f"HTTP: {format % args}")
 
+        class TCPServerV6(socketserver.TCPServer):
+            address_family = socket.AF_INET6
+
         def run_http_server():
-            with socketserver.TCPServer(("", serve_port), Handler) as httpd:
-                logging.info(f"Serving drivers from {serve_dir} on port {serve_port}")
+            server_cls = TCPServerV6 if IS_IPV6 else socketserver.TCPServer
+            bind_address = "::" if IS_IPV6 else ""
+            with server_cls((bind_address, serve_port), Handler) as httpd:
+                logging.info(f"Serving drivers from {serve_dir} on {bind_address or '0.0.0.0'}:{serve_port}")
                 httpd.serve_forever()
 
         # Start server in background thread

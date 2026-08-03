@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -205,7 +207,7 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 	if results.NoWekaDriversHandling {
 		// for legacy drivers handling, we don't have support for weka driver command
 		// copy everything from builder's /opt/weka/dist/drivers to targetDistcontainer's /opt/weka/dist/drivers
-		cmd := fmt.Sprintf("cd /opt/weka/dist/drivers/ && wget -r -nH --cut-dirs=3 --no-parent --reject=\"index.html*\" http://%s:%d/dist/v1/drivers/", builderIp, builderPort)
+		cmd := fmt.Sprintf("cd /opt/weka/dist/drivers/ && wget -r -nH --cut-dirs=3 --no-parent --reject=\"index.html*\" http://%s/dist/v1/drivers/", net.JoinHostPort(builderIp, strconv.Itoa(builderPort)))
 		stdout, stderr, execErr := executor.ExecNamed(ctx, "CopyDrivers",
 			[]string{"bash", "-ce", cmd},
 		)
@@ -215,7 +217,7 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 		return complete()
 	}
 
-	endpoint := fmt.Sprintf("http://%s:%d", builderIp, builderPort)
+	endpoint := "http://" + net.JoinHostPort(builderIp, strconv.Itoa(builderPort))
 
 	// if weka pack is not supported, we don't need to download it
 	if !results.WekaPackNotSupported {

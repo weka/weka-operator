@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -173,7 +174,7 @@ func jsonrpc(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID
 		return nil, 0, fmt.Errorf("failed to marshal JSONRPC payload: %w", err)
 	}
 
-	url := "http://" + agentPod.Status.PodIP + ":8090/jsonrpc"
+	url := "http://" + net.JoinHostPort(agentPod.Status.PodIP, "8090") + "/jsonrpc"
 	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to call node agent /jsonrpc endpoint: %w", err)

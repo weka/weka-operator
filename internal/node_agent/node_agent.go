@@ -994,7 +994,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 			endpoint = "localhost"
 		}
 
-		url := fmt.Sprintf("http://%s:%d%s", endpoint, target.Port, target.Path)
+		url := "http://" + net.JoinHostPort(endpoint, strconv.Itoa(target.Port)) + target.Path
 		req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 		if err != nil {
 			logger.Error(err, "Failed to create request for metrics scraping", "target", target)

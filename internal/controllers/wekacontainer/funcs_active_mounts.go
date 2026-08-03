@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -80,7 +81,7 @@ func (r *containerReconcilerLoop) fetchActiveMounts(ctx context.Context) (*int, 
 	}
 
 	// Build URL with container_name and container_uuid query parameters
-	url := fmt.Sprintf("http://%s:8090/getActiveMounts", agentPod.Status.PodIP)
+	url := "http://" + net.JoinHostPort(agentPod.Status.PodIP, "8090") + "/getActiveMounts"
 	if r.container.Spec.WekaContainerName != "" {
 		// container_uuid is the UID of the WekaContainer CR
 		containerUuid := string(r.container.GetUID())
