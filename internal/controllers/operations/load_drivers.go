@@ -97,6 +97,13 @@ const (
 	DriverConflict                        // strict: a higher-order version is loaded, we cannot get ours
 )
 
+// DriverDemand is one live container's claim on the node's driver version.
+type DriverDemand struct {
+	Priority  int
+	Image     string
+	Container string // "namespace/name", used only in the conflict message
+}
+
 // EvaluateDrivers decides what a container should do given the node's current
 // loaded-driver record. isFrontend marks a strict caller (needs its exact driver
 // version); non-frontends are lenient (any loaded version suffices). The returned
@@ -127,6 +134,47 @@ func EvaluateDrivers(node *v1.Node, image string, priority int, isFrontend bool)
 	}
 	// strict: a higher-order version is loaded and it isn't ours — genuine conflict
 	return DriverConflict, ld.Image
+}
+
+// BlockingPeer returns the "namespace/name" of the first live peer whose demand
+// outranks (priority, image), or "" when none does.
+//
+// It exists because the drivers-loaded node annotation is a record, not a lock:
+// nothing clears it when its author's pod is replaced mid-upgrade or the author
+// is deleted, so an outranking record can outlive everyone who wanted it. A
+// caller that has listed the node's live containers uses this to tell an
+// authoritative record from an orphaned one before accepting a DriverConflict.
+// An empty or nil peer list means nobody outranks us — the record is orphaned.
+//
+// Strictly outranks: a peer at equal order must not block. Two frontends of the
+// same cluster tie on both priority and image, and with >= each would name the
+// other as its blocker and neither would ever load. Contrast PeersDemand, which
+// deliberately uses >=.
+//
+// Only a frontend gets here, so only another frontend can outrank it — which pod
+// anti-affinity normally prevents, making an empty result the norm. It is
+// load-bearing only where two frontends can share a node:
+// ALLOW_MULTIPLE_PROTOCOLS_PER_NODE, Spec.NoAffinityConstraints, or the scheduling
+// races noted on getFrontendPodsOnNode.
+func BlockingPeer(peers []DriverDemand, priority int, image string) string {
+	for _, p := range peers {
+		if compareDriverOrder(p.Priority, p.Image, priority, image) > 0 {
+			return p.Container
+		}
+	}
+	return ""
+}
+
+// PeersDemand reports whether any peer's demand ranks at least as high as
+// (priority, image) — i.e. whether anything alive on the node still justifies a
+// driver at that rank. Satisfies DriverDemandCheck once bound to a peer list.
+func PeersDemand(peers []DriverDemand, priority int, image string) bool {
+	for _, p := range peers {
+		if compareDriverOrder(p.Priority, p.Image, priority, image) >= 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // loaderPriorityFromLabels reads the priority rank stamped on a loader container.
@@ -179,13 +227,33 @@ type LoadDrivers struct {
 	container           *weka.WekaContainer
 	namespace           string
 	priority            int  // rank in the (priority, version) total order used to pick the node driver
-	isFrontend          bool // strict caller: requires its exact version rather than tolerating any
 	force               bool // ignores existing node annotation
+	demanded            DriverDemandCheck
+}
+
+// DriverDemandCheck reports whether any live container on the node still demands a
+// driver ranking at least as high as (priority, image).
+//
+// It is how a caller hands the loader *evidence* rather than a verdict. The caller
+// establishes that the node's drivers-loaded record is orphaned for one particular
+// image; the loader may then face an in-flight loader for a *different* image, and
+// must re-ask the question for that image rather than reuse the caller's answer.
+// A nil check means the caller never looked, and the loader keeps its
+// ordering-only behavior.
+type DriverDemandCheck func(priority int, image string) bool
+
+// LoadDriversOptions carries the ordering/override knobs for NewLoadDrivers.
+type LoadDriversOptions struct {
+	Priority int  // rank in the (priority, version) total order used to pick the node driver
+	Force    bool // ignores existing node annotation
+	// Demanded, when non-nil, lets the loader tell an authoritative in-flight
+	// loader from an orphaned one. See DriverDemandCheck.
+	Demanded DriverDemandCheck
 }
 
 func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwnerDetails, //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	driversLoaderImage string, driversBuildId *string,
-	distServiceEndpoint string, priority int, isFrontend, force bool) *LoadDrivers {
+	distServiceEndpoint string, opts LoadDriversOptions) *LoadDrivers {
 	kclient := mgr.GetClient()
 	ns, _ := util.GetPodNamespace() //nolint:errcheck // namespace used for object metadata only; failure falls back to empty string
 	return &LoadDrivers{
@@ -199,9 +267,9 @@ func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwner
 		node:                node,
 		distServiceEndpoint: distServiceEndpoint,
 		namespace:           ns,
-		priority:            priority,
-		isFrontend:          isFrontend,
-		force:               force,
+		priority:            opts.Priority,
+		force:               opts.Force,
+		demanded:            opts.Demanded,
 	}
 }
 
@@ -234,17 +302,36 @@ func (o *LoadDrivers) GetJsonResult() string {
 // previous boot is deleted in HandleExistingLoader instead — that runs whenever a
 // loader exists rather than only behind the NodeRebooted() predicate, so the stale
 // check holds even when discovery info is missing (see HandleExistingLoader).
+//
+// What authorizes the delete is the record's OWN boot id, not the NodeRebooted()
+// predicate gating this step: NodeRebooted() reads the discovery annotation, which
+// lags an actual reboot until the next discovery run, so it stays true for a window
+// after recordDriversLoaded has already stamped a fresh CURRENT-boot record. The
+// predicate is only a cheap pre-filter to avoid running this step every reconcile;
+// its result is not fresh enough to drive the delete itself, so the boot-id check
+// below re-derives freshness from the record directly before anything is cleared.
 func (o *LoadDrivers) HandleNodeReboot(ctx context.Context) error {
-	annotations := o.node.Annotations
-	if annotations == nil {
+	if _, ok := o.node.Annotations[driversLoadedAnnotation]; !ok {
 		return nil
 	}
-	if _, ok := annotations[driversLoadedAnnotation]; !ok {
+	// Clear only a record that is actually stale. A record stamped with the CURRENT
+	// boot id must survive: recordDriversLoaded may have written it moments ago while
+	// NodeRebooted() is still true because discovery has not refreshed yet, and
+	// deleting it would force a needless driver reload and erase the arbitration state
+	// that EvaluateDrivers relies on. An unparsable record is cleared, since readers
+	// treat it as "nothing loaded" and nothing else collects it.
+	if ld := parseLoadedDrivers(o.node); ld != nil && ld.BootID == o.node.Status.NodeInfo.BootID {
 		return nil
 	}
-	delete(annotations, driversLoadedAnnotation)
-	o.node.Annotations = annotations
-	if err := o.client.Update(ctx, o.node); err != nil {
+	// Merge-patch (not a full-object Update) so the change is targeted at the
+	// annotation and less conflict-prone with concurrent writers of the node. The
+	// optimistic lock makes a stale-read delete fail with 409 rather than silently
+	// removing a record another writer just created for the current boot; the
+	// WaitError below requeues and the next pass re-reads and re-evaluates the gate
+	// above.
+	patch := client.MergeFromWithOptions(o.node.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	delete(o.node.Annotations, driversLoadedAnnotation)
+	if err := o.client.Patch(ctx, o.node, patch); err != nil {
 		return lifecycle.NewWaitError(errors.Wrap(err, "failed to update node annotations"))
 	}
 	return nil
@@ -284,12 +371,26 @@ func (o *LoadDrivers) CleanupIfLoaded(ctx context.Context) error {
 	return o.DeleteContainers(ctx)
 }
 
+// discardLoader deletes the in-flight loader and clears it so a fresh one is
+// created for our own image.
+func (o *LoadDrivers) discardLoader(ctx context.Context) error {
+	if err := o.DeleteContainers(ctx); err != nil {
+		return err
+	}
+	o.container = nil
+	return nil
+}
+
 // HandleExistingLoader resolves the race when a loader already exists on the node.
 // It orders the in-flight loader against our own by (priority, then version):
-//   - stale boot id    → delete it and create ours (o.container = nil).
-//   - same image       → keep it; we poll it to completion.
-//   - we outrank it     → preempt: delete it and create ours (o.container = nil).
-//   - otherwise        → defer to the >=-order load in flight (requeue).
+//   - stale boot id → discard it and create ours: the reboot unloaded its
+//     drivers, so it cannot be reused regardless of image or order.
+//   - same image    → keep it; we poll it to completion.
+//   - we outrank it → discard it and create ours.
+//   - it outranks us → defer (requeue), unless the caller supplied a demand check
+//     and nothing alive on the node demands the in-flight loader's own image, in
+//     which case that loader is orphaned just as a stale record is and deferring
+//     would only reproduce the deadlock one step later.
 func (o *LoadDrivers) HandleExistingLoader(ctx context.Context) error {
 	// A loader whose boot-id stamp does not match the node's current boot id is
 	// stale: the reboot unloaded its drivers and its persisted ExecutionResult
@@ -300,11 +401,7 @@ func (o *LoadDrivers) HandleExistingLoader(ctx context.Context) error {
 	// is the single place that guarantees a stale loader is never polled. A legacy
 	// loader (no stamp → "") never matches a live boot id and is likewise stale.
 	if loaderBootIDFromLabels(o.container) != o.node.Status.NodeInfo.BootID {
-		if err := o.DeleteContainers(ctx); err != nil {
-			return err
-		}
-		o.container = nil
-		return nil
+		return o.discardLoader(ctx)
 	}
 	loaderImage := o.container.Spec.Image
 	if loaderImage == o.containerDetails.Image {
@@ -312,12 +409,18 @@ func (o *LoadDrivers) HandleExistingLoader(ctx context.Context) error {
 	}
 	loaderPriority := loaderPriorityFromLabels(o.container)
 	if compareDriverOrder(o.priority, o.containerDetails.Image, loaderPriority, loaderImage) > 0 {
-		if err := o.DeleteContainers(ctx); err != nil {
-			return err
-		}
-		o.container = nil
-		return nil
+		return o.discardLoader(ctx)
 	}
+	// The in-flight loader outranks us. Re-ask the demand question for *its* image:
+	// the caller established that the node's record is orphaned, but the record and
+	// this loader need not name the same image, so its verdict does not transfer.
+	if o.demanded != nil && !o.demanded(loaderPriority, loaderImage) {
+		return o.discardLoader(ctx)
+	}
+	// Bounded even with no demand check (nil on every path but the orphaned-record
+	// preempt): a loader is a one-off, so cleanupFinishedOneOff / deleteStuckAdhocContainer
+	// reap it from its own reconcile whether or not its creator still exists. Unlike the
+	// node record, which nothing reaps — hence the check exists for that and not here.
 	return lifecycle.NewWaitErrorWithDuration(fmt.Errorf(
 		"drivers loader for image %s (priority %d) is in flight, deferring load of %s (priority %d)",
 		loaderImage, loaderPriority, o.containerDetails.Image, o.priority), time.Second*10)
@@ -334,11 +437,20 @@ func (o *LoadDrivers) recordDriversLoaded(ctx context.Context, image string, pri
 	if err != nil {
 		return err
 	}
+	// Merge-patch (not a full-object Update) so the change is targeted at the
+	// annotation and less conflict-prone with concurrent writers of *other* node
+	// fields. The optimistic lock is kept deliberately: two containers on the same
+	// node can both decide to load (a preempting frontend and a force-reload from
+	// reconcileWekaLocalStatus), and a silent last-write-wins here would leave the
+	// record naming an image whose driver is not the one resident — which every
+	// later EvaluateDrivers on this node then trusts. A 409 makes the loser retry
+	// against fresh state instead.
+	patch := client.MergeFromWithOptions(o.node.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	if o.node.Annotations == nil {
 		o.node.Annotations = make(map[string]string)
 	}
 	o.node.Annotations[driversLoadedAnnotation] = string(raw)
-	if err := o.client.Update(ctx, o.node); err != nil {
+	if err := o.client.Patch(ctx, o.node, patch); err != nil {
 		return fmt.Errorf("updating %s annotation: %w", driversLoadedAnnotation, err)
 	}
 	return nil

@@ -181,8 +181,12 @@ var _ = Describe("LoadDrivers CreateContainer", func() {
 })
 
 var _ = Describe("LoadDrivers HandleNodeReboot", func() {
-	// HandleNodeReboot only clears the previous boot's drivers-loaded annotation;
-	// deleting a stale loader is HandleExistingLoader's job (tested below).
+	// HandleNodeReboot clears the drivers-loaded annotation only when the record
+	// itself is stale (unparsable, or stamped with a boot id other than the node's
+	// current one). A record stamped with the current boot id survives even while
+	// the NodeRebooted() predicate that gates this step is still true, since that
+	// predicate lags behind an actual reboot until the next discovery run.
+	// Deleting a stale loader is HandleExistingLoader's job (tested below).
 	var (
 		ctx    context.Context
 		scheme *runtime.Scheme
@@ -205,8 +209,58 @@ var _ = Describe("LoadDrivers HandleNodeReboot", func() {
 		return &LoadDrivers{client: c, scheme: scheme, node: node, namespace: "default"}
 	}
 
-	It("clears the drivers-loaded annotation from the previous boot", func() {
+	recordJSON := func(boot, image string, priority int) string {
+		b, _ := json.Marshal(loadedDrivers{BootID: boot, Image: image, Priority: priority})
+		return string(b)
+	}
+
+	It("clears an unparsable drivers-loaded record", func() {
+		// "prev-boot-record" has no ':', so parseLoadedDrivers returns nil via the
+		// idx <= 0 branch — treated as stale regardless of boot id.
 		node.Annotations = map[string]string{driversLoadedAnnotation: "prev-boot-record"}
+		Expect(newOp().HandleNodeReboot(ctx)).To(Succeed())
+		Expect(node.Annotations).NotTo(HaveKey(driversLoadedAnnotation))
+	})
+
+	It("clears a parsable record stamped with a stale boot id", func() {
+		node.Annotations = map[string]string{
+			driversLoadedAnnotation: recordJSON("boot-previous", "quay.io/weka.io/weka-in-container:4.5.0.100", 2),
+		}
+		Expect(newOp().HandleNodeReboot(ctx)).To(Succeed())
+		Expect(node.Annotations).NotTo(HaveKey(driversLoadedAnnotation))
+	})
+
+	It("preserves a record stamped with the current boot id", func() {
+		// Regression case: reproduces the reboot→discovery-refresh churn window,
+		// where NodeRebooted() (gated on the lagging discovery annotation) is still
+		// true even though recordDriversLoaded already wrote a fresh CURRENT-boot
+		// record. That record must survive or every reconcile pass would force a
+		// needless driver reload and erase the arbitration state EvaluateDrivers
+		// relies on.
+		node.Annotations = map[string]string{
+			driversLoadedAnnotation: recordJSON("boot-current", "quay.io/weka.io/weka-in-container:4.5.0.100", 2),
+		}
+		op := newOp()
+		Expect(op.HandleNodeReboot(ctx)).To(Succeed())
+		Expect(node.Annotations).To(HaveKey(driversLoadedAnnotation),
+			"in-memory node object should still carry the annotation")
+
+		fresh := &corev1.Node{}
+		Expect(op.client.Get(ctx, client.ObjectKeyFromObject(node), fresh)).To(Succeed())
+		Expect(fresh.Annotations).To(HaveKey(driversLoadedAnnotation),
+			"the annotation must also survive in the stored object, not just in memory")
+	})
+
+	It("no-ops when there is no annotation at all", func() {
+		node.Annotations = nil
+		Expect(newOp().HandleNodeReboot(ctx)).To(Succeed())
+		Expect(node.Annotations).NotTo(HaveKey(driversLoadedAnnotation))
+	})
+
+	It("clears a legacy image:bootId record with a stale boot id, even when the image itself contains a tag colon", func() {
+		node.Annotations = map[string]string{
+			driversLoadedAnnotation: "quay.io/weka.io/weka-in-container:4.4.0.50:boot-previous",
+		}
 		Expect(newOp().HandleNodeReboot(ctx)).To(Succeed())
 		Expect(node.Annotations).NotTo(HaveKey(driversLoadedAnnotation))
 	})
@@ -327,6 +381,68 @@ var _ = Describe("EvaluateDrivers", func() {
 		// a strict frontend outranks the priority-0 legacy record and preempts
 		d, _ = EvaluateDrivers(node, imageY, prioFrontend, true)
 		Expect(d).To(Equal(DriverLoad))
+	})
+})
+
+var _ = Describe("BlockingPeer", func() {
+	imageNew := "quay.io/weka.io/weka-in-container:5.1.20.7" // the departed cluster's
+	imageMid := "quay.io/weka.io/weka-in-container:4.4.23"   // the new cluster's
+	imageOld := "quay.io/weka.io/weka-in-container:4.3.0.10"
+
+	const (
+		prioBackend  = 2
+		prioFrontend = 3
+	)
+
+	peer := func(name string, priority int, image string) DriverDemand {
+		return DriverDemand{Priority: priority, Image: image, Container: name}
+	}
+
+	It("finds no blocker when nothing is alive on the node", func() {
+		// the CI case: the record was left by a cluster that has been deleted, so the
+		// conflict it causes is against nobody. nil and empty must behave identically.
+		Expect(BlockingPeer(nil, prioFrontend, imageMid)).To(BeEmpty())
+		Expect(BlockingPeer([]DriverDemand{}, prioFrontend, imageMid)).To(BeEmpty())
+	})
+
+	It("names a live frontend peer that demands a higher version", func() {
+		peers := []DriverDemand{peer("ns/old-s3", prioFrontend, imageNew)}
+		Expect(BlockingPeer(peers, prioFrontend, imageMid)).To(Equal("ns/old-s3"),
+			"the record is authoritative while its consumer is still alive")
+	})
+
+	It("finds no blocker when only lenient backends run a newer image", func() {
+		// backends never outrank a frontend, and they tolerate whatever is loaded —
+		// their newer Spec.Image is not a demand that can block a downgrade.
+		//
+		// Scoped to BlockingPeer: this is not an end-to-end downgrade guarantee. Those
+		// backends' *pods* still run imageNew, so EnsureDrivers goes on to defer via
+		// findLivePodOnImage (DriversWaitForConsumer) for as long as they live — you
+		// cannot rmmod under a running backend. See the Limitations section of
+		// doc/operator/operations/drivers-loading.md.
+		peers := []DriverDemand{
+			peer("ns/compute-0", prioBackend, imageNew),
+			peer("ns/drive-0", prioBackend, imageNew),
+		}
+		Expect(BlockingPeer(peers, prioFrontend, imageMid)).To(BeEmpty())
+	})
+
+	It("does not let two frontends of the same cluster block each other", func() {
+		// anti-deadlock invariant: equal priority and equal image order to 0, so a peer
+		// at equal rank must not block. With >= each would name the other and neither
+		// would ever load against the orphaned record. Anti-affinity normally keeps two
+		// frontends off one node at all; see the BlockingPeer doc for when it doesn't.
+		peers := []DriverDemand{peer("ns/s3-b", prioFrontend, imageMid)}
+		Expect(BlockingPeer(peers, prioFrontend, imageMid)).To(BeEmpty())
+	})
+
+	It("is asymmetric between two frontends at different versions", func() {
+		// the older one yields to the newer, the newer proceeds. Deterministic, so no
+		// flap between the two loaders.
+		newer := peer("ns/s3-new", prioFrontend, imageMid)
+		older := peer("ns/s3-old", prioFrontend, imageOld)
+		Expect(BlockingPeer([]DriverDemand{newer}, prioFrontend, imageOld)).To(Equal("ns/s3-new"))
+		Expect(BlockingPeer([]DriverDemand{older}, prioFrontend, imageMid)).To(BeEmpty())
 	})
 })
 
@@ -484,6 +600,34 @@ var _ = Describe("LoadDrivers HandleExistingLoader", func() {
 		err := op.HandleExistingLoader(ctx)
 		Expect(err).To(HaveOccurred(), "deferring returns a wait error to requeue")
 		Expect(op.container).NotTo(BeNil(), "higher-order loader left untouched")
+		Expect(loaderExists(c)).To(BeTrue())
+	})
+
+	It("preempts an outranking in-flight loader that no live peer demands", func() {
+		// same fixture as the "defers" spec above, but the caller supplied a demand
+		// check and nothing alive on the node demands the loader's image: it is
+		// chasing an orphaned record rather than running a real load, so deferring
+		// to it would only reproduce the deadlock one step later. The backend caller is
+		// synthetic (only a frontend carries a check in production) — the ordering is
+		// what's under test, not the role.
+		op, c := newOp(loaderFor(currentBoot, imageNew, prioFrontend), imageOld, prioBackend)
+		op.demanded = func(prio int, img string) bool { return PeersDemand(nil, prio, img) }
+		Expect(op.HandleExistingLoader(ctx)).To(Succeed())
+		Expect(op.container).To(BeNil(), "orphaned outranking loader preempted")
+		Expect(loaderExists(c)).To(BeFalse())
+	})
+
+	It("still defers to an outranking in-flight loader that a live peer demands", func() {
+		// the caller found the node's *record* orphaned, but this in-flight loader is
+		// for a different image that a live peer does demand. The demand check is
+		// re-asked for the loader's own image, so the caller's verdict about the
+		// record must not delete a load someone is genuinely waiting on.
+		peers := []DriverDemand{{Priority: prioFrontend, Image: imageNew, Container: "ns/peer"}}
+		op, c := newOp(loaderFor(currentBoot, imageNew, prioFrontend), imageOld, prioBackend)
+		op.demanded = func(prio int, img string) bool { return PeersDemand(peers, prio, img) }
+		err := op.HandleExistingLoader(ctx)
+		Expect(err).To(HaveOccurred(), "deferring returns a wait error to requeue")
+		Expect(op.container).NotTo(BeNil(), "demanded loader left untouched")
 		Expect(loaderExists(c)).To(BeTrue())
 	})
 

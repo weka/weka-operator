@@ -1642,10 +1642,10 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 
 func LabelsForWekaPod(container *weka.WekaContainer) map[string]string {
 	labels := map[string]string{
-		"app.kubernetes.io/name":       "WekaContainer",
-		"app.kubernetes.io/part-of":    "weka-operator",
-		"app.kubernetes.io/created-by": "weka-operator",
-		"weka.io/mode":                 container.Spec.Mode,
+		"app.kubernetes.io/name":    "WekaContainer",
+		"app.kubernetes.io/part-of": "weka-operator",
+		domain.LabelCreatedBy:       domain.LabelCreatedByWeka,
+		"weka.io/mode":              container.Spec.Mode,
 	}
 	for k, v := range container.Labels {
 		labels[k] = v

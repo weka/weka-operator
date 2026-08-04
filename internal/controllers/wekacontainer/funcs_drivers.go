@@ -20,6 +20,8 @@ import (
 
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
@@ -51,17 +53,70 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 
 	priority := driverPriority(r.container)
 	isFrontend := r.container.HasFrontend()
+
 	decision, loadedImage := operations.EvaluateDrivers(r.node, details.Image, priority, isFrontend)
+	var blocker string
+	// Non-nil only once we have actually listed the node's live containers; the
+	// loader uses it to re-ask the demand question for an in-flight loader's own
+	// image, which need not be the image we found orphaned here.
+	var demanded operations.DriverDemandCheck
+	if decision == operations.DriverConflict {
+		// Nothing clears the node's drivers-loaded record when its author's pod
+		// is replaced mid-upgrade or the author is deleted, so the record can
+		// outlive whoever wrote it. Re-check against who is actually still alive
+		// on the node before accepting the conflict as real.
+		peers, err := r.nodeFrontendDemands(ctx)
+		if err != nil {
+			return err
+		}
+		blocker = operations.BlockingPeer(peers, priority, details.Image)
+		if blocker == "" {
+			// The record is orphaned by CR-level demand, but a peer mid-deletion may
+			// still have a pod holding mounts open, or the pod may belong to a
+			// container already excluded above. Catch a pod still running the
+			// recorded image before preempting under it. This is best-effort, not a
+			// full safety net: it does not see a lenient consumer running a
+			// different image than the loaded driver — the backstop for that is the
+			// loader's own post-install `weka driver ready` check plus rmmod failing
+			// while the module is in use.
+			holder, err := r.findLivePodOnImage(ctx, loadedImage)
+			if err != nil {
+				return err
+			}
+			if holder != "" {
+				msg := fmt.Sprintf(
+					"cannot load drivers for image %s on node %s: driver image %s is loaded and pod %s still runs it",
+					details.Image, r.node.Name, loadedImage, holder)
+				_ = r.RecordEventThrottled(v1.EventTypeWarning, "DriversWaitForConsumer", msg, time.Minute) //nolint:errcheck // event recording is best-effort
+				if err := r.updateStatusWaitForDrivers(ctx); err != nil {
+					return err
+				}
+				// Same 30s as the conflict path below: the usual cause is a live backend
+				// cluster on the newer image, which does not resolve on its own.
+				return lifecycle.NewWaitErrorWithDuration(errors.New(msg), 30*time.Second)
+			}
+			decision = operations.DriverLoad
+			demanded = func(prio int, img string) bool { return operations.PeersDemand(peers, prio, img) }
+			// Throttled: the record is only cleared once the load succeeds, so this
+			// branch re-fires on every reconcile until then (and indefinitely if the
+			// load keeps failing).
+			_ = r.RecordEventThrottled(v1.EventTypeNormal, "DriversPreemptStaleRecord", fmt.Sprintf( //nolint:errcheck // event recording is best-effort
+				"preempting stale driver record %s on node %s: no live container demands it and no live pod runs it",
+				loadedImage, r.node.Name), time.Minute)
+		}
+	}
+
 	switch decision {
 	case operations.DriverSatisfied, operations.DriverDefer:
 		// our exact version is loaded, or we are lenient and tolerate what's there
 		return nil
 	case operations.DriverConflict:
-		// strict frontend, but a >=-order incompatible driver is already loaded on
-		// the node; we cannot run on it and must not churn the shared loader
+		// strict frontend, but a >=-order incompatible driver is still demanded by
+		// a live peer on the node; we cannot run on it and must not churn the
+		// shared loader
 		msg := fmt.Sprintf(
-			"cannot load drivers for image %s: incompatible driver image %s already loaded on node %s",
-			details.Image, loadedImage, r.node.Name)
+			"cannot load drivers for image %s: incompatible driver image %s already loaded on node %s, required by %s",
+			details.Image, loadedImage, r.node.Name, blocker)
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "DriversVersionConflict", msg, time.Minute) //nolint:errcheck // event recording is best-effort
 		if err := r.updateStatusWaitForDrivers(ctx); err != nil {
 			return err
@@ -74,15 +129,97 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 		return err
 	}
 
-	logger.Info("Loading drivers", "image", details.Image, "priority", priority)
+	logger.Info("Loading drivers", "image", details.Image, "priority", priority, "preempt", demanded != nil)
 
 	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversLoaderImage,
-		r.container.Spec.DriversBuildId, r.container.Spec.DriversDistService, priority, isFrontend, false)
+		r.container.Spec.DriversBuildId, r.container.Spec.DriversDistService,
+		operations.LoadDriversOptions{Priority: priority, Demanded: demanded})
 	err := operations.ExecuteOperation(ctx, driversLoader)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+// nodeFrontendDemands lists the driver-version demands of the other frontend containers
+// on this node in desired-state terms: containers are never downgraded, so Spec.Image is
+// the conservative per-peer signal.
+//
+// Frontends suffice because both consumers ask at frontend rank. A lenient caller would
+// need every RequiresDrivers() container instead — a backend peer is a real demand at
+// backend rank. Peers that have not populated Status.NodeAffinity yet are invisible (the
+// node comes from that index); harmless, since EnsureDrivers is gated on HasNodeAffinity.
+func (r *containerReconcilerLoop) nodeFrontendDemands(ctx context.Context) ([]operations.DriverDemand, error) {
+	containers, err := r.getFrontendWekaContainerOnNode(ctx, r.node.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	demands := make([]operations.DriverDemand, 0, len(containers))
+	for i := range containers {
+		c := &containers[i]
+		// RequiresDrivers() needs no check: it is true for every frontend mode.
+		if c.UID == r.container.UID || c.IsMarkedForDeletion() || c.Spec.Image == "" {
+			continue
+		}
+		demands = append(demands, operations.DriverDemand{
+			Priority:  driverPriority(c),
+			Image:     c.Spec.Image,
+			Container: c.Namespace + "/" + c.Name,
+		})
+	}
+	return demands, nil
+}
+
+// findLivePodOnImage reports the first non-terminal driver-consuming pod on the
+// node still running `image` (as "namespace/name"), or "" if none is found. It is
+// the safety guard that keeps preemption from unloading drivers out from under a
+// pod that is still using them, even when no live WekaContainer demands that image
+// anymore (e.g. the container was deleted but its pod is still terminating).
+//
+// Only pods whose mode actually consumes drivers count. The rest run the same
+// images without holding wekafs mounts, so treating them as consumers would
+// re-create the permanent block this whole path exists to remove: a
+// drivers-loader pod runs the very image being recorded (GetLoaderImageForNode
+// returns the cluster image once weka can copy local driver files), and dist /
+// drivers-builder / envoy / telemetry pods are long-lived on the same image.
+// Loader-vs-loader ordering belongs to LoadDrivers.HandleExistingLoader, not
+// here.
+func (r *containerReconcilerLoop) findLivePodOnImage(ctx context.Context, image string) (string, error) {
+	pods, err := r.KubeService.GetPods(ctx, kubernetes.GetPodsOptions{
+		Node:   r.node.Name,
+		Labels: map[string]string{domain.LabelCreatedBy: domain.LabelCreatedByWeka},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	for i := range pods {
+		pod := &pods[i]
+		if r.pod != nil && pod.UID == r.pod.UID {
+			continue
+		}
+		if pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed {
+			continue
+		}
+		// RequiresDrivers() is a pure function of Spec.Mode, so the pod's mode label
+		// answers it. An unlabeled pod is kept: under-reporting a consumer is the
+		// dangerous direction.
+		if mode, ok := pod.Labels[domain.WekaLabelMode]; ok {
+			probe := &weka.WekaContainer{Spec: weka.WekaContainerSpec{Mode: mode}}
+			if !probe.RequiresDrivers() {
+				continue
+			}
+		}
+		wekaPodContainer, err := resources.GetWekaPodContainer(pod)
+		if err != nil || wekaPodContainer == nil {
+			continue
+		}
+		if wekaPodContainer.Image == image {
+			return pod.Namespace + "/" + pod.Name, nil
+		}
+	}
+	return "", nil
 }
 
 // driverPriority ranks a container in the (priority, version) total order that

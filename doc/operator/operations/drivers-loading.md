@@ -88,20 +88,44 @@ are equal.
 ## Decision logic
 
 Before touching the loader, `EnsureDrivers` computes the container's effective image and
-asks `EvaluateDrivers(node, image, priority, isFrontend)` what to do. The decision is a
-pure function of the node annotation:
+asks `EvaluateDrivers(node, image, priority, isFrontend)` what to do — a pure function of the
+node annotation.
+
+That annotation is **a record, not a lock**: nothing clears it except a node reboot or a
+successful load, so it outlives the container that wrote it. A record that outranks us is
+therefore only honored while some *live* container on the node still demands that version. On
+`DriverConflict`, `EnsureDrivers` lists the node's other *frontend* containers
+(`nodeFrontendDemands`) and calls `BlockingPeer` to check; if none outranks us the record is
+orphaned and we preempt it. Frontends are the whole list because only a frontend can outrank a
+frontend, and only a frontend reaches `DriverConflict`.
 
 | Decision | When | Action in `EnsureDrivers` |
 |----------|------|---------------------------|
 | `DriverLoad` | Nothing loaded, boot-id mismatch, or a strict frontend out-orders what is loaded | Set status *waiting for drivers*, run the loader |
 | `DriverSatisfied` | Loaded image == my image | Proceed (return nil) |
 | `DriverDefer` | Lenient container (backend / ssdproxy) and *some* valid version is already loaded | Proceed silently (return nil) |
-| `DriverConflict` | Strict frontend, but a version of **equal-or-higher order** is already loaded and it isn't mine | Emit a `DriversVersionConflict` warning, stay waiting |
+| `DriverConflict` | Strict frontend outranked by the record, **and** `BlockingPeer` names a live peer that still demands it | `DriversVersionConflict` warning naming that peer, stay waiting |
+| `DriverConflict` → `DriverLoad` | No live peer demands the record — it is orphaned | `DriversPreemptStaleRecord` (Normal), then load, preempting the record |
+| *(preempt deferred)* | Record is orphaned, but a non-terminal *driver-consuming* pod on the node still runs the recorded image | `DriversWaitForConsumer` warning, requeue 30s |
 
-A `DriversVersionConflict` warning (throttled) fires only on a genuine conflict: two strict
-frontends on one node whose versions cannot both be satisfied. The lower-order frontend
-stays pending — it cannot run on the wrong driver — until the situation resolves (a reboot,
-or the other frontend leaving the node).
+Because the conflict is decided against live demand, it clears on the next reconcile once the
+blocking peer leaves the node, rather than needing a reboot.
+
+Only a frontend reaches `DriverConflict`, so only another frontend can outrank it — and pod
+anti-affinity (over `domain.ContainerModesWithFrontend`) normally keeps two frontends off one
+node. On such a node `BlockingPeer` always comes back empty, the `DriversVersionConflict` row is
+unreachable, and the last row is the outcome an operator actually sees (hence its event names
+both images). `BlockingPeer` is load-bearing only where two frontends can share a node:
+`ALLOW_MULTIPLE_PROTOCOLS_PER_NODE`, `Spec.NoAffinityConstraints`, or the scheduling races noted
+on `getFrontendPodsOnNode`.
+
+`HasFrontend()` is a superset of that list on paper — `data-services` with
+`dataServicesFeCores > 0` counts as a frontend for priority but is not selected on by the
+anti-affinity. That field is not used in practice today, so the two coincide; if it ever is, a
+`data-services` container becomes a frontend the anti-affinity cannot see.
+
+Digest-pinned images (`repo@sha256:…`) never reach any of this: `GetSoftwareVersion` yields no
+version from a digest, so two such images compare equal and `DriverDefer` wins at order `0`.
 
 The load itself runs in `LoadDrivers.GetSteps()` (`load_drivers.go`): create the loader
 (stamping the `weka.io/driver-priority` label), poll it, and on success write the
@@ -109,16 +133,19 @@ The load itself runs in `LoadDrivers.GetSteps()` (`load_drivers.go`): create the
 a loader already exists, the container first discards it when its boot-id stamp is stale
 (see [`weka.io/driver-boot-id`](#loader-label-wekaiodriver-boot-id)), then polls it when the
 image matches, deletes and replaces it when it out-orders the in-flight load, or defers
-otherwise — this is the anti-race core. The loader reports success by writing the loaded driver name to
-`/tmp/weka-drivers.log` (`charts/weka-operator/resources/weka_runtime.py`), read back via
-`CheckDriversLoaded` (`funcs_drivers.go`).
+otherwise — this is the anti-race core. When preempting an orphaned record, an in-flight
+loader for a different image is discarded too, for the same reason. The loader reports success
+by writing the loaded driver name to `/tmp/weka-drivers.log`
+(`charts/weka-operator/resources/weka_runtime.py`), read back via `CheckDriversLoaded`
+(`funcs_drivers.go`). Because the `rmmod` of the previous driver is best-effort, the loader
+also runs `weka driver ready --version {version}` before reporting success, so a successful
+load means the *requested* version is genuinely resident.
 
 ### Node reboot
 
 Kernel modules do not persist across a reboot. When the node's BootID differs from the
 recorded one, the operator clears `weka.io/drivers-loaded`, so the next reconcile sees
-"nothing loaded" and reloads. Reboot is also the point at which a stuck configuration (e.g.
-an in-place downgrade, see [Limitations](#limitations)) naturally resets.
+"nothing loaded" and reloads.
 
 ### Force reload
 
@@ -138,9 +165,17 @@ The image used *for the loader pod* is not always the container's own image
 
 ## Limitations
 
-- **In-place frontend downgrade (V2 → V1, no reboot)** does not auto-apply. Selection is
-  monotonic and will not move to a lower version; it resolves at the next node reboot,
-  which clears the annotation.
+- **Preempting an orphaned record waits for any driver-consuming pod still running the
+  recorded image.** A lower-version frontend only ever arrives on a node as a newly created
+  container (existing containers are never downgraded). If it lands on a node whose record was
+  left by a higher-version container, it preempts that record — but not while a non-terminal
+  pod is still running the recorded image (`DriversWaitForConsumer`, 30s requeue), since
+  unloading under it would fail on remnant mounts. Only pods whose mode actually consumes
+  drivers count (`RequiresDrivers()`, evaluated from the pod's `weka.io/mode` label): the
+  drivers-loader pod itself runs that very image, and `dist` / `drivers-builder` / `envoy` /
+  `telemetry` pods are long-lived on it, yet none hold wekafs mounts — counting them would make
+  preemption permanently unreachable. So a node still hosting a live backend cluster on the
+  newer image stays blocked (correctly), while a node whose cluster is gone unblocks.
 - **A backend image upgrade does not by itself reload the node driver.** Backends are
   lenient by design and tolerate the loaded version; this preserves existing behavior. A
   frontend upgrade (or a reboot) is what moves the node's loaded version forward.

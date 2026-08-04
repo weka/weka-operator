@@ -1667,6 +1667,24 @@ async def load_drivers():
         if ec != 0:
             logging.error(f"Failed to load drivers {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
             raise Exception(f"Failed to load drivers: {stderr.decode('utf-8')}")
+
+    if WEKA_DRIVERS_HANDLING:
+        # Post-install verification: the "rmmod ... || echo" unload steps above are
+        # non-fatal on purpose (needed for the normal same-version force-reload path),
+        # but that means "weka driver install" can report success while the old
+        # modules are still resident. Confirm the REQUESTED version is actually ready
+        # before declaring victory.
+        _, stderr, ec = await run_command(f"weka driver ready --without-agent --version {version}")
+        if ec != 0:
+            logging.error(
+                f"Post-install driver verification failed for version {version}: "
+                f"{stderr.decode('utf-8')}: exc={ec}")
+            raise Exception(
+                f"Drivers for version {version} did not become ready after install "
+                f"('weka driver ready' exited {ec}: {stderr.decode('utf-8')}). This usually means the previous "
+                "driver failed to unload (rmmod), most often because remnant wekafs mounts on the host are still holding the old module resident."
+            )
+
     logging.info("All drivers loaded successfully")
 
 

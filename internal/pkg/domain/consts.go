@@ -6,4 +6,6 @@ const (
 	WekaLabelTargetClusterName = "weka.io/target-cluster-name"
 	WekaLabelMode              = "weka.io/mode"
 	WekaLabelClientName        = "weka.io/client-name"
+	LabelCreatedBy             = "app.kubernetes.io/created-by"
+	LabelCreatedByWeka         = "weka-operator"
 )
