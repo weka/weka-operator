@@ -318,7 +318,7 @@ func (o *BlockDrivesOperation) BlockSharedDrives(ctx context.Context) error {
 
 	sharedDrives := []domain.SharedDriveInfo{}
 	if sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]; ok {
-		err := json.Unmarshal([]byte(sharedDrivesStr), &sharedDrives)
+		err = json.Unmarshal([]byte(sharedDrivesStr), &sharedDrives)
 		if err != nil {
 			err = fmt.Errorf("failed to unmarshal shared-drives annotation: %w", err)
 			return err
@@ -352,10 +352,10 @@ func (o *BlockDrivesOperation) BlockSharedDrives(ctx context.Context) error {
 	}
 
 	if len(notFoundDrives) > 0 {
-		err := fmt.Errorf("the following drives were not found in the available drives list: %v", notFoundDrives)
-		logger.Error(err, "Failed to block drives")
+		notFoundErr := fmt.Errorf("the following drives were not found in the available drives list: %v", notFoundDrives)
+		logger.Error(notFoundErr, "Failed to block drives")
 		o.results = BlockDrivesResult{
-			Err: err.Error(),
+			Err: notFoundErr.Error(),
 		}
 		return nil
 	}
@@ -424,7 +424,7 @@ func (o *BlockDrivesOperation) UnblockSharedDrives(ctx context.Context) error {
 
 	sharedDrives := []domain.SharedDriveInfo{}
 	if sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]; ok {
-		err := json.Unmarshal([]byte(sharedDrivesStr), &sharedDrives)
+		err = json.Unmarshal([]byte(sharedDrivesStr), &sharedDrives)
 		if err != nil {
 			err = fmt.Errorf("failed to unmarshal shared-drives annotation: %w", err)
 			return err
@@ -458,10 +458,10 @@ func (o *BlockDrivesOperation) UnblockSharedDrives(ctx context.Context) error {
 	}
 
 	if len(notFoundDrives) > 0 {
-		err := fmt.Errorf("the following drives were not found in the blocked drives list: %v", notFoundDrives)
-		logger.Error(err, "Failed to unblock drives")
+		notFoundErr := fmt.Errorf("the following drives were not found in the blocked drives list: %v", notFoundDrives)
+		logger.Error(notFoundErr, "Failed to unblock drives")
 		o.results = BlockDrivesResult{
-			Err: err.Error(),
+			Err: notFoundErr.Error(),
 		}
 		return nil
 	}
