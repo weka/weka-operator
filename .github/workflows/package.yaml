@@ -66,6 +66,10 @@ jobs:
         with:
           submodules: recursive
           token: ${{ steps.app-token.outputs.token }}
+          # Full history + tags so `git describe`/`git rev-list` can resolve the
+          # base release tag and commit range for adhoc release notes.
+          # fetch-depth: 0 already fetches all tags, so no separate fetch-tags needed.
+          fetch-depth: 0
 
       # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#using-multiple-deploy-keys-inside-docker-builds
       - name: Collect Git files in a directory that is part of the Docker build context
@@ -108,7 +112,6 @@ jobs:
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
       - name: Install dependencies
-        if: github.event_name != 'workflow_dispatch'
         run: npm install
       - name: Generating version
         if: github.event_name != 'workflow_dispatch'
@@ -120,11 +123,100 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           VERSION_INPUT: ${{ github.event.inputs.version-name }}
-        run: echo "VERSION=$VERSION_INPUT" >> $GITHUB_ENV
+        run: |
+          set -euo pipefail
+          # Dispatched releases are adhoc-release/* only. build-release.sh pushes to
+          # PROD repos for both release/* and adhoc-release/*, but only adhoc-release/*
+          # has a GitHub-release step on the dispatch path — so a dispatch from any
+          # other branch (e.g. release/v1) would publish prod images/chart with no
+          # release. Fail before VERSION is set (hence before the build) instead.
+          # For a mainline GA release, push to release/v1 (semantic-release handles it).
+          case "${GITHUB_REF_NAME}" in
+            adhoc-release/*) ;;
+            *) echo "::error::Dispatched releases are only allowed from adhoc-release/* (got ${GITHUB_REF_NAME}); push to release/v1 for a GA release" >&2; exit 1 ;;
+          esac
+          # Normalize: strip an optional leading "v" so we never produce vv1.2.3 tags
+          # (build-release.sh and the release step both prepend "v").
+          VERSION="${VERSION_INPUT#v}"
+          # Validate: a strict semver guard also prevents newline-injection into
+          # $GITHUB_ENV via the (API-reachable) dispatch input.
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid version '$VERSION_INPUT'; expected semver like 1.15.1 or 1.15.1-rc.1" >&2
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
       - name: Read VERSION file
         id: version
         if: github.event_name != 'workflow_dispatch'
         run: echo "VERSION=$(cat .VERSION)" >> $GITHUB_ENV
+      - name: Pre-flight adhoc release checks
+        # Runs BEFORE build-release.sh pushes images/chart, so a bad base tag or a
+        # duplicate release fails fast instead of leaving published artifacts with
+        # no (or a broken) GitHub release. Dispatch is restricted to adhoc-release/*
+        # (enforced in "Read VERSION from inputs"), so this guard matches that.
+        if: ${{ env.VERSION != '' && github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'adhoc-release/') }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Cross-check: the version input must match the branch it's dispatched from.
+          # The convention embeds the version in the branch (adhoc-release/1.9.1-4 =>
+          # version 1.9.1-4), so a typo in the dispatch form would otherwise tag the
+          # wrong version against the right commits. VERSION is already "v"-stripped.
+          BRANCH_VERSION="${GITHUB_REF_NAME#adhoc-release/}"
+          if [ "$BRANCH_VERSION" != "$VERSION" ]; then
+            echo "::error::version input '$VERSION' does not match branch ${GITHUB_REF_NAME} (expected '$BRANCH_VERSION')" >&2
+            exit 1
+          fi
+          # The base tag must be resolvable, else generate_notes.js dies AFTER the push.
+          # Adhoc releases STACK: adhoc-release/1.9.1-1 is an ancestor of
+          # adhoc-release/1.9.1-4, and each cuts a numeric tag (v1.9.1-1, ...). The base
+          # must be the PREVIOUS adhoc tag so notes don't replay already-shipped commits.
+          # --exclude '*-*.*' drops only DOTTED prereleases (main's "-dev.N", release's
+          # "-<name>.N") while keeping numeric adhoc tags (vX.Y.Z-N) eligible as a base.
+          # NOTE: an adhoc branch must be cut from release/v1 (or a GA tag), never from
+          # main -- GA tags live on the release/v1 lineage and are unreachable from main,
+          # so a main-cut branch fails the check below.
+          FROM_TAG=$(git describe --tags --abbrev=0 --match 'v*' --exclude '*-*.*' 2>/dev/null || true)
+          if [ -z "$FROM_TAG" ]; then
+            echo "::error::No previous release tag reachable from HEAD; cut the adhoc branch from release/v1 or a GA tag, not main. Cannot generate adhoc release notes" >&2
+            exit 1
+          fi
+          echo "Using previous release tag: ${FROM_TAG}"
+          echo "FROM_TAG=$FROM_TAG" >> "$GITHUB_ENV"
+          # Refuse to clobber an existing release (e.g. re-run after a partial failure).
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "::error::Release v${VERSION} already exists" >&2
+            exit 1
+          fi
+          # Refuse an orphan tag too: if refs/tags/v${VERSION} exists without a release,
+          # `gh release create` attaches to it and SILENTLY ignores --target, so the
+          # release would point at the tagged commit instead of the one we just built.
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+            echo "::error::Tag v${VERSION} already exists; refusing to attach a release to a pre-existing tag (would ignore --target)" >&2
+            exit 1
+          fi
+          # Guard the degenerate empty range (e.g. HEAD already carries a GA tag):
+          # no commits between base and target means a header-only, meaningless release.
+          if [ "$(git rev-list --count "${FROM_TAG}..${GITHUB_SHA}")" -eq 0 ]; then
+            echo "::error::No commits in range ${FROM_TAG}..${GITHUB_SHA}; nothing to release" >&2
+            exit 1
+          fi
+          # Generate notes here, BEFORE the irreversible image/chart push, so the only
+          # thing left after the push is the `gh release create` API call itself.
+          echo "Generating release notes from ${FROM_TAG} to v${VERSION}"
+          # Pin the range to the exact built commit ($GITHUB_SHA), not the server-side
+          # branch tip, so notes and tag can't drift.
+          node generate_notes.js --from "${FROM_TAG}" --to "${GITHUB_SHA}" --next-tag "v${VERSION}" > NOTES.md
+          # NOTES.md is derived from commit messages, so a line starting with "::" could
+          # otherwise be interpreted as a workflow command (e.g. ::add-mask::). Stop the
+          # runner from parsing commands around the dump.
+          STOP_TOKEN="stop-$(date +%s%N)"
+          echo "----- NOTES.md -----"
+          echo "::stop-commands::${STOP_TOKEN}"
+          cat NOTES.md
+          echo "::${STOP_TOKEN}::"
+          echo "--------------------"
       - name: build version
         if: ${{ env.VERSION != '' }}
         env:
@@ -135,6 +227,30 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
+      - name: Create adhoc release (tag + GitHub release with release/v1-style notes)
+        # Same branch guard as the pre-flight step: dispatch is adhoc-release/* only.
+        # NOTES.md was generated in the pre-flight step, so the only post-push action
+        # here is the release API call itself.
+        if: ${{ env.VERSION != '' && github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'adhoc-release/') }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # A hyphenated version (vX.Y.Z-N) is a semver prerelease; gh won't infer this
+          # from the tag, so mark it explicitly to label it correctly in the Releases list.
+          PRERELEASE=()
+          [[ "$VERSION" == *-* ]] && PRERELEASE=(--prerelease)
+          # --target pins the tag to the exact built commit ($GITHUB_SHA); the
+          # pre-flight step already verified no tag/release for v${VERSION} exists,
+          # so --target is honored rather than silently ignored.
+          # --latest=false: adhoc releases are off-mainline (e.g. a backport) and
+          # must not steal the "Latest" badge or /releases/latest.
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --notes-file NOTES.md \
+            --target "${GITHUB_SHA}" \
+            --latest=false \
+            "${PRERELEASE[@]}"
       - name: Add operator version as artifact
         if: ${{ env.VERSION != '' }}
         run: echo "$VERSION" > operator-version.txt

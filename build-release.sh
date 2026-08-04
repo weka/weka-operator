@@ -15,12 +15,12 @@ fi
 echo "Building version $VERSION"
 
 # Determine repository names based on branch
-# Use production repositories for any release/* branch, otherwise use -dev repositories
+# Use production repositories for any release/* or adhoc-release/* branch, otherwise use -dev repositories
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 echo "Current branch: $CURRENT_BRANCH"
 
-if [[ "$CURRENT_BRANCH" == release/* ]]; then
-  echo "Building for production repositories (release/* branch)"
+if [[ "$CURRENT_BRANCH" == release/* || "$CURRENT_BRANCH" == adhoc-release/* ]]; then
+  echo "Building for production repositories (release/* or adhoc-release/* branch)"
   export REPO="${REPO:-quay.io/weka.io/weka-operator}"
   export HELM_REPO="${HELM_REPO:-quay.io/weka.io/helm}"
 else
