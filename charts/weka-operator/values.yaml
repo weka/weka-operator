@@ -459,8 +459,25 @@ portAllocation:
 
 # Management proxy configuration
 managementProxy:
+  # Defaults for every cluster this operator manages. Each of these can be
+  # overridden per cluster via WekaCluster.spec.managementProxy.
+  #
   # If true, deploy Envoy proxy on host network
   hostNetwork: false
+  # Number of Envoy replicas.
+  replicas: 2
+  # Percentage of healthy upstreams below which Envoy enters panic mode and load
+  # balances across all hosts, including ones that failed their health check.
+  # Envoy's default is 50. Set to 0 to always honour health checks, so a
+  # partially reachable backend set degrades gracefully instead of sending most
+  # requests into connect timeouts.
+  healthyPanicThreshold: 50
+  # Address the Envoy admin endpoint binds to. The admin API is unauthenticated
+  # and includes /quitquitquit and /drain_listeners, so set this to 127.0.0.1
+  # when using hostNetwork: true to keep it off the node's network. When this is
+  # not 0.0.0.0 the liveness/readiness probes switch to a TCP check on the proxy
+  # port, because kubelet probes the pod IP and cannot reach loopback.
+  adminBindAddress: "0.0.0.0"
   # Base domain for ingress hostname generation (format: namespace--clustername.basedomain)
   # If empty, ingress creation is disabled
   ingressBaseDomain: ""

@@ -197,6 +197,12 @@ func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka
     connect_timeout: 5s
     type: STATIC
     lb_policy: ROUND_ROBIN
+    # Below this percentage of healthy hosts Envoy enters panic mode and load
+    # balances across all hosts, including ones that failed their health check.
+    # Envoy's default is 50; set to 0 to always honour health checks.
+    common_lb_config:
+      healthy_panic_threshold:
+        value: %d
     load_assignment:
       cluster_name: weka_backend
       endpoints:
@@ -223,11 +229,77 @@ func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka
 admin:
   address:
     socket_address:
-      address: 0.0.0.0
+      address: %s
       port_value: 9901
-`, managementProxyPort, strings.Join(endpoints, "\n"))
+`, managementProxyPort, r.managementProxyHealthyPanicThreshold(), strings.Join(endpoints, "\n"), r.managementProxyAdminBindAddress())
 
 	return proxyConfig
+}
+
+// Management proxy settings, from the MANAGEMENT_PROXY_* environment set by the
+// chart's managementProxy values. The operator is deployed per Kubernetes
+// cluster, so these are effectively per-cluster; they are shared only between
+// multiple WekaClusters managed by the same operator instance.
+
+func (r *wekaClusterReconcilerLoop) managementProxyReplicas() int32 {
+	return int32(config.Config.ManagementProxyReplicas)
+}
+
+func (r *wekaClusterReconcilerLoop) managementProxyHealthyPanicThreshold() int32 {
+	return int32(config.Config.ManagementProxyHealthyPanicThreshold)
+}
+
+func (r *wekaClusterReconcilerLoop) managementProxyAdminBindAddress() string {
+	return config.Config.ManagementProxyAdminBindAddress
+}
+
+func (r *wekaClusterReconcilerLoop) managementProxyHostNetwork() bool {
+	return config.Config.ManagementProxyHostNetwork
+}
+
+// managementProxyCommand builds the Envoy command line.
+//
+// Envoy keys its shared-memory region and its @envoy_domain_socket_* abstract
+// sockets off --base-id, which defaults to 0. The abstract socket namespace is
+// per network namespace, so with hostNetwork the proxy collides with any other
+// Envoy already running in the host netns -- notably cilium-envoy, which runs
+// hostNetwork on every node in a Cilium cluster using L7 features. That failure
+// is a hard startup error and a crash loop:
+//
+//	unable to bind domain socket with base_id=0, id=0, errno=98
+//
+// --use-dynamic-base-id makes Envoy pick a free base id instead. It is only
+// applied for hostNetwork, since in a pod netns base id 0 is unambiguous and
+// changing it would be a needless behaviour change.
+func (r *wekaClusterReconcilerLoop) managementProxyCommand() []string {
+	cmd := []string{"envoy", "-c", "/etc/envoy/envoy.yaml"}
+	if r.managementProxyHostNetwork() {
+		cmd = append(cmd, "--use-dynamic-base-id")
+	}
+	return cmd
+}
+
+// managementProxyProbeHandler returns the probe handler for the Envoy container.
+// Envoy's admin endpoint serves /ready, but kubelet probes the pod IP, so that
+// only works while admin is bound to all interfaces. When admin is restricted
+// (e.g. to loopback, which is what you want with hostNetwork: true, since the
+// admin API is unauthenticated and exposes /quitquitquit), fall back to a TCP
+// check against the proxy listener itself.
+func (r *wekaClusterReconcilerLoop) managementProxyProbeHandler(managementProxyPort int) corev1.ProbeHandler {
+	if r.managementProxyAdminBindAddress() == "0.0.0.0" {
+		return corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: "/ready",
+				Port: intstr.FromInt(9901),
+			},
+		}
+	}
+
+	return corev1.ProbeHandler{
+		TCPSocket: &corev1.TCPSocketAction{
+			Port: intstr.FromInt(managementProxyPort),
+		},
+	}
 }
 
 // ensureManagementProxyDeployment creates or updates the Envoy Deployment
@@ -240,7 +312,7 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.getClient(), deployment, func() error {
-		replicas := int32(2)
+		replicas := r.managementProxyReplicas()
 
 		// Use allocated management proxy port
 		managementProxyPort := r.cluster.Status.Ports.ManagementProxyPort
@@ -295,28 +367,14 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 									ReadOnly:  true,
 								},
 							},
-							Command: []string{
-								"envoy",
-								"-c",
-								"/etc/envoy/envoy.yaml",
-							},
+							Command: r.managementProxyCommand(),
 							LivenessProbe: &corev1.Probe{
-								ProbeHandler: corev1.ProbeHandler{
-									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/ready",
-										Port: intstr.FromInt(9901),
-									},
-								},
+								ProbeHandler:        r.managementProxyProbeHandler(managementProxyPort),
 								InitialDelaySeconds: 5,
 								PeriodSeconds:       10,
 							},
 							ReadinessProbe: &corev1.Probe{
-								ProbeHandler: corev1.ProbeHandler{
-									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/ready",
-										Port: intstr.FromInt(9901),
-									},
-								},
+								ProbeHandler:        r.managementProxyProbeHandler(managementProxyPort),
 								InitialDelaySeconds: 3,
 								PeriodSeconds:       5,
 							},
@@ -335,7 +393,7 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 						},
 					},
 					// Set hostNetwork based on configuration
-					HostNetwork:  config.Config.ManagementProxyHostNetwork,
+					HostNetwork:  r.managementProxyHostNetwork(),
 					NodeSelector: r.cluster.Spec.NodeSelector,
 					Tolerations:  k8sutil.ExpandTolerations([]corev1.Toleration{}, r.cluster.Spec.Tolerations, r.cluster.Spec.RawTolerations),
 				},
