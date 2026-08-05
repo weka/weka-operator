@@ -457,10 +457,29 @@ portAllocation:
   # This is the base port from which the operator allocates port ranges for Weka clusters.
   startingPort: 35000
 
-# Management proxy configuration
+# Management proxy configuration. Applies to every WekaCluster; no per-WekaCluster override.
+# Tunables below are commented out so the operator's defaults apply.
 managementProxy:
   # If true, deploy Envoy proxy on host network
   hostNetwork: false
+  # Number of Envoy replicas. Default 2; 0 parks the proxy without uninstalling it.
+  # Under hostNetwork all replicas bind the same node ports and nothing keeps two of them (or two
+  # clusters' proxies, which share admin port 9901) off one node, so replicas beyond the number of
+  # usable nodes crash-loop. Avoid 1 with hostNetwork: host ports force in-place replacement, so
+  # the proxy goes down on every config change.
+  # replicas: 2
+  #
+  # Percentage of healthy upstreams below which Envoy panics and load balances to all hosts,
+  # including unhealthy ones. Default 50 (Envoy's own default), so it fails open on a health-check
+  # false negative. Set 0 to always honour health checks -- a fully failed backend set returns 503.
+  # healthyPanicThreshold: 50
+  #
+  # Address the Envoy admin endpoint binds to. Must be bindable by the pod (0.0.0.0, ::, 127.0.0.1,
+  # ::1); other values crash-loop every replica. Defaults to 0.0.0.0, or 127.0.0.1 under
+  # hostNetwork, since the admin API is unauthenticated and includes /quitquitquit.
+  # Both defaults keep the /ready probe. A loopback address with hostNetwork: false is the one
+  # combination kubelet cannot reach: probes degrade to TCP, which cannot detect a wedged Envoy.
+  # adminBindAddress: "0.0.0.0"
   # Base domain for ingress hostname generation (format: namespace--clustername.basedomain)
   # If empty, ingress creation is disabled
   ingressBaseDomain: ""

@@ -294,6 +294,22 @@ spec:
               value: "{{ .Values.allowRotateNonAnnotatedPodConfigHash }}"
             - name: MANAGEMENT_PROXY_HOST_NETWORK
               value: "{{ .Values.managementProxy.hostNetwork }}"
+            {{- /* Omitted when unset so internal/config/env.go stays the only place a default is
+                   written. `default` would swallow an explicit 0, which is meaningful for both
+                   replicas and healthyPanicThreshold; adminBindAddress can't be defaulted here at
+                   all, since its default depends on hostNetwork. */}}
+            {{- if not (kindIs "invalid" .Values.managementProxy.replicas) }}
+            - name: MANAGEMENT_PROXY_REPLICAS
+              value: "{{ .Values.managementProxy.replicas }}"
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.managementProxy.healthyPanicThreshold) }}
+            - name: MANAGEMENT_PROXY_HEALTHY_PANIC_THRESHOLD
+              value: "{{ .Values.managementProxy.healthyPanicThreshold }}"
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.managementProxy.adminBindAddress) }}
+            - name: MANAGEMENT_PROXY_ADMIN_BIND_ADDRESS
+              value: "{{ .Values.managementProxy.adminBindAddress }}"
+            {{- end }}
             - name: MANAGEMENT_PROXY_INGRESS_BASE_DOMAIN
               value: "{{ .Values.managementProxy.ingressBaseDomain }}"
             - name: MANAGEMENT_PROXY_INGRESS_CLASS

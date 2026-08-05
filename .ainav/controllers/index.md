@@ -18,6 +18,7 @@ All reconciliation logic lives in `internal/controllers/`.
 - [wekacluster.md](wekacluster.md) - Cluster lifecycle
 - [wekaclient.md](wekaclient.md) - Client lifecycle
 - [wekacluster-drive-planning.md](wekacluster-drive-planning.md) - Drive capacity planner hub (TLC/QLC targets → per-node containers → device allocation); links to detail docs: co-location + in-place-growth invariant, new-FD sizing, intent-vs-reality accounting
+- [management-proxy.md](management-proxy.md) - Envoy management proxy: config/rollout, hostNetwork labels + host-port collision gap, endpoint selection, healthyPanicThreshold vs proxy start
 
 ## Shared Components
 

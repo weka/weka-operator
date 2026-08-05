@@ -2,6 +2,8 @@ package wekacluster
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 
@@ -20,6 +22,10 @@ func (r *wekaClusterReconcilerLoop) EnsureManagementService(ctx context.Context)
 
 // selectActiveContainersForManagement selects up to 10 active containers for the management service
 // Only Drive and Compute containers with the cluster's base port are selected
+//
+// Sorted by name because r.containers' cache-List order is not stable between reconciles, and the
+// rendered config is hashed onto the proxy pod template (see EnvoyConfigHashAnnotation): a varying
+// order would roll the proxy with no real change.
 func (r *wekaClusterReconcilerLoop) selectActiveContainersForManagement() []*weka.WekaContainer {
 	activeContainers := make([]*weka.WekaContainer, 0, MaxManagementServiceEndpoints)
 
@@ -33,7 +39,12 @@ func (r *wekaClusterReconcilerLoop) selectActiveContainersForManagement() []*wek
 	// Filter to only Drive and Compute containers
 	eligibleModes := []string{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute}
 
-	for _, container := range r.containers {
+	sortedContainers := slices.Clone(r.containers)
+	slices.SortFunc(sortedContainers, func(a, b *weka.WekaContainer) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	for _, container := range sortedContainers {
 		// Only consider Drive and Compute containers
 		isEligibleMode := false
 		for _, mode := range eligibleModes {
@@ -68,7 +79,7 @@ func (r *wekaClusterReconcilerLoop) selectActiveContainersForManagement() []*wek
 
 	// If we don't have enough Running containers, add other operational ones
 	if len(activeContainers) < MaxManagementServiceEndpoints {
-		for _, container := range r.containers {
+		for _, container := range sortedContainers {
 			// Only consider Drive and Compute containers
 			isEligibleMode := false
 			for _, mode := range eligibleModes {

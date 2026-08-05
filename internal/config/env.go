@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -338,6 +339,11 @@ var Config struct {
 	ManagementProxyIngressClass      string
 	EvictedPodCleanupEnabled         bool
 	EvictedPodCleanupInterval        time.Duration
+	// Management proxy tunables, shared by every WekaCluster this operator manages. Documented in
+	// the chart's managementProxy values.
+	ManagementProxyReplicas              int32
+	ManagementProxyHealthyPanicThreshold int32
+	ManagementProxyAdminBindAddress      string
 
 	BuilderImages          BuilderImagesConfig
 	Csi                    EmbeddedCsiSettings
@@ -602,6 +608,15 @@ func ConfigureEnv(ctx context.Context) {
 	Config.ManagementProxyHostNetwork = getBoolEnvOrDefault("MANAGEMENT_PROXY_HOST_NETWORK", false)
 	Config.ManagementProxyIngressBaseDomain = env.GetString("MANAGEMENT_PROXY_INGRESS_BASE_DOMAIN", "")
 	Config.ManagementProxyIngressClass = env.GetString("MANAGEMENT_PROXY_INGRESS_CLASS", "")
+	Config.ManagementProxyReplicas = getInt32EnvInRange("MANAGEMENT_PROXY_REPLICAS", 2, 0, 100, "managementProxy.replicas")
+	// Default 50 is Envoy's own default, and what installs ran before this was configurable: the
+	// config used to emit no common_lb_config at all, so exposing the value must not change it.
+	Config.ManagementProxyHealthyPanicThreshold = getInt32EnvInRange("MANAGEMENT_PROXY_HEALTHY_PANIC_THRESHOLD", 50, 0, 100, "managementProxy.healthyPanicThreshold")
+	// Depends on ManagementProxyHostNetwork being set above: the loopback default is derived from it,
+	// and reading it before it's populated would silently default the unauthenticated admin API to
+	// 0.0.0.0 under hostNetwork.
+	Config.ManagementProxyAdminBindAddress = getIPEnvOrDefault("MANAGEMENT_PROXY_ADMIN_BIND_ADDRESS",
+		defaultManagementProxyAdminBindAddress(Config.ManagementProxyHostNetwork), "managementProxy.adminBindAddress")
 
 	// Metrics server environment configuration
 	Config.MetricsServerEnv.NodeName = env.GetString("NODE_NAME", "")
@@ -764,6 +779,55 @@ func getIntEnvOrDefault(envKey string, defaultVal int) int {
 	}
 
 	return ival
+}
+
+// getInt32EnvInRange parses an integer env var and exits at load time when it falls outside
+// [minVal, maxVal], naming the chart value that produced it rather than surfacing far away (e.g. a
+// crash-looping proxy from a bad healthy_panic_threshold).
+func getInt32EnvInRange(envKey string, defaultVal, minVal, maxVal int32, chartValue string) int32 {
+	raw, found := os.LookupEnv(envKey)
+	if !found || raw == "" {
+		return defaultVal
+	}
+
+	// bitSize 32 makes ParseInt reject anything the conversion below would truncate.
+	val, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 32)
+	if err != nil {
+		klog.Exitf("%s=%q is not an integer (set by chart value %s)", envKey, raw, chartValue)
+	}
+
+	if val < int64(minVal) || val > int64(maxVal) {
+		klog.Exitf("%s=%d is out of range [%d, %d] (set by chart value %s)",
+			envKey, val, minVal, maxVal, chartValue)
+	}
+
+	return int32(val)
+}
+
+// defaultManagementProxyAdminBindAddress defaults the admin bind address when the chart leaves it
+// unset. Envoy's admin API is unauthenticated, so under hostNetwork loopback is the only safe
+// choice; the chart can't compute this, which is why the default lives here.
+func defaultManagementProxyAdminBindAddress(hostNetwork bool) string {
+	if hostNetwork {
+		return "127.0.0.1"
+	}
+
+	return "0.0.0.0"
+}
+
+// getIPEnvOrDefault reads an env var that must hold a bare IP address. An unparsable address would
+// otherwise only fail once it reaches the component that binds it.
+func getIPEnvOrDefault(envKey, defaultVal, chartValue string) string {
+	val := strings.TrimSpace(env.GetString(envKey, defaultVal))
+	if val == "" {
+		return defaultVal
+	}
+
+	if net.ParseIP(val) == nil {
+		klog.Exitf("%s=%q is not a valid IP address (set by chart value %s)", envKey, val, chartValue)
+	}
+
+	return val
 }
 
 func getFloatEnvOrDefault(envKey string, defaultVal float64) float64 {

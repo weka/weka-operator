@@ -34,6 +34,50 @@
       "minimum": 0,
       "multipleOf": 2,
       "description": "Maximum hugepages (MiB) for compute containers. Must be even. 0 = no cap."
+    },
+    "managementProxy": {
+      "type": "object",
+      "description": "Envoy management proxy. Bounds here mirror the operator's startup validation (internal/config/env.go) so a bad value is rejected at install time instead of crash-looping the operator.",
+      "properties": {
+        "hostNetwork": {
+          "type": "boolean",
+          "description": "Deploy the Envoy proxy on the host network."
+        },
+        "replicas": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Number of Envoy replicas. Unset or null uses the operator default of 2. 0 parks the proxy without uninstalling it."
+        },
+        "healthyPanicThreshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Percentage of healthy upstreams below which Envoy enters panic mode and load balances across every host, including ones that failed their health check. Unset or null uses the operator default of 50, which is Envoy's own default and fails open on a health-check false negative. Set 0 to always honour health checks; a fully failed backend set then returns 503."
+        },
+        "adminBindAddress": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9A-Fa-f.:]*$",
+          "description": "Bind address of Envoy's unauthenticated admin endpoint. Must be a bare IP address the pod can bind: only 0.0.0.0, ::, 127.0.0.1 and ::1 are portable, and anything else fails at runtime and crash-loops every replica. Unset, null or empty defaults to 0.0.0.0, or 127.0.0.1 under hostNetwork. The pattern only screens out obvious mistakes such as hostnames; net.ParseIP in the operator is the authority."
+        },
+        "ingressBaseDomain": {
+          "type": "string",
+          "description": "Base domain for ingress hostname generation (namespace--clustername.basedomain). Empty disables ingress creation."
+        },
+        "ingressClass": {
+          "type": "string",
+          "description": "Ingress class for the management proxy ingress."
+        }
+      }
     }
   }
 }
