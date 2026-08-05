@@ -70,6 +70,7 @@ spec:
                 - ensure-nics
                 - remote-traces-session
                 - clean-stale-virtual-drives
+                - rotate-ssdproxy
                 type: string
               deletionDelay:
                 default: 5m
@@ -225,6 +226,31 @@ spec:
                       wekahomeEndpointOverride:
                         type: string
                     type: object
+                  rotateSsdProxyPayload:
+                    description: |-
+                      RotateSsdProxyPayload configures the rotate-ssdproxy operation, which rolls a new image
+                      across ssdproxy WekaContainers one node at a time, gated by a cross-cluster disruption check.
+                    properties:
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: NodeSelector restricts rotation to a subset of
+                          nodes. Empty = all nodes that have an ssdproxy.
+                        type: object
+                      paused:
+                        description: Paused stops starting new nodes; an in-flight
+                          node finishes.
+                        type: boolean
+                      targetImage:
+                        description: TargetImage is the image to roll out. Empty means
+                          fall back to helm
+                        type: string
+                    type: object
+                    x-kubernetes-validations:
+                    - message: targetImage is immutable once set; create a new WekaManualOperation
+                        to rotate to a different image
+                      rule: '!has(oldSelf.targetImage) || (has(self.targetImage) &&
+                        self.targetImage == oldSelf.targetImage)'
                   signDrivesPayload:
                     properties:
                       devicePaths:

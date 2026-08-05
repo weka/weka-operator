@@ -12,4 +12,5 @@ const (
 	opRemoteTracesSession     = "remote-traces-session"
 	opEnableLocalDriversDist  = "enable-local-drivers-distribution"
 	opCleanStaleVirtualDrives = "clean-stale-virtual-drives"
+	opRotateSsdProxy          = "rotate-ssdproxy"
 )

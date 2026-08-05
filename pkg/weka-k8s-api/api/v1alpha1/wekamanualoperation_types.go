@@ -17,11 +17,12 @@ const (
 	WekaManualOperationActionEnsureNICs              WekaManualOperationAction = opEnsureNICs
 	WekaManualOperationActionRemoteTracesSession     WekaManualOperationAction = opRemoteTracesSession
 	WekaManualOperationActionCleanStaleVirtualDrives WekaManualOperationAction = opCleanStaleVirtualDrives
+	WekaManualOperationActionRotateSsdProxy          WekaManualOperationAction = opRotateSsdProxy
 )
 
 // WekaManualOperationSpec defines the desired state of WekaManualOperation
 type WekaManualOperationSpec struct {
-	// +kubebuilder:validation:Enum=sign-drives;discover-drives;force-resign-drives;block-drives;unblock-drives;ensure-nics;remote-traces-session;clean-stale-virtual-drives
+	// +kubebuilder:validation:Enum=sign-drives;discover-drives;force-resign-drives;block-drives;unblock-drives;ensure-nics;remote-traces-session;clean-stale-virtual-drives;rotate-ssdproxy
 	Action             WekaManualOperationAction `json:"action"`
 	Payload            ManualOperatorPayload     `json:"payload"`
 	Image              *string                   `json:"image,omitempty"`
@@ -76,6 +77,7 @@ type ManualOperatorPayload struct {
 	ForceResignDrives         *ForceResignDrivesPayload       `json:"forceResignDrivesPayload,omitempty"`
 	RemoteTracesSessionConfig *RemoteTracesSessionConfig      `json:"remoteTracesSessionPayload,omitempty"`
 	CleanStaleVirtualDrives   *CleanStaleVirtualDrivesPayload `json:"cleanStaleVirtualDrivesPayload,omitempty"`
+	RotateSsdProxy            *RotateSsdProxyPayload          `json:"rotateSsdProxyPayload,omitempty"`
 }
 
 type PCIDevices struct {
@@ -221,6 +223,18 @@ type CleanStaleVirtualDrivesPayload struct {
 	// user's confirmation.
 	// +kubebuilder:default=false
 	DeleteStaleVids bool `json:"deleteStaleVids,omitempty"`
+}
+
+// RotateSsdProxyPayload configures the rotate-ssdproxy operation, which rolls a new image
+// across ssdproxy WekaContainers one node at a time, gated by a cross-cluster disruption check.
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.targetImage) || (has(self.targetImage) && self.targetImage == oldSelf.targetImage)",message="targetImage is immutable once set; create a new WekaManualOperation to rotate to a different image"
+type RotateSsdProxyPayload struct {
+	// TargetImage is the image to roll out. Empty means fall back to helm
+	TargetImage string `json:"targetImage,omitempty"`
+	// NodeSelector restricts rotation to a subset of nodes. Empty = all nodes that have an ssdproxy.
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// Paused stops starting new nodes; an in-flight node finishes.
+	Paused bool `json:"paused,omitempty"`
 }
 
 // StaleVirtualDriveInfo describes a single stale virtual drive detected on a proxy.
