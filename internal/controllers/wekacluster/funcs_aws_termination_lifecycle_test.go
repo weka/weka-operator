@@ -374,6 +374,66 @@ var _ = Describe("ensureAwsTerminationLifecycleHook", func() {
 		Expect(recorder.Events).To(HaveLen(0))
 	})
 
+	It("makes zero AWS calls and returns nil during initial provisioning when the only backend node is Karpenter-owned, even if DescribeInstance would error (no autoscaling IAM needed)", func() {
+		node.OwnerReferences = []metav1.OwnerReference{
+			{APIVersion: "karpenter.sh/v1", Kind: "NodeClaim", Name: "test-claim", UID: "claim-uid"},
+		}
+		fakeAsg.describeInstanceErr = fmt.Errorf("AccessDenied: not authorized to perform autoscaling:DescribeAutoScalingInstances")
+		loop := newLoop(true)
+
+		Expect(loop.ensureAwsTerminationLifecycleHook(context.Background())).To(Succeed())
+
+		Expect(fakeAsg.describeCalls).To(Equal(0))
+		Expect(fakeAsg.putCalls).To(Equal(0))
+		Expect(verifiedHookNodes.Has("node1")).To(BeTrue())
+		Expect(recorder.Events).To(HaveLen(0))
+	})
+
+	It("only ensures the hook on the real ASG node in a mixed cluster (one Karpenter-owned node via NodeClaim ownerRef, one ASG-backed node), calling DescribeInstance exactly once", func() {
+		node.OwnerReferences = []metav1.OwnerReference{
+			{APIVersion: "karpenter.sh/v1", Kind: "NodeClaim", Name: "test-claim", UID: "claim-uid"},
+		}
+		node2 := &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "node2"},
+			Spec: v1.NodeSpec{
+				ProviderID: "aws:///eu-west-1a/i-0fedcba9876543210",
+			},
+		}
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(node, node2).
+			Build()
+
+		multiAsg := &multiInstanceLifecycleClient{
+			byInstanceID: map[string]*fakeClusterLifecycleClient{
+				"i-0fedcba9876543210": {asgName: "my-asg"},
+			},
+		}
+		newClusterLifecycleClient = func(region string) awslib.LifecycleClient { return multiAsg }
+
+		globalThrottler := throttling.NewSyncMapThrottler()
+		loop := &wekaClusterReconcilerLoop{
+			Manager:  &fakeManager{client: fakeClient},
+			Recorder: recorder,
+			cluster:  cluster,
+			containers: []*weka.WekaContainer{
+				driveContainerOnNode("c1", "node1"),
+				driveContainerOnNode("c2", "node2"),
+			},
+			GlobalThrottler: globalThrottler,
+			Throttler:       globalThrottler.WithPartition("cluster/cluster-uid"),
+		}
+
+		Expect(loop.ensureAwsTerminationLifecycleHook(context.Background())).To(Succeed())
+
+		Expect(multiAsg.byInstanceID["i-0fedcba9876543210"].describeCalls).To(Equal(1))
+		Expect(multiAsg.byInstanceID["i-0fedcba9876543210"].putCalls).To(Equal(1))
+		Expect(verifiedHookNodes.Has("node1")).To(BeTrue())
+		Expect(verifiedHookNodes.Has("node2")).To(BeTrue())
+		Expect(recorder.Events).To(HaveLen(0))
+	})
+
 	Context("SkipAwsTerminationLifecycleHook", func() {
 		AfterEach(func() {
 			config.Config.SkipAwsTerminationLifecycleHook = false

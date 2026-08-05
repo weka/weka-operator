@@ -1,6 +1,11 @@
 package discovery
 
-import "testing"
+import (
+	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 func TestInstanceIDAndRegionFromProviderID(t *testing.T) {
 	cases := []struct {
@@ -55,6 +60,77 @@ func TestInstanceIDAndRegionFromProviderID(t *testing.T) {
 			}
 			if gotRegion != tc.wantRegion {
 				t.Errorf("region = %q, want %q", gotRegion, tc.wantRegion)
+			}
+		})
+	}
+}
+
+func TestIsKarpenterManagedNode(t *testing.T) {
+	cases := []struct {
+		name string
+		node *corev1.Node
+		want bool
+	}{
+		{
+			name: "karpenter.sh/v1 NodeClaim owner",
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{APIVersion: "karpenter.sh/v1", Kind: "NodeClaim", Name: "test"},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "karpenter.sh/v1beta1 NodeClaim owner",
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{APIVersion: "karpenter.sh/v1beta1", Kind: "NodeClaim", Name: "test"},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "no owner references",
+			node: &corev1.Node{},
+			want: false,
+		},
+		{
+			name: "other owner kind",
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{APIVersion: "apps/v1", Kind: "DaemonSet", Name: "test"},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "NodeClaim kind in a different group",
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{APIVersion: "example.com/v1", Kind: "NodeClaim", Name: "test"},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "nil node",
+			node: nil,
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsKarpenterManagedNode(tc.node); got != tc.want {
+				t.Errorf("IsKarpenterManagedNode() = %v, want %v", got, tc.want)
 			}
 		})
 	}

@@ -251,6 +251,19 @@ var _ = Describe("reconcileAwsTerminationLifecycle", func() {
 		Expect(fakeAsg.heartbeatCalls).To(Equal(1))
 	})
 
+	It("makes no AWS call for a Karpenter-owned node (NodeClaim ownerRef) even with a local termination signal present", func() {
+		node.OwnerReferences = []metav1.OwnerReference{
+			{APIVersion: "karpenter.sh/v1", Kind: "NodeClaim", Name: "test-claim", UID: "claim-uid"},
+		}
+		r := newReconciler()
+
+		Expect(r.reconcileAwsTerminationLifecycle(context.Background())).To(Succeed())
+
+		Expect(fakeAsg.describeCalls).To(Equal(0))
+		Expect(fakeAsg.heartbeatCalls).To(Equal(0))
+		Expect(fakeAsg.completeCalls).To(Equal(0))
+	})
+
 	It("makes no AWS call when SkipAwsTerminationLifecycleHook is set", func() {
 		config.Config.SkipAwsTerminationLifecycleHook = true
 		defer func() { config.Config.SkipAwsTerminationLifecycleHook = false }()

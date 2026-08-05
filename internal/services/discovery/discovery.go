@@ -84,6 +84,27 @@ func InstanceIDAndRegionFromProviderID(providerID string) (instanceID, region st
 	return instanceID, region, true
 }
 
+// IsKarpenterManagedNode reports whether the node was provisioned by Karpenter (or EKS Auto Mode,
+// which uses the same NodeClaim API), detected structurally via the Node's ownerReference to a
+// karpenter.sh NodeClaim rather than via a copyable label. This is a structural ownership fact set
+// by Karpenter's own controller: any instance owned by a NodeClaim was launched via
+// RunInstances/CreateFleet and can never be an ASG member. Nil-safe: returns false for a nil node.
+func IsKarpenterManagedNode(node *corev1.Node) bool {
+	if node == nil {
+		return false
+	}
+	for _, ref := range node.OwnerReferences {
+		if ref.Kind != "NodeClaim" {
+			continue
+		}
+		group, _, _ := strings.Cut(ref.APIVersion, "/")
+		if group == "karpenter.sh" {
+			return true
+		}
+	}
+	return false
+}
+
 type DiscoveryNodeInfo struct {
 	IsHt               bool     `json:"is_ht"`
 	KubernetesDistro   string   `json:"kubernetes_distro,omitempty"`
