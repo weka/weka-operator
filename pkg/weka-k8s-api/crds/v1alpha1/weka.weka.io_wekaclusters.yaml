@@ -378,8 +378,11 @@ spec:
                     minimum: 0
                     type: integer
                   numDrives:
-                    description: Number of virtual or physical drives per drive container.
-                      Mutually exclusive with containerCapacity.
+                    description: |-
+                      Number of virtual or physical drives per drive container. Mutually exclusive with containerCapacity.
+                      When the cluster acts as a daemonset (computeContainers and driveContainers both unset), NumDrives
+                      instead acts as a per-node override, pinning the number of largest signed drives that each node's
+                      drive container takes instead of consuming all of them.
                     minimum: 0
                     type: integer
                   s3Containers:
@@ -435,7 +438,17 @@ spec:
                     (TLC-only mode); each drive core requires at least one virtual
                     drive
                   rule: '!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.numDrives)
-                    || self.numDrives == 0 || self.numDrives >= self.driveCores'
+                    || self.numDrives == 0 || !has(self.driveCores) || self.driveCores
+                    == 0 || self.numDrives >= self.driveCores'
+                - message: numDrives must be >= driveCores in full-drives mode, including
+                    the daemonset mode (computeContainers and driveContainers both
+                    unset) where numDrives pins a per-node drive count; weka requires
+                    at least one physical drive per drive core. To run more than one
+                    core per physical drive, use a drive-sharing mode (containerCapacity
+                    or clusterCapacity) instead
+                  rule: '!has(self.numDrives) || self.numDrives == 0 || (has(self.driveCapacity)
+                    && self.driveCapacity > 0) || !has(self.driveCores) || self.driveCores
+                    == 0 || self.numDrives >= self.driveCores'
                 - message: numDrives and containerCapacity are mutually exclusive;
                     use numDrives with driveCapacity for TLC-only mode, or containerCapacity
                     with driveTypesRatio for mixed drive types
@@ -461,6 +474,18 @@ spec:
                     == 0 || ((!has(self.containerCapacity) || self.containerCapacity
                     == 0) && (!has(self.numDrives) || self.numDrives == 0) && (!has(self.driveCapacity)
                     || self.driveCapacity == 0))'
+                - message: 'computeContainers and driveContainers must be set together:
+                    setting both sizes the cluster by container counts, while leaving
+                    both unset makes the operator act as a daemonset over its drive-role
+                    nodeSelector (one drive container per eligible node, sized from
+                    that node''s own full drives). numDrives, driveCores and computeCores
+                    may be pinned either way. For capacity-based sizing, use clusterCapacity,
+                    containerCapacity or driveCapacity instead'
+                  rule: (has(self.clusterCapacity) && self.clusterCapacity.size()
+                    > 0) || (has(self.containerCapacity) && self.containerCapacity
+                    > 0) || (has(self.driveCapacity) && self.driveCapacity > 0) ||
+                    ((has(self.computeContainers) && self.computeContainers > 0) ==
+                    (has(self.driveContainers) && self.driveContainers > 0))
               encryption:
                 description: Encryption configuration for data at rest. Configure
                   a HashiCorp Vault KMS for production use.

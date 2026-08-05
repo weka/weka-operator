@@ -208,13 +208,15 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.driveTypesRatio)",message="driveCapacity and driveTypesRatio are mutually exclusive; use driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio for mixed drive types"
-// +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.numDrives) || self.numDrives == 0 || self.numDrives >= self.driveCores",message="numDrives must be >= driveCores when using driveCapacity (TLC-only mode); each drive core requires at least one virtual drive"
+// +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.numDrives) || self.numDrives == 0 || !has(self.driveCores) || self.driveCores == 0 || self.numDrives >= self.driveCores",message="numDrives must be >= driveCores when using driveCapacity (TLC-only mode); each drive core requires at least one virtual drive"
+// +kubebuilder:validation:XValidation:rule="!has(self.numDrives) || self.numDrives == 0 || (has(self.driveCapacity) && self.driveCapacity > 0) || !has(self.driveCores) || self.driveCores == 0 || self.numDrives >= self.driveCores",message="numDrives must be >= driveCores in full-drives mode, including the daemonset mode (computeContainers and driveContainers both unset) where numDrives pins a per-node drive count; weka requires at least one physical drive per drive core. To run more than one core per physical drive, use a drive-sharing mode (containerCapacity or clusterCapacity) instead"
 // +kubebuilder:validation:XValidation:rule="!has(self.numDrives) || self.numDrives == 0 || !has(self.containerCapacity) || self.containerCapacity == 0",message="numDrives and containerCapacity are mutually exclusive; use numDrives with driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio for mixed drive types"
 // +kubebuilder:validation:XValidation:rule="!has(self.containerCapacity) || self.containerCapacity > 0",message="containerCapacity must be greater than 0 when specified"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0 || self.driveTypesRatio.qlc > 0",message="at least one of driveTypesRatio.tlc or driveTypesRatio.qlc must be greater than 0"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0",message="driveTypesRatio.tlc must be greater than 0 when driveTypesRatio is specified; TLC-only and mixed TLC/QLC configurations are supported, but QLC-only is not allowed"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity > 0",message="driveCapacity must be greater than 0 when specified"
 // +kubebuilder:validation:XValidation:rule="!has(self.clusterCapacity) || self.clusterCapacity.size() == 0 || ((!has(self.containerCapacity) || self.containerCapacity == 0) && (!has(self.numDrives) || self.numDrives == 0) && (!has(self.driveCapacity) || self.driveCapacity == 0))",message="clusterCapacity is mutually exclusive with containerCapacity, numDrives and driveCapacity"
+// +kubebuilder:validation:XValidation:rule="(has(self.clusterCapacity) && self.clusterCapacity.size() > 0) || (has(self.containerCapacity) && self.containerCapacity > 0) || (has(self.driveCapacity) && self.driveCapacity > 0) || ((has(self.computeContainers) && self.computeContainers > 0) == (has(self.driveContainers) && self.driveContainers > 0))",message="computeContainers and driveContainers must be set together: setting both sizes the cluster by container counts, while leaving both unset makes the operator act as a daemonset over its drive-role nodeSelector (one drive container per eligible node, sized from that node's own full drives). numDrives, driveCores and computeCores may be pinned either way. For capacity-based sizing, use clusterCapacity, containerCapacity or driveCapacity instead"
 type WekaClusterTemplate struct {
 	// Number of compute containers per cluster node.
 	// +kubebuilder:validation:Minimum=0
@@ -235,6 +237,9 @@ type WekaClusterTemplate struct {
 	// +kubebuilder:validation:Minimum=0
 	S3Cores int `json:"s3Cores,omitempty"`
 	// Number of virtual or physical drives per drive container. Mutually exclusive with containerCapacity.
+	// When the cluster acts as a daemonset (computeContainers and driveContainers both unset), NumDrives
+	// instead acts as a per-node override, pinning the number of largest signed drives that each node's
+	// drive container takes instead of consuming all of them.
 	// +kubebuilder:validation:Minimum=0
 	NumDrives int `json:"numDrives,omitempty"`
 	// +kubebuilder:validation:Minimum=0
@@ -364,7 +369,26 @@ func GetTlcQlcCapacity(totalCapacity int, ratio *DriveTypesRatio) (tlc, qlc int)
 
 // UsesClusterCapacity reports whether the template targets a whole-cluster capacity.
 func (d *WekaClusterTemplate) UsesClusterCapacity() bool {
+	if d == nil {
+		return false
+	}
 	return strings.TrimSpace(d.ClusterCapacity) != ""
+}
+
+// UsesAutoFullDrives reports whether the template asks for nothing that would size the cluster by
+// container count or by capacity, so the operator instead acts as a daemonset over its drive-role
+// nodeSelector: exactly one drive container per eligible node, sized from that node's own full
+// (non-shared) drives. A nil receiver (nil dynamicTemplate) means nothing was set, so it also returns
+// true. NumDrives is deliberately not consulted here — in this mode it is a permitted per-node
+// drive-count override, not a signal that a different sizing mode was requested. This is a full-drives
+// (non-sharing) mode, so IsDriveSharing stays false for it.
+func (d *WekaClusterTemplate) UsesAutoFullDrives() bool {
+	if d == nil {
+		return true
+	}
+	return d.ComputeContainers <= 0 && d.DriveContainers <= 0 &&
+		d.ContainerCapacity <= 0 && d.DriveCapacity <= 0 &&
+		!d.UsesClusterCapacity()
 }
 
 // GetClusterCapacityGiB parses ClusterCapacity into whole GiB.
