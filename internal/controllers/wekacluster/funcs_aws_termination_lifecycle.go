@@ -70,6 +70,9 @@ var (
 // provisioning — that is the actual data-loss guard and must never be weakened by a heuristic (a label,
 // an instance-lifecycle field, etc.) that could false-negative on a real ASG-backed node. In-memory
 // per-node/per-ASG TTL caches keep the steady state free of AWS calls and repair drift within the TTL.
+// A separate, narrower short-circuit applies per-node before any AWS call is made: a Node owned by a
+// karpenter.sh NodeClaim (discovery.IsKarpenterManagedNode; covers EKS Auto Mode too) is a structural
+// fact, not a heuristic, so it is skipped with zero AWS calls and thus needs no autoscaling IAM at all.
 // Escape hatch: config.Config.SkipAwsTerminationLifecycleHook (SKIP_AWS_TERMINATION_LIFECYCLE_HOOK)
 // short-circuits this entirely — no node reads, no AWS calls, no events — for environments with no
 // autoscaling IAM authority or where the hook is managed out of band. See the flag's doc comment.
@@ -152,6 +155,11 @@ func (loop *wekaClusterReconcilerLoop) ensureAwsTerminationLifecycleHook(ctx con
 		}
 		if discovery.ProviderFromID(node.Spec.ProviderID) != discovery.ProviderAWS {
 			continue // non-AWS node
+		}
+		if discovery.IsKarpenterManagedNode(node) {
+			logger.Info("backend node is Karpenter-managed (NodeClaim owner); skipping termination lifecycle hook, no AWS call made", "node", nodeName)
+			verifiedHookNodes.Mark(nodeName)
+			continue
 		}
 		instanceID, region, ok := discovery.InstanceIDAndRegionFromProviderID(node.Spec.ProviderID)
 		if !ok {

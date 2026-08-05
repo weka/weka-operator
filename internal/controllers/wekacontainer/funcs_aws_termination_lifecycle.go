@@ -97,6 +97,9 @@ func (r *containerReconcilerLoop) reconcileAwsTerminationLifecycle(ctx context.C
 	if config.Config.SkipAwsTerminationLifecycleHook {
 		return nil // operator does not manage the termination lifecycle hook
 	}
+	if discovery.IsKarpenterManagedNode(r.node) {
+		return nil
+	}
 	hookName := awslib.LifecycleHookName
 
 	localTerminationSignal := r.node.Spec.Unschedulable || (r.pod != nil && r.pod.DeletionTimestamp != nil)

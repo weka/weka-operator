@@ -120,14 +120,34 @@ backend ASGs and, on scale-in, hold each instance until its data has been safely
   ```
 - On a missing/denied permission the WekaCluster shows a `NoAwsTerminationLifecycleHook` Warning
   event (`kubectl describe wekacluster <name>`); the operator logs the full AWS error.
-- On a backend node the AWS API reports is not a member of any Auto Scaling group (e.g. Karpenter,
-  EKS Auto Mode, Fargate, Hybrid Nodes — anything not launched via an ASG), the operator logs the
-  skip and makes no `PutLifecycleHook` call for that node; cluster formation is not blocked. No
-  event is recorded, so check the operator log if you need to confirm which nodes were skipped. It
-  still calls `DescribeAutoScalingInstances` once per node, since that AWS response is exactly how
-  it learns the instance isn't an ASG member. Managed nodegroups and self-managed ASGs are both
-  real ASG members and get the hook the same way.
+- On a backend node the AWS API reports is not a member of any Auto Scaling group (e.g. Fargate,
+  Hybrid Nodes — anything not launched via an ASG and not caught by the Karpenter detection below),
+  the operator logs the skip and makes no `PutLifecycleHook` call for that node; cluster formation is
+  not blocked. No event is recorded, so check the operator log if you need to confirm which nodes
+  were skipped. It still calls `DescribeAutoScalingInstances` once per node, since that AWS response
+  is exactly how it learns the instance isn't an ASG member. Managed nodegroups and self-managed ASGs
+  are both real ASG members and get the hook the same way.
 - Non-AWS clusters (bare-metal / OCI) are a no-op and need none of this.
+
+## Karpenter and EKS Auto Mode: no flag, no IAM needed
+
+Backend nodes provisioned by Karpenter (or EKS Auto Mode, which uses the same NodeClaim API) are
+detected automatically, per node, and are skipped entirely before any AWS call is made — no
+`skipAwsTerminationLifecycleHook` flag and no `autoscaling:*` IAM permissions are required for a
+Karpenter-only cluster.
+
+Detection is structural, not a label heuristic: a Karpenter-managed `Node` carries an
+`ownerReference` to a `karpenter.sh` `NodeClaim` (`karpenter.sh/v1`, `v1beta1`, or any future
+version), set by Karpenter's own controller. Karpenter launches instances directly via
+`RunInstances`/`CreateFleet`, so a NodeClaim-owned instance is never an ASG member — there is nothing
+to hook. The operator checks this ownerReference (`discovery.IsKarpenterManagedNode`) before calling
+`DescribeAutoScalingInstances`, so mixed clusters (some ASG-backed nodegroups, some Karpenter
+NodePools) only need `autoscaling:*` IAM for the ASG-backed nodes.
+
+Drain safety on Karpenter-owned nodes rests on Karpenter's own `karpenter.sh/termination` NodeClaim
+finalizer (which drains the node before the instance is terminated) plus the operator's
+`do-not-force-delete-unsafe` finalizer / eviction gate — not on the ASG lifecycle hook, which cannot
+exist for these instances.
 
 ## Opting out entirely: `skipAwsTerminationLifecycleHook`
 
