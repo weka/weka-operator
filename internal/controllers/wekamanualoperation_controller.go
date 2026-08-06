@@ -20,6 +20,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/services/exec"
 )
 
 // WekaManualOperationReconciler reconciles a WekaManualOperation object
@@ -218,6 +219,28 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			onSuccess,
 		)
 		loop.Op = staleVidsOp
+	case weka.WekaManualOperationActionRotateSsdProxy:
+		// execSvc is only constructed here (not unconditionally at the top of Reconcile) because
+		// it dereferences r.Mgr.GetConfig(), which the fakeManager used by
+		// TestReconcilePropagatesServiceAccountToGeneratedContainers does not implement; that test
+		// never drives this action, so building it lazily inside the case keeps that test's
+		// minimal fake manager valid.
+		execSvc := exec.NewExecService(r.RestClient, r.Mgr.GetConfig())
+		rotateSsdProxyOp := operations.NewRotateSsdProxyOperation(
+			r.Mgr,
+			execSvc,
+			wekaManualOperation.Spec.Payload.RotateSsdProxy,
+			wekaManualOperation,
+			r.Recorder,
+			onProgress,
+			onSuccess,
+			// Wired for exactly one terminal error — an unresolvable target image, which no wait can
+			// clear; every other failure mode parks. Without it that error was recorded in the campaign
+			// result in memory and dropped, leaving status.status/status.result null and the reason
+			// visible only in operator logs.
+			onFailure,
+		)
+		loop.Op = rotateSsdProxyOp
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown operation type: %s", wekaManualOperation.Spec.Action)
 	}

@@ -19,10 +19,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/internal/services/ssdproxy"
-	"github.com/weka/weka-operator/pkg/util"
 )
 
 const (
@@ -101,7 +99,7 @@ func (o *StaleVirtualDrivesOperation) GetSteps() []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Name:            "SkipIfDone",
 			Run:             func(context.Context) error { return nil },
-			Predicates:      lifecycle.Predicates{o.ownerDone},
+			Predicates:      lifecycle.Predicates{func() bool { return ownerDone(o.ownerRef) }},
 			FinishOnSuccess: true,
 		},
 		&lifecycle.SimpleStep{Name: "Scan", Run: o.Scan},
@@ -115,18 +113,6 @@ func (o *StaleVirtualDrivesOperation) GetSteps() []lifecycle.Step {
 	}
 }
 
-// ownerDone reports whether the owner CR is already in the Done state.
-func (o *StaleVirtualDrivesOperation) ownerDone() bool {
-	switch owner := o.ownerRef.(type) {
-	case *weka.WekaManualOperation:
-		return owner.Status.Status == "Done"
-	case *weka.WekaPolicy:
-		return owner.Status.Status == "Done"
-	default:
-		return false
-	}
-}
-
 func (o *StaleVirtualDrivesOperation) GetJsonResult() string {
 	resultJSON, err := json.Marshal(o.results)
 	if err != nil {
@@ -135,53 +121,10 @@ func (o *StaleVirtualDrivesOperation) GetJsonResult() string {
 	return string(resultJSON)
 }
 
-// targetProxy pairs an ssdproxy container with its resolved node name.
-type targetProxy struct {
-	container weka.WekaContainer
-	node      weka.NodeName
-}
-
-// resolveTargetProxies lists ssdproxy containers in the operator namespace, optionally filtered
-// to nodes matching payload.NodeSelector.
+// resolveTargetProxies lists this operation's target ssdproxy containers, filtered to
+// payload.NodeSelector. See the shared resolveTargetProxies in operations.go.
 func (o *StaleVirtualDrivesOperation) resolveTargetProxies(ctx context.Context) ([]targetProxy, error) {
-	operatorNamespace, err := util.GetPodNamespace()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get operator namespace")
-	}
-
-	// ssdproxy containers are shared across clusters on a node and live in the operator namespace.
-	proxies, err := o.kubeService.GetWekaContainersSimple(ctx, operatorNamespace, "", map[string]string{
-		domain.WekaLabelMode: weka.WekaContainerModeSSDProxy,
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to list ssdproxy containers")
-	}
-
-	// When a NodeSelector is given, restrict to its matching nodes (by node name).
-	var nodeFilter map[string]bool
-	if len(o.payload.NodeSelector) > 0 {
-		nodes, err := o.kubeService.GetNodes(ctx, o.payload.NodeSelector)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to list nodes for NodeSelector")
-		}
-		nodeFilter = make(map[string]bool, len(nodes))
-		for i := range nodes {
-			nodeFilter[nodes[i].Name] = true
-		}
-	}
-
-	targets := make([]targetProxy, 0, len(proxies))
-	for i := range proxies {
-		node := proxies[i].GetNodeAffinity()
-		if node == "" {
-			continue
-		}
-		if nodeFilter != nil && !nodeFilter[string(node)] {
-			continue
-		}
-		targets = append(targets, targetProxy{container: proxies[i], node: node})
-	}
-	return targets, nil
+	return resolveTargetProxies(ctx, o.kubeService, o.payload.NodeSelector)
 }
 
 // buildClaimedSet returns the set of VirtualUUIDs claimed by any WekaContainer in any state,

@@ -25,6 +25,8 @@ Manual operations, policies, CSI, and driver management.
 | `discover_drives.go` | Drive discovery via node-agent |
 | `resign_drives.go` | Force drive re-signing |
 | `stale_virtual_drives.go` | Stale virtual drives detection + gated cleanup. |
+| `rotate_ssdproxy.go` | Rolling ssdproxy image rotation, one node at a time |
+| `proxy_disruption_gate.go` | Health gate before disrupting a shared proxy node |
 
 ## Driver Operations
 

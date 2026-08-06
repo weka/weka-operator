@@ -1608,6 +1608,15 @@
           },
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "RotateSsdProxy",
+          "jsonName": "rotateSsdProxyPayload",
+          "type": {
+            "$ref": "#/definitions/RotateSsdProxyPayload"
+          },
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -2543,6 +2552,40 @@
       ],
       "usedBy": [
         "WekaCluster"
+      ]
+    },
+    "RotateSsdProxyPayload": {
+      "kind": "struct",
+      "description": "RotateSsdProxyPayload configures the rotate-ssdproxy operation, which rolls a new image\nacross ssdproxy WekaContainers one node at a time, gated by a cross-cluster disruption check.",
+      "fields": [
+        {
+          "name": "TargetImage",
+          "jsonName": "targetImage",
+          "type": "string",
+          "description": "TargetImage is the image to roll out. Empty means fall back to helm",
+          "optional": true
+        },
+        {
+          "name": "NodeSelector",
+          "jsonName": "nodeSelector",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "NodeSelector restricts rotation to a subset of nodes. Empty = all nodes that have an ssdproxy.",
+          "optional": true
+        },
+        {
+          "name": "Paused",
+          "jsonName": "paused",
+          "type": "bool",
+          "description": "Paused stops starting new nodes; an in-flight node finishes.",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation"
       ]
     },
     "S3Config": {
@@ -5568,7 +5611,8 @@
         "unblock-drives",
         "ensure-nics",
         "remote-traces-session",
-        "clean-stale-virtual-drives"
+        "clean-stale-virtual-drives",
+        "rotate-ssdproxy"
       ],
       "baseType": "string",
       "usedBy": [
