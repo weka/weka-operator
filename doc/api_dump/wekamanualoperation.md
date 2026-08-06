@@ -14,6 +14,7 @@
 - [ForceResignDrivesPayload](#forceresigndrivespayload)
 - [RemoteTracesSessionConfig](#remotetracessessionconfig)
 - [CleanStaleVirtualDrivesPayload](#cleanstalevirtualdrivespayload)
+- [RotateSsdProxyPayload](#rotatessdproxypayload)
 - [PCIDevices](#pcidevices)
 - [SignOptions](#signoptions)
 - [DriveTypeOverrides](#drivetypeoverrides)
@@ -74,6 +75,7 @@
 | forceResignDrivesPayload | *ForceResignDrivesPayload |  |
 | remoteTracesSessionPayload | *RemoteTracesSessionConfig |  |
 | cleanStaleVirtualDrivesPayload | *CleanStaleVirtualDrivesPayload |  |
+| rotateSsdProxyPayload | *RotateSsdProxyPayload |  |
 
 ---
 
@@ -151,6 +153,16 @@
 | nodeSelector | map[string]string | NodeSelector limits the scan to ssdproxies on nodes matching these labels.<br>Empty = all nodes that have an ssdproxy. |
 | onlyNonExistingClusters | bool | OnlyNonExistingClusters restricts the stale set to VIDs whose owner cluster GUID has NO<br>WekaCluster CR at all (category dead_cluster) — the safe-by-construction subset (no live<br>cluster could be mid-allocating them). Excludes live_cluster_unclaimed. Recommended ON<br>when pairing with deletion. |
 | deleteStaleVids | bool | DeleteStaleVids enables ACTUAL removal of detected stale VIDs. DANGEROUS — disabled by<br>default. Even when true, a VID is only removed if it was reported stale and UNCHANGED on<br>the previous cycle (fingerprint match) and is still unclaimed at removal time. Acts as the<br>user's confirmation. |
+
+---
+
+## RotateSsdProxyPayload
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| targetImage | string | TargetImage is the image to roll out. Empty means fall back to helm |
+| nodeSelector | map[string]string | NodeSelector restricts rotation to a subset of nodes. Empty = all nodes that have an ssdproxy. |
+| paused | bool | Paused stops starting new nodes; an in-flight node finishes. |
 
 ---
 

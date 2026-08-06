@@ -723,7 +723,7 @@ spec:
 Proxy containers are automatically created when first drive-sharing cluster appears:
 
 ```bash
-kubectl get pods -n weka-operator-system -l weka.io/container-mode=ssdproxy
+kubectl get pods -n weka-operator-system -l weka.io/mode=ssdproxy
 ```
 
 **Expected output:**
@@ -773,6 +773,21 @@ View virtual drive allocations in container status:
 ```bash
 kubectl get wekacontainer <container-name> -n <namespace> -o jsonpath='{.status.allocations.virtualDrives}' | jq
 ```
+
+---
+
+## Rotating / Upgrading SSD Proxy Containers
+
+`ssdproxy` containers are created once, on-demand, and are otherwise never touched by the operator — there is
+no automatic upgrade path for them. Because one proxy serves **all tenants on that node**, restarting it is a
+multi-tenant disruption, not a routine rolling update. The `rotate-ssdproxy` `WekaManualOperation` action
+automates the previously-manual rotation procedure: one node at a time, gated by a cross-cluster health check
+on every dependent tenant cluster before (and after) touching each node. If any dependent cluster isn't safe,
+the campaign **parks on that exact node and does not advance to any other node** until the gate clears —
+there is no skip-ahead and no timeout.
+
+See [Rotate SSD Proxy](rotate-ssdproxy.md) for the full API, payload fields, the cross-cluster gate, the
+parking/warning model, events, and recommended usage on a live fleet.
 
 ---
 

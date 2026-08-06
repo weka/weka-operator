@@ -640,23 +640,19 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			return lifecycle.NewWaitError(errors.Errorf("Weka is not fully protected, waiting to stabilize, %v", status.Rebuild))
 		}
 
-		if !slices.Contains([]string{
-			"OK",
-			"REDISTRIBUTING",
-		}, status.Status) {
+		if !slices.Contains(services.HealthyClusterStatuses, status.Status) {
 			return lifecycle.NewWaitError(errors.New("Weka status is not OK/REDISTRIBUTING, waiting to stabilize. status:" + status.Status))
 		}
 
-		activeDrivesThreshold := float64(nums.Drive) * (float64(config.Config.Upgrade.DriveThresholdPercent) / 100)
-		activeComputesThreshold := float64(nums.Compute) * (float64(config.Config.Upgrade.ComputeThresholdPercent) / 100)
-
-		if float64(status.Containers.Drives.Active) < activeDrivesThreshold {
+		// Thresholded against the cluster's expected container counts, not the counts weka
+		// currently reports, so a container that vanished still counts against the threshold.
+		if !services.MeetsThreshold(status.Containers.Drives.Active, nums.Drive, config.Config.Upgrade.DriveThresholdPercent) {
 			msg := fmt.Sprintf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, nums.Drive)
 			_ = r.RecordEvent("", "ClusterSizeThreshold", msg) //nolint:errcheck // error is intentionally ignored
 			return lifecycle.NewWaitError(errors.New(msg))
 		}
 
-		if float64(status.Containers.Computes.Active) < activeComputesThreshold {
+		if !services.MeetsThreshold(status.Containers.Computes.Active, nums.Compute, config.Config.Upgrade.ComputeThresholdPercent) {
 			msg := fmt.Sprintf("Not enough computes containers are active, waiting to stabilize, %d/%d", status.Containers.Computes.Active, nums.Compute)
 			_ = r.RecordEvent("", "ClusterSizeThreshold", msg) //nolint:errcheck // error is intentionally ignored
 			return lifecycle.NewWaitError(errors.New(msg))
