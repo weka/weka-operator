@@ -435,7 +435,7 @@ func GetClusterByUID(ctx context.Context, c client.Client, uid types.UID) (*weka
 	return nil, errors.New("Cluster not found")
 }
 
-func GetClusterContainers(ctx context.Context, c client.Client, cluster *weka.WekaCluster, mode string) ([]*weka.WekaContainer, error) {
+func GetClusterContainers(ctx context.Context, c client.Reader, cluster *weka.WekaCluster, mode string) ([]*weka.WekaContainer, error) {
 	return GetClusterContainersByClusterUID(ctx, c, string(cluster.UID), cluster.Namespace, mode)
 }
 
@@ -446,11 +446,11 @@ func GetClusterContainers(ctx context.Context, c client.Client, cluster *weka.We
 // index-based GetClusterContainers; the index is registered on the manager cache in
 // setupContainerIndexes (cmd/manager/main.go). Sending that field selector through a direct client
 // makes the apiserver reject it ("field label not supported: metadata.ownerReferences.uid").
-func GetClusterContainersNoFieldIndex(ctx context.Context, c client.Client, cluster *weka.WekaCluster, mode string) ([]*weka.WekaContainer, error) {
+func GetClusterContainersNoFieldIndex(ctx context.Context, c client.Reader, cluster *weka.WekaCluster, mode string) ([]*weka.WekaContainer, error) {
 	return getClusterContainersByClusterUID(ctx, c, string(cluster.UID), cluster.Namespace, mode, false)
 }
 
-func GetClusterContainersByClusterUID(ctx context.Context, c client.Client, clusterUID, clusterNamespace, mode string) ([]*weka.WekaContainer, error) {
+func GetClusterContainersByClusterUID(ctx context.Context, c client.Reader, clusterUID, clusterNamespace, mode string) ([]*weka.WekaContainer, error) {
 	return getClusterContainersByClusterUID(ctx, c, clusterUID, clusterNamespace, mode, true)
 }
 
@@ -458,7 +458,7 @@ func GetClusterContainersByClusterUID(ctx context.Context, c client.Client, clus
 // filters via the metadata.ownerReferences.uid cache field index (fast, but requires the index to be
 // registered on the client's cache). When false it lists the namespace and filters by owner UID in
 // memory — for clients without that index registered.
-func getClusterContainersByClusterUID(ctx context.Context, c client.Client, clusterUID, clusterNamespace, mode string, useFieldIndex bool) ([]*weka.WekaContainer, error) {
+func getClusterContainersByClusterUID(ctx context.Context, c client.Reader, clusterUID, clusterNamespace, mode string, useFieldIndex bool) ([]*weka.WekaContainer, error) {
 	containersList := weka.WekaContainerList{}
 	listOpts := []client.ListOption{
 		client.InNamespace(clusterNamespace),

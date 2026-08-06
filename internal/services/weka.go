@@ -24,6 +24,7 @@ const (
 	DriveStatusActive    = "ACTIVE"
 	DriveStatusInactive  = "INACTIVE"
 	DriveStatusPhasingIn = "PHASING_IN"
+	DriveStatusFailed    = "FAILED"
 )
 
 type WekaContainerNotFound struct {

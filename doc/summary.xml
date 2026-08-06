@@ -93,6 +93,10 @@
         <tags>clean-stale-virtual-drives, stale VIDs, virtual drives, leaked virtual drives, drive sharing, ssdproxy, WekaManualOperation, WekaPolicy, cleanStaleVirtualDrivesPayload, deleteStaleVids, onlyNonExistingClusters, dead_cluster, live_cluster_unclaimed, fingerprint stability gate, OP-339, garbage collection</tags>
         <summary>Fleet-level reconciliation that detects and optionally removes stale virtual drives (VIDs) leaked on shared ssdproxy drives in drive-sharing deployments. Documents the WekaManualOperation (one-shot) and WekaPolicy (periodic) entry points, the shared cleanStaleVirtualDrivesPayload (nodeSelector, onlyNonExistingClusters, deleteStaleVids), the scan/diff/categorize algorithm (dead_cluster vs live_cluster_unclaimed), the double-gated safety model (opt-in deletion, two-cycle fingerprint stability, final uncached re-validation), the result JSON with real examples, events and logs, and recommended usage.</summary>
     </file>
+    <file relpath="operator/operations/rotate-ssdproxy.md">
+        <tags>rotate-ssdproxy, ssdproxy rotation, ssd proxy upgrade, drive sharing, WekaManualOperation, rotateSsdProxyPayload, targetImage, nodeSelector, paused, cross-cluster disruption gate, proxy_disruption_gate, EvaluateNodeDisruption, VerifyNodeRecovered, ClusterVerdict, fail-closed, blocked, stuck, parking, node-scoped drive verification, SsdProxyRotationStarted, SsdProxyRotationBlocked, SsdProxyRotationStalled, SsdProxyRotationNodeComplete, SsdProxyRotationCampaignComplete, previousImage, rolling upgrade, nodeSelector park</tags>
+        <summary>One-shot, WekaManualOperation-only rolling rotation of ssdproxy WekaContainer images, one node at a time, replacing the previously fully-manual per-node hotfix procedure.</summary>
+    </file>
 
     <!-- Operator Clients -->
     <file relpath="operator/clients/wekaclient-and-workload.md">
