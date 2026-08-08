@@ -97,6 +97,15 @@ spec:
                         items:
                           type: string
                         type: array
+                      virtualUUIDs:
+                        description: |-
+                          VirtualUUIDs blocks individual virtual drives (VIDs) on a drive-sharing node. Removes exactly
+                          the named VIDs, leaving other VIDs on the same physical drive — including other tenants' —
+                          untouched. Node physical inventory and capacity resources are unchanged. Blocked entries are
+                          never cleaned automatically: unblock them once the replacement is in place.
+                        items:
+                          type: string
+                        type: array
                     required:
                     - node
                     type: object

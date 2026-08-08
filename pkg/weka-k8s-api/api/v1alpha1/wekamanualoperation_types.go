@@ -179,7 +179,12 @@ type ForceResignDrivesPayload struct {
 type BlockDrivesPayload struct {
 	SerialIDs     []string `json:"serialIDs,omitempty"`
 	PhysicalUUIDs []string `json:"physicalUUIDs,omitempty"`
-	Node          string   `json:"node"`
+	// VirtualUUIDs blocks individual virtual drives (VIDs) on a drive-sharing node. Removes exactly
+	// the named VIDs, leaving other VIDs on the same physical drive — including other tenants' —
+	// untouched. Node physical inventory and capacity resources are unchanged. Blocked entries are
+	// never cleaned automatically: unblock them once the replacement is in place.
+	VirtualUUIDs []string `json:"virtualUUIDs,omitempty"`
+	Node         string   `json:"node"`
 }
 
 type DiscoverDrivesPayload struct {
