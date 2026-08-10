@@ -99,6 +99,7 @@
 |------------|------|-------------|
 | serialIDs | []string |  |
 | physicalUUIDs | []string |  |
+| virtualUUIDs | []string | VirtualUUIDs blocks individual virtual drives (VIDs) on a drive-sharing node. Removes exactly<br>the named VIDs, leaving other VIDs on the same physical drive — including other tenants' —<br>untouched. Node physical inventory and capacity resources are unchanged. Blocked entries are<br>never cleaned automatically: unblock them once the replacement is in place. |
 | node | string |  |
 
 ---

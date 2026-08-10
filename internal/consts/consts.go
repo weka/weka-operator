@@ -55,6 +55,13 @@ const (
 	// Format: ["uuid1", "uuid2", ...]
 	AnnotationBlockedDrivesPhysicalUuids = "weka.io/blocked-drives-physical-uuids"
 
+	// AnnotationBlockedDrivesVirtualUuids stores blocked virtual drive UUIDs (VIDs), drive-sharing
+	// mode only. Unlike the two blocked lists above it does not affect node capacity resources or
+	// allocator filtering: virtual UUIDs are random and never reused, so a new allocation can never
+	// collide with a blocked one, and the node's physical drive inventory is unchanged.
+	// Format: ["uuid1", "uuid2", ...]
+	AnnotationBlockedDrivesVirtualUuids = "weka.io/blocked-drives-virtual-uuids"
+
 	// AnnotationSignDrivesHash stores hash of signed drives to track changes
 	// Used to determine if drives need to be re-signed
 	AnnotationSignDrivesHash = "weka.io/sign-drives-hash"

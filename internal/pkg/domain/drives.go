@@ -128,6 +128,13 @@ func ReadBlockedDrivePhysicalUUIDs(node *corev1.Node) ([]string, error) {
 	return readStringSliceAnnotation(node, consts.AnnotationBlockedDrivesPhysicalUuids)
 }
 
+// ReadBlockedDriveVirtualUUIDs decodes the node's weka.io/blocked-drives-virtual-uuids annotation
+// (individual virtual drives blocked on a drive-sharing node). Returns an empty slice when the
+// annotation is absent or empty.
+func ReadBlockedDriveVirtualUUIDs(node *corev1.Node) ([]string, error) {
+	return readStringSliceAnnotation(node, consts.AnnotationBlockedDrivesVirtualUuids)
+}
+
 func readStringSliceAnnotation(node *corev1.Node, annotation string) ([]string, error) {
 	values := []string{}
 	raw := node.Annotations[annotation]
