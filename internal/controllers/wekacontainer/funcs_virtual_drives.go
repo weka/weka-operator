@@ -80,10 +80,13 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 		return fmt.Errorf("failed to get list of added virtual drives: %w", err)
 	}
 
+	// A blocked VID is on its way out: re-signing it would undo the removal in progress.
+	blockedVids := r.blockedVirtualUuidSet(ctx)
+
 	// Check if all allocated virtual drives are already added
 	allAdded := true
 	for _, vd := range container.Status.Allocations.VirtualDrives {
-		if !addedVirtualDrives[vd.VirtualUUID] {
+		if !addedVirtualDrives[vd.VirtualUUID] && !blockedVids[vd.VirtualUUID] {
 			allAdded = false
 			break
 		}
@@ -99,6 +102,11 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	// Add each virtual drive that hasn't been added yet
 	for _, vd := range container.Status.Allocations.VirtualDrives {
 		vdCtx, l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "physical_uuid", vd.PhysicalUUID)
+
+		if blockedVids[vd.VirtualUUID] {
+			l.Info("Virtual drive is blocked on the node, skipping until its removal completes")
+			continue
+		}
 
 		// Check if already added
 		if addedVirtualDrives[vd.VirtualUUID] {
@@ -343,8 +351,21 @@ func (r *containerReconcilerLoop) removeVirtualDrive(ctx context.Context, virtua
 		return fmt.Errorf("failed to get node agent token for virtual drive cleanup: %w", err)
 	}
 
+	return r.removeVirtualDriveViaProxy(ctx, virtualDriveUuid, string(ssdproxyContainer.GetUID()), agentPod, token)
+}
+
+// removeVirtualDriveViaProxy erases one virtual drive from its physical drive via the node's
+// ssdproxy, given handles already resolved by the caller (ssdproxy UID, node-agent pod, auth
+// token). Split out of removeVirtualDrive so a caller removing many VIDs in one pass can resolve
+// the proxy, pod and token once instead of once per VID.
+func (r *containerReconcilerLoop) removeVirtualDriveViaProxy(
+	ctx context.Context, virtualDriveUuid, ssdproxyUID string, agentPod *v1.Pod, token string,
+) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "removeVirtualDriveViaProxy", "virtual_uuid", virtualDriveUuid)
+	defer logger.End()
+
 	// Query first - check if VD exists
-	existingVDs, err := r.getAddedVirtualDrives(ctx, string(ssdproxyContainer.GetUID()), agentPod, token)
+	existingVDs, err := r.getAddedVirtualDrives(ctx, ssdproxyUID, agentPod, token)
 	if err != nil {
 		return fmt.Errorf("failed to query existing virtual drives: %w", err)
 	}
@@ -355,13 +376,13 @@ func (r *containerReconcilerLoop) removeVirtualDrive(ctx context.Context, virtua
 		return nil
 	}
 
-	err = r.removeVirtualDriveViaJSONRPC(ctx, string(ssdproxyContainer.GetUID()), agentPod, token, virtualDriveUuid)
+	err = r.removeVirtualDriveViaJSONRPC(ctx, ssdproxyUID, agentPod, token, virtualDriveUuid)
 	if err != nil {
 		return fmt.Errorf("failed to remove virtual drive %s: %w", virtualDriveUuid, err)
 	}
 
 	// Defensively verify removal via query before returning success
-	verifyVDs, verifyErr := r.getAddedVirtualDrives(ctx, string(ssdproxyContainer.GetUID()), agentPod, token)
+	verifyVDs, verifyErr := r.getAddedVirtualDrives(ctx, ssdproxyUID, agentPod, token)
 	if verifyErr != nil {
 		logger.Error(verifyErr, "Could not verify removal via query, but deletion call succeeded", "virtual_uuid", virtualDriveUuid)
 		return fmt.Errorf("could not verify removal via query, but deletion call succeeded %s: %w", virtualDriveUuid, verifyErr)

@@ -34,8 +34,9 @@ See [config/index.md](config/index.md) for config overview.
 ## Modifying CRD Types
 
 1. Edit types in `pkg/weka-k8s-api/api/v1alpha1/`
-2. Run `make manifests` to regenerate CRDs
-3. Run `make generate-api-docs` to update docs
+2. Run `make manifests` — regenerates chart CRDs, RBAC, and `doc/api_dump/` in one go
+
+`pkg/weka-k8s-api` is a **git submodule**.
 
 ## Adding CSI Functionality
 

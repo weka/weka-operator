@@ -2,7 +2,7 @@
 
 Drive containers will be scheduled on nodes that have available signed drives.
 
-**Note:** This section covers **exclusive drive signing** for single-cluster deployments. For multi-cluster deployments where physical drives are shared between clusters, see [Drive Sharing](drive-sharing.md).
+**Note:** This section covers **exclusive drive signing** for single-cluster deployments. For multi-cluster deployments where physical drives are shared between clusters, see [Drive Sharing](drive-sharing.md). To take a signed drive out of use, see [Block Drives](block-drives.md); for replacing a single faulted virtual drive in drive-sharing mode, see [Virtual Drive Replacement](virtual-drive-replacement.md).
 
 To scan nodes for drives that can be used for weka and sign them, apply following policy
 
