@@ -489,22 +489,33 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 	return nil
 }
 
+// filterVirtualDrives returns vds without the entries match reports, and whether anything changed.
+// Pure: the caller owns the status update. kept is always non-nil (even when empty), matching the
+// explicit-empty-slice initialization the call sites replace, so a caller that assigns kept back
+// only when changed is true never turns a nil VirtualDrives into an observable [] in the API.
+func filterVirtualDrives(vds []weka.VirtualDrive, match func(weka.VirtualDrive) bool) (kept []weka.VirtualDrive, changed bool) {
+	kept = make([]weka.VirtualDrive, 0, len(vds))
+	for _, vd := range vds {
+		if match(vd) {
+			changed = true
+			continue
+		}
+		kept = append(kept, vd)
+	}
+	return kept, changed
+}
+
 func (r *containerReconcilerLoop) deallocateDrivesByPhysicalUuids(ctx context.Context, blockedDrivePhysicalUuids []string) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "deallocateDrivesByPhysicalUuids")
 	defer logger.End()
 
 	container := r.container
 
-	// 1. Check if any virtual drive allocations map to blocked physical drives
-	virtualDriveAllocationsHaveBlockedUuids := false
-	for _, vdrive := range container.Status.Allocations.VirtualDrives {
-		if slices.Contains(blockedDrivePhysicalUuids, vdrive.PhysicalUUID) {
-			virtualDriveAllocationsHaveBlockedUuids = true
-			break
-		}
-	}
+	updatedVirtualDrives, changed := filterVirtualDrives(container.Status.Allocations.VirtualDrives, func(vd weka.VirtualDrive) bool {
+		return slices.Contains(blockedDrivePhysicalUuids, vd.PhysicalUUID)
+	})
 
-	if !virtualDriveAllocationsHaveBlockedUuids {
+	if !changed {
 		logger.Info("No drives to deallocate for container", "container", r.container.Name)
 		return nil
 	}
@@ -514,13 +525,48 @@ func (r *containerReconcilerLoop) deallocateDrivesByPhysicalUuids(ctx context.Co
 		"blockedDrivePhysicalUuids", blockedDrivePhysicalUuids,
 	)
 
-	// Update container status allocations
-	updatedVirtualDrives := []weka.VirtualDrive{}
-	for _, vd := range container.Status.Allocations.VirtualDrives {
-		if !slices.Contains(blockedDrivePhysicalUuids, vd.PhysicalUUID) {
-			updatedVirtualDrives = append(updatedVirtualDrives, vd)
-		}
+	container.Status.Allocations.VirtualDrives = updatedVirtualDrives
+
+	logger.Debug("Updated virtual drive allocations", "virtualDrives", updatedVirtualDrives, "count", len(updatedVirtualDrives))
+
+	ctx, logger = instrumentation.CreateLogSpan(ctx, "doDriveAllocationsUpdate")
+	defer logger.End()
+
+	err := r.Status().Update(ctx, container)
+	if err != nil {
+		err = fmt.Errorf("cannot update container status with deallocated drives: %w", err)
+		return err
 	}
+
+	logger.Info("Drive deallocation completed")
+
+	return nil
+}
+
+// deallocateDrivesByVirtualUuids drops the named VIDs from the container's allocation record. The
+// record is the desired state that AddVirtualDrives and EnsureDrives enforce, so this is the step
+// that makes a virtual-drive removal stick. Callers must only pass VIDs whose removal from the
+// cluster AND erase from the physical drive have both been confirmed.
+func (r *containerReconcilerLoop) deallocateDrivesByVirtualUuids(ctx context.Context, virtualUuids []string) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "deallocateDrivesByVirtualUuids")
+	defer logger.End()
+
+	container := r.container
+
+	updatedVirtualDrives, changed := filterVirtualDrives(container.Status.Allocations.VirtualDrives, func(vd weka.VirtualDrive) bool {
+		return slices.Contains(virtualUuids, vd.VirtualUUID)
+	})
+
+	if !changed {
+		logger.Info("No drives to deallocate for container", "container", r.container.Name)
+		return nil
+	}
+
+	logger.Info("Deallocating virtual drives by virtual UUID",
+		"container", container.Name,
+		"virtualUuids", virtualUuids,
+	)
+
 	container.Status.Allocations.VirtualDrives = updatedVirtualDrives
 
 	logger.Debug("Updated virtual drive allocations", "virtualDrives", updatedVirtualDrives, "count", len(updatedVirtualDrives))
@@ -541,7 +587,7 @@ func (r *containerReconcilerLoop) deallocateDrivesByPhysicalUuids(ctx context.Co
 
 // deallocateDrivesBySerials removes drive allocations for blocked drives by their serial IDs (for both regular and virtual drives)
 func (r *containerReconcilerLoop) deallocateDrivesBySerials(ctx context.Context, blockedDriveSerials []string) error {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "deallocateRemovedDrives")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "deallocateDrivesBySerials")
 	defer logger.End()
 
 	container := r.container
@@ -556,13 +602,9 @@ func (r *containerReconcilerLoop) deallocateDrivesBySerials(ctx context.Context,
 	}
 
 	// 2. Check if any virtual drive allocations map to blocked physical drives
-	virtualDriveAllocationsHaveBlockedSerials := false
-	for _, vdrive := range container.Status.Allocations.VirtualDrives {
-		if slices.Contains(blockedDriveSerials, vdrive.Serial) {
-			virtualDriveAllocationsHaveBlockedSerials = true
-			break
-		}
-	}
+	updatedVirtualDrives, virtualDriveAllocationsHaveBlockedSerials := filterVirtualDrives(container.Status.Allocations.VirtualDrives, func(vd weka.VirtualDrive) bool {
+		return slices.Contains(blockedDriveSerials, vd.Serial)
+	})
 
 	if !driveAllocationsHaveBlockedSerials && !virtualDriveAllocationsHaveBlockedSerials {
 		logger.Info("No drives to deallocate for container", "container", r.container.Name)
@@ -595,13 +637,6 @@ func (r *containerReconcilerLoop) deallocateDrivesBySerials(ctx context.Context,
 			"blockedDriveSerials", blockedDriveSerials,
 		)
 
-		// Update container status allocations
-		updatedVirtualDrives := []weka.VirtualDrive{}
-		for _, vd := range container.Status.Allocations.VirtualDrives {
-			if !slices.Contains(blockedDriveSerials, vd.Serial) {
-				updatedVirtualDrives = append(updatedVirtualDrives, vd)
-			}
-		}
 		container.Status.Allocations.VirtualDrives = updatedVirtualDrives
 
 		logger.Debug("Updated virtual drive allocations", "virtualDrives", updatedVirtualDrives, "count", len(updatedVirtualDrives))

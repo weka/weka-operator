@@ -18,6 +18,15 @@ func SetNodeDriveAllocatable(node *corev1.Node, totalSerials, blockedSerials []s
 			available++
 		}
 	}
+	// Nodes read from the API server always carry these maps, but assigning into a nil map
+	// panics — and panicking a controller over a defensive check this cheap isn't worth it.
+	if node.Status.Capacity == nil {
+		node.Status.Capacity = corev1.ResourceList{}
+	}
+	if node.Status.Allocatable == nil {
+		node.Status.Allocatable = corev1.ResourceList{}
+	}
+
 	q := resource.NewQuantity(int64(available), resource.DecimalSI)
 	node.Status.Capacity[consts.ResourceDrives] = *q
 	node.Status.Allocatable[consts.ResourceDrives] = *q

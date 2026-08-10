@@ -18,6 +18,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/operations"
@@ -186,9 +187,18 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			}
 		}
 
+		// A blocked VID is on its way out: re-adding it would undo the removal in progress, and would
+		// keep doing so on every pass for as long as its proxy erase kept failing.
+		blockedVids := r.blockedVirtualUuidSet(ctx)
+
 		// Add each virtual drive to the cluster
 		for _, vd := range container.Status.Allocations.VirtualDrives {
 			_, l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "serial", vd.Serial, "physical_uuid", vd.PhysicalUUID)
+
+			if blockedVids[vd.VirtualUUID] {
+				l.Info("Virtual drive is blocked on the node, skipping until its removal completes")
+				continue
+			}
 
 			// Check if drive is already added to weka
 			if drivesAddedByVids[vd.VirtualUUID] {
@@ -537,25 +547,29 @@ func (r *containerReconcilerLoop) RemoveDrives(ctx context.Context) error {
 		return err
 	}
 
-	var errs []error
-
-	timeout := time.Minute * 2
-	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
-
-	for _, drive := range toRemoveDrives {
-		err := r.removeDriveFromWeka(ctx, &drive, wekaService, container.UsesDriveSharing())
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-	}
-
-	if len(errs) > 0 {
+	if errs := r.removeDrivesFromWeka(ctx, toRemoveDrives); len(errs) > 0 {
 		return fmt.Errorf("errors during drive replacement: %v", errs)
 	}
 
 	// adding of new drive is covered by EnsureDrives
 	return nil
+}
+
+// removeDrivesFromWeka removes every drive in the set, collecting failures rather than stopping at
+// the first: one drive that will not deactivate must not strand the others.
+func (r *containerReconcilerLoop) removeDrivesFromWeka(ctx context.Context, drives map[string]weka.Drive) []error {
+	timeout := time.Minute * 2
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, r.container, &timeout)
+	useDriveSharing := r.container.UsesDriveSharing()
+
+	var errs []error
+	for _, drive := range drives {
+		if err := r.removeDriveFromWeka(ctx, &drive, wekaService, useDriveSharing); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errs
 }
 
 func (r *containerReconcilerLoop) RemoveDrivesByPhysicalUuids(ctx context.Context) error {
@@ -633,23 +647,137 @@ func (r *containerReconcilerLoop) RemoveDrivesByPhysicalUuids(ctx context.Contex
 		return err
 	}
 
-	var errs []error
-
-	timeout := time.Minute * 2
-	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
-	for _, drive := range toRemoveDrives {
-		err := r.removeDriveFromWeka(ctx, &drive, wekaService, container.UsesDriveSharing())
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-	}
-
-	if len(errs) > 0 {
+	if errs := r.removeDrivesFromWeka(ctx, toRemoveDrives); len(errs) > 0 {
 		return fmt.Errorf("errors during drive removal: %v", errs)
 	}
 
 	return nil
+}
+
+// RemoveDrivesByVirtualUuids removes the virtual drives named in the node's blocked-virtual-uuids
+// annotation, leaving every other VID on the same physical drives — including other tenants' —
+// alone.
+//
+// The work list comes from the allocation record, not Status.AddedDrives: AddedDrives is refreshed
+// from weka, so once the cluster removal lands the drive disappears from it and a retry would have
+// nothing to iterate, stranding a record that still claims a VID whose erase never completed.
+func (r *containerReconcilerLoop) RemoveDrivesByVirtualUuids(ctx context.Context) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	container := r.container
+
+	blockedVirtualUuids, err := r.getNodeBlockedDriveVirtualUuids(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get blocked virtual drive UUIDs from node: %w", err)
+	}
+
+	if len(blockedVirtualUuids) == 0 {
+		return nil
+	}
+
+	if container.Status.Allocations == nil {
+		return nil
+	}
+
+	toRemove := make([]string, 0, len(blockedVirtualUuids))
+	for _, vd := range container.Status.Allocations.VirtualDrives {
+		if slices.Contains(blockedVirtualUuids, vd.VirtualUUID) {
+			toRemove = append(toRemove, vd.VirtualUUID)
+		}
+	}
+
+	// Nothing this container owns is blocked. Returning here keeps the common case to a couple of
+	// slice scans, with no proxy or cluster contact at all.
+	if len(toRemove) == 0 {
+		logger.Info("No virtual drives to remove for container", "container", container.Name)
+		return nil
+	}
+
+	// Resolve the proxy, its node-agent pod and an auth token, and confirm it is reachable, before
+	// touching the cluster. Removing a VID from weka and only then discovering the proxy is down
+	// would leave it signed on the physical drive with nothing to retry the erase, so on an
+	// unreachable proxy nothing is removed and the step simply retries. Resolving once here, rather
+	// than inside the loop below, saves a K8s List call per VID for both the ssdproxy container and
+	// the agent pod. Skipped when SkipVirtualDrivesRemoval is set: removeVirtualDriveFromWekaAndProxy
+	// never uses these values in that case, since the erase they guard doesn't run.
+	var (
+		ssdproxyUID string
+		agentPod    *v1.Pod
+		token       string
+	)
+	if !container.Spec.GetOverrides().SkipVirtualDrivesRemoval {
+		ssdproxyUID, agentPod, token, err = r.resolveSSDProxy(ctx)
+		if err != nil {
+			return fmt.Errorf("ssdproxy unreachable, removing no virtual drives: %w", err)
+		}
+	}
+
+	timeout := time.Minute * 2
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
+
+	removedVids := make([]string, 0, len(toRemove))
+
+	var errs []error
+	for _, vid := range toRemove {
+		if err := r.removeVirtualDriveFromWekaAndProxy(ctx, vid, wekaService, ssdproxyUID, agentPod, token); err != nil {
+			errs = append(errs, fmt.Errorf("virtual drive %s: %w", vid, err))
+			continue
+		}
+		removedVids = append(removedVids, vid)
+	}
+
+	// Only VIDs whose cluster removal AND proxy erase both succeeded may leave the record. Dropping
+	// one whose erase failed would orphan it: nothing would claim it, so nothing would retry.
+	if len(removedVids) > 0 {
+		if err := r.deallocateDrivesByVirtualUuids(ctx, removedVids); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(removedVids) > 0 && !config.Config.DriveSharing.EnableDynamicDriveScaling {
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "VirtualDriveReplacementDisabled", //nolint:errcheck // error return value intentionally not checked
+			fmt.Sprintf("Removed virtual drives %v; no replacement will be created because dynamic drive "+
+				"scaling is disabled (ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES). The container stays "+
+				"below its target capacity until it is enabled.", removedVids), time.Minute*10)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors during virtual drive removal: %v", errs)
+	}
+
+	return nil
+}
+
+// resolveSSDProxy resolves the node's ssdproxy container UID, its node-agent pod and an auth token,
+// and confirms the proxy answers before a caller mutates cluster state on the assumption that it
+// will. The three are returned so a caller doing per-VID work can resolve them once up front instead
+// of once per VID.
+func (r *containerReconcilerLoop) resolveSSDProxy(ctx context.Context) (ssdproxyUID string, agentPod *v1.Pod, token string, err error) {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "resolveSSDProxy", "node", r.container.GetNodeAffinity())
+	defer logger.End()
+
+	ssdproxyContainer, err := r.findSSDProxyOnNode(ctx)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to find ssdproxy container: %w", err)
+	}
+
+	agentPod, err = r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to get node agent pod: %w", err)
+	}
+
+	token, err = r.getNodeAgentToken(ctx)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to get node agent token: %w", err)
+	}
+
+	ssdproxyUID = string(ssdproxyContainer.GetUID())
+
+	if _, err := r.ssdProxyListVirtualDrives(ctx, ssdproxyUID, agentPod, token); err != nil {
+		return "", nil, "", fmt.Errorf("failed to list virtual drives: %w", err)
+	}
+
+	return ssdproxyUID, agentPod, token, nil
 }
 
 // TODO: make it work with physical UUIDs as well
@@ -816,100 +944,186 @@ func (r *containerReconcilerLoop) getKernelDrivesFromPod(ctx context.Context, ex
 	return serialIdMap, nil
 }
 
-func (r *containerReconcilerLoop) getNodeBlockedDriveUuids(ctx context.Context) (blockedPhysicalUuids []string, err error) {
-	_, logger := instrumentation.CreateLogSpan(ctx, "getNodeBlockedDriveUuids")
+// readNodeBlockedList decodes one of the node's blocked-drive annotations via the given domain
+// reader, under a span named for the caller.
+func (r *containerReconcilerLoop) readNodeBlockedList(
+	ctx context.Context, spanName, logKey string, read func(*v1.Node) ([]string, error),
+) ([]string, error) {
+	_, logger := instrumentation.CreateLogSpan(ctx, spanName)
 	defer logger.End()
 
-	node := r.node
-	if node == nil {
+	if r.node == nil {
 		return nil, errors.New("node is nil")
 	}
 
-	// drives blocked by physical UUIDs (for drive sharing / proxy mode)
-	blockedPhysicalUuids = make([]string, 0)
-	blockedUuidsStr, ok := node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids]
-	if ok && blockedUuidsStr != "" {
-		if err := json.Unmarshal([]byte(blockedUuidsStr), &blockedPhysicalUuids); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal blocked shared drives: %w", err)
-		}
-	}
-
-	logger.Debug("Fetched blocked drives from node annotation", "blocked_drives_uuids", blockedPhysicalUuids)
-
-	return blockedPhysicalUuids, nil
-}
-
-func (r *containerReconcilerLoop) getNodeBlockedDriveSerials(ctx context.Context) (blockedSerials []string, err error) {
-	_, logger := instrumentation.CreateLogSpan(ctx, "getNodeBlockedDriveSerials")
-	defer logger.End()
-
-	node := r.node
-	if node == nil {
-		return nil, errors.New("node is nil")
-	}
-
-	// drives blocked by serial IDs
-	blockedSerials = make([]string, 0)
-	blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]
-	if ok && blockedDrivesStr != "" {
-		err := json.Unmarshal([]byte(blockedDrivesStr), &blockedSerials)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal blocked drives: %v", err)
-		}
-	}
-
-	logger.Debug("Fetched blocked drives from node annotation", "blocked_drives_serials", blockedSerials)
-
-	return blockedSerials, nil
-}
-
-func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive *weka.Drive, wekaService services.WekaService, useDriveSharing bool) error {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "removeReplacedDriveFromWeka", "drive_uuid", drive.Uuid, "drive_serial", drive.SerialNumber)
-	defer logger.End()
-
-	reFetchedDrive, err := wekaService.GetClusterDrive(ctx, drive.Uuid)
-	var notFoundErr *services.DriveNotFound
-	if errors.As(err, &notFoundErr) {
-		logger.Info("Drive not found in weka, assuming already removed")
-		return nil
-	}
+	blocked, err := read(r.node)
 	if err != nil {
-		err = fmt.Errorf("error fetching drive %s (%s) before removal: %w", drive.SerialNumber, drive.Uuid, err)
-		return err
+		return nil, err
+	}
+
+	logger.Debug("Fetched blocked drives from node annotation", logKey, blocked)
+
+	return blocked, nil
+}
+
+// drives blocked by physical UUID (drive sharing / proxy mode)
+func (r *containerReconcilerLoop) getNodeBlockedDriveUuids(ctx context.Context) ([]string, error) {
+	return r.readNodeBlockedList(ctx, "getNodeBlockedDriveUuids", "blocked_drives_uuids",
+		domain.ReadBlockedDrivePhysicalUUIDs)
+}
+
+// drives blocked by serial ID
+func (r *containerReconcilerLoop) getNodeBlockedDriveSerials(ctx context.Context) ([]string, error) {
+	return r.readNodeBlockedList(ctx, "getNodeBlockedDriveSerials", "blocked_drives_serials",
+		domain.ReadBlockedDriveSerials)
+}
+
+// individual virtual drives blocked by virtual UUID (drive sharing only)
+func (r *containerReconcilerLoop) getNodeBlockedDriveVirtualUuids(ctx context.Context) ([]string, error) {
+	return r.readNodeBlockedList(ctx, "getNodeBlockedDriveVirtualUuids", "blocked_drives_virtual_uuids",
+		domain.ReadBlockedDriveVirtualUUIDs)
+}
+
+// blockedVirtualUuidSet returns the node's blocked VIDs as a lookup set, for the enforcement loops to
+// skip. Without it a VID whose proxy erase keeps failing gets re-signed and re-added every pass,
+// churning the cluster for as long as the proxy is down.
+//
+// A read failure yields an empty set and a log line rather than an error: a malformed annotation must
+// never stop drives being signed or added.
+func (r *containerReconcilerLoop) blockedVirtualUuidSet(ctx context.Context) map[string]bool {
+	blocked, err := r.getNodeBlockedDriveVirtualUuids(ctx)
+	if err != nil {
+		instrumentation.CurrentSpanLogger(ctx).Warn(
+			"Could not read blocked virtual drives from node, treating none as blocked", "error", err)
+		return map[string]bool{}
+	}
+
+	set := make(map[string]bool, len(blocked))
+	for _, vid := range blocked {
+		set[vid] = true
+	}
+
+	return set
+}
+
+// driveNaming supplies the human-facing wording for cluster-removal events, which differs between
+// physical drives (identified by serial) and virtual drives (identified by VID).
+type driveNaming struct {
+	eventPrefix   string // prefixes the event Reason: "Drive" -> DriveRemoved
+	noun          string // opens the event message: "Virtual drive %s removed from the cluster"
+	removedSuffix string // appended to the "removed" event message only, e.g. " from the cluster"
+}
+
+var (
+	physicalDriveNaming = driveNaming{eventPrefix: "Drive", noun: "Drive"}
+	virtualDriveNaming  = driveNaming{eventPrefix: "VirtualDrive", noun: "Virtual drive", removedSuffix: " from the cluster"}
+)
+
+// removeDriveFromCluster deactivates a drive and removes it from the weka cluster.
+// Returns an error wrapping *services.DriveNotFound when the drive is already gone, for the caller
+// to classify via errors.As.
+// driveRef is the identifier shown to a human in events: a serial number for a physical drive, a
+// virtual UUID for a virtual one. It is not necessarily the uuid used for the API calls.
+func (r *containerReconcilerLoop) removeDriveFromCluster(
+	ctx context.Context, uuid, driveRef string, naming driveNaming, wekaService services.WekaService,
+) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "removeDriveFromCluster", "drive_uuid", uuid, "drive_ref", driveRef)
+	defer logger.End()
+
+	noun := strings.ToLower(naming.noun)
+
+	reFetchedDrive, err := wekaService.GetClusterDrive(ctx, uuid)
+	if err != nil {
+		ref := driveRef
+		if uuid != driveRef {
+			ref = fmt.Sprintf("%s (%s)", driveRef, uuid)
+		}
+		return fmt.Errorf("error fetching %s %s before removal: %w", noun, ref, err)
 	}
 
 	switch reFetchedDrive.Status {
 	case services.DriveStatusActive, services.DriveStatusInactive:
 		// Weka's RemoveDrive rejects unless should_be_active=false has been set via
 		// DeactivateDrive, even when the drive is already INACTIVE.
-		logger.Info("Deactivating drive")
-		deactivateErr := wekaService.DeactivateDrive(ctx, drive.Uuid)
-		if deactivateErr != nil {
-			return fmt.Errorf("error deactivating drive %s: %w", drive.SerialNumber, deactivateErr)
+		logger.Info(fmt.Sprintf("Deactivating %s", noun))
+		if err := wekaService.DeactivateDrive(ctx, uuid); err != nil {
+			return fmt.Errorf("error deactivating %s %s: %w", noun, driveRef, err)
 		}
 
-		_ = r.RecordEvent("", "DriveDeactivated", fmt.Sprintf("Drive %s deactivated", drive.SerialNumber)) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEvent("", naming.eventPrefix+"Deactivated", fmt.Sprintf("%s %s deactivated", naming.noun, driveRef)) //nolint:errcheck // error return value intentionally not checked
 	default:
-		return fmt.Errorf("drive has status '%s', wait for it to become '%s'", drive.Status, services.DriveStatusInactive)
+		return fmt.Errorf("%s has status '%s', wait for it to become '%s'", noun, reFetchedDrive.Status, services.DriveStatusInactive)
 	}
 
-	// remove failed (replaced) drive from weka
-	logger.Info("Removing drive")
+	logger.Info(fmt.Sprintf("Removing %s", noun))
+	if err := wekaService.RemoveDrive(ctx, uuid); err != nil {
+		return fmt.Errorf("error removing %s %s: %w", noun, driveRef, err)
+	}
 
-	err = wekaService.RemoveDrive(ctx, drive.Uuid)
-	if err != nil {
-		err = fmt.Errorf("error removing drive %s: %w", drive.SerialNumber, err)
+	_ = r.RecordEvent("", naming.eventPrefix+"Removed", fmt.Sprintf("%s %s removed%s", naming.noun, driveRef, naming.removedSuffix)) //nolint:errcheck // error return value intentionally not checked
+
+	return nil
+}
+
+// removeVirtualDriveFromWekaAndProxy removes one VID from the cluster and then erases it from its
+// physical drive via the proxy. ssdproxyUID, agentPod and token must come from resolveSSDProxy,
+// resolved once by the caller instead of per VID.
+//
+// Unlike removeDriveFromWeka, a drive already absent from the cluster is not treated as fully
+// removed: the erase still runs. Otherwise a successful cluster removal followed by a failed erase
+// would be indistinguishable from success on the next attempt, and the VID would stay signed on disk
+// forever. Both halves must succeed before the caller may drop the VID from the allocation record.
+func (r *containerReconcilerLoop) removeVirtualDriveFromWekaAndProxy(
+	ctx context.Context, virtualUUID string, wekaService services.WekaService,
+	ssdproxyUID string, agentPod *v1.Pod, token string,
+) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "removeVirtualDriveFromWekaAndProxy", "virtual_uuid", virtualUUID)
+	defer logger.End()
+
+	err := r.removeDriveFromCluster(ctx, virtualUUID, virtualUUID, virtualDriveNaming, wekaService)
+
+	var notFoundErr *services.DriveNotFound
+	switch {
+	case errors.As(err, &notFoundErr):
+		logger.Info("Virtual drive not in weka, already removed from the cluster; still erasing it from the drive")
+	case err != nil:
 		return err
 	}
 
-	_ = r.RecordEvent("", "DriveRemoved", fmt.Sprintf("Drive %s removed", drive.SerialNumber)) //nolint:errcheck // error return value intentionally not checked
+	if r.container.Spec.GetOverrides().SkipVirtualDrivesRemoval {
+		logger.Info("Skipping proxy erase, SkipVirtualDrivesRemoval override is set")
+		return nil
+	}
+
+	if err := r.removeVirtualDriveViaProxy(ctx, virtualUUID, ssdproxyUID, agentPod, token); err != nil {
+		return fmt.Errorf("error erasing virtual drive %s from the physical drive: %w", virtualUUID, err)
+	}
+
+	_ = r.RecordEvent("", "VirtualDriveErased", fmt.Sprintf("Virtual drive %s erased from its physical drive", virtualUUID)) //nolint:errcheck // error return value intentionally not checked
+
+	return nil
+}
+
+func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive *weka.Drive, wekaService services.WekaService, useDriveSharing bool) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "removeReplacedDriveFromWeka", "drive_uuid", drive.Uuid, "drive_serial", drive.SerialNumber)
+	defer logger.End()
+
+	err := r.removeDriveFromCluster(ctx, drive.Uuid, drive.SerialNumber, physicalDriveNaming, wekaService)
+
+	var notFoundErr *services.DriveNotFound
+	if errors.As(err, &notFoundErr) {
+		logger.Info("Drive not found in weka, assuming already removed")
+		return nil
+	}
+	if err != nil {
+		return err
+	}
 
 	logger.Info("Drive removed from weka")
 
 	if useDriveSharing && !r.container.Spec.GetOverrides().SkipVirtualDrivesRemoval {
 		// remove virtual drive on ssdproxy
-		err = r.removeVirtualDrive(ctx, drive.Uuid)
-		if err != nil {
+		if err := r.removeVirtualDrive(ctx, drive.Uuid); err != nil {
 			return err
 		}
 	}

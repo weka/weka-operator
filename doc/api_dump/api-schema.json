@@ -164,6 +164,16 @@
           "optional": true
         },
         {
+          "name": "VirtualUUIDs",
+          "jsonName": "virtualUUIDs",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "VirtualUUIDs blocks individual virtual drives (VIDs) on a drive-sharing node. Removes exactly\nthe named VIDs, leaving other VIDs on the same physical drive — including other tenants' —\nuntouched. Node physical inventory and capacity resources are unchanged. Blocked entries are\nnever cleaned automatically: unblock them once the replacement is in place.",
+          "optional": true
+        },
+        {
           "name": "Node",
           "jsonName": "node",
           "type": "string",
