@@ -190,6 +190,11 @@ spec:
                 type: object
               driversDistService:
                 type: string
+              extraCores:
+                description: extraCores reserves additional CPUs for the pod on top
+                  of the weka FE cores.
+                minimum: 0
+                type: integer
               globalPVC:
                 properties:
                   name:

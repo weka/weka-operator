@@ -140,9 +140,12 @@ type WekaClientSpec struct {
 	TargetCluster      ObjectReference   `json:"targetCluster,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
-	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
-	CpuRequest          string               `json:"cpuRequest,omitempty"`
-	CoresNumber         int                  `json:"coresNum,omitempty"`
+	CpuPolicy   CpuPolicy `json:"cpuPolicy,omitempty"`
+	CpuRequest  string    `json:"cpuRequest,omitempty"`
+	CoresNumber int       `json:"coresNum,omitempty"`
+	// extraCores reserves additional CPUs for the pod on top of the weka FE cores.
+	// +kubebuilder:validation:Minimum=0
+	ExtraCores          int                  `json:"extraCores,omitempty"`
 	CoreIds             []int                `json:"coreIds,omitempty"`
 	NonDatapathCoreIds  []int                `json:"nonDatapathCoreIds,omitempty"`
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
