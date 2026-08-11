@@ -52,6 +52,7 @@
 | cpuPolicy | CpuPolicy |  |
 | cpuRequest | string |  |
 | coresNum | int |  |
+| extraCores | int | extraCores reserves additional CPUs for the pod on top of the weka FE cores. |
 | coreIds | []int |  |
 | nonDatapathCoreIds | []int |  |
 | tracesConfiguration | *TracesConfiguration |  |

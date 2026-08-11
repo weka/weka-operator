@@ -32,7 +32,7 @@ type NodeCPUTopology struct {
 // rounds up to n+1). cpuPolicy=auto is resolved from topo.IsHt.
 func CPURequestCores(spec *weka.WekaContainerSpec, topo NodeCPUTopology) int {
 	totalNumCores := spec.NumCores
-	if IsDataCoreMode(spec.Mode) {
+	if SupportsExtraCores(spec.Mode) {
 		totalNumCores += spec.ExtraCores
 	}
 	policy := resolveCPUPolicy(spec.CpuPolicy, topo.IsHt)
@@ -42,7 +42,7 @@ func CPURequestCores(spec *weka.WekaContainerSpec, topo NodeCPUTopology) int {
 		total := totalNumCores*2 + 1
 		if spec.Mode == weka.WekaContainerModeEnvoy {
 			total = totalNumCores
-		} else if IsDataCoreMode(spec.Mode) {
+		} else if SupportsExtraCores(spec.Mode) {
 			total -= spec.ExtraCores // ExtraCores is counted once, not doubled (mirrors pod.go)
 		}
 		return roundFullPcpus(total, topo)
@@ -100,9 +100,8 @@ func resolveCPUPolicy(policy weka.CpuPolicy, isHt bool) weka.CpuPolicy {
 	return weka.CpuPolicyDedicated
 }
 
-// IsDataCoreMode reports whether the mode folds ExtraCores into its weka core count. Single source of
-// truth for the "data" mode set, shared by CPURequestCores and resources/pod.go setResources so the two
-// cannot drift.
+// IsDataCoreMode reports whether the mode runs weka data cores. It is NOT the ExtraCores gate — client
+// takes ExtraCores too without being a data-core mode; see SupportsExtraCores, currently its only caller.
 func IsDataCoreMode(mode string) bool {
 	switch mode {
 	case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3,
@@ -110,6 +109,13 @@ func IsDataCoreMode(mode string) bool {
 		return true
 	}
 	return false
+}
+
+// SupportsExtraCores reports whether the mode folds ExtraCores into its pod CPU request.
+// Data-core modes plus client: for client, ExtraCores buys cpuset headroom for the
+// weka-aio-* / management threads, which the runtime auto-classifies as non-datapath cores.
+func SupportsExtraCores(mode string) bool {
+	return IsDataCoreMode(mode) || mode == weka.WekaContainerModeClient
 }
 
 // roundFullPcpus applies pod.go's SMT alignment: on an HT node with full-pcpus-only, an odd CPU count is
