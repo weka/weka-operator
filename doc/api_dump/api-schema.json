@@ -3466,6 +3466,13 @@
           "optional": true
         },
         {
+          "name": "ExtraCores",
+          "jsonName": "extraCores",
+          "type": "int",
+          "description": "extraCores reserves additional CPUs for the pod on top of the weka FE cores.",
+          "optional": true
+        },
+        {
           "name": "CoreIds",
           "jsonName": "coreIds",
           "type": {

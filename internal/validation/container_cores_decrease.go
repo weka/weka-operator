@@ -10,9 +10,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// containerCoresDecrease rejects WekaContainer updates that reduce any
-// cores field. A decrease is any new < old (including unsetting an
-// explicit value back to 0).
+// containerCoresDecrease rejects WekaContainer updates that reduce a weka core
+// count field (numCores, dataServicesConfig.dataServicesFeCores). A decrease is
+// any new < old (including unsetting an explicit value back to 0).
+//
+// spec.extraCores is deliberately NOT checked here: it is never handed to weka
+// (the runtime only ever gets CORES=numCores; ExtraCores just widens the pod's
+// cpuset for management/weka-aio-* threads), so the "reducing cores can
+// destabilize a running cluster" rationale below does not apply to it.
 type containerCoresDecrease struct{}
 
 func (containerCoresDecrease) ID() string { return "container_cores_decrease" }
@@ -33,7 +38,6 @@ func (containerCoresDecrease) ValidateUpdate(_ context.Context, _ client.Client,
 	}
 	checks := []check{
 		{field.NewPath("spec", "numCores"), oldC.Spec.NumCores, newC.Spec.NumCores},
-		{field.NewPath("spec", "extraCores"), oldC.Spec.ExtraCores, newC.Spec.ExtraCores},
 	}
 
 	// DataServicesFeCores: when old config is set, compare against new (0 if new config is nil).

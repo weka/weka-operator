@@ -1156,7 +1156,7 @@ func (f *PodFactory) fullPcpusOnlyEffective() bool {
 
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetails HugePagesDetails) error {
 	totalNumCores := f.container.Spec.NumCores
-	if capacityplanner.IsDataCoreMode(f.container.Spec.Mode) {
+	if capacityplanner.SupportsExtraCores(f.container.Spec.Mode) {
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
@@ -1296,7 +1296,9 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 		perFrontendMemory := 3050
 		buffer := 2000
 		if resources.Requests.Memory.IsZero() {
-			memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*totalNumCores+f.container.Spec.AdditionalMemory)
+			// Keyed on NumCores, not totalNumCores: ExtraCores only widens the pod's cpuset (the
+			// runtime still gets CORES=NumCores, see above), so it needs no per-core weka memory.
+			memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
 		} else {
 			memRequest = resources.Requests.Memory.String()
 			memLimit = resources.Limits.Memory.String()
