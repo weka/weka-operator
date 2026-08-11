@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
@@ -19,11 +20,14 @@ import (
 const nicResourceName = corev1.ResourceName(domain.WEKANICs)
 
 // clusterNetworkEthdevice warns per-role when DPDK NIC requests don't fit
-// on matched nodes (one NIC per core in DPDK). UdpMode is checked per
-// role via cluster.GetNetworkForRole — UDP roles don't request NICs at
-// pod creation (pod.go:1441) so the NIC check skips them. Bootstrap-
-// skipped per role when ensure-nics hasn't yet populated the weka-nics
-// annotation or weka.io/weka-nics allocatable.
+// on matched nodes (one NIC per core in DPDK). Roles are skipped per
+// cluster.GetNetworkForRole when UdpMode is set, or when the role's
+// network pins explicit devices (selectors/deviceSubnets/ethDevice(s))
+// via utils.HasExplicitNetDevices — in either case the operator never
+// requests weka.io/weka-nics for that role's pods (pod.go's WEKANICs
+// gate), so there is nothing to validate here. Bootstrap-skipped per
+// role when ensure-nics hasn't yet populated the weka-nics annotation
+// or weka.io/weka-nics allocatable.
 //
 // The original AC-007 named-device check (verify ethDevice/ethDevices
 // exists) is dropped: domain.NIC has no Linux interface name field, so
@@ -64,10 +68,12 @@ func (clusterNetworkEthdevice) Validate(ctx context.Context, c client.Client, ob
 		if ch.cores <= 0 || ch.containers <= 0 {
 			continue
 		}
-		if cluster.GetNetworkForRole(ch.role).UdpMode {
-			// Operator won't request NICs for UDP-mode roles
-			// (pod.go:1441 gates the WEKANICs request on
-			// !UdpMode), so there is nothing to validate here.
+		roleNetwork := cluster.GetNetworkForRole(ch.role)
+		if roleNetwork.UdpMode || utils.HasExplicitNetDevices(roleNetwork) {
+			// The operator only requests weka.io/weka-nics when the role uses the
+			// VF-per-IO-node path: not in UDP mode, and not when the network spec pins
+			// explicit devices (selectors/deviceSubnets/ethDevice(s)). See
+			// utils.HasExplicitNetDevices and the gate in pod.go.
 			continue
 		}
 		selector := cluster.GetNodeSelectorForRole(ch.role)

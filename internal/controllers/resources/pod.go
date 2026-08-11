@@ -22,6 +22,7 @@ import (
 	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
+	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
@@ -1485,7 +1486,14 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 		shouldRequestNICs = f.nodeInfo.HasSupportedCloudProvider()
 	}
 
-	if shouldRequestNICs && !f.container.Spec.Network.UdpMode && !f.container.IsDriversContainer() {
+	// Must agree with GetNetDevices and ShouldAllocateNICs: a container that requests
+	// weka.io/weka-nics but never gets one allocated is unschedulable.
+	shouldRequestNICs = shouldRequestNICs &&
+		!utils.HasExplicitNetDevices(f.container.Spec.Network) &&
+		!f.container.Spec.Network.UdpMode &&
+		f.container.ShouldJoinCluster()
+
+	if shouldRequestNICs {
 		pod.Spec.Containers[0].Resources.Requests[domain.WEKANICs] = resource.MustParse(strconv.Itoa(f.container.Spec.NumCores))
 		pod.Spec.Containers[0].Resources.Limits[domain.WEKANICs] = resource.MustParse(strconv.Itoa(f.container.Spec.NumCores))
 	}

@@ -38,11 +38,22 @@ func ShouldAllocateVfPerIoNode(node *v1.Node, container *weka.WekaContainer) boo
 	return discovery.IsSupportedCloudProvider(node.Spec.ProviderID)
 }
 
+// HasExplicitNetDevices reports whether the container's network spec pins its data-path
+// devices explicitly. When it does, GetNetDevices returns before reaching the
+// VF-per-IO-node branch, so the container does not consume per-IO-node VFs and no
+// weka.io/weka-nics resource should be requested for it.
+// Keep in sync with the precedence chain at the top of GetNetDevices.
+func HasExplicitNetDevices(n weka.Network) bool {
+	return len(n.Selectors) > 0 || len(n.DeviceSubnets) > 0 || n.EthDevice != "" || len(n.EthDevices) > 0
+}
+
 func GetNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaContainer) (netDevices []string, err error) {
 	_, logger := instrumentation.CreateLogSpan(ctx, "getNetDevices")
 	defer logger.End()
 
 	// if subnet for devices auto-discovery or network selectors are set, we don't need to set the netDevice
+	// (see HasExplicitNetDevices, which mirrors this precedence chain for callers that only
+	// need to know whether devices are explicit, without needing the resolved list)
 	if len(container.Spec.Network.Selectors) > 0 {
 		return
 	}

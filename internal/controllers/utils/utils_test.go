@@ -1,6 +1,33 @@
 package utils
 
-import "testing"
+import (
+	"testing"
+
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+)
+
+func TestHasExplicitNetDevices(t *testing.T) {
+	cases := []struct {
+		name string
+		n    weka.Network
+		want bool
+	}{
+		{"empty network", weka.Network{}, false},
+		{"selectors set", weka.Network{Selectors: []weka.NetworkSelector{{}}}, true},
+		{"device subnets set", weka.Network{DeviceSubnets: []string{"10.0.0.0/24"}}, true},
+		{"eth device set", weka.Network{EthDevice: "eth0"}, true},
+		{"eth devices set", weka.Network{EthDevices: []string{"eth0", "eth1"}}, true},
+		{"udp mode only, no explicit devices", weka.Network{UdpMode: true}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := HasExplicitNetDevices(c.n)
+			if got != c.want {
+				t.Errorf("HasExplicitNetDevices(%+v) = %v, want %v", c.n, got, c.want)
+			}
+		})
+	}
+}
 
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
