@@ -155,11 +155,14 @@ func TestContainerCoresDecrease(t *testing.T) {
 			wantField: "spec.numCores",
 		},
 		{
-			name:      "extraCores decrease is denied",
-			oldSpec:   wekav1alpha1.WekaContainerSpec{ExtraCores: 2},
-			newSpec:   wekav1alpha1.WekaContainerSpec{ExtraCores: 1},
-			wantErr:   true,
-			wantField: "spec.extraCores",
+			name:    "extraCores decrease is allowed (never handed to weka)",
+			oldSpec: wekav1alpha1.WekaContainerSpec{ExtraCores: 2},
+			newSpec: wekav1alpha1.WekaContainerSpec{ExtraCores: 1},
+		},
+		{
+			name:    "extraCores decrease to zero is allowed",
+			oldSpec: wekav1alpha1.WekaContainerSpec{ExtraCores: 2},
+			newSpec: wekav1alpha1.WekaContainerSpec{ExtraCores: 0},
 		},
 		{
 			name: "dataServicesFeCores decrease is denied",

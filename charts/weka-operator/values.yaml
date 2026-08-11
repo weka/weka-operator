@@ -708,8 +708,10 @@ admissionPolicies:
   #   # explicit value back to 0 (operator-derived).
   #   cluster_cores_decrease:               default  # strict: error  | relaxed: error
   #
-  #   # Decreasing spec.numCores or spec.extraCores on a WekaContainer
-  #   # is denied for the same reason.
+  #   # Decreasing spec.numCores (or spec.dataServicesConfig.dataServicesFeCores)
+  #   # on a WekaContainer is denied for the same reason. spec.extraCores is not
+  #   # checked: it is never handed to weka, so shrinking it only narrows the
+  #   # pod's cpuset.
   #   container_cores_decrease:             default  # strict: error  | relaxed: error
   #
   #   # Decreasing spec.coresNum on a WekaClient is denied.
