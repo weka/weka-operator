@@ -728,9 +728,22 @@ admissionPolicies:
   #   # violation is reported per unmet dependency.
   #   cluster_skip_default_fs:              default  # strict: warn   | relaxed: warn
   #
+  #   # Scheduling-related fields (tolerations, nodeSelector, per-role
+  #   # label/annotation maps, failureDomain topology keys/skew, podConfig
+  #   # affinity/topologySpreadConstraints) must have syntax the API server
+  #   # would accept — invalid values are caught at CR apply instead of
+  #   # pod create.
+  #   cluster_podspec_syntax:               default  # strict: error  | relaxed: error
+  #
   #   # WekaClient.spec.targetCluster must reference an existing
   #   # WekaCluster.
   #   client_target_cluster_exists:         default  # strict: error  | relaxed: warn
+  #
+  #   # Scheduling-related fields (tolerations, nodeSelector, csiConfig
+  #   # advanced labels/tolerations) must have syntax the API server
+  #   # would accept — invalid values are caught at CR apply instead of
+  #   # pod create.
+  #   client_podspec_syntax:                default  # strict: error  | relaxed: error
   #
   #   # Decreasing any cores field on a WekaCluster (spec.dynamicTemplate.*Cores)
   #   # is denied — reducing cores on a running cluster can destabilize

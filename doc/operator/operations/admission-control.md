@@ -2,10 +2,11 @@
 
 ## Overview
 
-The operator runs a validating admission webhook for `WekaCluster` and `WekaClient`
-resources. On every `kubectl apply` (or Helm/GitOps equivalent) it runs a battery
+The operator runs a validating admission webhook for `WekaCluster`, `WekaClient`, and
+`WekaContainer` resources. On every `kubectl apply` (or Helm/GitOps equivalent) it runs a battery
 of policies and either admits the request, attaches a `kubectl Warning:` line, or
-rejects it. The default posture is non-blocking — most policies emit warnings;
+rejects it (`WekaContainer` carries update-only policies, e.g. cores decrease).
+The default posture is non-blocking — most policies emit warnings;
 only feasibility-breaking specs are rejected.
 
 ## Configuration
