@@ -3576,26 +3576,60 @@ async def obtain_lock():
 _server = None
 
 
+ENVOY_LOCAL_CONTAINER = "envoy"
+TELEMETRY_LOCAL_CONTAINER = "telemetry"
+
+
+async def find_local_container(name: str):
+    """Exact-name lookup via `weka local ps --json`.
+
+    Unlike `weka local ps | grep <name>`, this distinguishes running from merely present, does not
+    match substrings of the LAST FAILURE text column, and lets a dead agent raise rather than
+    silently read as "absent" (get_containers() raises on a non-zero exit).
+    """
+    for c in await get_containers():
+        if c.get("name") == name:
+            return c
+    return None
+
+
+async def ensure_managed_local_container(name: str, setup_cmd: str):
+    """Create-if-missing then start, for the weka local containers the operator does not customise.
+
+    Same two-step shape as every other mode -- create with --no-start --disable, then start
+    explicitly (backend/client, ssdproxy, stem all do this). Doing the start unconditionally is what
+    makes "container persisted from a previous pod and is stopped" recover by construction:
+    /opt/weka is host-persisted per WekaContainer UID, so an image upgrade leaves the container
+    behind, and ensure_weka_version() can re-point it at the new dist and leave it stopped.
+    """
+    logging.info(f"ensuring {name} container")
+
+    container = await find_local_container(name)
+
+    if container is None:
+        logging.info(f"{name} container is absent, creating it")
+        _, stderr, ec = await run_command(setup_cmd)
+        if ec != 0:
+            raise Exception(f"Failed to setup {name} container: {stderr}")
+    elif not container.get("isRunning", False):
+        logging.warning(
+            f"{name} container exists but is not running "
+            f"(runStatus={container.get('runStatus')!r}, lastFailure={container.get('lastFailure')!r})")
+
+    # Unconditional, mirroring ensure_ssdproxy_container: `weka local start` is a no-op on an
+    # already-running container and does start a --disable'd one.
+    await start_weka_container()
+
+
 async def ensure_envoy_container():
-    logging.info("ensuring envoy container")
-    cmd = dedent(f"""
-        weka local ps | grep envoy || weka local setup envoy
-    """)
-    _, _, ec = await run_command(cmd)
-    if ec != 0:
-        raise Exception(f"Failed to ensure envoy container")
-    pass
+    await ensure_managed_local_container(
+        ENVOY_LOCAL_CONTAINER, "weka local setup envoy --no-start --disable")
 
 
 async def ensure_telemetry_container():
-    logging.info("ensuring telemetry container")
-    cmd = dedent(f"""
-        weka local ps | grep telemetry || weka local setup telemetry --not-dependent
-    """)
-    _, _, ec = await run_command(cmd)
-    if ec != 0:
-        raise Exception(f"Failed to ensure telemetry container")
-    pass
+    await ensure_managed_local_container(
+        TELEMETRY_LOCAL_CONTAINER,
+        "weka local setup telemetry --not-dependent --no-start --disable")
 
 
 def write_telemetry_config_override():
