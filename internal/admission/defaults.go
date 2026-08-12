@@ -18,10 +18,12 @@ var (
 		"cluster_capacity_protection":         {Strict: Error, Relaxed: Error},
 		"cluster_capacity_chunk_feasibility":  {Strict: Error, Relaxed: Error},
 		"cluster_skip_default_fs":             {Strict: Warn, Relaxed: Warn},
+		"cluster_podspec_syntax":              {Strict: Error, Relaxed: Error},
 	}
 
 	wekaClientDefaults = map[string]PolicyDefaults{
 		"client_target_cluster_exists": {Strict: Error, Relaxed: Warn},
+		"client_podspec_syntax":        {Strict: Error, Relaxed: Error},
 	}
 
 	// Update-only defaults: cores-decrease checks are always Error regardless

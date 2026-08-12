@@ -61,7 +61,9 @@ Generated docs: `doc/api_dump/*.md`
 
 Admission-webhook validators implement the `Validator` interface (`validator.go`), are
 listed per-CRD in `registry.go`, and get a default severity in `admission/defaults.go`.
-Add a rule = implement + register + add to the defaults table. clusterCapacity validators:
+Add a rule = implement + register + add to the defaults table.
+Pod-spec syntax validators (`*_podspec_syntax.go` + shared `podspec_syntax.go`): k8s
+pod-level syntax rules at WekaCluster/WekaClient admission (OP-361). clusterCapacity validators:
 `cluster_capacity_chunk_feasibility.go` (greenfield per-FD TLC share ≥ 384 GiB; skipped once the
 cluster has TLC-bearing drive containers) and `cluster_capacity_protection.go` (min SW≥3, RL≥2, HS≥0 /
 hotSpare optional — the `3+2+0` floor from `allocator.MinProtectionFloor`).
