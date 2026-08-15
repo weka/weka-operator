@@ -82,8 +82,16 @@ func (loop *wekaClusterReconcilerLoop) GetAllSteps() []lifecycle.Step {
 
 	// Manual pause path - when paused=true and cluster is not actively being deleted
 	// (either not marked for deletion, or deletion was cancelled via cancelDeletion)
-	// Deletion/creation paths are mutually exclusive
 	steps = append(steps,
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.ClusterIsPaused,
+				loop.ClusterIsNotActivelyDeleting,
+			},
+			Run:             loop.HandleManualPause,
+			FinishOnSuccess: true,
+		},
+		// Deletion/creation paths are mutually exclusive
 		&lifecycle.GroupedSteps{
 			Name: "DeletionPath",
 			Predicates: lifecycle.Predicates{
@@ -182,4 +190,24 @@ func (r *wekaClusterReconcilerLoop) RecoverPausedContainers(ctx context.Context)
 
 func (r *wekaClusterReconcilerLoop) SetReadyStatus(ctx context.Context) error {
 	return r.updateClusterStatusIfNotEquals(ctx, weka.WekaClusterStatusReady)
+}
+
+func (r *wekaClusterReconcilerLoop) HandleManualPause(ctx context.Context) error {
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "HandleManualPause")
+	defer spanLogger.End()
+
+	err := r.updateClusterStatusIfNotEquals(ctx, weka.WekaClusterStatusPaused)
+	if err != nil {
+		return err
+	}
+
+	// Drain protocol containers in order, then everything remaining - shares
+	// protocolDrainOrder with HandleGracefulDeletion.
+	err = r.drainContainersInOrder(ctx)
+	if err != nil {
+		return err
+	}
+
+	spanLogger.Info("Cluster is manually paused (overrides.paused=true)")
+	return nil
 }

@@ -43,7 +43,12 @@ func ShouldAllocateVfPerIoNode(node *v1.Node, container *weka.WekaContainer) boo
 // VF-per-IO-node branch, so the container does not consume per-IO-node VFs and no
 // weka.io/weka-nics resource should be requested for it.
 // Keep in sync with the precedence chain at the top of GetNetDevices.
-func HasExplicitNetDevices(n weka.Network) bool {
+// The per-role network fields (spec.network.{compute,drive,s3,nfs,smbw,dataServices}) are
+// *Network, so nil reaches here as "no network spec at all" - which pins no devices either.
+func HasExplicitNetDevices(n *weka.Network) bool {
+	if n == nil {
+		return false
+	}
 	return len(n.Selectors) > 0 || len(n.DeviceSubnets) > 0 || n.EthDevice != "" || len(n.EthDevices) > 0
 }
 

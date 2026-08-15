@@ -61,27 +61,7 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 		return err
 	}
 
-	err = r.ensureContainersPaused(ctx, weka.WekaContainerModeS3)
-	if err != nil {
-		return err
-	}
-
-	err = r.ensureContainersPaused(ctx, weka.WekaContainerModeNfs)
-	if err != nil {
-		return err
-	}
-
-	err = r.ensureContainersPaused(ctx, weka.WekaContainerModeSmbw)
-	if err != nil {
-		return err
-	}
-
-	err = r.ensureContainersPaused(ctx, weka.WekaContainerModeDataServices)
-	if err != nil {
-		return err
-	}
-
-	err = r.ensureContainersPaused(ctx, "")
+	err = r.drainContainersInOrder(ctx)
 	if err != nil {
 		return err
 	}
@@ -90,6 +70,30 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 	deletionTime := cluster.GetDeletionTimestamp().Add(gracefulDestroyDuration)
 
 	logger.Info("Cluster is in graceful deletion", "deletionTime", deletionTime)
+
+	return nil
+}
+
+// protocolDrainOrder is the order containers must be stopped in; "" means "everything
+// remaining". Shared by the manual-pause and graceful-deletion flows so a new protocol
+// mode cannot be added to one and forgotten in the other.
+var protocolDrainOrder = []string{
+	weka.WekaContainerModeS3,
+	weka.WekaContainerModeNfs,
+	weka.WekaContainerModeSmbw,
+	weka.WekaContainerModeDataServices,
+	"",
+}
+
+// drainContainersInOrder pauses containers one protocol at a time, stopping at the first
+// mode that has not finished draining yet. The caller is expected to be requeued until it
+// returns nil, so a full drain spans several reconciles.
+func (r *wekaClusterReconcilerLoop) drainContainersInOrder(ctx context.Context) error {
+	for _, mode := range protocolDrainOrder {
+		if err := r.ensureContainersPaused(ctx, mode); err != nil {
+			return fmt.Errorf("draining containers (mode %q): %w", mode, err)
+		}
+	}
 
 	return nil
 }

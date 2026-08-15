@@ -114,6 +114,12 @@ func (r *wekaClusterReconcilerLoop) ClusterIsExplicitlyUnpaused() bool {
 	return p != nil && !*p
 }
 
+// ClusterIsNotActivelyDeleting returns true when the cluster is either not marked for deletion,
+// or marked for deletion but with cancelDeletion set (i.e. deletion was rescued).
+func (r *wekaClusterReconcilerLoop) ClusterIsNotActivelyDeleting() bool {
+	return !r.cluster.IsMarkedForDeletion() || r.ClusterDeletionCancelled()
+}
+
 // ClusterStatusIsSuspended returns true when the cluster is in a suspended state
 // that should be cleared once recovery is complete:
 // - "Paused" (manual pause flow)

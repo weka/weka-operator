@@ -31,7 +31,7 @@ func (r *containerReconcilerLoop) ShouldAllocateNICs() bool {
 		return false
 	}
 
-	if utils.HasExplicitNetDevices(r.container.Spec.Network) {
+	if utils.HasExplicitNetDevices(&r.container.Spec.Network) {
 		return false
 	}
 

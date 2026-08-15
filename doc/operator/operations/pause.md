@@ -35,7 +35,7 @@ The `paused` field is a nullable boolean (`*bool`) with three distinct states:
 | Value | Behavior |
 |---|---|
 | not set (`nil`) | No propagation. The cluster does not enforce pause state. Direct container-level `spec.state: paused` manipulation is respected and won't be overridden. Removing the field after pausing does **not** unpause — use `false` to actively recover. |
-| `true` | All containers are gracefully stopped (S3 first, then NFS, then the rest). Cluster status becomes `Paused`. Normal reconciliation is suspended. |
+| `true` | All containers are gracefully stopped (S3, then NFS, then SMBW, then data-services, then the rest). Cluster status becomes `Paused`. Normal reconciliation is suspended. |
 | `false` | Containers that are in `paused` state are moved to `active`. Containers in other states (e.g. `deleting`, `destroying`) are not affected. Normal reconciliation resumes. |
 
 ## Interaction with Cluster Deletion
@@ -89,9 +89,13 @@ When `paused: true` is set, the operator:
 1. Sets cluster status to `Paused`
 2. Patches S3 containers to `spec.state: paused`
 3. Patches NFS containers to `spec.state: paused`
-4. Patches all remaining containers to `spec.state: paused`
-5. Each container controller stops its weka process, removes the pod, and reports `status: Paused`
-6. Reconciliation finishes early — no further cluster-level steps run
+4. Patches SMBW containers to `spec.state: paused`
+5. Patches data-services containers to `spec.state: paused`
+6. Patches all remaining containers to `spec.state: paused`
+7. Each container controller stops its weka process, removes the pod, and reports `status: Paused`
+8. Reconciliation finishes early — no further cluster-level steps run
+
+Protocol containers are drained in order, matching the graceful-deletion flow. Each step waits for its containers to report `status: Paused` before the next one starts, so a pause spans several reconciles. The cluster status flips to `Paused` immediately, before the drain completes.
 
 ## Unpause Flow Details
 

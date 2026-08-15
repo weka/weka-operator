@@ -9,15 +9,17 @@ import (
 func TestHasExplicitNetDevices(t *testing.T) {
 	cases := []struct {
 		name string
-		n    weka.Network
+		n    *weka.Network
 		want bool
 	}{
-		{"empty network", weka.Network{}, false},
-		{"selectors set", weka.Network{Selectors: []weka.NetworkSelector{{}}}, true},
-		{"device subnets set", weka.Network{DeviceSubnets: []string{"10.0.0.0/24"}}, true},
-		{"eth device set", weka.Network{EthDevice: "eth0"}, true},
-		{"eth devices set", weka.Network{EthDevices: []string{"eth0", "eth1"}}, true},
-		{"udp mode only, no explicit devices", weka.Network{UdpMode: true}, false},
+		// The per-role network fields in the API are *Network, so nil is reachable.
+		{"nil network", nil, false},
+		{"empty network", &weka.Network{}, false},
+		{"selectors set", &weka.Network{Selectors: []weka.NetworkSelector{{}}}, true},
+		{"device subnets set", &weka.Network{DeviceSubnets: []string{"10.0.0.0/24"}}, true},
+		{"eth device set", &weka.Network{EthDevice: "eth0"}, true},
+		{"eth devices set", &weka.Network{EthDevices: []string{"eth0", "eth1"}}, true},
+		{"udp mode only, no explicit devices", &weka.Network{UdpMode: true}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -69,7 +69,7 @@ func (clusterNetworkEthdevice) Validate(ctx context.Context, c client.Client, ob
 			continue
 		}
 		roleNetwork := cluster.GetNetworkForRole(ch.role)
-		if roleNetwork.UdpMode || utils.HasExplicitNetDevices(roleNetwork) {
+		if roleNetwork.UdpMode || utils.HasExplicitNetDevices(&roleNetwork) {
 			// The operator only requests weka.io/weka-nics when the role uses the
 			// VF-per-IO-node path: not in UDP mode, and not when the network spec pins
 			// explicit devices (selectors/deviceSubnets/ethDevice(s)). See

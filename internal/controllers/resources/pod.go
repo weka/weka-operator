@@ -1491,7 +1491,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 	// Must agree with GetNetDevices and ShouldAllocateNICs: a container that requests
 	// weka.io/weka-nics but never gets one allocated is unschedulable.
 	shouldRequestNICs = shouldRequestNICs &&
-		!utils.HasExplicitNetDevices(f.container.Spec.Network) &&
+		!utils.HasExplicitNetDevices(&f.container.Spec.Network) &&
 		!f.container.Spec.Network.UdpMode &&
 		f.container.ShouldJoinCluster()
 
