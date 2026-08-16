@@ -1282,7 +1282,9 @@ func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams *NFSParams)
 	_, stderr, err = executor.ExecNamed(ctx, "ConfigureNfsInterfaceGroup", cmd)
 	if err != nil {
 		if strings.Contains(stderr.String(), "already exists") {
-			return NfsInterfaceGroupExists{err}
+			// Pointer, not value: EnsureNfs matches this with errors.As against
+			// *NfsInterfaceGroupExists, which never matches a value-typed error.
+			return &NfsInterfaceGroupExists{err}
 		} else {
 			logger.SetError(err, "Failed to configure NFS interface group", "interfaceGroup", interfaceGroupName, "stderr", stderr.String())
 			return err
