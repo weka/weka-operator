@@ -145,19 +145,44 @@ func GetClusterCreationSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 	}
 }
 
+// hasWekaFinalizer reports whether the cluster carries the weka finalizer under either its current
+// name (consts.WekaFinalizer) or its pre-v1.15.0 name (consts.WekaFinalizerDeprecated).
+func hasWekaFinalizer(o client.Object) bool {
+	return controllerutil.ContainsFinalizer(o, consts.WekaFinalizer) ||
+		controllerutil.ContainsFinalizer(o, consts.WekaFinalizerDeprecated)
+}
+
+// isUninitializedCluster reports whether the cluster has genuinely never been initialized, and so is
+// safe to reset the status of.
+//
+// Two independent signals, either of which vetoes the reset:
+//   - a weka finalizer under either name means InitState has already run for this cluster;
+//   - a non-empty Status.ClusterID is positive proof the cluster was formed. It survives
+//     InitStatus() (which clears only Conditions and Status), so it remains trustworthy even if the
+//     conditions were lost for some other reason — a restored backup, a hand-edited status.
+func isUninitializedCluster(cluster *weka.WekaCluster) bool {
+	return !hasWekaFinalizer(cluster) && cluster.Status.ClusterID == ""
+}
+
 func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	wekaCluster := r.cluster
 	if !controllerutil.ContainsFinalizer(wekaCluster, consts.WekaFinalizer) {
 
-		wekaCluster.Status.InitStatus()
-		wekaCluster.Status.LastAppliedImage = wekaCluster.Spec.Image
-		wekaCluster.Status.LastAppliedPodConfigHash = CalcClusterPodConfigVersion(&wekaCluster.Spec)
+		// Reset the status only for a cluster that has genuinely never been initialized. Reaching here
+		// means only that the current finalizer is absent, which is also true of every cluster created
+		// before the v1.15.0 finalizer rename — those must be migrated to the current finalizer below
+		// WITHOUT having their status wiped. See doc/dev/finalizer-bug.md.
+		if isUninitializedCluster(wekaCluster) {
+			wekaCluster.Status.InitStatus()
+			wekaCluster.Status.LastAppliedImage = wekaCluster.Spec.Image
+			wekaCluster.Status.LastAppliedPodConfigHash = CalcClusterPodConfigVersion(&wekaCluster.Spec)
 
-		err := r.getClient().Status().Update(ctx, wekaCluster)
-		if err != nil {
-			logger.Error(err, "failed to init states")
+			err := r.getClient().Status().Update(ctx, wekaCluster)
+			if err != nil {
+				logger.Error(err, "failed to init states")
+			}
 		}
 
 		if updated := controllerutil.AddFinalizer(wekaCluster, consts.WekaFinalizer); updated {
