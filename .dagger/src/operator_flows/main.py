@@ -53,8 +53,8 @@ class OperatorFlows:
                            sock: dagger.Socket,
                            operator_repo: str,
                            helm_repo: str,
-                           helm_username: Optional[dagger.Secret] = None,
-                           helm_password: Optional[dagger.Secret] = None,
+                           helm_username: dagger.Secret | None = None,
+                           helm_password: dagger.Secret | None = None,
                            ) -> str:
         """
         Build and push operator to registries.
@@ -85,9 +85,9 @@ class OperatorFlows:
                             kubeconfig: dagger.Secret,
                             operator_repo: str,
                             helm_repo: str,
-                            operator_values: Optional[dagger.File]=None,
-                            helm_username: Optional[dagger.Secret]=None,
-                            helm_password: Optional[dagger.Secret]=None,
+                            operator_values: dagger.File | None=None,
+                            helm_username: dagger.Secret | None=None,
+                            helm_password: dagger.Secret | None=None,
                             ) -> str:
         """
         Build operator, push to registry, and deploy via Helm.
@@ -122,9 +122,9 @@ class OperatorFlows:
         sock: dagger.Socket,
         operator_repo: str,
         helm_repo: str,
-        gh_token: Optional[dagger.Secret] = None,
-        helm_username: Optional[dagger.Secret] = None,
-        helm_password: Optional[dagger.Secret] = None,
+        gh_token: dagger.Secret | None = None,
+        helm_username: dagger.Secret | None = None,
+        helm_password: dagger.Secret | None = None,
     ) -> List[str]:
         """
         Build, publish operator and return image versions.
@@ -176,7 +176,7 @@ class OperatorFlows:
                                         ".dagger",
                                     ])],
                                     sock: dagger.Socket,
-                                    gh_token: Optional[dagger.Secret] = None,
+                                    gh_token: dagger.Secret | None = None,
                                     ) -> dagger.Container:
         from containers.builders import _uv_base
 
@@ -207,7 +207,7 @@ class OperatorFlows:
             "*/.git",
         ])],
         sock: dagger.Socket,
-        gh_token: Optional[dagger.Secret] = None,
+        gh_token: dagger.Secret | None = None,
     ) -> dagger.Container:
         """Returns a base container for testing environment with necessary dependencies."""
         from containers.builders import _uv_base
@@ -295,7 +295,7 @@ class OperatorFlows:
         helm_repo: str,
         initial_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha",
         new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.129-k8s",
-        test_artifacts_dir: Optional[dagger.Directory] = None,
+        test_artifacts_dir: dagger.Directory | None = None,
         dry_run: bool = False,
         no_cleanup: bool = False,
         use_gh_token_for_go_deps: bool = False,
@@ -307,8 +307,8 @@ class OperatorFlows:
         execution_id: Optional[str] = None,
         execution_temp_dir: Optional[str] = None,
         wekai_endpoint: Optional[str] = None,
-        helm_username: Optional[dagger.Secret] = None,
-        helm_password: Optional[dagger.Secret] = None,
+        helm_username: dagger.Secret | None = None,
+        helm_password: dagger.Secret | None = None,
     ) -> dagger.Directory:
         """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them.
 
@@ -728,7 +728,7 @@ EOF
             "*/.git",
         ])],
         sock: dagger.Socket,
-        gh_token: Optional[dagger.Secret],
+        gh_token: dagger.Secret | None,
         source_kubeconfig: dagger.Secret,
         target_kubeconfig: dagger.Secret,
         operator_repo: str,

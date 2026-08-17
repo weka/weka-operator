@@ -114,7 +114,7 @@ async def publish_operator_helm_chart(src: Directory, sock: Socket, repository: 
 
 
 async def install_helm_chart(image: str, kubeconfig: dagger.Secret, operator_repo: str,
-                            values_file: Optional[dagger.File] = None,
+                            values_file: dagger.File | None = None,
                             helm_username: Optional[Secret] = None,
                             helm_password: Optional[Secret] = None) -> str:
     from containers.builders import helm_runner_container
