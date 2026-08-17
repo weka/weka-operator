@@ -196,6 +196,26 @@ type DataServicesConfig struct {
 	DataServicesFeCores int `json:"dataServicesFeCores,omitempty"`
 }
 
+// WekaNumaMethod defines how NUMA confinement is enforced
+// +kubebuilder:validation:Enum=device-plugin
+type WekaNumaMethod string
+
+const WekaNumaMethodDevicePlugin WekaNumaMethod = "device-plugin"
+
+// WekaNuma configures NUMA confinement for a single weka container
+type WekaNuma struct {
+	// Single, when true, confines the container to a single NUMA region
+	// +optional
+	Single bool `json:"single,omitempty"`
+	// Region is the NUMA region index to pin this container to
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Region *int `json:"region,omitempty"`
+	// Method selects the enforcement mechanism
+	// +optional
+	Method WekaNumaMethod `json:"method,omitempty"`
+}
+
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.driveTypesRatio)",message="driveCapacity and driveTypesRatio are mutually exclusive; use driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio for mixed drive types"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.numDrives) || self.numDrives == 0 || self.numDrives >= self.numCores",message="numDrives must be >= numCores when using driveCapacity (TLC-only mode); each core requires at least one virtual drive"
 // +kubebuilder:validation:XValidation:rule="!has(self.numDrives) || self.numDrives == 0 || !has(self.containerCapacity) || self.containerCapacity == 0",message="numDrives and containerCapacity are mutually exclusive; use numDrives with driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio for mixed drive types"
@@ -288,6 +308,8 @@ type WekaContainerSpec struct {
 	PVC                *PVCConfig          `json:"pvc,omitempty"`
 	DpdkBaseMemoryMb   int                 `json:"dpdkBaseMemoryMb,omitempty"`
 	DataServicesConfig *DataServicesConfig `json:"dataServicesConfig,omitempty"`
+	// Numa configures NUMA confinement for this container
+	Numa *WekaNuma `json:"numa,omitempty"`
 }
 
 // VirtualDrive represents a virtual drive allocation in drive sharing mode

@@ -496,6 +496,91 @@ type RoleCoreIds struct {
 	DataServices []int `json:"dataServices,omitempty"`
 }
 
+// WekaClusterNuma configures NUMA confinement for cluster containers
+type WekaClusterNuma struct {
+	// Single, when true, confines cluster containers to a single NUMA region
+	// +optional
+	Single bool `json:"single,omitempty"`
+	// Region maps container roles to NUMA region indexes
+	// +optional
+	Region *WekaClusterNumaRegion `json:"region,omitempty"`
+	// Method selects the enforcement mechanism
+	// +optional
+	Method WekaNumaMethod `json:"method,omitempty"`
+}
+
+// WekaClusterNumaRegion maps container roles to NUMA region indexes.
+// All is the fallback for roles without an explicit entry.
+type WekaClusterNumaRegion struct {
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	All *int `json:"all,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Compute *int `json:"compute,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Drive *int `json:"drive,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Nfs *int `json:"nfs,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	S3 *int `json:"s3,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Smbw *int `json:"smbw,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	DataServices *int `json:"dataServices,omitempty"`
+}
+
+// RegionForRole resolves the NUMA region index for a container role, falling back to All.
+func (n *WekaClusterNuma) RegionForRole(role string) *int {
+	if n == nil || n.Region == nil {
+		return nil
+	}
+
+	var region *int
+	switch role {
+	case "compute":
+		region = n.Region.Compute
+	case "drive":
+		region = n.Region.Drive
+	case "nfs":
+		region = n.Region.Nfs
+	case "s3":
+		region = n.Region.S3
+	case "smbw":
+		region = n.Region.Smbw
+	case "data-services":
+		region = n.Region.DataServices
+	}
+
+	if region != nil {
+		return region
+	}
+	return n.Region.All
+}
+
+// NumaForRole builds the per-container NUMA config for a role, or nil if no region resolves.
+func (n *WekaClusterNuma) NumaForRole(role string) *WekaNuma {
+	if n == nil {
+		return nil
+	}
+
+	idx := n.RegionForRole(role)
+	if idx == nil {
+		return nil
+	}
+
+	return &WekaNuma{
+		Single: n.Single,
+		Region: idx,
+		Method: n.Method,
+	}
+}
+
 type RoleTopologySpreadConstraints struct {
 	// +kubebuilder:validation:Schemaless
 	// +kubebuilder:pruning:PreserveUnknownFields
@@ -883,6 +968,8 @@ type WekaClusterSpec struct {
 	Telemetry *TelemetryConfig `json:"telemetry,omitempty"`
 	// Catalog configuration for data catalog service
 	Catalog *CatalogConfig `json:"catalog,omitempty"`
+	// NUMA confinement configuration for cluster containers
+	Numa *WekaClusterNuma `json:"numa,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {

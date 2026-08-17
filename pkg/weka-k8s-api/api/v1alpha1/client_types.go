@@ -177,6 +177,9 @@ type WekaClientSpec struct {
 	// +kubebuilder:validation:Type=object
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: if set, allows to reuse the same csi resources for multiple clients
 	CsiConfig *ClientCsiConfig `json:"csiConfig,omitempty"`
+
+	// Numa configures NUMA confinement for this client container
+	Numa *WekaNuma `json:"numa,omitempty"`
 }
 
 func (c *WekaClientSpec) GetCsiConfig() ClientCsiConfig {
