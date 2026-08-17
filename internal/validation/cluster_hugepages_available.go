@@ -16,11 +16,9 @@ const mib = int64(1) << 20
 // clusterHugepagesAvailable warns per-role on capacity and single-fit
 // failures, mirroring clusterCoresAvailable but for hugepages-2Mi.
 //
-// Unit gap: *Hugepages fields are MiB (pod.go formats them as "%dMi");
-// Allocatable[hugepages-2Mi].Value() is bytes. Multiply MiB × mib to
-// compare. Skipped when *Hugepages is 0 (operator-derived from drive
-// capacity). Role mapping isn't 1:1 with cores: s3/nfs/smbw use the
-// *Frontend* fields.
+// Unit gap: *Hugepages fields are MiB (pod.go formats them "%dMi"); Allocatable[hugepages-2Mi] is
+// bytes — multiply MiB × mib to compare. Skipped when *Hugepages is 0 (operator-derived from drive
+// capacity). Role mapping isn't 1:1 with cores: s3/nfs/smbw use the *Frontend* fields.
 type clusterHugepagesAvailable struct{}
 
 func (clusterHugepagesAvailable) ID() string {

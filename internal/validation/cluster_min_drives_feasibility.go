@@ -4,34 +4,44 @@ import (
 	"context"
 	"fmt"
 
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/consts"
 )
 
-// clusterMinDrivesFeasibility rejects WekaClusters whose
-// spec.startIoConditions.minNumDrives exceeds driveContainers × numDrives.
-// The IO-start condition would never be satisfied — WaitForDrivesAdd()
-// polls forever. Skipped when driveContainers or numDrives is 0
-// (operator-derived; webhook can't predict the eventual total).
+// clusterMinDrivesFeasibility rejects minNumDrives exceeding the total drive count the cluster can
+// ever reach — WaitForDrivesAdd() would poll forever. Total is driveContainers×numDrives, or in
+// auto-full-drives mode, the signed non-blocked full drives each drive-role-matched node contributes
+// (capped per node by a numDrives pin). Unlike clusterSignedDrives, auto-full-drives has no bootstrap
+// skip: zero signed drives is rejected as a real infeasibility.
 type clusterMinDrivesFeasibility struct{}
 
 func (clusterMinDrivesFeasibility) ID() string {
 	return "cluster_min_drives_feasibility"
 }
 
-func (clusterMinDrivesFeasibility) Validate(_ context.Context, _ client.Client, obj runtime.Object) field.ErrorList {
-	cluster, ok := obj.(*wekav1alpha1.WekaCluster)
+func (clusterMinDrivesFeasibility) Validate(ctx context.Context, c client.Client, obj runtime.Object) field.ErrorList {
+	cluster, ok := obj.(*weka.WekaCluster)
 	if !ok {
-		return nil
-	}
-	if cluster.Spec.Dynamic == nil {
 		return nil
 	}
 
 	minNumDrives := cluster.Spec.GetStartIoConditions().MinNumDrives
 	if minNumDrives <= 0 {
+		return nil
+	}
+
+	fldPath := field.NewPath("spec", "startIoConditions", "minNumDrives")
+
+	// Checked before the nil guard below: a nil dynamicTemplate IS auto-full-drives mode, so it takes
+	// the per-node branch rather than falling through as "nothing configured".
+	if cluster.Spec.Dynamic.UsesAutoFullDrives() {
+		return validateMinDrivesAutoFullDrives(ctx, c, cluster, minNumDrives, fldPath)
+	}
+	if cluster.Spec.Dynamic == nil {
 		return nil
 	}
 
@@ -52,10 +62,69 @@ func (clusterMinDrivesFeasibility) Validate(_ context.Context, _ client.Client, 
 		minNumDrives, driveContainers, numDrives, total,
 	)
 	return field.ErrorList{
-		field.Invalid(
-			field.NewPath("spec", "startIoConditions", "minNumDrives"),
-			minNumDrives,
-			detail,
-		),
+		field.Invalid(fldPath, minNumDrives, detail),
+	}
+}
+
+// validateMinDrivesAutoFullDrives totals signed, non-blocked full drives (AvailableDrives only —
+// full-drives mode never picks up SharedDrives, a disjoint drive-sharing population) across
+// drive-role-matched nodes. A pinned numDrives caps each node's contribution: the mode takes that many
+// of a node's largest drives and leaves the rest, so summing the raw counts would over-state the
+// reachable total and let an unsatisfiable minNumDrives through.
+func validateMinDrivesAutoFullDrives(ctx context.Context, c client.Client, cluster *weka.WekaCluster, minNumDrives int, fldPath *field.Path) field.ErrorList {
+	nodes, errs := listDriveRoleNodes(ctx, c, cluster, fldPath)
+	if errs != nil {
+		return errs
+	}
+	if len(nodes) == 0 {
+		return nil
+	}
+
+	infos, errs := driveRoleNodeInfos(nodes, fldPath)
+	if errs != nil {
+		return errs
+	}
+	perNodeCap := 0 // 0 = unpinned, take everything the node signed
+	if cluster.Spec.Dynamic != nil {
+		perNodeCap = cluster.Spec.Dynamic.NumDrives
+	}
+	var total int
+	for _, ni := range infos {
+		n := len(ni.Info.AvailableDrives)
+		if perNodeCap > 0 {
+			n = min(n, perNodeCap)
+		}
+		total += n
+	}
+
+	if minNumDrives <= total {
+		return nil
+	}
+
+	// total == 0: sign-drives hasn't run yet. Still a genuine infeasibility, but name the actual
+	// cause rather than the generic "exceeds N drives" wording.
+	pinNote := ""
+	if perNodeCap > 0 {
+		pinNote = fmt.Sprintf(", each node capped at the pinned numDrives=%d", perNodeCap)
+	}
+	detail := fmt.Sprintf(
+		"spec.startIoConditions.minNumDrives (%d) exceeds the total signed, non-blocked full drives "+
+			"the cluster can claim across %d matched drive-role node(s)%s (%d). The cluster will never "+
+			"satisfy the IO-start condition. Reduce minNumDrives, raise or unset numDrives, sign more "+
+			"drives, or label more nodes.",
+		minNumDrives, len(nodes), pinNote, total,
+	)
+	if total == 0 {
+		detail = fmt.Sprintf(
+			"spec.startIoConditions.minNumDrives (%d) cannot be satisfied: none of the %d matched "+
+				"drive-role node(s) has any signed, non-blocked full drive (no %s annotation, or "+
+				"every drive is blocked), so the cluster has no drives to consume and the IO-start "+
+				"condition would never be met. Sign drives on the drive-role nodes before applying "+
+				"the cluster, label more nodes, or unset minNumDrives.",
+			minNumDrives, len(nodes), consts.AnnotationWekaFullDrives,
+		)
+	}
+	return field.ErrorList{
+		field.Invalid(fldPath, minNumDrives, detail),
 	}
 }

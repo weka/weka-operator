@@ -3,23 +3,24 @@ package validation
 import (
 	"context"
 	"fmt"
+	"math"
 
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	globalconfig "github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/allocator"
 )
 
-// clusterDriveComputeCoreRatio warns when the drive:compute core ratio
-// exceeds the recommended maximum of 1:2 — i.e. drive cores >
-// compute cores / 2. Compute does more CPU-bound work per I/O than
-// drive (filesystem, RAID, client multiplexing); past 1:2 the cluster
-// saturates the front end under load while drives sit idle.
-//
-// Cores are evaluated using max(*Cores, 1) to mirror the operator's
-// allocator.GetWekaContainerCores() default (zero → 1), so the webhook
-// sees the same effective ratio the reconciler will commit to. Skipped
-// when either side has zero containers.
+// clusterDriveComputeCoreRatio warns when the drive:compute core ratio exceeds the recommended maximum
+// for the cluster's mode (globalconfig.Config.CapacityPlanner.{ComputeToTlcDriveCoreRatio,
+// FullDrivesComputeToDriveCoreRatio}) — past that, compute-bound work saturates the front end while
+// drives sit idle. Cores are resolved via allocator.GetWekaContainerCores(), matching the reconciler, so
+// auto-derived drive cores count too — except under clusterCapacity/auto-full-drives, where the planner
+// assigns both sides and the template's numbers are not the ones the cluster runs on. Skips cases
+// already below clusterComputeDriveCoresFloor's hard 1:1 floor, which owns those exclusively.
 type clusterDriveComputeCoreRatio struct{}
 
 func (clusterDriveComputeCoreRatio) ID() string {
@@ -35,47 +36,61 @@ func (clusterDriveComputeCoreRatio) Validate(_ context.Context, _ client.Client,
 		return nil
 	}
 
-	driveContainers := cluster.Spec.Dynamic.DriveContainers
-	computeContainers := cluster.Spec.Dynamic.ComputeContainers
+	config := cluster.Spec.Dynamic
+	// Same exclusion as clusterComputeDriveCoresFloor: under clusterCapacity the planner assigns both
+	// sides, so GetWekaContainerCores' template defaults describe a cluster that never exists.
+	if allocator.IsPlannerManaged(config) {
+		return nil
+	}
+
+	driveContainers := config.DriveContainers
+	computeContainers := config.ComputeContainers
 	if driveContainers <= 0 || computeContainers <= 0 {
 		return nil
 	}
 
-	driveCores := coresOrOne(cluster.Spec.Dynamic.DriveCores)
-	computeCores := coresOrOne(cluster.Spec.Dynamic.ComputeCores)
-	driveSide := driveContainers * driveCores
-	computeSide := computeContainers * computeCores
+	cores := allocator.GetWekaContainerCores(config)
+	driveSide := driveContainers * cores.Drive
+	computeSide := computeContainers * cores.Compute
 
-	if 2*driveSide <= computeSide {
+	// clusterComputeDriveCoresFloor already owns and reports this case exclusively.
+	if computeSide < driveSide {
+		return nil
+	}
+
+	// Auto-full-drives mode is not reachable here: it requires both counts unset, and both being set
+	// is what makes this function run at all.
+	exclusiveFullDrives := config.NumDrives > 0 && config.DriveCapacity == 0
+	var ratio float64
+	if exclusiveFullDrives {
+		ratio = globalconfig.Config.CapacityPlanner.FullDrivesComputeToDriveCoreRatio
+	} else {
+		ratio = globalconfig.Config.CapacityPlanner.ComputeToTlcDriveCoreRatio
+	}
+	if ratio <= 0 {
+		return nil
+	}
+
+	required := int(math.Ceil(ratio * float64(driveSide)))
+	if computeSide >= required {
 		return nil
 	}
 
 	n, m := reduceRatio(driveSide, computeSide)
-	ratio := fmt.Sprintf("%d:%d", n, m)
+	actualRatio := fmt.Sprintf("%d:%d", n, m)
 	detail := fmt.Sprintf(
-		"drive:compute core ratio exceeds the recommended maximum of 1:2 "+
-			"(drive containers: %d, compute cores: %d, ratio: %s). "+
-			"Adjust driveContainers or compute core count to restore a "+
-			"valid ratio.",
-		driveContainers, computeCores, ratio,
+		"drive:compute core ratio is below the recommended 1:%g (total drive cores: %d, total compute "+
+			"cores: %d, actual ratio: %s). Adjust driveContainers/driveCores or computeContainers/computeCores "+
+			"to restore a ratio closer to recommended.",
+		ratio, driveSide, computeSide, actualRatio,
 	)
 	return field.ErrorList{
 		field.Invalid(
 			field.NewPath("spec", "dynamicTemplate"),
-			ratio,
+			actualRatio,
 			detail,
 		),
 	}
-}
-
-// coresOrOne mirrors util.GetNonZeroOrDefault(_, 1) used by the operator's
-// allocator.GetWekaContainerCores() — a 0 spec value becomes 1 at
-// reconcile time.
-func coresOrOne(cores int) int {
-	if cores <= 0 {
-		return 1
-	}
-	return cores
 }
 
 // reduceRatio divides both sides by their gcd so the message reads
