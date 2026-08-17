@@ -11,14 +11,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// clusterCoresAvailable warns per-role on two failure modes: total
-// requested cores exceed total Allocatable[cpu] across matched nodes
-// (capacity), or the smallest matched node can't fit a single
-// container (single-fit). Skips when *Cores is 0 (operator-derived) or
-// when no matched nodes (clusterSelectedNodesCount covers).
-//
-// Allocatable[cpu] is the kubelet view; it doesn't reflect Weka's
-// isolcpus pinning. Bin-packing across roles is not attempted.
+// clusterCoresAvailable checks per-role, against matched nodes' Allocatable[cpu] (the kubelet view,
+// which doesn't reflect Weka's isolcpus pinning): total requested cores must fit total allocatable
+// (no bin-packing across roles attempted), and the smallest node must fit at least one container.
+// Skipped when *Cores is 0 (operator-derived) or no nodes match (clusterSelectedNodesCount covers that).
 type clusterCoresAvailable struct{}
 
 func (clusterCoresAvailable) ID() string {

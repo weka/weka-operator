@@ -14,8 +14,6 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
-const tibV = 1024 // GiB per TiB
-
 func ccCluster(uid string, cap string, sw, rl, hs int, ratio *weka.DriveTypesRatio) *weka.WekaCluster {
 	c := &weka.WekaCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "ns", UID: types.UID(uid)},
