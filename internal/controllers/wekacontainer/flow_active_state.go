@@ -348,7 +348,6 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.adhocPodNotProgressing,
 				r.adhocPodStuckTimeoutElapsed,
 			},
-			FinishOnSuccess: true,
 		},
 		&lifecycle.SimpleStep{
 			Run: r.checkPodUnhealthy,

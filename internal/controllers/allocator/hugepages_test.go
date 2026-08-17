@@ -2,14 +2,24 @@ package allocator
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/weka/weka-operator/internal/capacityplanner"
 	globalconfig "github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/utils"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
 func TestComputeCapacityBasedHugepages_MaxCap(t *testing.T) {
-	// Use known scenario: containerCapacity=5000, driveContainers=6, computeContainers=6, computeCores=1
-	// total=30000GiB, all TLC: 30000*1024/1000=30720 cluster MiB, /6=5120 + 1700 = 6820
+	// containerCapacity=5000 * 6 drive containers, all TLC, computeContainers=6, computeCores=1:
+	// 30000*1024/1000=30720 cluster MiB, /6=5120 + 1700 = 6820 (uncapped baseline for the table below).
 	totalRawCapacityGiB := 5000 * 6 // 30000
 	computeContainers := 6
 	computeCores := 1
@@ -22,22 +32,22 @@ func TestComputeCapacityBasedHugepages_MaxCap(t *testing.T) {
 		{
 			name:     "no cap (0)",
 			maxCap:   0,
-			expected: 6820, // uncapped result
+			expected: 6820,
 		},
 		{
 			name:     "cap above result",
 			maxCap:   500000,
-			expected: 6820, // cap not applied
+			expected: 6820,
 		},
 		{
 			name:     "cap below result, even",
 			maxCap:   5000,
-			expected: 5000, // clamped, already even
+			expected: 5000,
 		},
 		{
 			name:     "cap exactly equals result",
 			maxCap:   6820,
-			expected: 6820, // unchanged
+			expected: 6820,
 		},
 	}
 
@@ -58,9 +68,8 @@ func TestComputeCapacityBasedHugepages_MaxCap(t *testing.T) {
 }
 
 func TestComputeCapacityBasedHugepages_DividesByComputeContainers(t *testing.T) {
-	// The capacity-share part of compute hugepages must be divided by the actual compute
-	// container count (planner-derived), not the min-default of 5. Regression guard for the
-	// over-provisioning bug where the divisor fell back to FormClusterMinComputeContainers (=5).
+	// Regression guard: the capacity-share divisor must be the actual (planner-derived) compute
+	// container count, not the FormClusterMinComputeContainers default (5), or hugepages are over-provisioned.
 	origTlc := globalconfig.Config.DriveSharing.HugepagesTlcRatio
 	origQlc := globalconfig.Config.DriveSharing.HugepagesQlcRatio
 	origMax := globalconfig.Config.ComputeMaxHugepagesMiB
@@ -105,19 +114,19 @@ func TestCalculateDriveHugepages(t *testing.T) {
 			name:       "traditional mode (NumDrives > 0)",
 			numDrives:  4,
 			driveCores: 2,
-			expected:   1400*2 + 200*4, // 3600
+			expected:   1400*2 + 200*4,
 		},
 		{
 			name:       "drive-sharing mode (NumDrives == 0)",
 			numDrives:  0,
 			driveCores: 2,
-			expected:   1600 * 2, // 3200
+			expected:   1600 * 2,
 		},
 		{
 			name:       "traditional, single core, single drive",
 			numDrives:  1,
 			driveCores: 1,
-			expected:   1400 + 200, // 1600
+			expected:   1400 + 200,
 		},
 	}
 
@@ -135,6 +144,81 @@ func TestCalculateDriveHugepages(t *testing.T) {
 	}
 }
 
+// Auto full drives must size compute through GetContainerHugepages -> ComputeHugepagesFromPlan, never
+// falling through to the template-based path: template.Containers.Drive is the form-cluster minimum in
+// this mode, not the planned container count, so a fallback would size compute wrong.
+func TestCalculateDynamicComputeHugepages_AutoFullDrives_Errors(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	k8sClient := fakeclient.NewClientBuilder().WithScheme(scheme).Build()
+
+	cluster := &weka.WekaCluster{}
+	cluster.Spec.Dynamic = &weka.WekaClusterTemplate{} // nothing set -> auto full drives
+	if !cluster.Spec.Dynamic.UsesAutoFullDrives() {
+		t.Fatal("test precondition failed: expected auto-full-drives mode")
+	}
+
+	template := GetWekaClusterTemplate(cluster.Spec.Dynamic)
+	template.Cores.Compute = 4
+	_, err := GetContainerHugepages(context.Background(), k8sClient, template, cluster, nil, "compute")
+	if err == nil {
+		t.Fatal("want an error for planner-managed compute, got none — a silent fallback would size the container wrong")
+	}
+	if !strings.Contains(err.Error(), "ComputeHugepagesFromPlan") {
+		t.Errorf("error should point at the correct entry point, got: %v", err)
+	}
+}
+
+func TestCalculateDynamicComputeHugepages_CountBased_FullDrivesUnchanged(t *testing.T) {
+	origMax := globalconfig.Config.ComputeMaxHugepagesMiB
+	origTlc := globalconfig.Config.DriveSharing.HugepagesTlcRatio
+	t.Cleanup(func() {
+		globalconfig.Config.ComputeMaxHugepagesMiB = origMax
+		globalconfig.Config.DriveSharing.HugepagesTlcRatio = origTlc
+	})
+	globalconfig.Config.ComputeMaxHugepagesMiB = 0
+	globalconfig.Config.DriveSharing.HugepagesTlcRatio = 1000
+
+	nodeA := makeNode("nodeA", []domain.DriveEntry{{Serial: "sn1", CapacityGiB: 3000}, {Serial: "sn2", CapacityGiB: 4000}}, nil)
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	k8sClient := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(nodeA).Build()
+
+	cluster := &weka.WekaCluster{
+		Spec: weka.WekaClusterSpec{
+			// ComputeContainers/DriveContainers set (both-or-neither) so this is count-based, not auto
+			// full drives — otherwise UsesAutoFullDrives() would route this through the other branch.
+			Dynamic: &weka.WekaClusterTemplate{ComputeContainers: 6, DriveContainers: 6, NumDrives: 2},
+		},
+	}
+	driveContainer := &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{Name: "drive-1"},
+		Spec:       weka.WekaContainerSpec{Mode: weka.WekaContainerModeDrive},
+		Status: weka.WekaContainerStatus{
+			NodeAffinity: "nodeA",
+			Allocations:  &weka.ContainerAllocations{Drives: []string{"sn1", "sn2"}},
+		},
+	}
+	containers := []*weka.WekaContainer{driveContainer}
+
+	template := ClusterTemplate{
+		Containers: IntPerWekaRole{Compute: 6, Drive: 6},
+		Cores:      IntPerWekaRole{Compute: 1},
+		NumDrives:  2,
+	}
+
+	got, err := calculateDynamicComputeHugepages(context.Background(), k8sClient, template, cluster, containers)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// perContainerGiB=7000 extrapolated over Containers.Drive=6 -> 42000GiB -> 43008MiB /6=7168 +1700=8868.
+	const expected = 8868
+	if got != expected {
+		t.Errorf("expected %d, got %d", expected, got)
+	}
+}
+
 func TestCalculateDriveHugepagesOffset(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -146,13 +230,13 @@ func TestCalculateDriveHugepagesOffset(t *testing.T) {
 			name:       "traditional mode (NumDrives > 0)",
 			numDrives:  4,
 			driveCores: 2,
-			expected:   200 * 4, // 800
+			expected:   200 * 4,
 		},
 		{
 			name:       "drive-sharing mode (NumDrives == 0)",
 			numDrives:  0,
 			driveCores: 2,
-			expected:   200 * 2, // 400
+			expected:   200 * 2,
 		},
 	}
 
@@ -165,6 +249,56 @@ func TestCalculateDriveHugepagesOffset(t *testing.T) {
 			got := CalculateDriveHugepagesOffset(template)
 			if got != tt.expected {
 				t.Errorf("expected %d, got %d", tt.expected, got)
+			}
+		})
+	}
+}
+
+// capacityplanner.ComputeContainerHugepagesMiB (the planner's node-fit gate) and ComputeCapacityBasedHugepages
+// (the container controller) must agree, modulo the per-core DPDK term the planner folds in early. If they
+// drift, a cluster reserves one figure and its pods request another.
+func TestComputeHugepagesFromPlanMatchesTheContainerControllerFormula(t *testing.T) {
+	prevMax := globalconfig.Config.ComputeMaxHugepagesMiB
+	prevTlc := globalconfig.Config.DriveSharing.HugepagesTlcRatio
+	prevQlc := globalconfig.Config.DriveSharing.HugepagesQlcRatio
+	t.Cleanup(func() {
+		globalconfig.Config.ComputeMaxHugepagesMiB = prevMax
+		globalconfig.Config.DriveSharing.HugepagesTlcRatio = prevTlc
+		globalconfig.Config.DriveSharing.HugepagesQlcRatio = prevQlc
+	})
+	globalconfig.Config.DriveSharing.HugepagesTlcRatio = 1000
+	globalconfig.Config.DriveSharing.HugepagesQlcRatio = 6000
+
+	for _, tc := range []struct {
+		name           string
+		totalRawGiB    int
+		count, cores   int
+		maxHugepagesMi int
+	}{
+		{"capacity term dominates", 686736, 18, 6, 360000},
+		{"per-core floor dominates", 100, 8, 4, 360000},
+		{"odd rounding", 1001, 3, 1, 360000},
+		{"cap binds", 686736, 2, 4, 40000},
+		{"single container", 20000, 1, 12, 360000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			globalconfig.Config.ComputeMaxHugepagesMiB = tc.maxHugepagesMi
+
+			cluster := &weka.WekaCluster{}
+			cluster.Spec.Dynamic = &weka.WekaClusterTemplate{}
+			dpdkPerCore := utils.GetDpdkBaseMemoryMbByRole(&cluster.Spec, weka.WekaContainerModeCompute)
+
+			// TLC-only, so both sides split capacity the same way with a nil ratio. Must use
+			// ConstraintsForClusterSpec, not CapacityConstraintsFromConfig, which omits the per-role DPDK term.
+			cons := ConstraintsForClusterSpec(&cluster.Spec)
+			planned := capacityplanner.ComputeContainerHugepagesMiB(tc.totalRawGiB, 0, tc.count, tc.cores, cons)
+			fromPlan := ComputeHugepagesFromPlan(cluster, planned, tc.cores).Hugepages
+
+			want := ComputeCapacityBasedHugepages(context.Background(), tc.totalRawGiB, tc.count, tc.cores, nil) + dpdkPerCore*tc.cores
+			if fromPlan != want {
+				t.Errorf("ComputeHugepagesFromPlan = %d, want %d (ComputeCapacityBasedHugepages + %d MiB/core DPDK) — "+
+					"the planner's reservation and the pod's request have drifted apart",
+					fromPlan, want, dpdkPerCore)
 			}
 		})
 	}

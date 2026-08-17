@@ -9,6 +9,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/capacityplanner"
 	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 )
@@ -17,18 +18,21 @@ import (
 // nil = flag not set = keep the scraped/base value (never a re-typed literal default). MinChunkSizeGiB is
 // intentionally absent — it is a compile-time constant, surfaced in output but not overridable.
 type constraintFlags struct {
-	FromOperator         string   `long:"from-operator" choice:"true" choice:"false" default:"true" description:"Scrape the deployed operator's env for the base constraints. Pass --from-operator=false (or --from-operator false) to use built-in env defaults only."`
-	TlcPerCoreGiB        *int     `long:"tlc-per-core-gib" description:"Override TLC capacity per drive core (GiB)"`
-	QlcPerCoreGiB        *int     `long:"qlc-per-core-gib" description:"Override QLC capacity per drive core (GiB)"`
-	ImbalanceFactor      *float64 `long:"imbalance-factor" description:"Override the heterogeneous-growth imbalance factor"`
-	DeadbandFraction     *float64 `long:"deadband-fraction" description:"Override the capacity shortfall deadband fraction"`
-	MaxComputeCores      *int     `long:"max-compute-cores-per-node" description:"Override the per-container compute-core cap"`
-	MinGrowthFraction    *float64 `long:"min-growth-fraction" description:"Override the minimum in-place grow fraction"`
-	MaxOverprovision     *float64 `long:"max-overprovision-fraction" description:"Override the max over-provision fraction"`
-	EnableDynamicScaling *bool    `long:"enable-dynamic-drive-scaling" description:"Override enableDynamicDriveScalingForSharedDrives (in-place growth)"`
-	AllowSingleParity    *bool    `long:"allow-single-parity" description:"Override the single-parity protection-floor relaxation"`
-	HugepagesTlcRatio    *int     `long:"hugepages-tlc-ratio" description:"Override the compute-hugepages TLC ratio"`
-	HugepagesQlcRatio    *int     `long:"hugepages-qlc-ratio" description:"Override the compute-hugepages QLC ratio"`
+	FromOperator                      string   `long:"from-operator" choice:"true" choice:"false" default:"true" description:"Scrape the deployed operator's env for the base constraints. Pass --from-operator=false (or --from-operator false) to use built-in env defaults only."`
+	TlcPerCoreGiB                     *int     `long:"tlc-per-core-gib" description:"Override TLC capacity per drive core (GiB)"`
+	QlcPerCoreGiB                     *int     `long:"qlc-per-core-gib" description:"Override QLC capacity per drive core (GiB)"`
+	ImbalanceFactor                   *float64 `long:"imbalance-factor" description:"Override the heterogeneous-growth imbalance factor"`
+	DeadbandFraction                  *float64 `long:"deadband-fraction" description:"Override the capacity shortfall deadband fraction"`
+	MaxCoresPerContainer              *int     `long:"max-cores-per-container" description:"Override the per-container core cap (drive and compute)"`
+	MinGrowthFraction                 *float64 `long:"min-growth-fraction" description:"Override the minimum in-place grow fraction"`
+	MaxOverprovision                  *float64 `long:"max-overprovision-fraction" description:"Override the max over-provision fraction"`
+	EnableDynamicScaling              *bool    `long:"enable-dynamic-drive-scaling" description:"Override enableDynamicDriveScalingForSharedDrives (in-place growth)"`
+	AllowSingleParity                 *bool    `long:"allow-single-parity" description:"Override the single-parity protection-floor relaxation"`
+	HugepagesTlcRatio                 *int     `long:"hugepages-tlc-ratio" description:"Override the compute-hugepages TLC ratio"`
+	HugepagesQlcRatio                 *int     `long:"hugepages-qlc-ratio" description:"Override the compute-hugepages QLC ratio"`
+	ComputeToTlcDriveCoreRatio        *float64 `long:"compute-to-tlc-drive-core-ratio" description:"Override the compute:TLC-drive-core ratio"`
+	ComputeToQlcDriveCoreRatio        *float64 `long:"compute-to-qlc-drive-core-ratio" description:"Override the compute:QLC-drive-core ratio"`
+	FullDrivesComputeToDriveCoreRatio *float64 `long:"full-drives-compute-to-drive-core-ratio" description:"Override the full-drives (daemonset / auto full drives) compute:drive-core ratio"`
 }
 
 // loadConstraints builds the capacity constraints in three layers — NEVER re-hardcoding a value the
@@ -41,7 +45,7 @@ type constraintFlags struct {
 // The DPDK per-core fields are NOT set here — the plan command fills them from the cluster spec (per-role),
 // exactly as the controller does; explore-nodes leaves them at zero (it charges existing containers by
 // their own capacity, which already includes their DPDK reservation via the shared sizing model).
-func loadConstraints(ctx context.Context, c client.Client, namespace string, f *constraintFlags) (*allocator.CapacityConstraints, error) {
+func loadConstraints(ctx context.Context, c client.Client, namespace string, f *constraintFlags) (*capacityplanner.CapacityConstraints, error) {
 	if scrapeEnabled(f) {
 		envMap, err := scrapeOperatorEnv(ctx, c, namespace)
 		if err != nil {
@@ -67,7 +71,7 @@ func scrapeEnabled(f *constraintFlags) bool {
 // applyConstraintOverrides applies the set (non-nil) flag overrides onto cons — the top layer of the
 // three-layer constraint loading. Kept separate so the override precedence is unit-testable without a
 // Kubernetes client.
-func applyConstraintOverrides(cons *allocator.CapacityConstraints, f *constraintFlags) {
+func applyConstraintOverrides(cons *capacityplanner.CapacityConstraints, f *constraintFlags) {
 	if f.TlcPerCoreGiB != nil {
 		cons.TlcCapacityPerCoreGiB = *f.TlcPerCoreGiB
 	}
@@ -80,8 +84,8 @@ func applyConstraintOverrides(cons *allocator.CapacityConstraints, f *constraint
 	if f.DeadbandFraction != nil {
 		cons.CapacityDeadbandFraction = *f.DeadbandFraction
 	}
-	if f.MaxComputeCores != nil {
-		cons.MaxComputeCoresPerNode = *f.MaxComputeCores
+	if f.MaxCoresPerContainer != nil {
+		cons.MaxCoresPerContainer = *f.MaxCoresPerContainer
 	}
 	if f.MinGrowthFraction != nil {
 		cons.MinGrowthFraction = *f.MinGrowthFraction
@@ -100,6 +104,15 @@ func applyConstraintOverrides(cons *allocator.CapacityConstraints, f *constraint
 	}
 	if f.HugepagesQlcRatio != nil {
 		cons.ComputeHugepagesQlcRatio = *f.HugepagesQlcRatio
+	}
+	if f.ComputeToTlcDriveCoreRatio != nil {
+		cons.ComputeToTlcDriveCoreRatio = *f.ComputeToTlcDriveCoreRatio
+	}
+	if f.ComputeToQlcDriveCoreRatio != nil {
+		cons.ComputeToQlcDriveCoreRatio = *f.ComputeToQlcDriveCoreRatio
+	}
+	if f.FullDrivesComputeToDriveCoreRatio != nil {
+		cons.FullDrivesComputeToDriveCoreRatio = *f.FullDrivesComputeToDriveCoreRatio
 	}
 }
 

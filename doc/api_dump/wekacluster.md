@@ -273,7 +273,7 @@
 | computeCores | int | Number of cores allocated to each compute container. |
 | driveCores | int | Number of cores allocated to each drive container. |
 | s3Cores | int | Number of cores allocated to each S3 gateway container. |
-| numDrives | int | Number of virtual or physical drives per drive container. Mutually exclusive with containerCapacity. |
+| numDrives | int | Number of virtual or physical drives per drive container. Mutually exclusive with containerCapacity.<br>When the cluster acts as a daemonset (computeContainers and driveContainers both unset), NumDrives<br>instead acts as a per-node override, pinning the number of largest signed drives that each node's<br>drive container takes instead of consuming all of them. |
 | computeExtraCores | int |  |
 | driveExtraCores | int |  |
 | s3ExtraCores | int | Additional non-DPDK cores for S3 gateway containers, used for background tasks. |

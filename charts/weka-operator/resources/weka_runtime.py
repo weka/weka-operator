@@ -492,6 +492,57 @@ class SignException(Exception):
     pass
 
 
+async def _list_devices_with_sign_tool(use_proxy_socket: bool = False) -> List[dict]:
+    """
+    Run `weka-sign-drive list -j` and return the raw `devices` array.
+
+    Args:
+        use_proxy_socket: If True, use the ssdproxy socket to see proxy-taken drives
+    """
+    cmd = "/weka-sign-drive list -j"
+    if use_proxy_socket and os.path.exists(SSDPROXY_SOCKET_PATH):
+        logging.info(f"Using proxy socket at {SSDPROXY_SOCKET_PATH}")
+        cmd = f"/weka-sign-drive --unix-socket {SSDPROXY_SOCKET_PATH}:/api/v1 list -j"
+
+    stdout, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        raise Exception(f"weka-sign-drive list command failed: {stderr}")
+
+    # Parse JSON output - skip non-JSON lines at the beginning
+    output_text = stdout.decode('utf-8')
+
+    # Find the start of JSON (first '{' character)
+    json_start = output_text.find('{')
+    if json_start == -1:
+        raise ValueError("No JSON found in weka-sign-drive output")
+
+    # Extract JSON portion
+    return json.loads(output_text[json_start:]).get('devices', [])
+
+
+async def get_drive_types_with_sign_tool(use_proxy_socket: bool = False) -> Dict[str, str]:
+    """
+    Map block device path (e.g. /dev/nvme0n1) to drive type ("TLC" or "QLC").
+
+    Covers every device the sign tool reports hardware for, including ones it could not
+    open (status "excluded") - their hardware info still carries iu_size.
+
+    Args:
+        use_proxy_socket: If True, use the ssdproxy socket to see proxy-taken drives
+    """
+    drive_types = {}
+    for device in await _list_devices_with_sign_tool(use_proxy_socket):
+        path = device.get('path')
+        iu_size = (device.get('hardware') or {}).get('iu_size')
+        if not path or not iu_size:
+            logging.warning(f"No iu_size reported for device {path or 'unknown'}, drive type unknown")
+            continue
+        drive_types[path] = iu_size_to_drive_type(iu_size)
+
+    logging.info(f"Drive types from sign tool: {drive_types}")
+    return drive_types
+
+
 async def get_drives_with_cluster_guid(use_proxy_socket: bool = False) -> dict:
     """
     Get all drives from weka-sign-drive list and return dict mapping serial -> path
@@ -501,20 +552,9 @@ async def get_drives_with_cluster_guid(use_proxy_socket: bool = False) -> dict:
         use_proxy_socket: If True, use the ssdproxy socket to see proxy-taken drives
     """
     try:
-        cmd = "/weka-sign-drive list -j"
-        if use_proxy_socket and os.path.exists(SSDPROXY_SOCKET_PATH):
-            logging.info(f"Using proxy socket at {SSDPROXY_SOCKET_PATH}")
-            cmd = f"/weka-sign-drive --unix-socket {SSDPROXY_SOCKET_PATH}:/api/v1 list -j"
-
-        stdout, stderr, ec = await run_command(cmd)
-        if ec != 0:
-            logging.warning(f"Failed to list drives: {stderr}")
-            return {}
-
-        drive_list = json.loads(stdout.decode())
         drives_with_guid = {}
 
-        for device in drive_list.get('devices', []):
+        for device in await _list_devices_with_sign_tool(use_proxy_socket):
             hardware = device.get('hardware', {})
             weka_info = device.get('weka_info') or {}
             serial = hardware.get('serial_number')
@@ -956,6 +996,15 @@ async def sign_drives(instruction: dict):
             logging.info(f"Serial {serial} -> {drives_with_guid[serial]} (has cluster_guid, will exclude)")
         else:
             logging.info(f"Serial {serial} has no cluster_guid or not found, NOT excluding")
+
+    # Full-drives mode has no QLC accounting (capacity, drive cores and hugepages are all
+    # computed as TLC), so QLC drives must never be signed for it. Proxy mode supports QLC.
+    if not for_proxy:
+        for path, drive_type in (await get_drive_types_with_sign_tool()).items():
+            if drive_type == "QLC":
+                EXCLUDED_DRIVE_PATHS.append(path)
+                logging.info(f"Excluding QLC drive {path} from full-drives signing")
+
     logging.info(f"Final excluded paths: {EXCLUDED_DRIVE_PATHS}")
 
     # Route to proxy signing functions if shared is true
@@ -1114,37 +1163,12 @@ async def list_weka_proxy_drives_with_sign_tool():
     Returns list of dicts with physical_uuid, serial, capacity_gib, device_path for weka_formatted drives only.
     """
     try:
-        # Execute weka-sign-drive list -j for JSON output
         # Use proxy socket if available to see proxy-taken drives
-        cmd = "/weka-sign-drive list -j"
-        if os.path.exists(SSDPROXY_SOCKET_PATH):
-            logging.info(f"Using proxy socket at {SSDPROXY_SOCKET_PATH}")
-            cmd = f"/weka-sign-drive --unix-socket {SSDPROXY_SOCKET_PATH}:/api/v1 list -j"
-
-        stdout, stderr, ec = await run_command(cmd)
-        if ec != 0:
-            logging.error(f"Failed to list drives with weka-sign-drive: {stderr}")
-            raise Exception("weka-sign-drive list command failed")
-
-        # Parse JSON output - skip non-JSON lines at the beginning
-        try:
-            output_text = stdout.decode('utf-8')
-
-            # Find the start of JSON (first '{' character)
-            json_start = output_text.find('{')
-            if json_start == -1:
-                raise ValueError("No JSON found in weka-sign-drive output")
-
-            # Extract JSON portion
-            json_text = output_text[json_start:]
-            drive_data = json.loads(json_text)
-        except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse weka-sign-drive output as JSON: {e}")
-            raise
+        devices = await _list_devices_with_sign_tool(use_proxy_socket=True)
 
         # Extract simplified drive information for weka_formatted drives only
         drives = []
-        for device_data in drive_data.get('devices', []):
+        for device_data in devices:
             try:
                 # Only process weka_formatted drives that are usable
                 if device_data.get('status') != 'weka_formatted':
@@ -1209,9 +1233,16 @@ async def list_weka_proxy_drives_with_sign_tool():
         return []
 
 
-async def find_weka_drives():
+async def find_weka_drives(use_sign_tool: bool = True) -> List[dict]:
     drives = []
     # ls /dev/disk/by-path/pci-0000\:03\:00.0-scsi-0\:0\:3\:0  | ssd
+
+    drive_types = {}
+    # Drive type is not derivable from the kernel view (blkid/hexdump) - it comes from the sign tool's
+    # reported iu_size. If the tool is unavailable, every drive stays untyped, and an untyped QLC drive
+    # is accounted as TLC in full-drives mode.
+    if use_sign_tool:
+        drive_types = await get_drive_types_with_sign_tool()
 
     devices_by_id = subprocess.check_output("ls /dev/disk/by-id/", shell=True,
                                              timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip().split()
@@ -1286,12 +1317,20 @@ async def find_weka_drives():
             device_path = "/dev/" + pci_device_path.split("/")[-2]
             serial_id = await get_device_serial_id(device_path)
 
+            # A drive the sign tool does not enumerate (e.g. SCSI/SATA) stays untyped rather than
+            # failing discovery - it is outside the tool's view, so it could not have been signed
+            # as QLC either. Consumers treat an empty type as unknown and keep the drive.
+            drive_type = drive_types.get(device_path, "")
+            if not drive_type and use_sign_tool:
+                logging.warning(f"Sign tool reported no drive type for {device_path}, leaving it unset")
+
             drives.append({
                 "partition": "/dev/" + part_name,
                 "block_device": device_path,
                 "serial_id": serial_id,
                 "weka_guid": weka_guid,
-                "is_signed": is_signed
+                "is_signed": is_signed,
+                "type": drive_type,
             })
 
     return drives
@@ -3398,14 +3437,6 @@ def get_agent_cmd():
     return f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT}"
 
 
-daemons = {
-
-}
-
-
-# k8s lifecycle/local leadership election
-
-
 def cos_reboot_machine():
     logging.warning("Rebooting the host")
     os.sync()
@@ -4226,7 +4257,10 @@ async def assert_vfio_pci_loaded_if_required():
 
 async def ensure_drives():
     await assert_vfio_pci_loaded_if_required()
-    sys_drives = await find_weka_drives()
+    # Drive types are not consulted here - drives are matched to the requested set by serial_id -
+    # and the sign tool is not on the weka container's filesystem, so querying it would fail
+    # discovery outright. QLC is filtered at signing time, before a drive reaches this container.
+    sys_drives = await find_weka_drives(use_sign_tool=False)
     requested_drives = RESOURCES.get("drives", [])
     drives_to_setup = []
     for drive in requested_drives:
@@ -4915,7 +4949,7 @@ async def shutdown():
         logging.info(f"Waiting for {len(requested_drives)} requested drives to return to kernel: {requested_drives}")
 
         for _ in range(int(timeout / 0.3)):
-            drives = await find_weka_drives()
+            drives = await find_weka_drives(use_sign_tool=False)
             logging.info(f"Found {len(drives)}: {drives}")
             in_kernel_drives_serials = [d['serial_id'] for d in drives]
 
