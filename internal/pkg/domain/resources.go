@@ -12,4 +12,7 @@ type DriveInfo struct {
 	Partition  string `json:"partition"`
 	IsSigned   bool   `json:"is_signed"`           // Means drive is signed by Weka
 	WekaGuid   string `json:"weka_guid,omitempty"` // Only populated if drive is signed
+	// Type is "TLC"/"QLC", derived from iu_size by the sign-tool; empty when the producer can't
+	// determine it (node-agent's kernel-only discovery). Wire-only, not persisted to an annotation.
+	Type string `json:"type,omitempty"`
 }

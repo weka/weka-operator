@@ -77,8 +77,8 @@ func TestFullPcpusOnlyCPUAlignment(t *testing.T) {
 		name              string
 		numCores          int
 		isHt              bool
-		forceFullPcpus    bool // config.Config.FullPcpusOnly (operator-wide force)
-		nodeFullPcpusOnly bool // f.nodeInfo.NodeFullPcpusOnly (auto-detected on the node)
+		forceFullPcpus    bool   // config.Config.FullPcpusOnly (operator-wide force)
+		nodeFullPcpusOnly bool   // f.nodeInfo.NodeFullPcpusOnly (auto-detected on the node)
 		wantCPU           string // expected value of pod CPU request/limit
 	}{
 		{
@@ -92,7 +92,7 @@ func TestFullPcpusOnlyCPUAlignment(t *testing.T) {
 			numCores:       2,
 			isHt:           true,
 			forceFullPcpus: true,
-			wantCPU:        "6", // 5 is odd, +1 → 6
+			wantCPU:        "6",
 		},
 		{
 			name:              "HT, auto-detected on node → round up 5→6",
@@ -106,7 +106,7 @@ func TestFullPcpusOnlyCPUAlignment(t *testing.T) {
 			numCores:       2,
 			isHt:           false,
 			forceFullPcpus: true,
-			wantCPU:        "5", // IsHt=false → guard condition false
+			wantCPU:        "5",
 		},
 		{
 			name:           "numCores=3, HT, forced → round up 7→8",

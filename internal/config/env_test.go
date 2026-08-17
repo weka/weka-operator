@@ -8,14 +8,14 @@ import (
 
 func TestEffectiveProtection(t *testing.T) {
 	tests := []struct {
-		name     string
-		cfg      config.DriveSharingConfig
-		specSW   int
-		specRL   int
-		specHS   int
-		wantSW   int
-		wantRL   int
-		wantHS   int
+		name   string
+		cfg    config.DriveSharingConfig
+		specSW int
+		specRL int
+		specHS int
+		wantSW int
+		wantRL int
+		wantHS int
 	}{
 		{
 			name:   "all-zero spec and all-zero defaults yields zero",
@@ -51,5 +51,29 @@ func TestEffectiveProtection(t *testing.T) {
 					tt.wantSW, tt.wantRL, tt.wantHS)
 			}
 		})
+	}
+}
+
+// TestLoadCapacityEnv_RederivesFormClusterMinimumsAndFullPcpus reproduces the weka-capacity CLI's
+// startup order: it scrapes the operator's env and applies it via os.Setenv AFTER this package's
+// init() already ran against the CLI's own process environment, then calls only LoadCapacityEnv
+// (never ConfigureEnv/init() again). Both the ALLOW_SINGLE_PARITY-lowered form-cluster minimums and
+// FullPcpusOnly must therefore be re-derived by LoadCapacityEnv itself, not only by init()/ConfigureEnv.
+func TestLoadCapacityEnv_RederivesFormClusterMinimumsAndFullPcpus(t *testing.T) {
+	t.Setenv("ALLOW_SINGLE_PARITY", "true")
+	t.Setenv("FORM_CLUSTER_MIN_COMPUTE_CONTAINERS", "")
+	t.Setenv("FORM_CLUSTER_MIN_DRIVE_CONTAINERS", "")
+	t.Setenv("FULL_PCPUS_ONLY", "true")
+
+	config.LoadCapacityEnv()
+
+	if config.Consts.FormClusterMinComputeContainers != 3 {
+		t.Errorf("FormClusterMinComputeContainers = %d, want 3 (ALLOW_SINGLE_PARITY-lowered default)", config.Consts.FormClusterMinComputeContainers)
+	}
+	if config.Consts.FormClusterMinDriveContainers != 3 {
+		t.Errorf("FormClusterMinDriveContainers = %d, want 3 (ALLOW_SINGLE_PARITY-lowered default)", config.Consts.FormClusterMinDriveContainers)
+	}
+	if !config.Config.FullPcpusOnly {
+		t.Error("Config.FullPcpusOnly = false, want true: LoadCapacityEnv must read FULL_PCPUS_ONLY for CLI callers")
 	}
 }

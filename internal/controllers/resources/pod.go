@@ -13,6 +13,7 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	k8sapiutil "github.com/weka/weka-k8s-api/util"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,7 +36,7 @@ const (
 	kubectlAnnotationPrefix = "kubectl.kubernetes.io/"
 )
 
-// if the container mode is not in the map, the default is 1 year
+// terminationGracePeriodSecondsMap gives per-mode grace periods; modes absent from it default to 1 year.
 var terminationGracePeriodSecondsMap = map[string]int64{
 	weka.WekaContainerModeDiscovery:      30,
 	weka.WekaContainerModeDist:           60 * 5,
@@ -98,8 +99,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	annotations := AnnotationsForWekaPod(f.container.GetAnnotations(), nil)
 
 	image := f.container.Spec.Image
-	// if podImage is not nil, use it instead of the image from the container spec
-	// NOTE: used for the cases when it's not allowed to upgrade weka image
+	// podImage overrides the spec image; used when upgrading the weka image isn't allowed.
 	if podImage != nil {
 		image = *podImage
 	}
@@ -118,7 +118,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	netDevice := "udp"
 	udpMode := "false"
 	subnets := strings.Join(f.container.Spec.Network.DeviceSubnets, ",")
-	// convert f.container.Spec.Network.ManagementIPsSelectors to json string
 	managementIPsSelectors := ""
 	if len(f.container.Spec.Network.ManagementIPsSelectors) > 0 {
 		managementIPsSelectorsBytes, err := json.Marshal(f.container.Spec.Network.ManagementIPsSelectors)
@@ -127,7 +126,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		}
 		managementIPsSelectors = string(managementIPsSelectorsBytes)
 	}
-	// convert f.container.Spec.Network.Selectors to json string
 	networkSelectors := ""
 	if len(f.container.Spec.Network.Selectors) > 0 {
 		networkSelectorsBytes, err := json.Marshal(f.container.Spec.Network.Selectors)
@@ -440,7 +438,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							Name:  "SYSLOG_PACKAGE",
 							Value: config.Config.SyslogPackage,
 						},
-						// OpenTelemetry configuration
 						{
 							Name:  "OTEL_EXPORTER_OTLP_ENDPOINT",
 							Value: config.Config.Otel.ExporterOtlpEndpoint,
@@ -535,7 +532,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	if f.container.Spec.GetOverrides().PreRunScript != "" {
-		// encode in base64 and write into env var
 		base64str := base64.StdEncoding.EncodeToString([]byte(f.container.Spec.GetOverrides().PreRunScript))
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "PRE_RUN_SCRIPT",
@@ -544,7 +540,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	if f.container.Spec.PortRange != nil {
-		// vars needed for clients to dynamically set ports
 		envVars := []corev1.EnvVar{
 			{
 				Name:  "BASE_PORT",
@@ -1010,7 +1005,10 @@ func getPressureTolerations() []corev1.Toleration {
 	}
 }
 
-func GetWekaPodTolerations(container *weka.WekaContainer) []corev1.Toleration {
+// wekaBaseTolerations returns the tolerations every Weka pod gets regardless of container mode: always
+// shutdown-node, conditionally node-health (SkipUnhealthyToleration), always pressure. Shared by
+// GetWekaPodTolerations and GetWekaPodTolerationsForCluster so the two can never drift apart.
+func wekaBaseTolerations() []corev1.Toleration {
 	tolerations := []corev1.Toleration{
 		{
 			Key:      "weka.io/shutdown-node",
@@ -1023,8 +1021,11 @@ func GetWekaPodTolerations(container *weka.WekaContainer) []corev1.Toleration {
 		tolerations = append(tolerations, getUnhealthyTolerations()...)
 	}
 
-	pressureTolerations := getPressureTolerations()
-	tolerations = append(tolerations, pressureTolerations...)
+	return append(tolerations, getPressureTolerations()...)
+}
+
+func GetWekaPodTolerations(container *weka.WekaContainer) []corev1.Toleration {
+	tolerations := wekaBaseTolerations()
 
 	if !config.Config.SkipClientNoScheduleToleration && container.Spec.Mode == weka.WekaContainerModeClient {
 		tolerations = ExpandNoScheduleTolerations(tolerations)
@@ -1045,8 +1046,24 @@ func GetWekaPodTolerations(container *weka.WekaContainer) []corev1.Toleration {
 	return tolerations
 }
 
-// getSsdUidForAdhocOp returns true if this is an adhoc operation
-// that needs access to the ssdproxy socket directory (sign-drives with shared=true)
+// WekaPodBaseTolerations exports wekaBaseTolerations for callers with neither a live container nor a
+// cluster to read custom tolerations from (the capacity planner's cluster-agnostic explore-nodes view).
+func WekaPodBaseTolerations() []corev1.Toleration { return wekaBaseTolerations() }
+
+// GetWekaPodTolerationsForCluster returns the tolerations a drive or compute container's pod would get for
+// cluster, without a live container object. The capacity planner needs this at inventory-collection time,
+// before any container exists, to decide which nodes it can actually schedule onto. It is faithful for
+// drive and compute containers specifically: GetWekaPodTolerations' only container-dependent behavior
+// besides a container's own custom tolerations is the client/aux-mode NoSchedule expansion, and drive/
+// compute containers never have that mode, so their tolerations reduce to exactly this — the base set plus
+// the cluster's tolerations/rawTolerations, the same inputs NewWekaContainerForWekaCluster
+// (internal/controllers/factory/container_factory.go) copies onto a new container's Spec.Tolerations.
+func GetWekaPodTolerationsForCluster(cluster *weka.WekaCluster) []corev1.Toleration {
+	return k8sapiutil.ExpandTolerations(wekaBaseTolerations(), cluster.Spec.Tolerations, cluster.Spec.RawTolerations)
+}
+
+// getSsdUidForAdhocOp returns the ssdproxy container UUID for a sign-drives adhoc op with
+// shared=true, so the pod can be given access to that ssdproxy's socket; nil otherwise.
 func (f *PodFactory) getSsdUidForAdhocOp() *string {
 	if !f.container.IsAdhocOpContainer() {
 		return nil
@@ -1471,7 +1488,8 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeDrive && !f.container.UsesDriveSharing() {
-		// Regular drive mode: request exclusive drives (count)
+		// TLC drives only — weka.io/drives counts the node's weka-full-drives entries, which exclude
+		// QLC (full-drives mode has no QLC accounting). QLC is only usable via drive sharing.
 		pod.Spec.Containers[0].Resources.Requests[consts.ResourceDrives] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
 		pod.Spec.Containers[0].Resources.Limits[consts.ResourceDrives] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
 	} else if f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.UsesDriveSharing() {
@@ -1686,7 +1704,6 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 
 		}
 
-		// generalize above code using mode
 		if pod.Spec.Affinity.PodAntiAffinity == nil {
 			pod.Spec.Affinity.PodAntiAffinity = &corev1.PodAntiAffinity{
 				RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{term},
