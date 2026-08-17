@@ -793,6 +793,21 @@ parking/warning model, events, and recommended usage on a live fleet.
 
 ## Capacity Management
 
+### Hugepages reservation for `numDrives` + `driveCapacity`
+
+A drive container's hugepages reservation is `1400` MiB per drive **core** plus `200` MiB per **drive**,
+plus the per-core DPDK term — the same figure its pod requests. In the `numDrives` + `driveCapacity`
+mode a container can hold more drives than cores (`{numDrives: 6, driveCapacity: 3500}` derives 5
+cores), so the per-drive part is not absorbed by the per-core one.
+
+The operator previously reserved a per-core-only figure at the cluster level, under-counting such a
+container by `200 × (numDrives − driveCores)` MiB — 200 MiB for the example above. It now reserves what
+the pod actually asks for. **On upgrade, a fleet sized right at the edge can newly report infeasible**;
+the reservation grew to match reality rather than the pod's request having changed.
+
+`containerCapacity` and `clusterCapacity` are unaffected: CEL forbids `numDrives` alongside either, so
+those containers carry no per-drive term on either side.
+
 ### Understanding Capacity Limits
 
 **Physical capacity:** Total GiB from all physical drives on node
