@@ -121,9 +121,8 @@ type DiscoveryNodeInfo struct {
 	// Node *corev1.Node `json:"-"` // this is not necessarily aligned with a node
 }
 
-// PodDiscoverySnapshot holds the DiscoveryNodeInfo fields that affect pod spec creation.
-// Stored as a pod annotation at creation time; compared against the actual scheduled
-// node's info on subsequent reconciles to detect node-info mismatch.
+// PodDiscoverySnapshot holds the DiscoveryNodeInfo fields that affect pod spec creation. Stored as a pod
+// annotation at creation time and compared against the actual node on later reconciles to detect mismatch.
 type PodDiscoverySnapshot struct {
 	IsHt     bool     `json:"is_ht"`
 	Os       string   `json:"os,omitempty"`
@@ -148,9 +147,8 @@ func (nodeInfo *DiscoveryNodeInfo) IsRhCos() bool {
 	return nodeInfo.Os == weka.OsNameOpenshift
 }
 
-// NodeInfoFromAnnotation parses a node's weka.io/discovery.json annotation into a DiscoveryNodeInfo.
-// ok is false (and info nil) when the annotation is absent or unparsable. Single parse helper for the
-// several call sites that read node discovery info off the annotation.
+// NodeInfoFromAnnotation parses a node's weka.io/discovery.json annotation into a DiscoveryNodeInfo; ok is
+// false (info nil) when the annotation is absent or unparsable.
 func NodeInfoFromAnnotation(node *corev1.Node) (info *DiscoveryNodeInfo, ok bool) {
 	annotation, present := node.Annotations[DiscoveryAnnotation]
 	if !present {
@@ -159,10 +157,9 @@ func NodeInfoFromAnnotation(node *corev1.Node) (info *DiscoveryNodeInfo, ok bool
 	return ParseNodeInfo(annotation)
 }
 
-// ParseNodeInfo unmarshals a weka.io/discovery.json annotation value into a DiscoveryNodeInfo. ok is
-// false (info nil) when the value is unparsable. Callers that already hold the annotation string (e.g. to
-// distinguish "absent" from "present but unparsable") use this directly so the node's annotation map is
-// read only once.
+// ParseNodeInfo unmarshals a weka.io/discovery.json annotation value into a DiscoveryNodeInfo; ok is false
+// (info nil) when unparsable. Used directly by callers that already hold the string, e.g. to distinguish
+// "absent" from "unparsable".
 func ParseNodeInfo(annotation string) (info *DiscoveryNodeInfo, ok bool) {
 	info = &DiscoveryNodeInfo{}
 	if json.Unmarshal([]byte(annotation), info) != nil {
@@ -171,9 +168,8 @@ func ParseNodeInfo(annotation string) (info *DiscoveryNodeInfo, ok bool) {
 	return info, true
 }
 
-// AnyNodeHasSelinux returns true if any node in the list is discovered to be an
-// RHCOS/OpenShift node (which enforces SELinux by default). Nodes with a missing
-// or unparsable discovery annotation are skipped.
+// AnyNodeHasSelinux reports whether any node is RHCOS/OpenShift (which enforces SELinux by default);
+// nodes with a missing/unparsable discovery annotation are skipped.
 func AnyNodeHasSelinux(nodes []corev1.Node) bool {
 	for i := range nodes {
 		if info, ok := NodeInfoFromAnnotation(&nodes[i]); ok && info.IsRhCos() {
@@ -213,17 +209,14 @@ func (d *DiscoveryNodeInfo) GetContainerSharedDataPath(uid types.UID) string {
 	return fmt.Sprintf("%s/containers/%s", d.GetHostsideSharedData(), uid)
 }
 
-// GetHostsideEphemeralShare returns the host-side, node-level directory under
-// /run (ephemeral — cleared on reboot) that is shared across all pods and
-// clusters on this node. It is the generic parent for node-scoped ephemeral
-// state; not tied to persistent storage or to any single cluster.
+// GetHostsideEphemeralShare returns the host-side, node-level ephemeral directory under /run (cleared on
+// reboot), shared across all pods/clusters on this node — the generic parent for node-scoped ephemeral state.
 func (d *DiscoveryNodeInfo) GetHostsideEphemeralShare() string {
 	return "/run/weka/ephemeral"
 }
 
-// GetHostsideSharedNetnsPath returns the host-side netns directory under the
-// node ephemeral share. Shared across all pods and clusters on this node so
-// network namespaces created on the host propagate to weka containers and back.
+// GetHostsideSharedNetnsPath returns the host-side netns directory under the node ephemeral share, shared
+// across pods/clusters so host-created network namespaces propagate to weka containers and back.
 func (d *DiscoveryNodeInfo) GetHostsideSharedNetnsPath() string {
 	return d.GetHostsideEphemeralShare() + "/shared-netns"
 }
@@ -238,27 +231,22 @@ type Discoverer interface {
 
 // IsContainerOperational checks if a container is operational and ready for operations
 func IsContainerOperational(container *weka.WekaContainer) bool {
-	// Container must have a cluster container ID assigned
 	if container.Status.ClusterContainerID == nil {
 		return false
 	}
 
-	// Container must be in READY internal status
 	if container.Status.InternalStatus != "READY" {
 		return false
 	}
 
-	// Container must have at least one management IP
 	if len(container.Status.GetManagementIps()) == 0 {
 		return false
 	}
 
-	// Container must have WekaPort allocated
 	if container.Status.Allocations == nil || container.Status.Allocations.WekaPort == 0 {
 		return false
 	}
 
-	// Container must not be in unsuitable statuses
 	notSuitableStatuses := []weka.ContainerStatus{
 		weka.PodNotRunning,
 		weka.Stopped,
@@ -276,7 +264,6 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 	util.Shuffle(containers)
 
 	for _, container := range containers {
-		// if roles are set - select only suitable roles
 		if len(roles) == 0 {
 			roles = []string{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute}
 		}
@@ -287,7 +274,6 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 			}
 		}
 
-		// Use common validation function
 		if !IsContainerOperational(container) {
 			continue
 		}
@@ -304,7 +290,7 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 
 	// if we selected at least one "Running" - lets go with it, if none - populate with many "not running"
 	if len(selected) == 0 {
-		// if we could not select target amount of  containers, we will select some random that are not running
+		// if we could not select target amount of containers, we will select some random that are not running
 		util.Shuffle(containers)
 
 		notSuitableStatuses := []weka.ContainerStatus{
@@ -383,8 +369,7 @@ func GetClusterNfsTargetIps(ctx context.Context, containers []*weka.WekaContaine
 	return nfsTargetIps
 }
 
-// Returns a map of FD to join IP port pairs
-// (if FD label is not provided, FD will be empty string)
+// SelectJoinIps returns a map of FD to join IP:port pairs; FD is "" when no FD label is set.
 func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error) {
 	joinIpsByFD := make(map[string][]string)
 
@@ -439,13 +424,10 @@ func GetClusterContainers(ctx context.Context, c client.Reader, cluster *weka.We
 	return GetClusterContainersByClusterUID(ctx, c, string(cluster.UID), cluster.Namespace, mode)
 }
 
-// GetClusterContainersNoFieldIndex is like GetClusterContainers but does NOT use the
-// metadata.ownerReferences.uid field index. It lists the namespace and filters by owner UID in
-// memory, so it works with a cache-less/direct client that has no field indexer registered (e.g. the
-// weka-capacity CLI, which builds a plain client.New without a cache). The controller keeps using the
-// index-based GetClusterContainers; the index is registered on the manager cache in
-// setupContainerIndexes (cmd/manager/main.go). Sending that field selector through a direct client
-// makes the apiserver reject it ("field label not supported: metadata.ownerReferences.uid").
+// GetClusterContainersNoFieldIndex is GetClusterContainers without the metadata.ownerReferences.uid field
+// index: it filters by owner UID in memory instead, for clients with no field indexer registered (e.g. the
+// weka-capacity CLI's direct client — the apiserver rejects that field selector without one). The
+// controller's cache has the index registered via setupContainerIndexes (cmd/manager/main.go).
 func GetClusterContainersNoFieldIndex(ctx context.Context, c client.Reader, cluster *weka.WekaCluster, mode string) ([]*weka.WekaContainer, error) {
 	return getClusterContainersByClusterUID(ctx, c, string(cluster.UID), cluster.Namespace, mode, false)
 }
@@ -454,10 +436,8 @@ func GetClusterContainersByClusterUID(ctx context.Context, c client.Reader, clus
 	return getClusterContainersByClusterUID(ctx, c, clusterUID, clusterNamespace, mode, true)
 }
 
-// getClusterContainersByClusterUID lists a cluster's WekaContainers. When useFieldIndex is true it
-// filters via the metadata.ownerReferences.uid cache field index (fast, but requires the index to be
-// registered on the client's cache). When false it lists the namespace and filters by owner UID in
-// memory — for clients without that index registered.
+// getClusterContainersByClusterUID lists a cluster's WekaContainers, filtering by owner UID either via the
+// metadata.ownerReferences.uid cache field index (useFieldIndex, requires it registered) or in memory.
 func getClusterContainersByClusterUID(ctx context.Context, c client.Reader, clusterUID, clusterNamespace, mode string, useFieldIndex bool) ([]*weka.WekaContainer, error) {
 	containersList := weka.WekaContainerList{}
 	listOpts := []client.ListOption{
@@ -518,8 +498,7 @@ func GetClientContainers(ctx context.Context, c client.Client, wekaClient *weka.
 func SelectActiveContainer(containers []*weka.WekaContainer) *weka.WekaContainer {
 	operational := SelectOperationalContainers(containers, 1, nil)
 	if len(operational) == 0 {
-		// return any random container if no operational found
-		util.Shuffle(containers)
+		util.Shuffle(containers) // no operational container: fall back to a random one
 		if len(containers) == 0 {
 			return nil
 		}
@@ -603,10 +582,10 @@ func SelectNonDeletedWekaContainers(containers []*weka.WekaContainer) []*weka.We
 	nonDeleted := make([]*weka.WekaContainer, 0, len(containers))
 	for _, container := range containers {
 		if container.DeletionTimestamp != nil {
-			continue // skip deleted containers
+			continue
 		}
 		if slices.Contains([]weka.ContainerState{weka.ContainerStateDeleting, weka.ContainerStateDestroying}, container.Spec.State) {
-			continue // skip containers that are in deleting or destroying state
+			continue
 		}
 		nonDeleted = append(nonDeleted, container)
 	}
@@ -652,14 +631,12 @@ func GetSsdProxyOnNode(ctx context.Context, c client.Client, nodeName weka.NodeN
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetSsdProxyOnNode", "nodeName", nodeName)
 	defer logger.End()
 
-	// Get the operator namespace where ssdproxy containers are deployed
 	operatorNamespace, err := util.GetPodNamespace()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get operator namespace: %w", err)
 	}
 
-	// List all ssdproxy containers in the operator namespace
-	// Note: We don't filter by cluster because ssdproxy containers are shared across clusters on the same node
+	// No cluster filter: ssdproxy containers are shared across clusters on the same node.
 	kubeService := kubernetes.NewKubeService(c)
 	containers, err := kubeService.GetWekaContainersSimple(ctx, operatorNamespace, string(nodeName), map[string]string{
 		"weka.io/mode": weka.WekaContainerModeSSDProxy,

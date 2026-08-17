@@ -266,3 +266,83 @@ func deepEqualStrings(a, b []string) bool {
 	}
 	return true
 }
+
+func TestSortDriveEntriesDesc(t *testing.T) {
+	tests := []struct {
+		name     string
+		entries  []DriveEntry
+		expected []DriveEntry
+	}{
+		{
+			name:     "empty slice",
+			entries:  []DriveEntry{},
+			expected: []DriveEntry{},
+		},
+		{
+			name: "already descending stays the same",
+			entries: []DriveEntry{
+				{Serial: "SN001", CapacityGiB: 2048},
+				{Serial: "SN002", CapacityGiB: 1024},
+			},
+			expected: []DriveEntry{
+				{Serial: "SN001", CapacityGiB: 2048},
+				{Serial: "SN002", CapacityGiB: 1024},
+			},
+		},
+		{
+			name: "ascending input is reversed to descending",
+			entries: []DriveEntry{
+				{Serial: "SN001", CapacityGiB: 512},
+				{Serial: "SN002", CapacityGiB: 1024},
+				{Serial: "SN003", CapacityGiB: 2048},
+			},
+			expected: []DriveEntry{
+				{Serial: "SN003", CapacityGiB: 2048},
+				{Serial: "SN002", CapacityGiB: 1024},
+				{Serial: "SN001", CapacityGiB: 512},
+			},
+		},
+		{
+			name: "arbitrary order sorts by capacity descending",
+			entries: []DriveEntry{
+				{Serial: "medium", CapacityGiB: 300},
+				{Serial: "largest", CapacityGiB: 500},
+				{Serial: "smallest", CapacityGiB: 50},
+			},
+			expected: []DriveEntry{
+				{Serial: "largest", CapacityGiB: 500},
+				{Serial: "medium", CapacityGiB: 300},
+				{Serial: "smallest", CapacityGiB: 50},
+			},
+		},
+		{
+			name: "equal capacities break ties by serial ascending",
+			entries: []DriveEntry{
+				{Serial: "C", CapacityGiB: 200},
+				{Serial: "A", CapacityGiB: 200},
+				{Serial: "B", CapacityGiB: 200},
+			},
+			expected: []DriveEntry{
+				{Serial: "A", CapacityGiB: 200},
+				{Serial: "B", CapacityGiB: 200},
+				{Serial: "C", CapacityGiB: 200},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := make([]DriveEntry, len(tt.entries))
+			copy(original, tt.entries)
+
+			result := SortDriveEntriesDesc(tt.entries)
+
+			if !deepEqualDriveEntries(result, tt.expected) {
+				t.Errorf("sorted entries mismatch\nexpected: %#v\ngot:      %#v", tt.expected, result)
+			}
+			if !deepEqualDriveEntries(tt.entries, original) {
+				t.Errorf("input slice was mutated: before %#v, after %#v", original, tt.entries)
+			}
+		})
+	}
+}

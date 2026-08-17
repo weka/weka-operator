@@ -12,7 +12,6 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/pkg/util"
 )
 
 const (
@@ -154,8 +153,8 @@ type PrePullStatusResult struct {
 	AllReady     bool
 }
 
-// GetTargetNodes returns nodes that match the given selectors and tolerations
-// Nodes must be Ready and not Unschedulable
+// GetTargetNodes returns nodes matching nodeSelector that can currently host a new weka pod: not
+// cordoned, Ready, and carrying no taint outside tolerations (resources.NodeIneligibleReason).
 func GetTargetNodes(ctx context.Context, c client.Client, nodeSelector map[string]string, tolerations []corev1.Toleration) ([]corev1.Node, error) {
 	nodeList := &corev1.NodeList{}
 	listOpts := []client.ListOption{}
@@ -169,19 +168,9 @@ func GetTargetNodes(ctx context.Context, c client.Client, nodeSelector map[strin
 
 	var targetNodes []corev1.Node
 	for i := range nodeList.Items {
-		// Skip unschedulable nodes
-		if nodeList.Items[i].Spec.Unschedulable {
+		if resources.NodeIneligibleReason(&nodeList.Items[i], tolerations) != "" {
 			continue
 		}
-		// Skip nodes that are not Ready
-		if NodeNotReady(&nodeList.Items[i]) {
-			continue
-		}
-		// Check if tolerations match node taints
-		if !util.CheckTolerations(nodeList.Items[i].Spec.Taints, tolerations, nil) {
-			continue
-		}
-
 		targetNodes = append(targetNodes, nodeList.Items[i])
 	}
 

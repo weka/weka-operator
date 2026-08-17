@@ -15,8 +15,8 @@ import (
 // ---- JSON schema structures ----
 
 type Schema struct {
-	APIVersion string                   `json:"apiVersion"`
-	Resources  map[string]*ResourceInfo `json:"resources"`
+	APIVersion  string                   `json:"apiVersion"`
+	Resources   map[string]*ResourceInfo `json:"resources"`
 	Definitions map[string]*Definition   `json:"definitions"`
 }
 
@@ -313,8 +313,8 @@ func generateSchema(sourceDir string) *Schema {
 	computeUsedBy(definitions, mainCRDs)
 
 	return &Schema{
-		APIVersion: "v1alpha1",
-		Resources:  resources,
+		APIVersion:  "v1alpha1",
+		Resources:   resources,
 		Definitions: definitions,
 	}
 }
@@ -447,7 +447,7 @@ func generateTypeSection(f *os.File, typeName string, def *Definition) {
 	}
 
 	if hasFields {
-		fmt.Fprintf(f, "| JSON Field | Type | Description |\n")  //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
+		fmt.Fprintf(f, "| JSON Field | Type | Description |\n") //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
 		fmt.Fprintf(f, "|------------|------|-------------|\n") //nolint:errcheck // best-effort doc generation; a write failure would already be surfaced by a later os.WriteFile/f.Close error, or is simply not actionable for this internal tool
 
 		for _, field := range def.Fields {

@@ -461,15 +461,7 @@ func init() {
 	Consts.NewContainersLimit = 1000 // virtually no limit for now
 	Consts.PeriodicDrivesCheckInterval = 1 * time.Minute
 	Consts.CheckDriversInterval = 7 * time.Minute
-	// Default minimum drive/compute containers required to form a cluster. The 5-container default
-	// suits production 3+2+1 (minFdNum=6); a single-parity 2+1 cluster (minFdNum=3) legitimately
-	// forms with as few as 3, so AllowSingleParity lowers the default. Both remain env-overridable.
-	formClusterMinDefault := 5
-	if getBoolEnvOrDefault("ALLOW_SINGLE_PARITY", false) {
-		formClusterMinDefault = 3
-	}
-	Consts.FormClusterMinComputeContainers = getIntEnvOrDefault("FORM_CLUSTER_MIN_COMPUTE_CONTAINERS", formClusterMinDefault)
-	Consts.FormClusterMinDriveContainers = getIntEnvOrDefault("FORM_CLUSTER_MIN_DRIVE_CONTAINERS", formClusterMinDefault)
+	loadFormClusterMinContainers()
 	Consts.FormClusterMaxComputeContainers = 10
 	Consts.FormClusterMaxDriveContainers = 10
 	Consts.FormS3ClusterMaxContainerCount = 3
@@ -485,6 +477,18 @@ func init() {
 	Consts.TelemetryUpdateInterval = 1 * time.Minute
 	Consts.WekaOverridesUpdateInterval = 1 * time.Minute
 	Consts.SsdProxyDpdkMemoryMiB = 2048
+}
+
+func loadFormClusterMinContainers() {
+	// The 5-container default suits production 3+2+1 (minFdNum=6); a single-parity 2+1 cluster
+	// (minFdNum=3) legitimately forms with as few as 3, so AllowSingleParity lowers the default.
+	// Both remain env-overridable.
+	formClusterMinDefault := 5
+	if getBoolEnvOrDefault("ALLOW_SINGLE_PARITY", false) {
+		formClusterMinDefault = 3
+	}
+	Consts.FormClusterMinComputeContainers = getIntEnvOrDefault("FORM_CLUSTER_MIN_COMPUTE_CONTAINERS", formClusterMinDefault)
+	Consts.FormClusterMinDriveContainers = getIntEnvOrDefault("FORM_CLUSTER_MIN_DRIVE_CONTAINERS", formClusterMinDefault)
 }
 
 // LoadCapacityEnv populates the drive-sharing, cluster-capacity and compute-hugepages configuration
@@ -519,6 +523,15 @@ func LoadCapacityEnv() {
 
 	// Compute hugepages cap
 	Config.ComputeMaxHugepagesMiB = getIntEnvOrDefault("COMPUTE_MAX_HUGEPAGES_MIB", 360000)
+
+	// Physical-CPU accounting: read here (not just ConfigureEnv) so standalone callers like the
+	// weka-capacity CLI, which never call ConfigureEnv, still get HT-aware core counting.
+	Config.FullPcpusOnly = getBoolEnvOrDefault("FULL_PCPUS_ONLY", false)
+
+	// Re-derive from whatever ALLOW_SINGLE_PARITY/FORM_CLUSTER_MIN_* the caller has set by now: standalone
+	// callers such as the weka-capacity CLI overlay the operator's env via os.Setenv and call only
+	// LoadCapacityEnv, long after this package's init() already ran against the CLI's own environment.
+	loadFormClusterMinContainers()
 }
 
 func ConfigureEnv(ctx context.Context) {
@@ -599,7 +612,6 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DNSPolicy.HostNetwork = env.GetString("DNS_POLICY_HOST_NETWORK", "")
 	Config.SignDrivesImage = env.GetString("SIGN_DRIVES_IMAGE", "")
 	Config.TaskmonDefaultImage = env.GetString("TASKMON_DEFAULT_IMAGE", "")
-	Config.FullPcpusOnly = getBoolEnvOrDefault("FULL_PCPUS_ONLY", false)
 	Config.SkipUnhealthyToleration = getBoolEnvOrDefault("SKIP_UNHEALTHY_TOLERATION", false)
 	Config.SkipClientNoScheduleToleration = getBoolEnvOrDefault("SKIP_CLIENT_NO_SCHEDULE_TOLERATION", false)
 	Config.SkipAuxNoScheduleToleration = getBoolEnvOrDefault("SKIP_AUX_NO_SCHEDULE_TOLERATION", false)
