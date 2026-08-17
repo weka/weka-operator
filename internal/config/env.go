@@ -121,6 +121,14 @@ type CsiNodeResources struct {
 	CsiRegistrar  ResourceRequirements `json:"csiRegistrar,omitempty"`
 }
 
+// NodeAgentDevicePluginConfig configures the kubelet device plugin run by the node agent
+// that advertises each NUMA region on the node as an extended resource
+// (weka.io/numa-region-<N>).
+type NodeAgentDevicePluginConfig struct {
+	Enabled     bool
+	KubeletPath string
+}
+
 type EmbeddedCsiSettings struct {
 	Enabled                                       bool
 	StorageClassCreationDisabled                  bool
@@ -302,6 +310,7 @@ var Config struct {
 	// band. Scale-down drive-drain protection is unavailable while set.
 	SkipAwsTerminationLifecycleHook bool
 	MetricsServerEnv                MetricsServerEnv
+	NodeAgentDevicePlugin           NodeAgentDevicePluginConfig
 	Upgrade                         struct {
 		ComputeThresholdPercent          int
 		DriveThresholdPercent            int
@@ -620,6 +629,10 @@ func ConfigureEnv(ctx context.Context) {
 
 	// Metrics server environment configuration
 	Config.MetricsServerEnv.NodeName = env.GetString("NODE_NAME", "")
+
+	// Node agent device plugin configuration (NUMA region extended resources)
+	Config.NodeAgentDevicePlugin.Enabled = getBoolEnvOrDefault("NODE_AGENT_DEVICE_PLUGIN_ENABLED", true)
+	Config.NodeAgentDevicePlugin.KubeletPath = strings.TrimRight(getEnvOrDefault("NODE_AGENT_KUBELET_PATH", "/var/lib/kubelet"), "/")
 
 	Config.NetnsEnabled = getBoolEnvOrDefault("NETNS_ENABLED", true)
 

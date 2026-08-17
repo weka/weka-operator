@@ -27,7 +27,7 @@ Manages cluster-level resources and post-cluster operations.
 | `funcs_clusterization.go` | Cluster formation logic |
 | `funcs_credentials.go` | Secret/credential mgmt |
 | `funcs_helpers.go` | Utility functions |
-| `funcs_upgrade.go` | Upgrade orchestration |
+| `funcs_upgrade.go` | Upgrade orchestration; also propagates cluster spec (incl. `Numa`) to containers per-role in `HandleSpecUpdates` |
 | `funcs_nfs.go` | NFS interface-group config + teardown (EnsureNfs / ShouldDestroyNfs+DestroyNfs) |
 | `funcs_s3.go` | S3 configuration |
 | `funcs_management_proxy.go` | Envoy management proxy: ConfigMap + Deployment + Service + Ingress → [management-proxy.md](management-proxy.md) |

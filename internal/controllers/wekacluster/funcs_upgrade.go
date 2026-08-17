@@ -67,6 +67,7 @@ type UpdatableClusterSpec struct {
 	RoleCoreIds               weka.RoleCoreIds
 	RoleNonDatapathCoreIds    weka.RoleCoreIds
 	CpuPolicy                 weka.CpuPolicy
+	Numa                      *weka.WekaClusterNuma
 	ComputeExtraCores         int
 	DriveExtraCores           int
 	S3ExtraCores              int
@@ -195,6 +196,7 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 		RoleCoreIds:               spec.RoleCoreIds,
 		RoleNonDatapathCoreIds:    spec.RoleNonDatapathCoreIds,
 		CpuPolicy:                 spec.CpuPolicy,
+		Numa:                      spec.Numa,
 		ComputeExtraCores:         tmpl.ExtraCores.Compute,
 		DriveExtraCores:           tmpl.ExtraCores.Drive,
 		S3ExtraCores:              tmpl.ExtraCores.S3,
@@ -409,6 +411,22 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		if container.Spec.CpuPolicy != updatableSpec.CpuPolicy {
 			container.Spec.CpuPolicy = updatableSpec.CpuPolicy
+		}
+
+		// NUMA confinement only applies to backend/protocol roles; other modes (envoy,
+		// telemetry, drivers, etc.) are left untouched, mirroring the factory's role guard.
+		if slices.Contains([]string{
+			weka.WekaContainerModeCompute,
+			weka.WekaContainerModeDrive,
+			weka.WekaContainerModeS3,
+			weka.WekaContainerModeNfs,
+			weka.WekaContainerModeSmbw,
+			weka.WekaContainerModeDataServices,
+		}, role) {
+			wantNuma := updatableSpec.Numa.NumaForRole(role)
+			if !reflect.DeepEqual(container.Spec.Numa, wantNuma) {
+				container.Spec.Numa = wantNuma
+			}
 		}
 
 		rv := updatableSpec.forRole(role)

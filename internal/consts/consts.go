@@ -78,4 +78,8 @@ const (
 
 	// ResourceSharedDrivesCapacityTLC is the extended resource name for tracking shared drive capacity of QLC drives (proxy mode)
 	ResourcesSharedDrivesCapacityQLC = "weka.io/shared-drives-capacity-qlc"
+
+	// WekaNumaRegionResourcePrefix is the extended resource name prefix for NUMA region confinement
+	// via the device-plugin method; the region index is appended (e.g. "weka.io/numa-region-1").
+	WekaNumaRegionResourcePrefix = "weka.io/numa-region-"
 )

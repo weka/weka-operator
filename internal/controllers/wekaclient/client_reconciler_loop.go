@@ -501,6 +501,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			Mode:                weka.WekaContainerModeClient,
 			NumCores:            c.getClientCores(),
 			ExtraCores:          wekaClient.Spec.ExtraCores,
+			Numa:                wekaClient.Spec.Numa,
 			CpuPolicy:           wekaClient.Spec.CpuPolicy,
 			CoreIds:             wekaClient.Spec.CoreIds,
 			NonDatapathCoreIds:  wekaClient.Spec.NonDatapathCoreIds,
@@ -736,6 +737,11 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 
 	if container.Spec.ExtraCores != newClientSpec.ExtraCores {
 		container.Spec.ExtraCores = newClientSpec.ExtraCores
+		changed = true
+	}
+
+	if !reflect.DeepEqual(container.Spec.Numa, newClientSpec.Numa) {
+		container.Spec.Numa = newClientSpec.Numa
 		changed = true
 	}
 
@@ -1199,6 +1205,7 @@ type UpdatableClientSpec struct {
 	PortRange          *weka.PortRange
 	CoresNumber        int
 	ExtraCores         int
+	Numa               *weka.WekaNuma
 	Tolerations        []string
 	RawTolerations     []v1.Toleration
 	Labels             *util2.HashableMap
@@ -1237,6 +1244,7 @@ func NewUpdatableClientSpec(wekaClient *weka.WekaClient) *UpdatableClientSpec {
 		PortRange:               getDefaultedPortRange(spec.Port, spec.AgentPort, spec.PortRange),
 		CoresNumber:             spec.CoresNumber,
 		ExtraCores:              spec.ExtraCores,
+		Numa:                    spec.Numa,
 		Tolerations:             spec.Tolerations,
 		RawTolerations:          spec.RawTolerations,
 		Labels:                  labels,

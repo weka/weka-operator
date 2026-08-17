@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime/debug"
 	"time"
 
 	//+kubebuilder:scaffold:imports
@@ -57,6 +59,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/wekacluster"
 	"github.com/weka/weka-operator/internal/controllers/wekacontainer"
 	"github.com/weka/weka-operator/internal/node_agent"
+	"github.com/weka/weka-operator/internal/node_agent/deviceplugin"
 	"github.com/weka/weka-operator/internal/reporter"
 )
 
@@ -139,12 +142,34 @@ func startAsNodeAgent(ctx context.Context, logger logr.Logger) {
 		os.Exit(1)
 	}
 
+	var dpManager *deviceplugin.Manager
+	if config.Config.NodeAgentDevicePlugin.Enabled {
+		dpManager = deviceplugin.NewManager(deviceplugin.ManagerConfig{
+			DevicePluginDir: filepath.Join(config.Config.NodeAgentDevicePlugin.KubeletPath, "device-plugins"),
+		}, logger)
+
+		// Best-effort: the device plugin manager logs its own errors and retries with
+		// backoff internally, and must never take down the node agent HTTP server.
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error(fmt.Errorf("panic: %v", r), "device plugin manager panicked, node agent continuing without it", "stack", string(debug.Stack()))
+				}
+			}()
+			dpManager.Run(ctx)
+		}()
+	}
+
 	go func() {
 		<-ctx.Done()
 		logger.Info("Received interrupt signal, shutting down")
 
 		// Shutdown the node agent first to clean up resources
 		agent.Shutdown()
+
+		if dpManager != nil {
+			dpManager.Stop()
+		}
 
 		if shutdownErr := httpServer.Shutdown(ctx); shutdownErr != nil {
 			logger.Error(shutdownErr, "Failed to shutdown http server")

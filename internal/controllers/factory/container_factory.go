@@ -165,6 +165,13 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		}
 	}
 
+	// NUMA confinement only applies to backend/protocol roles; envoy/telemetry/drivers etc.
+	// are excluded explicitly rather than relying on NumaForRole's fallback to Region.All,
+	// which would otherwise leak a region onto those roles too.
+	if slices.Contains([]string{"compute", "drive", "s3", "nfs", "smbw", "data-services"}, role) {
+		container.Spec.Numa = cluster.Spec.Numa.NumaForRole(role)
+	}
+
 	topologySpreadConstraints := preparePodTopologySpreadConstraints(cluster, role)
 	container.Spec.TopologySpreadConstraints = topologySpreadConstraints
 

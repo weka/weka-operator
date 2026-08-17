@@ -88,6 +88,14 @@ spec:
         - name: host-run
           hostPath:
             path: /run
+        {{- if .Values.nodeAgent.devicePlugin.enabled }}
+        # Kubelet's device-plugins directory: hosts kubelet.sock (registration) and each
+        # plugin's own socket. Required for the NUMA region device plugin.
+        - name: device-plugins
+          hostPath:
+            path: {{ .Values.nodeAgent.kubeletPath | default "/var/lib/kubelet" }}/device-plugins
+            type: DirectoryOrCreate
+        {{- end }}
 
       containers:
         - command:
@@ -125,6 +133,8 @@ spec:
               value: "{{ .Values.manager.loggerSettings.format }}"
             - name: LOG_CALLER_DIR_LVL
               value: "{{ .Values.manager.loggerSettings.callerDirLvl }}"
+            - name: NODE_AGENT_DEVICE_PLUGIN_ENABLED
+              value: "{{ .Values.nodeAgent.devicePlugin.enabled }}"
 
           image: "{{ .Values.image.repository }}:{{if not (empty .Values.image.tag)}}{{ .Values.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"
           imagePullPolicy: Always
@@ -141,6 +151,10 @@ spec:
             - mountPath: /host/run
               name: host-run
               readOnly: true
+            {{- if .Values.nodeAgent.devicePlugin.enabled }}
+            - mountPath: /var/lib/kubelet/device-plugins
+              name: device-plugins
+            {{- end }}
           name: node-agent
           securityContext:
             privileged: true

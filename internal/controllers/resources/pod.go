@@ -1500,6 +1500,14 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 		pod.Spec.Containers[0].Resources.Limits[domain.WEKANICs] = resource.MustParse(strconv.Itoa(f.container.Spec.NumCores))
 	}
 
+	numa := f.container.Spec.Numa
+	if numa != nil && numa.Single && numa.Region != nil &&
+		(numa.Method == "" || numa.Method == weka.WekaNumaMethodDevicePlugin) {
+		numaResourceName := corev1.ResourceName(consts.WekaNumaRegionResourcePrefix + strconv.Itoa(*numa.Region))
+		pod.Spec.Containers[0].Resources.Requests[numaResourceName] = resource.MustParse("1")
+		pod.Spec.Containers[0].Resources.Limits[numaResourceName] = resource.MustParse("1")
+	}
+
 	return nil
 }
 
