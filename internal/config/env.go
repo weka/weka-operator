@@ -108,17 +108,30 @@ type ResourceList struct {
 }
 
 type CsiControllerResources struct {
-	Wekafs         ResourceRequirements `json:"wekafs,omitempty"`
-	CsiAttacher    ResourceRequirements `json:"csiAttacher,omitempty"`
-	CsiProvisioner ResourceRequirements `json:"csiProvisioner,omitempty"`
-	CsiResizer     ResourceRequirements `json:"csiResizer,omitempty"`
-	CsiSnapshotter ResourceRequirements `json:"csiSnapshotter,omitempty"`
+	Wekafs           ResourceRequirements `json:"wekafs,omitempty"`
+	CsiAttacher      ResourceRequirements `json:"csiAttacher,omitempty"`
+	CsiProvisioner   ResourceRequirements `json:"csiProvisioner,omitempty"`
+	CsiResizer       ResourceRequirements `json:"csiResizer,omitempty"`
+	CsiSnapshotter   ResourceRequirements `json:"csiSnapshotter,omitempty"`
+	CsiHealthMonitor ResourceRequirements `json:"csiHealthMonitor,omitempty"`
 }
 
 type CsiNodeResources struct {
 	Wekafs        ResourceRequirements `json:"wekafs,omitempty"`
 	LivenessProbe ResourceRequirements `json:"livenessProbe,omitempty"`
 	CsiRegistrar  ResourceRequirements `json:"csiRegistrar,omitempty"`
+}
+
+// CsiHealthMonitorSettings configures the CSI external health monitor sidecar, which
+// periodically asks the driver for volume condition and reports abnormal volumes as
+// events on the PVC. Requires a csi-wekafs driver that implements VOLUME_CONDITION
+// (>= v2.9.0); see the note on csi.healthMonitor in the chart values.
+type CsiHealthMonitorSettings struct {
+	Enabled bool
+	// MonitorInterval is a Go duration string, e.g. "5m"
+	MonitorInterval string
+	// TimeoutSeconds budgets one full sweep of every volume, not a single request
+	TimeoutSeconds int
 }
 
 type EmbeddedCsiSettings struct {
@@ -131,6 +144,8 @@ type EmbeddedCsiSettings struct {
 	ResizerImage                                  string
 	SnapshotterImage                              string
 	RegistrarImage                                string
+	HealthMonitorImage                            string
+	HealthMonitor                                 CsiHealthMonitorSettings
 	PreventNewWorkloadOnClientContainerNotRunning bool
 	LogLevel                                      int
 	ControllerResources                           CsiControllerResources
@@ -635,6 +650,10 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Csi.ResizerImage = env.GetString("CSI_RESIZER_IMAGE", "")
 	Config.Csi.SnapshotterImage = env.GetString("CSI_SNAPSHOTTER_IMAGE", "")
 	Config.Csi.RegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
+	Config.Csi.HealthMonitorImage = env.GetString("CSI_HEALTHMONITOR_IMAGE", "")
+	Config.Csi.HealthMonitor.Enabled = getBoolEnvOrDefault("CSI_HEALTH_MONITOR_ENABLED", true)
+	Config.Csi.HealthMonitor.MonitorInterval = getEnvOrDefault("CSI_HEALTH_MONITOR_INTERVAL", "5m")
+	Config.Csi.HealthMonitor.TimeoutSeconds = getIntEnvOrDefault("CSI_HEALTH_MONITOR_TIMEOUT_SECONDS", 300)
 	Config.Csi.PreventNewWorkloadOnClientContainerNotRunning = getBoolEnvOrDefault("CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING", true)
 	Config.Csi.LogLevel = getIntEnvOrDefault("CSI_LOG_LEVEL", 5)
 	Config.Csi.HostNetwork = getBoolEnvOrDefault("CSI_HOST_NETWORK", false)
@@ -878,11 +897,12 @@ func getMapEnvOrDefault(envKey string, defaultVal map[string]string) map[string]
 
 func parseCsiControllerResources() CsiControllerResources {
 	return CsiControllerResources{
-		Wekafs:         parseResourceRequirements("CSI_CONTROLLER_WEKAFS"),
-		CsiAttacher:    parseResourceRequirements("CSI_CONTROLLER_ATTACHER"),
-		CsiProvisioner: parseResourceRequirements("CSI_CONTROLLER_PROVISIONER"),
-		CsiResizer:     parseResourceRequirements("CSI_CONTROLLER_RESIZER"),
-		CsiSnapshotter: parseResourceRequirements("CSI_CONTROLLER_SNAPSHOTTER"),
+		Wekafs:           parseResourceRequirements("CSI_CONTROLLER_WEKAFS"),
+		CsiAttacher:      parseResourceRequirements("CSI_CONTROLLER_ATTACHER"),
+		CsiProvisioner:   parseResourceRequirements("CSI_CONTROLLER_PROVISIONER"),
+		CsiResizer:       parseResourceRequirements("CSI_CONTROLLER_RESIZER"),
+		CsiSnapshotter:   parseResourceRequirements("CSI_CONTROLLER_SNAPSHOTTER"),
+		CsiHealthMonitor: parseResourceRequirements("CSI_CONTROLLER_HEALTH_MONITOR"),
 	}
 }
 

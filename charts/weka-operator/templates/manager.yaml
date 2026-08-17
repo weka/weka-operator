@@ -334,6 +334,14 @@ spec:
               value: "{{ .Values.csi.snapshotterImage }}"
             - name: CSI_REGISTRAR_IMAGE
               value: "{{ .Values.csi.registrarImage }}"
+            - name: CSI_HEALTHMONITOR_IMAGE
+              value: "{{ .Values.csi.healthMonitorImage }}"
+            - name: CSI_HEALTH_MONITOR_ENABLED
+              value: "{{ .Values.csi.healthMonitor.enabled }}"
+            - name: CSI_HEALTH_MONITOR_INTERVAL
+              value: "{{ .Values.csi.healthMonitor.monitorInterval | default "5m" }}"
+            - name: CSI_HEALTH_MONITOR_TIMEOUT_SECONDS
+              value: "{{ .Values.csi.healthMonitor.timeoutSeconds | default 300 }}"
             - name: CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING
               value: "{{ .Values.csi.preventNewWorkloadOnClientContainerNotRunning }}"
             - name: CSI_LOG_LEVEL
@@ -386,6 +394,14 @@ spec:
               value: "{{ .Values.csi.controller.resources.csiSnapshotter.requests.cpu }}"
             - name: CSI_CONTROLLER_SNAPSHOTTER_REQUESTS_MEMORY
               value: "{{ .Values.csi.controller.resources.csiSnapshotter.requests.memory }}"
+            - name: CSI_CONTROLLER_HEALTH_MONITOR_LIMITS_CPU
+              value: "{{ .Values.csi.controller.resources.csiHealthMonitor.limits.cpu }}"
+            - name: CSI_CONTROLLER_HEALTH_MONITOR_LIMITS_MEMORY
+              value: "{{ .Values.csi.controller.resources.csiHealthMonitor.limits.memory }}"
+            - name: CSI_CONTROLLER_HEALTH_MONITOR_REQUESTS_CPU
+              value: "{{ .Values.csi.controller.resources.csiHealthMonitor.requests.cpu }}"
+            - name: CSI_CONTROLLER_HEALTH_MONITOR_REQUESTS_MEMORY
+              value: "{{ .Values.csi.controller.resources.csiHealthMonitor.requests.memory }}"
             - name: CSI_CONTROLLER_LIVENESS_PROBE_LIMITS_CPU
               value: "{{ .Values.csi.controller.resources.livenessProbe.limits.cpu }}"
             - name: CSI_CONTROLLER_LIVENESS_PROBE_LIMITS_MEMORY

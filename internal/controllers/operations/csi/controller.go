@@ -29,6 +29,10 @@ type CsiControllerHashableSpec struct {
 	CsiProvisionerImage   string
 	CsiResizerImage       string
 	CsiSnapshotterImage   string
+	CsiHealthMonitorImage string
+	HealthMonitorEnabled  bool
+	HealthMonitorInterval string
+	HealthMonitorTimeout  int
 	Labels                *util2.HashableMap
 	Tolerations           []corev1.Toleration
 	NodeSelector          *util2.HashableMap
@@ -76,6 +80,10 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		CsiProvisionerImage:   config.Config.Csi.ProvisionerImage,
 		CsiResizerImage:       config.Config.Csi.ResizerImage,
 		CsiSnapshotterImage:   config.Config.Csi.SnapshotterImage,
+		CsiHealthMonitorImage: config.Config.Csi.HealthMonitorImage,
+		HealthMonitorEnabled:  config.Config.Csi.HealthMonitor.Enabled,
+		HealthMonitorInterval: config.Config.Csi.HealthMonitor.MonitorInterval,
+		HealthMonitorTimeout:  config.Config.Csi.HealthMonitor.TimeoutSeconds,
 		Labels:                labelsHashable,
 		Tolerations:           tolerations,
 		NodeSelector:          nodeSelectorHashable,
@@ -162,6 +170,11 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 		"--nfsprotocolversion=4.1",
 	}
 
+	// Tied to the health monitor sidecar: with nothing calling ControllerGetVolume,
+	// advertising the capability would only make the driver watch every PV for no
+	// consumer. The flag requires csi-wekafs >= v2.9.0.
+	args = append(args, fmt.Sprintf("--advertisevolumehealthsupport=%t", config.Config.Csi.HealthMonitor.Enabled))
+
 	if !enforceTrustedHttps {
 		args = append(args, "--allowinsecurehttps")
 	}
@@ -180,7 +193,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 		args = append(args, tracingFlag)
 	}
 
-	return &appsv1.Deployment{
+	deployment := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Deployment",
 			APIVersion: "apps/v1",
@@ -623,7 +636,67 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 				},
 			},
 		},
-	}, nil
+	}
+
+	if config.Config.Csi.HealthMonitor.Enabled {
+		podSpec := &deployment.Spec.Template.Spec
+		podSpec.Containers = append(podSpec.Containers, newCsiHealthMonitorContainer())
+	}
+
+	return deployment, nil
+}
+
+// newCsiHealthMonitorContainer builds the CSI external health monitor sidecar, which
+// sweeps the volume fleet and reports abnormal volumes as events on their PVC.
+// Kept in sync with the csi-wekafs chart's controller deployment.
+func newCsiHealthMonitorContainer() corev1.Container {
+	return corev1.Container{
+		Name:      "csi-external-health-monitor-controller",
+		Image:     config.Config.Csi.HealthMonitorImage,
+		Command:   []string{"/shared/wait-for-leader"},
+		Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiHealthMonitor),
+		Args: []string{
+			"/csi-external-health-monitor-controller",
+			"--v=$(LOG_LEVEL)",
+			"--csi-address=$(ADDRESS)",
+			// This budget covers the WHOLE paginated sweep, not one page, so it has to
+			// exceed the time to walk every volume. Too low and the sweep is cut off
+			// mid-fleet and restarts from the beginning next time, leaving the tail
+			// permanently unchecked.
+			fmt.Sprintf("--timeout=%ds", config.Config.Csi.HealthMonitor.TimeoutSeconds),
+			// The sidecar sweeps the fleet with ListVolumes when the driver advertises
+			// LIST_VOLUMES, and falls back to one ControllerGetVolume per volume
+			// otherwise. Those paths read different flags, so set both from the same value.
+			fmt.Sprintf("--monitor-interval=%s", config.Config.Csi.HealthMonitor.MonitorInterval),
+			fmt.Sprintf("--list-volumes-interval=%s", config.Config.Csi.HealthMonitor.MonitorInterval),
+		},
+		Env: []corev1.EnvVar{
+			{
+				Name:  "ADDRESS",
+				Value: "unix:///csi/csi.sock",
+			},
+			{
+				Name:  "LOG_LEVEL",
+				Value: strconv.Itoa(config.Config.Csi.LogLevel),
+			},
+		},
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "socket-dir",
+				MountPath: "/csi",
+			},
+			{
+				Name:      "leader-state",
+				MountPath: "/leader-state",
+				ReadOnly:  true,
+			},
+			{
+				Name:      "shared-bin",
+				MountPath: "/shared",
+			},
+		},
+	}
 }
 
 // Helper function to create pointers to primitive types
