@@ -16,6 +16,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sTypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -27,6 +28,13 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/pkg/util/podexec"
 )
+
+// persistentDirCleanupStartedKey is the Status.Timestamps key stamped on the first discovery wait
+// during persistent-dir cleanup, so a stuck node discovery (e.g. an unschedulable discovery pod) can
+// be detected and surfaced instead of blocking the finalizer forever.
+const persistentDirCleanupStartedKey = "PersistentDirCleanupStarted"
+const persistentDirCleanupDiscoveryTimeout = 10 * time.Minute
+const persistentDirCleanupSlowRequeue = 5 * time.Minute
 
 func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
@@ -124,6 +132,9 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 				logger.Info("node is deleted, no need for cleanup")
 				return nil
 			}
+			if isWaitError(err) {
+				return r.handleCleanupDiscoveryWait(ctx, err)
+			}
 			logger.Error(err, "Error getting node discovery")
 			return err
 		}
@@ -150,6 +161,52 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 	)
 
 	return operations.ExecuteOperation(ctx, op)
+}
+
+// isWaitError reports whether err is a *lifecycle.WaitError, possibly inside one or more
+// *lifecycle.StepRunError layers from ExecuteOperation's engines. StepRunError has no Unwrap,
+// so peel .Err manually — same as the engine's own RunAsReconcilerResponse.
+func isWaitError(err error) bool {
+	for err != nil {
+		if stepErr, ok := err.(*lifecycle.StepRunError); ok {
+			err = stepErr.Err
+			continue
+		}
+		_, ok := err.(*lifecycle.WaitError)
+		return ok
+	}
+	return false
+}
+
+// handleCleanupDiscoveryWait is called when GetNodeInfo returns a wait error during persistent-dir
+// cleanup. Returns the error to propagate.
+func (r *containerReconcilerLoop) handleCleanupDiscoveryWait(ctx context.Context, waitErr error) error {
+	container := r.container
+
+	if container.Status.Timestamps == nil {
+		container.Status.Timestamps = make(map[string]metav1.Time)
+	}
+
+	started, ok := container.Status.Timestamps[persistentDirCleanupStartedKey]
+	if !ok {
+		container.Status.Timestamps[persistentDirCleanupStartedKey] = metav1.Now()
+		if err := r.Status().Update(ctx, container); err != nil {
+			return err
+		}
+		return waitErr
+	}
+
+	if time.Since(started.Time) < persistentDirCleanupDiscoveryTimeout {
+		return waitErr
+	}
+
+	msg := fmt.Sprintf(
+		"node discovery on node %s is not completing; check 'kubectl -n %s describe wekacontainer %s' for the cause",
+		container.GetNodeAffinity(), container.Namespace, operations.DiscoverContainerName(string(container.GetNodeAffinity())),
+	)
+	_ = r.RecordEventThrottled(v1.EventTypeWarning, "PersistentDirCleanupStuck", msg, persistentDirCleanupSlowRequeue) //nolint:errcheck // error return value intentionally not checked
+
+	return lifecycle.NewWaitErrorWithDuration(waitErr, persistentDirCleanupSlowRequeue)
 }
 
 func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Context, pod *v1.Pod, skipExec bool) error {

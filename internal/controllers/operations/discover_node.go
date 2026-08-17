@@ -304,5 +304,10 @@ func (o *DiscoverNodeOperation) HasData() bool {
 }
 
 func (o *DiscoverNodeOperation) getContainerName() string {
-	return fmt.Sprintf("weka-dsc-%s", o.node.Name)
+	return DiscoverContainerName(o.node.Name)
+}
+
+// DiscoverContainerName returns the name of the discovery WekaContainer spawned for a node.
+func DiscoverContainerName(nodeName string) string {
+	return fmt.Sprintf("weka-dsc-%s", nodeName)
 }
