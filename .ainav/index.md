@@ -20,8 +20,12 @@ cmd/manager/main.go          # Operator entry point
 cmd/weka-capacity/           # Dry-run capacity-planner CLI (explore-nodes, plan);
                              #   exec via opt-in toolbox pod (Helm deployCapacityPlanner=true) or run locally
 internal/capacityplanner/    # PURE planner: PlanCapacity + constraints + InfeasibilityReport/fix tips
-  inventory/                 # k8s inventory collector (NodeInventory/Collect/ExploreNodes), shared by
-                             #   the wekacluster controller AND the weka-capacity CLI
+  compute_layout.go          # deriveComputeLayout + fit/ordering primitives shared by both planners
+  cores.go                   # drive/compute core arithmetic (FullDriveCores, RequiredComputeCores, ...)
+  hugepages.go               # hugepages formulas: DriveContainerHugepagesMiB, ComputeContainerHugepagesMiB
+  nodecapacity.go            # NodeCapacity + per-node CPU helpers
+  autofulldrives*.go         # PlanAutoFullDrives: daemonset (exclusive full-drives) planner
+  inventory/                 # k8s inventory collector; NodeInventory (clusterCapacity) vs FullDrivesInventory (daemonset)
 internal/controllers/        # All reconciliation logic
   wekacluster/              # Cluster lifecycle
   wekacontainer/            # Container lifecycle (MOST ACTIVE)

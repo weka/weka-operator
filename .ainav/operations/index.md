@@ -22,7 +22,7 @@ Manual operations, policies, CSI, and driver management.
 |------|---------|
 | `sign_drives.go` | Drive signing for weka use; TLC/QLC type overrides |
 | `block_drives.go` | block-drives/unblock-drives: serial, physical UUID (evicts every VID on that physical), and virtual UUID (evicts one VID only, no capacity recompute) |
-| `discover_drives.go` | Drive discovery via node-agent |
+| `discover_drives.go` | Drive discovery. Runs on `SIGN_DRIVES_IMAGE` (needs `weka-sign-drive` for TLC/QLC typing) |
 | `resign_drives.go` | Force drive re-signing |
 | `stale_virtual_drives.go` | Stale virtual drives detection + gated cleanup. |
 | `rotate_ssdproxy.go` | Rolling ssdproxy image rotation, one node at a time |

@@ -147,6 +147,9 @@ For each strategy, the allocator:
 - Physical drives are categorized by their `Type` field (TLC or QLC) - fetched from node annotation (weka.io/weka-shared-drives)
 - Type information comes from the `weka-sign-drive show --json` output during proxy signing
 - If physical drives don't have type information, drive type ratio allocation will fail
+- Full-drives (non-shared) mode also reads the type now, via `weka-sign-drive list -j`, but only to
+  **reject** QLC: it has no QLC accounting, so QLC drives are excluded from signing and never written
+  to `weka.io/weka-full-drives`. The annotation itself still carries no type.
 
 **Drive Type Overrides:**
 - Default classification (`iu_size_to_drive_type()` in `weka_runtime.py`) can be wrong when IU size

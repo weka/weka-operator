@@ -68,6 +68,14 @@ make test-e2e
 - Comments should be short, explain what the code does and why it is the way it is — nothing else.
   Do NOT write comments about: history or changelog, anything restating the line below it, or narrating obvious mechanics
 - Never swallow errors unless explicitly asked for
+- Comments should be short, explain what the code does and why it is the way it is — nothing else.
+  Do NOT write comments about:
+  - History or changelog ("an earlier revision did X", "previously this was Y",
+    "renamed from Z", "added in PR #123") — that belongs in git or Jira tasks, not the source
+  - The process of writing the code ("as requested", "TODO: I chose this because",
+    self-justification, apologies, notes addressed to a reviewer)
+  - Anything restating the line below it, or narrating obvious mechanics
+  A reader who has never seen the diff should find every comment useful.
 - Controllers use `go-steps-engine` for step-based reconciliation
 - Kubernetes resources use controller-runtime patterns
 - Python code (in charts/resources) uses standard Python style

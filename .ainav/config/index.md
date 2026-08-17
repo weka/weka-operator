@@ -17,7 +17,8 @@ Key config categories:
 - Priority class names
 - Proxy settings (HTTP/HTTPS)
 - Port allocation settings (starting port for cluster port ranges)
-- `ClusterCapacityConfig` — clusterCapacity pod-resource constraints (`TlcCapacityPerCoreGiB`, `QlcCapacityPerCoreGiB`, `MaxComputeCoresPerNode`, `ImbalanceFactor`); Helm names in `cluster-capacity.md` Helm constraints table. (`Consts.UnschedulableDriveContainerGCTimeout` gates GC of long-unscheduled drive containers.)
+- `ClusterCapacityConfig` — clusterCapacity-only pod-resource constraints (`TlcCapacityPerCoreGiB`, `QlcCapacityPerCoreGiB`, `ImbalanceFactor`); Helm names in `cluster-capacity.md` Helm constraints table. `Config.UnschedulablePlannerContainerGCTimeout` gates GC of long-unscheduled drive and compute containers; env var name (`UNSCHEDULABLE_DRIVE_CONTAINER_GC_TIMEOUT`) kept for backward compatibility.
+- `CapacityPlannerConfig` — shared by BOTH planners: `MaxCoresPerContainer` (drive *and* compute cap, default 19), `ComputeToTlcDriveCoreRatio` (1.0), `ComputeToQlcDriveCoreRatio` (0.0), `FullDrivesComputeToDriveCoreRatio` (2.0). Env `CAPACITY_*`, Helm block `capacityPlannerConstraints:` (distinct from the `capacityPlanner:` block, the opt-in toolbox pod's pod-spec), reaches the planners via `allocator.CapacityConstraintsFromConfig` → `capacityplanner.RequiredComputeCores`.
 - Stuck adhoc-op pod timeouts (`STUCK_ADHOC_POD_TIMEOUT`, `STUCK_ADHOC_POD_STARTING_TIMEOUT`) — used by `funcs_oneoff.go`
 - Pod-level securityContext injection (`WEKA_POD_SECURITY_CONTEXT` — JSON-encoded `corev1.PodSecurityContext`) — applied to every privileged/hostPath pod produced by the operator: WekaContainer pods (`pod.go`), CSI node DaemonSet, CSI controller, and prepull/trace/cleanup/pvc-migrate Jobs. Mgmt-proxy and metrics pods are excluded (non-privileged, no hostPath). Today only `appArmorProfile` is propagated (used to satisfy Kyverno `require-apparmor-on-privileged-or-hostpath`); other PodSecurityContext fields parse but `mergePodSecurityContext` ignores them — add a line there to support more. Helper: `internal/controllers/resources/security_context.go` (`ApplySecurityProfile` + `mergePodSecurityContext`). Helm value: `podSecurityContext` (default `{}`).
 
@@ -35,7 +36,7 @@ Key config categories:
 | `resources/weka_runtime.py` | Python runtime for pods |
 | `resources/run-weka-cli.sh` | CLI wrapper script |
 
-`clusterCapacity` operator constraints (`maxComputeCoresPerNode`, `tlcCapacityPerCoreGiB`, `qlcCapacityPerCoreGiB`) are documented in `doc/operator/deployment/cluster-capacity.md` (Helm constraints table).
+Capacity-planner operator constraints — shared `capacityPlannerConstraints.*` (`maxCoresPerContainer`, `driveSharing.computeTo{Tlc,Qlc}DriveCoreRatio`, `fullDrives.computeToDriveCoreRatio`) and clusterCapacity-only `clusterCapacity.*` (`tlcCapacityPerCoreGiB`, `qlcCapacityPerCoreGiB`) — are documented in `doc/operator/deployment/cluster-capacity.md` (Helm constraints table).
 
 ## API Types (CRDs)
 
