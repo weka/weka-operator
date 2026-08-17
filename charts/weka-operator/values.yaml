@@ -542,13 +542,31 @@ csi:
   # Note: toggling this on an existing cluster rolls the CSI node DaemonSet.
   allowMountOptionOverrides: false
   storageClassCreationDisabled: false
-  image: "quay.io/weka.io/csi-wekafs:v2.8.8"
-  provisionerImage: "registry.k8s.io/sig-storage/csi-provisioner:v5.3.0"
-  attacherImage: "registry.k8s.io/sig-storage/csi-attacher:v4.9.0"
-  livenessProbeImage: "registry.k8s.io/sig-storage/livenessprobe:v2.16.0"
-  resizerImage: "registry.k8s.io/sig-storage/csi-resizer:v1.14.0"
-  snapshotterImage: "registry.k8s.io/sig-storage/csi-snapshotter:v8.3.0"
-  registrarImage: "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.14.0"
+  image: "quay.io/weka.io/csi-wekafs:v2.9.2"
+  provisionerImage: "registry.k8s.io/sig-storage/csi-provisioner:v6.3.0"
+  attacherImage: "registry.k8s.io/sig-storage/csi-attacher:v4.12.0"
+  livenessProbeImage: "registry.k8s.io/sig-storage/livenessprobe:v2.19.0"
+  resizerImage: "registry.k8s.io/sig-storage/csi-resizer:v2.2.1"
+  snapshotterImage: "registry.k8s.io/sig-storage/csi-snapshotter:v8.6.0"
+  registrarImage: "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.17.0"
+  healthMonitorImage: "registry.k8s.io/sig-storage/csi-external-health-monitor-controller:v0.18.0"
+  # Volume health monitoring: periodically checks volume condition via the Weka API and
+  # reports abnormal volumes as events on the PVC.
+  #
+  # REQUIRES csi-wekafs >= v2.9.0 (the release pinned in `image` above). The driver is
+  # always passed --advertisevolumehealthsupport, a flag that does not exist in earlier
+  # releases: if you override `image` with v2.8.x or older, the driver will refuse to
+  # start. Pin an older driver only together with a chart that predates this option.
+  healthMonitor:
+    enabled: true
+    # How often to check volume health
+    monitorInterval: 5m
+    # Time budget for one full sweep of every volume, in seconds. This is not a per-request
+    # timeout: the sidecar walks all pages under a single deadline, so a fleet that takes
+    # longer than this is cut off mid-sweep and restarted from the beginning, leaving later
+    # volumes permanently unchecked. Measured at roughly 15 seconds per 1000 volumes; raise
+    # it for larger fleets.
+    timeoutSeconds: 300
   preventNewWorkloadOnClientContainerNotRunning: true
   logLevel: 5
   hostNetwork: false
@@ -583,6 +601,13 @@ csi:
           cpu: 4m
           memory: 48Mi
       csiSnapshotter:
+        limits:
+          cpu: 1
+          memory: 1Gi
+        requests:
+          cpu: 4m
+          memory: 48Mi
+      csiHealthMonitor:
         limits:
           cpu: 1
           memory: 1Gi
