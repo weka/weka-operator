@@ -8,7 +8,6 @@ import (
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/capacityplanner/inventory"
-	"github.com/weka/weka-operator/internal/controllers/allocator"
 )
 
 func intPtr(i int) *int           { return &i }
@@ -77,7 +76,7 @@ func TestRatioString(t *testing.T) {
 // TestApplyConstraintOverrides verifies the top-layer precedence: only set (non-nil) flags override the
 // base, and unset flags leave the base value untouched.
 func TestApplyConstraintOverrides(t *testing.T) {
-	base := &allocator.CapacityConstraints{
+	base := &capacityplanner.CapacityConstraints{
 		TlcCapacityPerCoreGiB:    5120,
 		QlcCapacityPerCoreGiB:    51200,
 		ImbalanceFactor:          8.0,
@@ -129,7 +128,7 @@ func TestComputeGrowDiff(t *testing.T) {
 }
 
 // TestRenderPlanText_Infeasible checks the INFEASIBLE section renders the reason, binding and fixes, and
-// that a partial create table under an infeasible plan is relabeled as NOT applied (not a bare "create").
+// that a partial create table under an infeasible plan is relabeled as not applied (not a bare "create").
 func TestRenderPlanText_Infeasible(t *testing.T) {
 	d := planData{
 		Cluster:         "test-cluster",
@@ -137,7 +136,7 @@ func TestRenderPlanText_Infeasible(t *testing.T) {
 		Ratio:           "1:0",
 		SW:              3, RL: 2, HS: 1,
 		MinChunkGiB: 384,
-		Plan: &allocator.CapacityPlan{
+		Plan: &capacityplanner.CapacityPlan{
 			Infeasible: "TLC: not enough failure domains",
 			Infeasibility: &capacityplanner.InfeasibilityReport{
 				Reason:  "TLC: not enough failure domains",
@@ -158,7 +157,7 @@ func TestRenderPlanText_Infeasible(t *testing.T) {
 			t.Errorf("plan text missing %q\n---\n%s", want, out)
 		}
 	}
-	// The bare, actionable-looking "  create\n" header must NOT appear when infeasible.
+	// The bare, actionable-looking "  create\n" header must not appear when infeasible.
 	if strings.Contains(out, "\n  create\n") {
 		t.Errorf("infeasible plan text shows a bare 'create' header (should be relabeled)\n---\n%s", out)
 	}
@@ -166,14 +165,14 @@ func TestRenderPlanText_Infeasible(t *testing.T) {
 
 // TestPlanSummary covers the SUMMARY footer for both feasible and infeasible plans.
 func TestPlanSummary(t *testing.T) {
-	desired := allocator.DesiredCapacity{TlcRawGiB: 23296, QlcRawGiB: 23296}
+	desired := capacityplanner.DesiredCapacity{TlcRawGiB: 23296, QlcRawGiB: 23296}
 	create := []capacityplanner.NewContainer{
 		{Node: "node07", TlcGiB: 3840, Type: "tlc", NumCores: 1},
 		{Node: "node08", TlcGiB: 3840, Type: "tlc", NumCores: 1},
 	}
 
 	// Infeasible: QLC blocks; only a partial TLC placement exists — must be flagged not-applied.
-	infeasible := &allocator.CapacityPlan{
+	infeasible := &capacityplanner.CapacityPlan{
 		Infeasible:    "QLC: not enough failure domains",
 		Infeasibility: &capacityplanner.InfeasibilityReport{Pool: "qlc"},
 		Create:        create,
@@ -187,19 +186,19 @@ func TestPlanSummary(t *testing.T) {
 			t.Errorf("infeasible summary missing %q\n---\n%s", want, got)
 		}
 	}
-	// The misleading feasible-style "create raw +" phrasing must NOT appear.
+	// The misleading feasible-style "create raw +" phrasing must not appear.
 	if strings.Contains(got, "create raw +") {
 		t.Errorf("infeasible summary must not use feasible 'create raw +' phrasing\n---\n%s", got)
 	}
 
 	// Infeasible with no partial placement → "No placement could be made."
-	empty := &allocator.CapacityPlan{Infeasible: "TLC: capacity bound", Infeasibility: &capacityplanner.InfeasibilityReport{Pool: "tlc"}}
+	empty := &capacityplanner.CapacityPlan{Infeasible: "TLC: capacity bound", Infeasibility: &capacityplanner.InfeasibilityReport{Pool: "tlc"}}
 	if got = planSummary(empty, &inventory.Result{}, desired); !strings.Contains(got, "No placement could be made") {
 		t.Errorf("infeasible/no-create summary should say no placement could be made, got: %q", got)
 	}
 
-	// Feasible: the original "create raw +... target raw ..." format is unchanged.
-	feasible := &allocator.CapacityPlan{Create: create}
+	// Feasible: format is "create raw +... target raw ...".
+	feasible := &capacityplanner.CapacityPlan{Create: create}
 	got = planSummary(feasible, &inventory.Result{}, desired)
 	for _, want := range []string{"create raw +", "across 2 new node(s)", "target raw"} {
 		if !strings.Contains(got, want) {

@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/capacityplanner"
 	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -57,7 +58,7 @@ func (clusterCapacityChunkFeasibility) Validate(ctx context.Context, c client.Cl
 		return nil
 	}
 
-	raw := allocator.RawCapacityGiB(capGiB, sw, rl, hs)
+	raw := capacityplanner.RawCapacityGiB(capGiB, sw, rl, hs)
 	tlcRaw, qlcRaw := weka.GetTlcQlcCapacity(raw, cluster.Spec.Dynamic.DriveTypesRatio)
 	numFDmin := sw + rl + hs
 

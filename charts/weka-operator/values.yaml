@@ -345,11 +345,24 @@ smbw:
   # Default: 8Gi
   shmSize: "8Gi"
 
+# Capacity planner constraints
+capacityPlannerConstraints:
+  # Weka's own per-container core cap (drive or compute). Default: 19.
+  maxCoresPerContainer: 19
+  # requiredComputeCores = max(totalDriveCores, ceil(tlcRatio*tlcCores + qlcRatio*qlcCores)) — the
+  # drive-core count itself is always a hard 1:1 floor regardless of these ratios.
+  driveSharing:
+    # Compute:TLC-drive-core ratio. Default: 1.0.
+    computeToTlcDriveCoreRatio: 1.0
+    # Compute:QLC-drive-core ratio. Default: 0.0.
+    computeToQlcDriveCoreRatio: 0.0
+  fullDrives:
+    # Compute:drive-core ratio. Default: 2.0.
+    computeToDriveCoreRatio: 2.0
+
 # Cluster capacity configuration
 # Used when spec.dynamicTemplate.clusterCapacity is set on a WekaCluster.
 clusterCapacity:
-  # Maximum compute cores the operator will schedule on a single node.
-  maxComputeCoresPerNode: 16
   # Max TLC capacity (GiB) one drive core can serve. Default: 5 TiB = 5120 GiB.
   tlcCapacityPerCoreGiB: 5120
   # Max QLC capacity (GiB) one drive core can serve. Default: 50 TiB = 51200 GiB.

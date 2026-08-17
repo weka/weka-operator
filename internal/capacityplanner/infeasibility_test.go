@@ -119,6 +119,36 @@ func TestInfeasibilityReport_ByClass(t *testing.T) {
 	}
 }
 
+// An ineligible node must be rejected for its own reason ("ineligible (<reason>)"), not passed as a
+// usable candidate because it has free headroom.
+func TestInfeasibilityReport_RejectedNodes_IneligibleNode(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	inv := nodes(6, 70*tib, 0, 64, "n")
+	// n6 has plenty of TLC headroom otherwise.
+	inv[5].IneligibleReason = "cordoned"
+	plan := planCap(desiredFrom(10*tib, s, ratio(1, 0)), s, nil, inv, testCons())
+
+	if plan.Infeasible == "" {
+		t.Fatalf("expected an infeasible plan (only 5 of 6 candidate nodes usable — n6 is cordoned), got feasible")
+	}
+	if plan.Infeasibility == nil {
+		t.Fatalf("Infeasibility report must be populated whenever Infeasible is set")
+	}
+	var got *NodeRejection
+	for i := range plan.Infeasibility.RejectedNodes {
+		if plan.Infeasibility.RejectedNodes[i].Node == "n6" {
+			got = &plan.Infeasibility.RejectedNodes[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("RejectedNodes = %+v, want an entry for n6 (cordoned)", plan.Infeasibility.RejectedNodes)
+	}
+	if got.Binding != "ineligible (cordoned)" {
+		t.Errorf("n6's Binding = %q, want %q — an ineligible node's own rejection cause, not a headroom binding",
+			got.Binding, "ineligible (cordoned)")
+	}
+}
+
 // TestInfeasibilityReport_NilWhenFeasible asserts a feasible plan leaves the structured report nil.
 func TestInfeasibilityReport_NilWhenFeasible(t *testing.T) {
 	s := testScheme()

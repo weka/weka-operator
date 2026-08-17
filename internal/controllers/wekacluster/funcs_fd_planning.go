@@ -11,6 +11,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/capacityplanner/inventory"
 	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
@@ -18,28 +19,23 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-// protectionScheme resolves the effective protection scheme, applying the per-cluster spec values
-// when set and falling back to the Helm-level defaults (PROTECTION_STRIPE_WIDTH / _REDUNDANCY_LEVEL /
-// _HOT_SPARE) otherwise. This mirrors the clusterCapacityProtection webhook and FormCluster so the
-// capacity planner forms exactly what admission accepted (a clusterCapacity cluster relying on the
-// defaults would otherwise pass admission but deadlock as Infeasible / divide-by-zero here).
-func (r *wekaClusterReconcilerLoop) protectionScheme() allocator.ProtectionScheme {
+// protectionScheme resolves the effective protection scheme, falling back to Helm-level defaults. Mirrors
+// clusterCapacityProtection/FormCluster so a defaulted cluster can't pass admission then deadlock as Infeasible.
+func (r *wekaClusterReconcilerLoop) protectionScheme() capacityplanner.ProtectionScheme {
 	sw, rl, hs := globalconfig.Config.DriveSharing.EffectiveProtection(
 		r.cluster.Spec.StripeWidth, r.cluster.Spec.RedundancyLevel, r.cluster.Spec.HotSpare,
 	)
-	return allocator.ProtectionScheme{
+	return capacityplanner.ProtectionScheme{
 		StripeWidth:     sw,
 		RedundancyLevel: rl,
 		HotSpare:        hs,
 	}
 }
 
-// planClusterCapacity is the single entry point for clusterCapacity planning. It resolves the desired
-// per-pool target, builds the per-node remaining headroom (net of ALL weka drive containers — other
-// clusters AND this cluster's own — so it is pure remaining capacity) via the shared inventory collector,
-// the existing-container view, and runs the pure allocator.PlanCapacity. It emits warnings/shrink events,
-// logs the decision, and returns a WaitError when the plan is infeasible so the reconcile retries.
-func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*allocator.CapacityPlan, error) {
+// planClusterCapacity is the entry point for clusterCapacity planning: it builds the desired per-pool
+// target and per-node remaining headroom (net of ALL weka drive containers, not just this cluster's),
+// runs capacityplanner.PlanCapacity, emits warning/shrink events, and returns a WaitError when infeasible.
+func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*capacityplanner.CapacityPlan, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "planClusterCapacity")
 	defer logger.End()
 
@@ -50,9 +46,9 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*a
 	if err != nil {
 		return nil, err
 	}
-	raw := allocator.RawCapacityGiB(capGiB, s.StripeWidth, s.RedundancyLevel, s.HotSpare)
+	raw := capacityplanner.RawCapacityGiB(capGiB, s.StripeWidth, s.RedundancyLevel, s.HotSpare)
 	tlcRaw, qlcRaw := weka.GetTlcQlcCapacity(raw, cluster.Spec.Dynamic.DriveTypesRatio)
-	desired := allocator.DesiredCapacity{
+	desired := capacityplanner.DesiredCapacity{
 		TlcRawGiB:         tlcRaw,
 		QlcRawGiB:         qlcRaw,
 		ComputeContainers: cluster.Spec.Dynamic.ComputeContainers, // 0 == unset (auto-derive)
@@ -61,52 +57,33 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*a
 		DriveCores:        cluster.Spec.Dynamic.DriveCores,        // 0 == unset (auto-derive)
 	}
 
-	cons := allocator.CapacityConstraintsFromConfig()
-	// The drive/compute PODS request hugepages = base×cores + DPDK base memory×cores (added by
-	// GetContainerHugepages). Feed the per-role DPDK base into the planner so its node-fit gate reserves
-	// the same hugepages the scheduler will. Per-role, honoring cluster spec overrides.
-	cons.DriveDpdkPerCoreMiB = utils.GetDpdkBaseMemoryMbByRole(&cluster.Spec, weka.WekaContainerModeDrive)
-	cons.ComputeDpdkPerCoreMiB = utils.GetDpdkBaseMemoryMbByRole(&cluster.Spec, weka.WekaContainerModeCompute)
-	// The drive/compute PODS reserve physical CPU = f(numCores, cpuPolicy, node HT); a data core costs 2
-	// physical CPUs under dedicated_ht on an HT node. Feed the cluster's cpuPolicy (empty == auto) so the
-	// planner's node-CPU gate projects fresh containers the same way. All cluster-built containers use
-	// cluster.Spec.CpuPolicy (container_factory.go).
-	cons.CpuPolicy = cluster.Spec.CpuPolicy
+	// Per-role DPDK/cpuPolicy overrides so the planner's fit gates reserve hugepages/CPU exactly as the
+	// scheduler will (container_factory.go builds cluster containers with cluster.Spec.CpuPolicy).
+	cons := allocator.ConstraintsForClusterSpec(&cluster.Spec)
 
-	// Transient-churn guard: while any of this cluster's drive containers is alive but momentarily
-	// unscheduled (its pod is being (re)created — e.g. a mass `kubectl delete pod` during a grow), the
-	// live failure-domain set is transiently reduced. Planning against that reduced snapshot would
-	// grow-only concentrate the fixed total raw capacity onto the survivors and never recover. Defer
-	// planning until the churn settles — the reconcile requeues and self-heals once the pods reschedule.
-	// Containers that are marked-for-deletion/deleting/destroying are deliberately NOT counted here: they
-	// are already excluded from the existing view and are going away, so planning proceeds and ignores
-	// them rather than stalling forever.
+	// Transient-churn guard: while a drive container is unscheduled (pod being (re)created), the live
+	// failure-domain set is temporarily reduced, and planning against that snapshot would wrongly
+	// concentrate capacity onto the survivors. Defer here; the reconcile retries once pods settle.
 	if name, transient := firstUnscheduledDriveContainer(r.containers); transient {
-		_ = r.RecordEventThrottled(corev1.EventTypeNormal, "ClusterCapacityDeferred", //nolint:errcheck // best effort
-			fmt.Sprintf("deferring clusterCapacity planning: drive container %s is unscheduled (pod (re)scheduling); will retry once it settles", name),
-			time.Minute)
+		r.emitPlannerEvent(reasonClusterCapacityDeferred, "",
+			fmt.Sprintf("deferring clusterCapacity planning: drive container %s is unscheduled (pod (re)scheduling); will retry once it settles", name))
 		logger.Debug("deferring clusterCapacity planning while a drive container is transiently unscheduled", "container", name)
 		return r.noopCapacityPlan(ctx, cons), nil
 	}
 
-	// Steady-state fast path: if this cluster's existing healthy drive containers already cover the
-	// desired per-pool capacity AND compute needs no change, there is nothing to place — return a no-op
-	// plan WITHOUT rebuilding the expensive node inventory (which lists every candidate node and reads
-	// each node's shared-drive annotation). Any change that reduces our current (container/node loss)
-	// drops cur below desired and re-engages the full plan below, so correctness self-heals.
+	// Steady-state fast path: if existing healthy drive containers already cover the desired capacity and
+	// compute needs no change, skip the expensive node-inventory rebuild and return a no-op plan — any
+	// capacity loss drops us below desired and re-engages the full plan below, so correctness self-heals.
 	if plan, skip := r.steadyStatePlan(ctx, desired, s, cons); skip {
 		return plan, nil
 	}
 
-	// Node inventory + existing-container view come from the shared collector (also used by the
-	// weka-capacity dry-run CLI). The buildNodeInventoryFn seam overrides only the node-listing step in
-	// tests; the existing-drive/compute views are always derived from this cluster's own containers. The
-	// collector (and its client) is constructed only when the seam is unset, so seam-driven tests need no
-	// Manager/client.
+	// buildNodeInventoryFn is a test seam overriding only the node-listing step (nil in production, where
+	// the shared inventory.Collector is used — also the source for the weka-capacity dry-run CLI).
 	buildInventory := r.buildNodeInventoryFn // test seam (nil in production)
 	if buildInventory == nil {
 		col := inventory.NewCollector(r.getClient())
-		buildInventory = func(ctx context.Context) (map[string]string, []allocator.NodeCapacity, map[string]bool, error) {
+		buildInventory = func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 			return col.NodeInventory(ctx, cluster, r.containers, cons)
 		}
 	}
@@ -117,7 +94,7 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*a
 	existingDrives := inventory.ExistingDrives(ctx, cluster, r.containers, fdByNode)
 	existingCompute := inventory.ExistingCompute(ctx, r.containers)
 
-	plan := allocator.PlanCapacity(desired, s, existingDrives, existingCompute, nodeInv, computeNodes, cons)
+	plan := capacityplanner.PlanCapacity(desired, s, existingDrives, existingCompute, nodeInv, computeNodes, cons)
 
 	logger.Info("clusterCapacity plan",
 		"desiredTlcGiB", desired.TlcRawGiB, "desiredQlcGiB", desired.QlcRawGiB,
@@ -134,35 +111,170 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*a
 	// the shrink/heterogeneous-growth/over-provision advisories (they would just be noise on a plan
 	// that creates/grows nothing).
 	if plan.Infeasible != "" {
-		_ = r.RecordEventThrottled(corev1.EventTypeWarning, "ClusterCapacityInfeasible", plan.Infeasible, time.Minute) //nolint:errcheck // best effort
+		r.emitPlannerEvent(reasonClusterCapacityInfeasible, "", plan.Infeasible)
 		return nil, lifecycle.NewWaitErrorWithDuration(fmt.Errorf("clusterCapacity infeasible: %s", plan.Infeasible), time.Minute)
 	}
 	for _, msg := range plan.ShrinkEvents {
-		_ = r.RecordEventThrottled(corev1.EventTypeNormal, "ClusterCapacityShrink", msg, time.Minute) //nolint:errcheck // best effort
+		r.emitPlannerEvent(reasonClusterCapacityShrink, "", msg)
 	}
-	for _, msg := range plan.Warnings {
-		_ = r.RecordEventThrottled(corev1.EventTypeWarning, "ClusterCapacityHeterogeneousGrowth", msg, time.Minute) //nolint:errcheck // best effort
+	// clusterCapacity uses a single reason for all its warnings (layout advisories); only the message is
+	// read from the classified Warning. Auto full drives instead splits by cause (autoFullDrivesWarningReason).
+	for _, w := range plan.Warnings {
+		r.emitPlannerEvent(reasonClusterCapacityHeterogeneousGrowth, "", w.Message)
 	}
 	for _, msg := range plan.OverProvisions {
-		_ = r.RecordEventThrottled(corev1.EventTypeNormal, "ClusterCapacityOverProvisioned", msg, time.Minute) //nolint:errcheck // best effort
+		r.emitPlannerEvent(reasonClusterCapacityOverProvisioned, "", msg)
 	}
-	// Feasible plan that actually places capacity (creates/grows containers): emit a Normal event with a
-	// plan summary so operators get a positive signal (e.g. after recovering from ClusterCapacityInfeasible
-	// by adding a node). Gated on Create/Grow so steady-state reconciles stay silent; throttled to avoid
-	// spam across the repeated reconciles while the new containers materialize.
+	// Feasible plan that places capacity: emit a Normal summary event, gated on Create/Grow so steady-state
+	// reconciles stay silent.
 	if len(plan.Create) > 0 || len(plan.Grow) > 0 {
-		_ = r.RecordEventThrottled(corev1.EventTypeNormal, "ClusterCapacityPlanned", //nolint:errcheck // best effort
-			formatCapacityPlanSummary(&plan, desired, s, existingDrives), time.Minute)
+		r.emitPlannerEvent(reasonClusterCapacityPlanned, "",
+			formatCapacityPlanSummary(&plan, desired, s, existingDrives))
 	}
 	return &plan, nil
 }
 
-// formatCapacityPlanSummary renders a one-line human summary of a feasible clusterCapacity plan for the
-// ClusterCapacityPlanned event. Beyond bare counts it reports: the create breakdown by pool type
-// (mixed/TLC/QLC), the per-FD chunk and the capacity placed by creates; the grow leg's added capacity
-// and from→to cores (looked up against existingDrives); the compute node spread; minFdNum; and the
-// placed-vs-target raw capacity / protection.
-func formatCapacityPlanSummary(plan *allocator.CapacityPlan, desired allocator.DesiredCapacity, s allocator.ProtectionScheme, existingDrives []allocator.ExistingContainer) string {
+// planAutoFullDrives is the entry point for auto-full-drives planning: one node-pinned container per
+// drive-role node, sized from that node's own signed drives (the opposite of clusterCapacity's uniform
+// whole-cluster target). It has neither a steady-state short-circuit nor a transient-churn guard: its
+// containers are pinned regardless of scheduling state, and it plans against the fleet's own drives.
+func (r *wekaClusterReconcilerLoop) planAutoFullDrives(ctx context.Context) (*capacityplanner.CapacityPlan, error) {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "planAutoFullDrives")
+	defer logger.End()
+
+	cluster := r.cluster
+	// An omitted spec.dynamicTemplate is this mode — the shortest way to ask for it — so a nil here is the
+	// common case, not an edge one, and every pin below reads as unset.
+	dyn := cluster.Spec.Dynamic
+	if dyn == nil {
+		dyn = &weka.WekaClusterTemplate{}
+	}
+
+	// No ComputeContainers/DriveContainers fields here: under the both-or-neither CEL rule, reaching this
+	// planning path already means both are unset on dyn — see AutoFullDrivesDesired's doc comment.
+	desired := capacityplanner.AutoFullDrivesDesired{
+		ComputeCores: dyn.ComputeCores, // 0 == unset (auto-derive)
+		DriveCores:   dyn.DriveCores,   // 0 == unset (auto-derive)
+		NumDrives:    dyn.NumDrives,    // 0 == unset (take every signed drive)
+	}
+
+	cons := allocator.ConstraintsForClusterSpec(&cluster.Spec)
+
+	// Full-drives inventory reads a disjoint annotation from NodeInventory (see FullDrivesInventory).
+	buildInventory := r.buildFullDrivesInventoryFn // test seam (nil in production)
+	if buildInventory == nil {
+		col := inventory.NewCollector(r.getClient())
+		buildInventory = func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
+			return col.FullDrivesInventory(ctx, cluster, r.containers, cons)
+		}
+	}
+	fdByNode, nodeInv, computeNodes, err := buildInventory(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// nodeInv also carries compute-selector nodes with no drives (for compute headroom), so a bare
+	// len(nodeInv)==0 check is wrong — check for a node actually carrying drives. "Signed" means own OR
+	// free: on a fully-converged cluster every drive is owned, so a free-only test would misreport a
+	// healthy cluster as unsigned.
+	hasSignedDrives := false
+	for i := range nodeInv {
+		n := &nodeInv[i]
+		if len(n.DriveCapacitiesGiB) > 0 || len(n.OwnDriveCapacitiesGiB) > 0 {
+			hasSignedDrives = true
+			break
+		}
+	}
+	if !hasSignedDrives {
+		r.emitPlannerEvent(reasonAutoFullDrivesNoSignedDrives, "",
+			"deferring auto full drives planning: no node matching the drive-role selector has any signed, non-blocked full drive yet; sign drives (weka.io/weka-full-drives) and the operator will pick them up on its own")
+		logger.Debug("deferring auto full drives planning: no node has signed full drives yet", "candidateNodes", len(nodeInv))
+		return nil, lifecycle.NewWaitErrorWithDuration(fmt.Errorf("auto full drives: no node has signed full drives yet"), time.Minute)
+	}
+
+	existingDrives := inventory.ExistingDrives(ctx, cluster, r.containers, fdByNode)
+	existingCompute := inventory.ExistingCompute(ctx, r.containers)
+
+	plan := capacityplanner.PlanAutoFullDrives(desired, existingDrives, existingCompute, nodeInv, computeNodes, cons)
+
+	// Drive-core totals for the log line: DriveSizing is populated by PlanAutoFullDrives on every return
+	// path, but the nil-guard keeps this log statement safe even if that invariant ever slips. There are
+	// no cap/attempt fields to report — drive cores are min(driveCount, maxCoresPerContainer) or the pin,
+	// and are never traded down to fit compute, so there is no search and nothing to explain.
+	var dsDrivesTaken, dsDrivesAvailable, dsDriveCores int
+	if ds := plan.DriveSizing; ds != nil {
+		dsDrivesTaken, dsDrivesAvailable, dsDriveCores = ds.DrivesTaken, ds.DrivesAvailable, ds.TotalTlcDriveCores
+	}
+	logger.Info("auto full drives plan",
+		"candidateNodes", len(nodeInv), "existingDrives", len(existingDrives), "create", len(plan.Create),
+		"infeasible", plan.Infeasible,
+		"drivesTaken", dsDrivesTaken, "drivesAvailable", dsDrivesAvailable, "driveCores", dsDriveCores)
+	for i := range nodeInv {
+		n := &nodeInv[i]
+		logger.Debug("auto full drives node headroom", "node", n.NodeName, "driveCapacitiesGiB", n.DriveCapacitiesGiB,
+			"cores", n.AllocatableCPU, "hugepagesMiB", n.AvailableHugepagesMiB, "memoryMiB", n.AvailableMemoryMiB)
+	}
+
+	// An infeasible plan is the sole signal: emit only AutoFullDrivesInfeasible and return, skipping the
+	// warnings advisory (it would just be noise on a plan that creates nothing).
+	if plan.Infeasible != "" {
+		r.emitPlannerEvent(reasonAutoFullDrivesInfeasible, "", plan.Infeasible)
+		return nil, lifecycle.NewWaitErrorWithDuration(fmt.Errorf("auto full drives infeasible: %s", plan.Infeasible), time.Minute)
+	}
+	// Drive cores are never traded away to make compute fit — a fleet that cannot host the required
+	// compute is infeasible above, not silently converged at a smaller core count.
+	//
+	// plan.Grow is not announced here: applyPlannerDriveGrowth can decline an entry or fail its Update,
+	// and emits AutoFullDrivesGrowthDetected for what it actually wrote.
+
+	// One reason per cause, throttled per subject (not message) so N constrained nodes each get their own
+	// event instead of the first starving the rest.
+	for _, w := range plan.Warnings {
+		r.emitPlannerEvent(autoFullDrivesWarningReason(w.Kind), w.Subject, w.Message)
+	}
+	// Gated on Create only: plan.Grow is applied separately by applyPlannerDriveGrowth, whose caller emits
+	// own cluster-level AutoFullDrivesGrowthDetected and per-container CapacityGrowthApplied events.
+	if len(plan.Create) > 0 {
+		r.emitPlannerEvent(reasonAutoFullDrivesPlanned, "", formatAutoFullDrivesPlanSummary(&plan))
+	}
+	return &plan, nil
+}
+
+// formatAutoFullDrivesPlanSummary renders a one-line summary of a feasible auto-full-drives plan's Create
+// leg for the AutoFullDrivesPlanned event; plan.Grow gets its own CapacityGrowthApplied event from
+// announceDriveGrowth instead. Simpler than formatCapacityPlanSummary since auto full drives has no
+// TLC/QLC-ratio target or protection scheme.
+func formatAutoFullDrivesPlanSummary(plan *capacityplanner.CapacityPlan) string {
+	nodes := map[string]struct{}{}
+	var placedGiB int
+	for _, c := range plan.Create {
+		nodes[c.Node] = struct{}{}
+		placedGiB += c.TlcGiB + c.QlcGiB
+	}
+	summary := fmt.Sprintf("auto full drives plan applied: creating %d drive container(s) across %d node(s), placing %s",
+		len(plan.Create), len(nodes), util.HumanReadableGiB(placedGiB))
+	if len(plan.ComputeLayout) > 0 {
+		computeNodes := map[string]struct{}{}
+		var totalCores int
+		for _, c := range plan.ComputeLayout {
+			computeNodes[c.Node] = struct{}{}
+			totalCores += c.NumCores
+		}
+		summary += fmt.Sprintf("; compute %d container(s), %d cores on %d node(s)",
+			len(plan.ComputeLayout), totalCores, len(computeNodes))
+	}
+	// Always append the rationale when there is one — it states what was planned.
+	if ds := plan.DriveSizing; ds != nil && ds.Reason != "" {
+		summary += "; " + ds.Reason
+	}
+	return summary
+}
+
+// formatCapacityPlanSummary renders a one-line summary of a feasible clusterCapacity plan for the
+// ClusterCapacityPlanned event: create breakdown by pool type, per-FD chunk and placed capacity; the grow
+// leg's added capacity and from→to cores (vs existingDrives); compute spread; minFdNum; and
+// placed-vs-target raw capacity/protection.
+func formatCapacityPlanSummary(plan *capacityplanner.CapacityPlan, desired capacityplanner.DesiredCapacity, s capacityplanner.ProtectionScheme, existingDrives []capacityplanner.ExistingContainer) string {
 	var parts []string
 
 	// --- Create leg: type breakdown, per-FD chunk, and capacity placed ---
@@ -188,13 +300,12 @@ func formatCapacityPlanSummary(plan *allocator.CapacityPlan, desired allocator.D
 			}
 		}
 		fdCount := len(fds)
-		// When the creates are all one type, fold the type into the noun ("creating 3 QLC drive
-		// container(s)"); a bracketed breakdown only adds information when they span types ("[2 mixed,
-		// 1 TLC]"), so "3 drive container(s) [3 QLC]" — which just restates the count — never appears.
+		// Fold the type into the noun when creates are homogeneous ("3 QLC drive container(s)"); the
+		// bracketed breakdown only appears when types are mixed, so it never merely restates the count.
 		var create string
 		if mixedKinds := nonZeroKinds(mixed, tlcOnly, qlcOnly); len(mixedKinds) == 1 {
 			create = fmt.Sprintf("creating %d %s drive container(s) across %d node(s) / %d failure domain(s)",
-				len(plan.Create), soleKindLabel(mixed, tlcOnly, qlcOnly), len(nodes), fdCount)
+				len(plan.Create), soleKindLabel(tlcOnly, qlcOnly), len(nodes), fdCount)
 		} else {
 			create = fmt.Sprintf("creating %d drive container(s) [%s] across %d node(s) / %d failure domain(s)",
 				len(plan.Create), strings.Join(mixedKinds, ", "), len(nodes), fdCount)
@@ -209,7 +320,7 @@ func formatCapacityPlanSummary(plan *allocator.CapacityPlan, desired allocator.D
 	// --- Grow leg: added capacity and from→to cores (vs existingDrives) ---
 	var growTlc, growQlc int
 	if len(plan.Grow) > 0 {
-		oldByName := make(map[string]allocator.ExistingContainer, len(existingDrives))
+		oldByName := make(map[string]capacityplanner.ExistingContainer, len(existingDrives))
 		for _, e := range existingDrives {
 			oldByName[e.Name] = e
 		}
@@ -292,7 +403,7 @@ func nonZeroKinds(mixed, tlcOnly, qlcOnly int) []string {
 
 // soleKindLabel returns the bare type label ("mixed"/"TLC"/"QLC") of whichever bucket is the only non-zero
 // one. Callers must guarantee exactly one of the three is non-zero (the homogeneous create case).
-func soleKindLabel(mixed, tlcOnly, qlcOnly int) string {
+func soleKindLabel(tlcOnly, qlcOnly int) string {
 	switch {
 	case tlcOnly > 0:
 		return "TLC"
@@ -303,16 +414,9 @@ func soleKindLabel(mixed, tlcOnly, qlcOnly int) string {
 	}
 }
 
-// firstUnscheduledDriveContainer returns the name of the first owned drive container that is alive
-// (not marked-for-deletion / deleting / destroying) yet has no scheduled node — its pod is being
-// (re)created (Status.NodeAffinity == ""). Containers that are leaving are skipped on purpose: they
-// must not stall planning. Returns ok=false when every alive drive container is scheduled.
-//
-// Capacity is gauged via inventory.DriveContainerCapacities (not HasContainerCapacity) so that a
-// container expressing capacity through Spec.DriveCapacity/NumDrives — not only Spec.ContainerCapacity —
-// also forces deferral. This keeps the planner's invariant honest: no capacity-bearing unscheduled drive
-// container ever reaches the capacity planner, which is what makes the planner's Unscheduled skips
-// safe (they stay purely defensive).
+// firstUnscheduledDriveContainer returns the name of the first alive, capacity-bearing drive container
+// with no scheduled node, or ok=false if none. Capacity is gauged via inventory.DriveContainerCapacities
+// so a Spec.DriveCapacity/NumDrives-only container also forces deferral.
 func firstUnscheduledDriveContainer(containers []*weka.WekaContainer) (string, bool) {
 	for _, c := range containers {
 		if c.Spec.Mode != weka.WekaContainerModeDrive {
@@ -331,13 +435,12 @@ func firstUnscheduledDriveContainer(containers []*weka.WekaContainer) (string, b
 	return "", false
 }
 
-// noopCapacityPlan builds a no-op CapacityPlan (no Grow, no Create) that still carries this cluster's
-// current compute sizing, derived from its existing healthy containers. It mirrors the no-op plan
-// steadyStatePlan returns, so deferring a plan never disturbs the compute role loop downstream.
-func (r *wekaClusterReconcilerLoop) noopCapacityPlan(ctx context.Context, cons *allocator.CapacityConstraints) *allocator.CapacityPlan {
+// noopCapacityPlan builds a no-op CapacityPlan carrying this cluster's current compute sizing (from its
+// existing healthy containers), mirroring steadyStatePlan's no-op so a deferral never disturbs compute downstream.
+func (r *wekaClusterReconcilerLoop) noopCapacityPlan(ctx context.Context, cons *capacityplanner.CapacityConstraints) *capacityplanner.CapacityPlan {
 	drv := summarizeDriveContainers(ctx, r.containers, cons)
 	cmp := summarizeComputeContainers(ctx, r.containers)
-	return &allocator.CapacityPlan{
+	return &capacityplanner.CapacityPlan{
 		ComputeContainers:  cmp.count,
 		ComputeCores:       cmp.minCores,
 		TotalTlcDriveCores: drv.totalTlcDriveCores,
@@ -355,19 +458,21 @@ type driveCapacitySummary struct {
 // summarizeDriveContainers sums THIS cluster's existing HEALTHY drive containers per pool (from spec,
 // matching inventory.ExistingDrives) plus their total TLC drive cores (matching the allocator's
 // totalTlcDriveCores). It reads only r.containers (already cached owned objects) — no node listing.
-func summarizeDriveContainers(ctx context.Context, containers []*weka.WekaContainer, cons *allocator.CapacityConstraints) driveCapacitySummary {
+func summarizeDriveContainers(ctx context.Context, containers []*weka.WekaContainer, cons *capacityplanner.CapacityConstraints) driveCapacitySummary {
 	var sum driveCapacitySummary
 	for _, c := range containers {
 		if c.Spec.Mode != weka.WekaContainerModeDrive {
 			continue
 		}
-		if unhealthy, _, _ := utils.IsUnhealthy(ctx, c); unhealthy { //nolint:errcheck // intentional
+		// Mirrors inventory.ExistingDrives, not utils.IsUnhealthy — the same rule expressed once so the
+		// two functions cannot drift apart. See DriveContainerHoldsDrives.
+		if !inventory.DriveContainerHoldsDrives(c) {
 			continue
 		}
 		tlcGiB, qlcGiB := inventory.DriveContainerCapacities(c)
 		sum.tlcGiB += tlcGiB
 		sum.qlcGiB += qlcGiB
-		sum.totalTlcDriveCores += allocator.TlcDriveCores(tlcGiB, cons)
+		sum.totalTlcDriveCores += capacityplanner.TlcDriveCores(tlcGiB, cons)
 	}
 	return sum
 }
@@ -401,39 +506,41 @@ func summarizeComputeContainers(ctx context.Context, containers []*weka.WekaCont
 	return sum
 }
 
-// steadyStatePlan returns a no-op CapacityPlan and skip=true when the desired per-pool capacity is
-// already covered by this cluster's existing healthy drive containers AND the compute set needs no
-// change — letting planClusterCapacity skip the expensive node-inventory rebuild. It returns skip=false
-// (full re-plan required) when either pool is short or compute could need to grow. When a pool is
-// over-provisioned (cur > desired) it emits the same throttled ShrinkEvent the full path would, then
-// still skips (a shrink is never auto-applied).
-func (r *wekaClusterReconcilerLoop) steadyStatePlan(ctx context.Context, desired allocator.DesiredCapacity, s allocator.ProtectionScheme, cons *allocator.CapacityConstraints) (*allocator.CapacityPlan, bool) {
+// steadyStatePlan returns a no-op plan and skip=true when desired capacity is covered by existing healthy
+// containers and compute needs no change, letting planClusterCapacity skip the node-inventory rebuild.
+// skip=false when a pool is short or compute could grow; an over-provisioned pool still skips but emits ShrinkEvent.
+func (r *wekaClusterReconcilerLoop) steadyStatePlan(ctx context.Context, desired capacityplanner.DesiredCapacity, s capacityplanner.ProtectionScheme, cons *capacityplanner.CapacityConstraints) (*capacityplanner.CapacityPlan, bool) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "steadyStatePlan")
 	defer logger.End()
 
 	drv := summarizeDriveContainers(ctx, r.containers, cons)
-	if allocator.CapacityShort(drv.tlcGiB, desired.TlcRawGiB, cons) ||
-		allocator.CapacityShort(drv.qlcGiB, desired.QlcRawGiB, cons) {
+	if capacityplanner.CapacityShort(drv.tlcGiB, desired.TlcRawGiB, cons) ||
+		capacityplanner.CapacityShort(drv.qlcGiB, desired.QlcRawGiB, cons) {
 		return nil, false // a pool needs growth beyond the deadband → full plan places it
 	}
 
 	cmp := summarizeComputeContainers(ctx, r.containers)
-	if allocator.ComputeLayoutWouldGrow(desired.ComputeContainers, desired.ComputeCores,
-		drv.totalTlcDriveCores, s.MinFdNum(), cons.MaxComputeCoresPerNode, cmp.count, cmp.minCores, cmp.totalCores) {
+	// fullDrives=false (clusterCapacity fast path): summarizeDriveContainers only carries the TLC figure
+	// here, so the ratio term excludes QLC drive cores — any under-count can only force a full replan,
+	// never wrongly skip one.
+	requiredComputeCores := capacityplanner.RequiredComputeCores(drv.totalTlcDriveCores, 0, false, cons)
+	if capacityplanner.ComputeLayoutWouldGrow(desired.ComputeContainers, desired.ComputeCores,
+		requiredComputeCores, s.MinFdNum(), cons.MaxCoresPerContainer, cmp.count, cmp.minCores, cmp.totalCores) {
 		return nil, false // compute may need to grow → full plan re-derives against real headroom
 	}
 
-	plan := &allocator.CapacityPlan{
-		ComputeContainers:  cmp.count,
-		ComputeCores:       cmp.minCores,
-		TotalTlcDriveCores: drv.totalTlcDriveCores,
+	plan := &capacityplanner.CapacityPlan{
+		ComputeContainers:    cmp.count,
+		ComputeCores:         cmp.minCores,
+		TotalTlcDriveCores:   drv.totalTlcDriveCores,
+		RequiredComputeCores: requiredComputeCores,
 	}
 	// Over-provisioned pools: emit the shrink advisory (throttled, identical to the full path) but never
 	// auto-shrink. Drives are still "covered", so we skip inventory.
 	emitShrink := func(pool string, cur, want int) {
 		// Suppress the advisory for an in-cap overage — the create-new-before-grow path over-provisions by
-		// up to one uniform chunk on purpose (see allocator.OverProvisionCapGiB).
-		if cur-want <= allocator.OverProvisionCapGiB(want, cons) {
+		// up to one uniform chunk on purpose (see capacityplanner.OverProvisionCapGiB).
+		if cur-want <= capacityplanner.OverProvisionCapGiB(want, cons) {
 			return
 		}
 		msg := fmt.Sprintf("%s capacity is over-provisioned by %d GiB (desired %d, current %d); delete WekaContainers manually to shrink — the operator never auto-shrinks",

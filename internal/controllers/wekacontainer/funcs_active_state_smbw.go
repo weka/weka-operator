@@ -3,6 +3,7 @@ package wekacontainer
 import (
 	"context"
 	"fmt"
+
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"

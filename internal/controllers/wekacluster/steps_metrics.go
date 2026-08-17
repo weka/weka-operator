@@ -193,11 +193,12 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 		}
 	}
 
-	// calculate desired counts. In clusterCapacity mode the planner drives the
-	// container count dynamically, so a fixed "desired" is not known in advance —
-	// leave it 0 so the printer column omits it (active/created only).
-	usesClusterCapacity := cluster.Spec.Dynamic != nil && cluster.Spec.Dynamic.UsesClusterCapacity()
-	if usesClusterCapacity {
+	// calculate desired counts. Under a planner-managed template (clusterCapacity, or acting as a
+	// daemonset) the planner drives the container count dynamically, so a fixed "desired" is not known
+	// in advance — leave it 0 so the printer column omits it. This keys on IsPlannerManaged: in daemonset
+	// mode the template's counts are just placeholder floors/fallbacks, not a description of the cluster.
+	plannerManaged := r.plannerManaged()
+	if plannerManaged {
 		cluster.Status.Stats.Containers.Compute.Containers.Desired = 0
 		cluster.Status.Stats.Containers.Drive.Containers.Desired = 0
 	} else {
@@ -217,7 +218,25 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 		cluster.Status.Stats.Containers.Nfs.Containers.Desired = weka.IntMetric(template.Containers.Nfs)
 	}
 
-	if template.ContainerCapacity > 0 {
+	switch {
+	case plannerManaged:
+		// The plan is the desired state, and it is already written onto the containers the planner
+		// created, so read it back from their specs. The cluster-wide template cannot stand in for it:
+		// its drive count is a single number, while this mode sizes every node from its own drives.
+		var desiredDrives, driveCores, computeCores int
+		for i := range containers {
+			switch containers[i].Spec.Mode {
+			case weka.WekaContainerModeDrive:
+				desiredDrives += containers[i].Spec.NumDrives
+				driveCores += containers[i].Spec.NumCores
+			case weka.WekaContainerModeCompute:
+				computeCores += containers[i].Spec.NumCores
+			}
+		}
+		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(desiredDrives)
+		cluster.Status.Stats.Containers.Drive.Processes.Desired = weka.IntMetric(driveCores)
+		cluster.Status.Stats.Containers.Compute.Processes.Desired = weka.IntMetric(computeCores)
+	case template.ContainerCapacity > 0:
 		desiredDrives := 0
 		for i := range containers {
 			container := containers[i]
@@ -225,15 +244,14 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 				desiredDrives += len(container.Status.Allocations.VirtualDrives)
 			}
 		}
-
 		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(desiredDrives)
-	} else {
+		cluster.Status.Stats.Containers.Compute.Processes.Desired = weka.IntMetric(max(int64(template.Cores.Compute), 1) * int64(template.Containers.Compute))
+		cluster.Status.Stats.Containers.Drive.Processes.Desired = weka.IntMetric(max(int64(template.Cores.Drive), 1) * int64(template.Containers.Drive))
+	default:
 		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(template.Containers.Drive * template.NumDrives)
+		cluster.Status.Stats.Containers.Compute.Processes.Desired = weka.IntMetric(max(int64(template.Cores.Compute), 1) * int64(template.Containers.Compute))
+		cluster.Status.Stats.Containers.Drive.Processes.Desired = weka.IntMetric(max(int64(template.Cores.Drive), 1) * int64(template.Containers.Drive))
 	}
-
-	// convert to new metrics accessor
-	cluster.Status.Stats.Containers.Compute.Processes.Desired = weka.IntMetric(max(int64(template.Cores.Compute), 1) * int64(template.Containers.Compute))
-	cluster.Status.Stats.Containers.Drive.Processes.Desired = weka.IntMetric(max(int64(template.Cores.Drive), 1) * int64(template.Containers.Drive))
 
 	// propagate "created" counters
 	cluster.Status.Stats.Containers.Compute.Containers.Created = weka.IntMetric(getCounter(roleCreatedCounts, weka.WekaContainerModeCompute))

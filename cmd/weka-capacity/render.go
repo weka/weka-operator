@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"text/tabwriter"
 
+	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/capacityplanner/inventory"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -131,7 +132,7 @@ func renderPlanJSON(d *planData) (string, error) {
 	out["growDrive"] = d.Plan.Grow
 	out["createCompute"] = d.ComputeCreate
 	out["growCompute"] = d.ComputeGrow
-	out["warnings"] = d.Plan.Warnings
+	out["warnings"] = capacityplanner.WarningMessages(d.Plan.Warnings)
 	out["overProvisions"] = d.Plan.OverProvisions
 	out["shrinkEvents"] = d.Plan.ShrinkEvents
 	out["summary"] = d.Summary
@@ -260,7 +261,7 @@ func renderPlanText(d *planData) string {
 		}
 	}
 
-	renderList(&buf, "WARNINGS", p.Warnings)
+	renderList(&buf, "WARNINGS", capacityplanner.WarningMessages(p.Warnings))
 	renderList(&buf, "OVER-PROVISION", p.OverProvisions)
 	renderList(&buf, "SHRINK", p.ShrinkEvents)
 

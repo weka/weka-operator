@@ -31,7 +31,6 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 // object (e.g. from a List) should use this directly instead of re-fetching via NewK8sNodeInfoGetter.
 func ParseAllocatorNodeInfo(node *v1.Node) (nodeInfo *AllocatorNodeInfo, err error) {
 	nodeInfo = &AllocatorNodeInfo{}
-	// initialize shared drives slice
 	nodeInfo.SharedDrives = []domain.SharedDriveInfo{}
 
 	// blockedDriveSerials is used for both exclusive drives and shared drives filtering
@@ -42,9 +41,9 @@ func ParseAllocatorNodeInfo(node *v1.Node) (nodeInfo *AllocatorNodeInfo, err err
 			return
 		}
 	}
+	nodeInfo.BlockedDriveCount = len(blockedDriveSerials)
 
-	// get from annotations, all serial ids minus blocked-drives serial ids
-	// Note: this is for exclusive drive allocation mode only
+	// Exclusive drive allocation mode only: all serial ids minus blocked-drives serial ids.
 	fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
 	if fullAnnotation != "" {
 		allEntries, readErr := domain.ReadDriveAnnotations(fullAnnotation)
@@ -62,13 +61,11 @@ func ParseAllocatorNodeInfo(node *v1.Node) (nodeInfo *AllocatorNodeInfo, err err
 
 		nodeInfo.AvailableDrives = availableDrives
 	} else {
-		// No exclusive drives annotation - set empty list
 		// This is expected in drive-sharing/proxy mode where we only use shared drives
 		nodeInfo.AvailableDrives = []domain.DriveEntry{}
 	}
 
 	var sharedDrives []domain.SharedDriveInfo
-	// Parse shared drives if present (drive sharing / proxy mode)
 	sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]
 	if ok {
 		err = json.Unmarshal([]byte(sharedDrivesStr), &sharedDrives)
@@ -77,7 +74,6 @@ func ParseAllocatorNodeInfo(node *v1.Node) (nodeInfo *AllocatorNodeInfo, err err
 			return
 		}
 
-		// Filter out blocked shared drives
 		var blockedSharedDrives []string
 		if blockedSharedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids]; ok {
 			if err := json.Unmarshal([]byte(blockedSharedDrivesStr), &blockedSharedDrives); err != nil {

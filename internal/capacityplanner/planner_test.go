@@ -9,9 +9,7 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-// These tests are intentionally self-explanatory: each documents a clusterCapacity planning scenario
-// (homogeneous/heterogeneous nodes, capacity taken by other clusters, migration, grow/convert/create,
-// shrink, fail-fast) and asserts the planner's decisions. All capacities are in GiB.
+// Each test documents a clusterCapacity planning scenario and asserts the planner's decisions; capacities are in GiB.
 
 const (
 	tib = 1024 // 1 TiB in GiB
@@ -30,19 +28,21 @@ func testCons() *CapacityConstraints {
 		HugepagesPerCoreMiB:   1600,
 		MemoryBaseMiB:         8000,
 		MemoryPerCoreMiB:      3000,
-		// Default matches enableDynamicDriveScalingForSharedDrives=true (in-place growth allowed); the
-		// disabled-flag scenarios set this to false explicitly.
+		// Default matches enableDynamicDriveScalingForSharedDrives=true; disabled-flag scenarios override to false.
 		AllowInPlaceGrowth: true,
-		// Mirror the helm/config defaults so the uniform-increase path uses the production fractions.
-		MinGrowthFraction:        0.2,
-		MaxOverProvisionFraction: 0.2,
+		// Mirrors helm/config production defaults so the uniform-increase path exercises real fractions/ratios.
+		MinGrowthFraction:                 0.2,
+		MaxOverProvisionFraction:          0.2,
+		MaxCoresPerContainer:              DefaultMaxCoresPerContainer,
+		ComputeToTlcDriveCoreRatio:        1.0,
+		ComputeToQlcDriveCoreRatio:        0.0,
+		FullDrivesComputeToDriveCoreRatio: 2.0,
 	}
 }
 
 func ratio(tlc, qlc int) *weka.DriveTypesRatio { return &weka.DriveTypesRatio{Tlc: tlc, Qlc: qlc} }
 
-// allEligible marks every inventory node as compute-eligible (the converged default these tests assume:
-// compute co-located on the drive nodes). Dedicated compute-node-pool tests pass an explicit map instead.
+// allEligible marks every inventory node as compute-eligible; dedicated compute-node-pool tests pass an explicit map instead.
 func allEligible(inv []NodeCapacity) map[string]bool {
 	m := make(map[string]bool, len(inv))
 	for _, nc := range inv {
@@ -51,11 +51,7 @@ func allEligible(inv []NodeCapacity) map[string]bool {
 	return m
 }
 
-// netCompute subtracts each existing compute container's footprint (cores/hugepages/memory) from its
-// node's headroom in the inventory, mirroring what buildNodeInventory does in production. PlanCapacity
-// no longer charges compute itself — the inventory it receives is already net of every weka container on
-// the node — so scenario tests that exercise compute-aware drive placement / freeze logic pre-net their
-// inventory through this. The math is identical to the planner's former per-node compute charge.
+// netCompute subtracts each existing compute container's footprint from its node's headroom, mirroring production's buildNodeInventory.
 func netCompute(inv []NodeCapacity, existingCompute []ExistingComputeContainer, cons *CapacityConstraints) []NodeCapacity {
 	idx := make(map[string]int, len(inv))
 	for i := range inv {
@@ -74,8 +70,7 @@ func netCompute(inv []NodeCapacity, existingCompute []ExistingComputeContainer, 
 	return out
 }
 
-// planCap wraps PlanCapacity with every inventory node compute-eligible, so the existing scenario tests
-// (which size compute over the drive nodes) keep asserting the same behavior.
+// planCap wraps PlanCapacity with every node compute-eligible, matching the existing scenario tests.
 func planCap(desired DesiredCapacity, scheme ProtectionScheme, existingDrives []ExistingContainer, inventory []NodeCapacity, cons *CapacityConstraints) CapacityPlan {
 	return PlanCapacity(desired, scheme, existingDrives, nil, inventory, allEligible(inventory), cons)
 }
@@ -87,8 +82,7 @@ func desiredFrom(usableGiB int, s ProtectionScheme, r *weka.DriveTypesRatio) Des
 	return DesiredCapacity{TlcRawGiB: tlc, QlcRawGiB: qlc}
 }
 
-// node builds a candidate node with generous hugepages/memory so only drive capacity and cores bind
-// (unless a test overrides them). FDValue defaults to the node name (AUTO mode, FD = host).
+// node builds a candidate node with generous hugepages/memory so only drive capacity and cores bind; FDValue defaults to the node name (AUTO mode).
 func node(name string, tlcGiB, qlcGiB, cores int) NodeCapacity {
 	return NodeCapacity{
 		NodeName:              name,
@@ -210,8 +204,7 @@ func Test_Greenfield_Homogeneous_TLOnly_SpreadsEvenlyAcrossMinFdNum(t *testing.T
 
 func Test_Greenfield_MoreNodesThanMinFd_UsesMinFdNum(t *testing.T) {
 	s := testScheme() // minFdNum = 6
-	// 12 capable nodes, but the target fits comfortably in minFdNum: the planner must create exactly
-	// minFdNum (6) containers, NOT spread thinly across all 12.
+	// 12 capable nodes, but target fits within minFdNum: must create exactly 6, not spread across all 12.
 	plan := planCap(
 		desiredFrom(90*tib, s, ratio(1, 0)), // rawTLC = 200 TiB (= 90×2/0.9; ceil/6 = 34134 GiB/FD)
 		s,
@@ -234,8 +227,7 @@ func Test_Greenfield_MoreNodesThanMinFd_UsesMinFdNum(t *testing.T) {
 
 func Test_Greenfield_MinFdNumTooSmall_ExtendsFdCount(t *testing.T) {
 	s := testScheme() // minFdNum = 6
-	// Each node holds only 20 TiB, so minFdNum FDs (6 × 20 = 120 TiB) cannot hold rawTLC 200 TiB.
-	// The planner must extend beyond minFdNum until the capacity fits (10 FDs × 20 TiB = 200 TiB).
+	// 20 TiB/node: minFdNum FDs (120 TiB) can't hold rawTLC 200 TiB, so it extends to 10 FDs × 20 TiB.
 	plan := planCap(
 		desiredFrom(90*tib, s, ratio(1, 0)), // rawTLC = 200 TiB (= 90×2/0.9 = 204800 GiB)
 		s,
@@ -256,13 +248,8 @@ func Test_Greenfield_MinFdNumTooSmall_ExtendsFdCount(t *testing.T) {
 
 func Test_Greenfield_Heterogeneous_AddsFdToBalance(t *testing.T) {
 	s := testScheme() // minFdNum = 6
-	// Heterogeneous ceilings: 2 big (100 TiB) + 5 medium (64 TiB) = 7 FDs available, rawTLC 420 TiB.
-	// The minFdNum=6 prefix already has cumulative headroom >= target (100+100+64*4 = 456 TiB), so the
-	// old "fewest FDs that hold the capacity" rule would stop at 6 and fill UNEVENLY: the 64 TiB nodes
-	// cap below the ceil(420/6)=70 TiB even share, so the two big nodes absorb the surplus (~82 vs 64).
-	// The add-FD-until-even rule instead opens a 7th FD because 70 TiB exceeds a chosen node's 64 TiB
-	// ceiling; at 7 FDs the even share ceil(420/7)=60 TiB fits under every ceiling -> 7 x 60 TiB, even,
-	// no imbalance warning. (Mirrors the live greenfield "7 x 58515" layout — issue #13.)
+	// 2 big + 5 medium nodes: stopping at minFdNum=6 would fill unevenly, so add-FD-until-even opens a
+	// 7th FD at 60 TiB each instead, with no imbalance warning (issue #13).
 	inv := append(nodes(2, 100*tib, 0, 64, "big"), nodes(5, 64*tib, 0, 64, "med")...)
 	plan := planCap(DesiredCapacity{TlcRawGiB: 420 * tib}, s, nil, inv, testCons())
 	if plan.Infeasible != "" {
@@ -314,10 +301,7 @@ func Test_Greenfield_TLCplusQLC_DisjointNodes(t *testing.T) {
 	}
 }
 
-// Both pools greenfield on MORE than minFd mixed-capable nodes: QLC must co-locate onto the SAME nodes
-// TLC took (mixed containers) rather than spreading onto the still-empty nodes. Without the co-location
-// bias QLC would prefer the untouched nodes (they have more remaining headroom now that TLC consumed some
-// of the shared cores), splitting into disjoint TLC-only/QLC-only containers.
+// QLC must co-locate onto the same nodes TLC took, not spread onto emptier nodes that would otherwise look more attractive.
 func Test_Greenfield_TLCplusQLC_PrefersSameNode(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	inv := nodes(12, 100*tib, 100*tib, 64, "n")
@@ -335,15 +319,11 @@ func Test_Greenfield_TLCplusQLC_PrefersSameNode(t *testing.T) {
 	}
 }
 
-// Both pools greenfield on mixed-capable-DRIVE nodes that are CORE-limited so a single node can host one
-// pool's per-FD share but not both (cores are shared across pools; drive capacity is per-pool). The
-// co-location bias must fall back to a split — TLC on 6 nodes, QLC on 6 others, no mixed — because no node
-// can hold both. Compute is sized over a dedicated diskless pool so the drive nodes can be fully
-// core-consumed (mirrors Test_Compute_DisklessNodes_SizedOnComputePool).
+// When no drive node has cores for both pools' per-FD share, co-location must fall back to a split (TLC
+// on 6 nodes, QLC on 6 others); compute uses a dedicated diskless pool instead.
 func Test_Greenfield_TLCplusQLC_SplitsWhenNodeCannotHoldBoth(t *testing.T) {
 	s := testScheme() // minFdNum = 6
-	// 4 physical CPUs/drive-node = the TLC per-FD share's 3 data cores + the 1 per-container management core
-	// (non-HT dedicated); once TLC lands, 0 CPUs remain for QLC, so no node can hold both.
+	// 4 cores/node = TLC's 3 data cores + 1 management core; once TLC lands, 0 remain for QLC.
 	inv := append(nodes(12, 100*tib, 100*tib, 4, "d"), nodes(8, 0, 0, 32, "c")...)
 	computeNodes := map[string]bool{}
 	for i := 1; i <= 8; i++ {
@@ -369,10 +349,8 @@ func Test_Greenfield_TLCplusQLC_SplitsWhenNodeCannotHoldBoth(t *testing.T) {
 	}
 }
 
-// Regression for the live-cluster over-fragmentation: deleting a few TLC FDs recreated MORE, smaller FDs
-// than necessary because the increase path anchored the new-FD count on the existing FD size. New FDs must
-// be sized to cover the delta with the FEWEST containers (largest per-FD up to maxPerFdCap). Here delta
-// 2314 with maxPerFdCap=(current+2314)/5=1464 → kMin=CeilDiv(2314,1464)=2 → 2 replacements of 1157, not 3.
+// Regression: new FDs must cover the delta with the fewest containers (largest per-FD up to maxPerFdCap),
+// not anchor the count on the existing FD size: delta=2314, maxPerFdCap=1464 -> 2 replacements of 1157.
 func Test_UniformIncrease_AntiFragmentation_FewestContainers(t *testing.T) {
 	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
 	cons := testCons()
@@ -437,10 +415,8 @@ func Test_UniformIncrease_HeterogeneousReadd_RecreatesOneHighFD(t *testing.T) {
 	if len(plan.Grow) != 0 {
 		t.Fatalf("old nodes are drive-full; want 0 grows, got %d: %+v", len(plan.Grow), plan.Grow)
 	}
-	// Pre-fix: detectImbalance(37888, existingAvg=18897) was true (37888 >= 2*18897=37794), so k=1 was
-	// rejected and the delta fragmented into 2 new FDs of 18944 GiB (~18.5 TiB) each — neither matching the
-	// small nor the high tier. Post-fix, a candidate size <= Tmax (the largest existing FD, 40960) is exempt
-	// from the imbalance guard, so k=1 succeeds and a single high-tier FD is recreated instead.
+	// A candidate size <= Tmax (the largest existing FD) is exempt from the fewest-containers search, so
+	// k=1 recreates one high-tier FD.
 	if len(plan.Create) != 1 {
 		t.Fatalf("want exactly 1 new FD (recreate the deleted high-tier FD), got %d: %+v", len(plan.Create), plan.Create)
 	}
@@ -485,11 +461,8 @@ func Test_UniformIncrease_Homogeneous_ReaddSameSize_Unchanged(t *testing.T) {
 	}
 }
 
-// Increase path with fresh candidate nodes INDIVIDUALLY SMALLER than the existing FDs (review scenario):
-// the fewest-containers search must still cover the delta on those nodes (kMax = CeilDiv(delta, T0) keeps
-// the count high enough to fall to per-FD sizes the small nodes can hold) — it must NOT go infeasible.
-// Existing TLC FDs [1250, 939×4], delta=2314, fresh nodes ~900 GiB each (< T0=939): k=2 (perFd 1157) can't
-// fit 900, so it falls to k=3 (perFd 772 <= 900) → 3×772, feasible.
+// Fresh nodes smaller than existing FDs must not go infeasible: the fewest-containers search falls back
+// to more, smaller FDs that fit (k=2's 1157 doesn't fit 900-GiB nodes, k=3's 772 does).
 func Test_UniformIncrease_SmallFreshNodes_StaysFeasible(t *testing.T) {
 	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
 	cons := testCons()
@@ -522,11 +495,7 @@ func Test_UniformIncrease_SmallFreshNodes_StaysFeasible(t *testing.T) {
 	}
 }
 
-// Mirrors the live cluster: some nodes carry both drive types, others are TLC-only. QLC can only live on
-// the mixed-capable nodes, so it is the CONSTRAINED pool — it must be planned first, after which TLC
-// co-locates onto those same nodes (mixed containers) instead of spreading onto the tempting high-headroom
-// TLC-only nodes. Proves both the pool-ordering (constrained-first) and the co-location bias: were TLC
-// planned first it would grab the t* nodes and QLC would be forced to split onto the mixed nodes.
+// QLC can only live on mixed-capable nodes, so it must be planned first; TLC then co-locates onto those same nodes instead of the tempting high-headroom TLC-only nodes.
 func Test_Greenfield_TLCplusQLC_ConstrainedPoolFirst_CoLocates(t *testing.T) {
 	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
 	inv := append(
@@ -550,11 +519,7 @@ func Test_Greenfield_TLCplusQLC_ConstrainedPoolFirst_CoLocates(t *testing.T) {
 	}
 }
 
-// Co-location on the INCREASE path (the real delete-and-recreate scenario): both pools already have FDs
-// and both must CREATE new ones (existing FDs are drive-full, cannot grow). QLC is planned first
-// (constrained to the mixed-capable fresh nodes); TLC then co-locates its new FDs onto the SAME fresh
-// mixed nodes via colocatedFirst, so every new QLC FD becomes a mixed container instead of splitting onto
-// the higher-headroom TLC-only nodes.
+// Co-location on the increase path: both pools create new FDs; TLC must co-locate onto QLC's new (mixed-capable) nodes via colocatedFirst instead of splitting onto higher-headroom TLC-only nodes.
 func Test_UniformIncrease_TLCplusQLC_CoLocatesNewFDs(t *testing.T) {
 	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
 	cons := testCons()
@@ -592,11 +557,8 @@ func Test_UniformIncrease_TLCplusQLC_CoLocatesNewFDs(t *testing.T) {
 	}
 }
 
-// The live delete-both race: both pools short (scaling OFF), the freed MIXED node still hosts its old QLC
-// container TERMINATING (HasDeletingDriveContainer=true), while a freed TLC-only node's small container has
-// already finalized. Co-location must still win — TLC must land on the freed mixed node with QLC (one mixed
-// container), NOT split onto the not-deleting TLC-only node. Regression for takeFreshAtLevel ranking
-// not-deleting above co-location.
+// Both pools short, scaling off, freed mixed node's old QLC container still terminating vs. a finalized
+// freed TLC-only node: co-location must still win, landing TLC on the freed mixed node (regression for takeFreshAtLevel's ranking).
 func Test_UniformIncrease_BothShort_CoLocatesOnFreedNode_EvenWhileTerminating(t *testing.T) {
 	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
 	cons := testCons()
@@ -644,12 +606,8 @@ func Test_UniformIncrease_BothShort_CoLocatesOnFreedNode_EvenWhileTerminating(t 
 	}
 }
 
-// The live-cluster case: EXISTING QLC-only containers already sit on mixed-capable nodes, and ONLY TLC is
-// short (QLC is not creating anything this pass). Co-location must NOT convert an already-running
-// single-pool container: adding TLC to an existing QLC-only container is an in-place modification we do
-// not want. The new TLC FD is created fresh on an empty node; the QLC-only nodes are left untouched.
-// (Co-location is only ever realized by creating ONE fresh mixed container on an EMPTY node when both
-// pools are short in the same plan — see Test_UniformIncrease_TLCplusQLC_CoLocatesNewFDs.)
+// Existing QLC-only containers sit on mixed-capable nodes; only TLC is short. Co-location must not convert
+// a running single-pool container to mixed — the new TLC FD is created fresh on an empty node instead.
 func Test_UniformIncrease_TLC_DoesNotConvertExistingQLCOnlyNode(t *testing.T) {
 	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
 	cons := testCons()
@@ -709,30 +667,22 @@ func Test_QLCpool_TooFewFDs_FailFast(t *testing.T) {
 	}
 }
 
-// labelNode builds a candidate node whose FAILURE DOMAIN is an explicit label value (rack), distinct
-// from the node name. Several nodes may share one fd (a multi-host failure domain), the label-based mode
-// the AUTO-mode `node` helper cannot express (it forces FDValue == NodeName).
+// labelNode builds a candidate node whose failure domain is an explicit label value (rack), distinct from
+// the node name — several nodes can share one FD, which the AUTO-mode `node` helper can't express.
 func labelNode(name, fd string, tlcGiB, cores int) NodeCapacity {
 	nc := node(name, tlcGiB, 0, cores)
 	nc.FDValue = fd
 	return nc
 }
 
-// Greenfield, LABEL-BASED FD mode with MULTIPLE HOSTS PER FD (mirrors example-12: 6 racks × 2 hosts).
-// createSpread must select FAILURE DOMAINS, not the globally-largest-headroom NODES. Picking the minFd
-// (6) largest-headroom nodes would collapse into fewer than 6 distinct racks (several racks share their
-// two hosts' headroom), falsely tripping poolFeasibility ("only N of 6 required failure domains have
-// capacity"). The fix groups candidates by FDValue and spans >= minFd distinct FDs.
+// Label-based FD mode, 6 racks x 2 hosts each, uneven per-rack headroom: createSpread must select failure
+// domains (not globally-largest-headroom nodes) and span >= minFd distinct FDs.
 func Test_Greenfield_LabelBasedFD_MultiHostPerFD_SpansAllFDs(t *testing.T) {
-	s := testScheme() // minFdNum = 6
-	// 6 racks, 2 hosts each (12 nodes). Per-rack headroom is uneven across racks (so a node-greedy
-	// pick would concentrate on the few fattest racks), but EVERY rack has far more than the 30 TiB/FD
-	// target, so an FD-aware planner places one balanced share per rack.
+	s := testScheme()                                                            // minFdNum = 6
 	rackTlc := []int{75 * tib, 70 * tib, 65 * tib, 60 * tib, 55 * tib, 50 * tib} // rack-1..rack-6
 	var inv []NodeCapacity
 	for r := 1; r <= 6; r++ {
 		fd := "rack-" + itoa(r)
-		// two hosts in this rack, each with the rack's per-node headroom
 		inv = append(inv,
 			labelNode("h"+itoa(r)+"a", fd, rackTlc[r-1], 64),
 			labelNode("h"+itoa(r)+"b", fd, rackTlc[r-1], 64),
@@ -770,9 +720,7 @@ func Test_Greenfield_LabelBasedFD_MultiHostPerFD_SpansAllFDs(t *testing.T) {
 	}
 }
 
-// Same label-based topology, but each FD's capacity needs MORE THAN ONE HOST to hold its share. The
-// chosen FD set must still span exactly minFd distinct racks while using both hosts within a rack for
-// capacity — distinct-FD count stays at minFd, never collapsing below it.
+// Same topology, but each FD needs more than one host to hold its share; the chosen FD set must still span exactly minFd distinct racks, using both hosts within a rack.
 func Test_Greenfield_LabelBasedFD_UnevenHosts_UsesMultipleHostsPerFD(t *testing.T) {
 	s := testScheme() // minFdNum = 6, 34134 GiB per FD for 204800 GiB raw
 	// 6 racks, 2 hosts each, but each host holds only 20 TiB (< the 34134 GiB per-FD share). Both hosts in
@@ -812,12 +760,8 @@ func Test_Greenfield_LabelBasedFD_UnevenHosts_UsesMultipleHostsPerFD(t *testing.
 	}
 }
 
-// disc #13: greenfield label-based FD with an UNEVEN HOST COUNT per FD must balance capacity PER FAILURE
-// DOMAIN, not per node. rack-1 has 3 hosts, racks 2-6 have 2 hosts each (13 nodes). raw 200 TiB (204800 GiB)
-// => every rack gets the same 34134 GiB share regardless of host count: rack-1 splits across its 3 hosts
-// (3 containers), the 2-host racks across 2 hosts (2 containers each). Before the fix the create rounds loop
-// sized per node (raw/13), so rack-1 got proportionally more than 2-host racks, tripping the FD-imbalance
-// warning ("usable gated by smallest FD"). Verified live as Test K.
+// disc #13: uneven host count per FD (rack-1: 3 hosts, racks 2-6: 2) must balance capacity per failure
+// domain, not per node.
 func Test_Greenfield_LabelBasedFD_UnevenHostCount_BalancesPerFD(t *testing.T) {
 	s := testScheme() // minFdNum = 6, 34134 GiB per FD for 204800 GiB raw (200 TiB / 0.9 factor)
 	var inv []NodeCapacity
@@ -856,8 +800,7 @@ func Test_Greenfield_LabelBasedFD_UnevenHostCount_BalancesPerFD(t *testing.T) {
 	if got := sumCreateTlc(plan); got != 204804 {
 		t.Fatalf("want total created TLC 204804 GiB (200 TiB raw / 0.9 factor, 6 FDs ceil-rounded), got %d GiB", got)
 	}
-	// KEY (disc #13): per-FD balance regardless of host count — every rack holds 34134 GiB, NOT proportional
-	// to its host count.
+	// disc #13: per-FD balance regardless of host count.
 	for fd, v := range perFD {
 		if v != 34134 {
 			t.Fatalf("FD %s holds %d GiB, want 34134 GiB equal across all FDs (per-FD balance, not per-node): %v", fd, v, perFD)
@@ -884,18 +827,12 @@ func fdByNodeFromInv(inv []NodeCapacity) map[string]string {
 	return m
 }
 
-// Bug #11: COMPUTE layout must span >= MinFdNum (SW+RL+HS) distinct failure domains in label-based FD
-// mode (mirrors example-12: 6 racks × 2 hosts). The drive side (#10) already spreads across all 6 racks;
-// before this fix the compute selection was a pure best-fit-by-cores pick that could pile the compute
-// containers onto a few high-headroom racks (e.g. rack-5 ×2, rack-6 ×2 + 2 others), landing compute on
-// only 4 distinct racks. Weka then refuses to initialize ("would leave 4 failure domains with compute
-// nodes but Weka requires at least 5"). The fix orders the free compute nodes for FD spread so the chosen
-// nodes cover >= MinFdNum distinct FDs (held to the same minFdNum as the drive side / count floor, one FD
-// above Weka's strict SW+RL minimum, for FD-level recreation headroom).
+// Compute layout must span >= MinFdNum distinct FDs (6 racks x 2 hosts): free compute nodes are ordered
+// for FD spread rather than picked by best-fit-by-cores alone.
 func Test_Greenfield_LabelBasedFD_Compute_SpansMinFdNumFDs(t *testing.T) {
 	s := testScheme() // SW=3, RL=2, HS=1 => minFdNum=6, compute must span >= MinFdNum = 6 FDs
 	cons := testCons()
-	cons.MaxComputeCoresPerNode = 16
+	cons.MaxCoresPerContainer = 19
 	// 6 racks × 2 hosts. Uneven per-rack headroom (cores AND capacity) so a node-greedy best-fit would
 	// concentrate compute onto the fattest racks (rack-1/rack-2), collapsing the distinct-FD count.
 	rackTlc := []int{75 * tib, 70 * tib, 65 * tib, 60 * tib, 55 * tib, 50 * tib}
@@ -928,11 +865,8 @@ func Test_Greenfield_LabelBasedFD_Compute_SpansMinFdNumFDs(t *testing.T) {
 	}
 }
 
-// Bug #11 fail-fast: if the COMPUTE-ELIGIBLE inventory has fewer than MinFdNum distinct failure domains,
-// the planner must surface a clear Infeasible reason rather than placing compute on too few FDs. Compute is
-// held to MinFdNum=6 (SW+RL+HS), one FD above Weka's strict SW+RL=5 minimum. Here drives span all 6 racks
-// (feasible); compute is restricted (roleSelector) to nodes in only 5 racks — Weka alone would accept 5,
-// but we require MinFdNum=6 for consistency + recreation headroom, so this must fail fast.
+// Fail-fast: compute-eligible inventory with fewer than MinFdNum distinct FDs must surface a clear reason.
+// Drives span all 6 racks (feasible); compute is restricted to only 5, one short of MinFdNum=6.
 func Test_LabelBasedFD_Compute_TooFewFDs_FailsFast(t *testing.T) {
 	s := testScheme() // drives need 6 FDs (feasible here); compute needs >= MinFdNum = 6 distinct FDs
 	cons := testCons()
@@ -981,15 +915,13 @@ func Test_DriveContainers_Exact_Greenfield_TLOnly(t *testing.T) {
 }
 
 // Invariant guard: the pinned-driveContainers path must NOT grow an existing container in place when
-// dynamic drive scaling is off. With existing FDs below the pinned per-FD level T, it reports infeasible
-// (enable the flag or unset driveContainers) instead of growing them.
+// dynamic drive scaling is off; it reports infeasible instead.
 func Test_DriveContainers_Pinned_ScalingOff_DoesNotGrowExisting(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
 	cons.AllowInPlaceGrowth = false
-	// 3 existing TLC FDs of 10 TiB (below the pinned per-FD level) + 4 empty spare nodes → driveContainers=6
-	// leaves 3 fresh FDs allowed (so resolveExactNewFds passes), but reaching the uniform T=15 TiB would
-	// require growing the 3 existing FDs — disabled → the new guard must report infeasible, grow nothing.
+	// 3 existing 10 TiB FDs + 4 spare nodes; driveContainers=6 needs a uniform T=15 TiB, which would
+	// require growing the existing FDs — disabled, so the guard must report infeasible.
 	var existingDrives []ExistingContainer
 	var inv []NodeCapacity
 	for i := 1; i <= 3; i++ {
@@ -1124,15 +1056,11 @@ func Test_Grow_FitsInPlace_OnExistingNodes(t *testing.T) {
 	}
 }
 
-// Test_Grow_LabelBasedFD_BalancesPerFailureDomain_NotPerContainer exercises label-based mode where one
-// FD spans TWO hosts and the rest span one. Balancing must equalize per FAILURE DOMAIN (the sum of its
-// hosts), not per container — so the 2-host FD must NOT end up with double the capacity of the others.
-// (Against per-container balancing this asserts the bug: the 2-host FD would grow to ~2x the others.)
+// One FD spans two hosts, the rest one; balancing must equalize per failure domain, not per container, or the 2-host FD would grow to ~2x the others.
 func Test_Grow_LabelBasedFD_BalancesPerFailureDomain_NotPerContainer(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 
-	// 6 FDs (rack labels). r1 has two hosts (n1a, n1b); r2..r6 have one host each. Every host runs a
-	// 10 TiB TLC container, so r1 currently holds 20 TiB and r2..r6 hold 10 TiB — pre-existing skew.
+	// r1 has two hosts (each running a 10 TiB container, so 20 TiB total); r2..r6 have one host = 10 TiB — pre-existing skew.
 	existingDrives := []ExistingContainer{
 		{Name: "c1a", Node: "n1a", FDValue: "r1", TlcGiB: 10 * tib, NumCores: 2},
 		{Name: "c1b", Node: "n1b", FDValue: "r1", TlcGiB: 10 * tib, NumCores: 2},
@@ -1142,8 +1070,7 @@ func Test_Grow_LabelBasedFD_BalancesPerFailureDomain_NotPerContainer(t *testing.
 		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: "r" + itoa(i), TlcGiB: 10 * tib, NumCores: 2})
 	}
 
-	// Ample per-node headroom so placement is gated only by the per-FD target. The grow path keys on
-	// node name; the FD identity that matters lives on the existing containers above.
+	// Ample per-node headroom so placement is gated only by the per-FD target (FD identity lives on existingDrives above).
 	inv := []NodeCapacity{node("n1a", 100*tib, 0, 58), node("n1b", 100*tib, 0, 58)}
 	for i := 2; i <= 6; i++ {
 		inv = append(inv, node("n"+itoa(i), 100*tib, 0, 58))
@@ -1208,10 +1135,7 @@ func Test_Grow_TlcOnlyContainer_ConvertedToMixed_WhenNodeHasQlc(t *testing.T) {
 	}
 }
 
-// Cross-pool conversion on the INCREASE path (planPoolUniformIncrease, QLC pool already has FDs) — distinct
-// from the greenfield conversion above. A QLC increase with no spare empty node converts the TLC-only
-// containers on QLC-capable nodes to mixed (Step-4 create-as-grow), and must NOT double-count those cap-0
-// nodes (they are fresh candidates, not existing QLC reach). Regression guard for the existingReach fix.
+// Cross-pool conversion on the increase path: a QLC increase with no spare empty node converts TLC-only containers on QLC-capable nodes to mixed, without double-counting cap-0 nodes.
 func Test_UniformIncrease_QlcConvertsTlcOnlyContainer_ToMixed(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	var existingDrives []ExistingContainer
@@ -1295,8 +1219,7 @@ func Test_Shrink_NoOp_EmitsDeleteEvent(t *testing.T) {
 	}
 }
 
-// An over-provision within MaxOverProvisionFraction (the intentional create-new rounding overage) must
-// NOT emit the ClusterCapacityShrink advisory — it would contradict ClusterCapacityOverProvisioned.
+// An over-provision within MaxOverProvisionFraction must not emit ClusterCapacityShrink — it would contradict ClusterCapacityOverProvisioned.
 func Test_Shrink_WithinOverProvisionCap_NoEvent(t *testing.T) {
 	s := testScheme()
 	var existingDrives []ExistingContainer
@@ -1316,9 +1239,8 @@ func Test_Shrink_WithinOverProvisionCap_NoEvent(t *testing.T) {
 
 func Test_Idempotent_WhenCurrentEqualsDesired_EmptyPlan(t *testing.T) {
 	s := testScheme()
-	// desired raw = int(float64(90*1024*2)/0.9) = 204800 GiB; ceil(204800/6) = 34134 GiB per FD.
-	// Setting existing to 34134 GiB each makes current (6×34134=204804 GiB) ≥ desired (204800 GiB),
-	// within the 20% overprovision cap (4 GiB << 40960 GiB), so the plan is empty (no grow, no shrink).
+	// desired raw = 204800 GiB, ceil/6 = 34134/FD; existing at 34134 each (204804 total) is within the
+	// 20% overprovision cap, so the plan is empty.
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
 		n := "n" + itoa(i)
@@ -1345,17 +1267,8 @@ func Test_MigrationFromContainerCapacity_CurrentCoversDesired_NoOp(t *testing.T)
 	}
 }
 
-// NEW behavior (uniform-or-infeasible): with the existing pool at a small uniform chunk T0=10 TiB and a
-// large +180 TiB increase, covering the delta needs ceil(180/10)=18 fresh FDs of 10 TiB, but only 6 big
-// fresh nodes exist and the small existing nodes are drive-near-full (5 TiB headroom < the 10 TiB chunk),
-// so no uniform layout reaches the target -> ClusterCapacityInfeasible. The old heterogeneous "fresh
-// balanced set, delete the small ones" fallback is gone: a heterogeneous fill wastes raw for the same usable
-// as a uniform tiling, so we never build it (was: 6 fresh containers of 40 TiB + a delete-old warning).
-// Heterogeneous-growth fallback (balancedFresh): when a fresh per-FD chunk would DWARF the existing tiny
-// FDs (detectImbalance: chunk >= ImbalanceFactor × existing per-FD average), the existing small FDs are
-// abandoned and a fresh UNIFORM set is laid out on the empty big nodes — the dwarfed FDs would otherwise
-// cap the uniform level and gate the pool's usable capacity. The old containers are left running and
-// flagged deletable via a ClusterCapacityHeterogeneousGrowth Warning.
+// A tiny existing pool (T0=10 TiB) can't uniformly cover a +180 TiB increase on only 6 big fresh nodes, so
+// the balancedFresh fallback abandons the small FDs (chunk would dwarf them) for a fresh uniform set, flagging the old containers deletable.
 func Test_Heterogeneous_BalancedFresh_IgnoresExisting_WarnsDeleteOld(t *testing.T) {
 	s := testScheme()
 	// 6 small existing TLC containers (10 TiB each) on small nodes (near-full), plus 6 big empty nodes.
@@ -1364,8 +1277,7 @@ func Test_Heterogeneous_BalancedFresh_IgnoresExisting_WarnsDeleteOld(t *testing.
 		n := "small" + itoa(i)
 		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 10 * tib, NumCores: 2})
 	}
-	// Small nodes are near-full on DRIVE capacity (5 TiB) but still have CPU cores for a compute
-	// container (cores are independent of drive-capacity headroom).
+	// Small nodes are near-full on drive capacity but still have CPU cores (independent headroom).
 	inv := append(nodes(6, 5*tib, 0, 16, "small"), nodes(6, 100*tib, 0, 64, "big")...)
 	desired := DesiredCapacity{TlcRawGiB: 240 * tib} // each fresh container ~40 TiB >= 2x existing 10 TiB
 	plan := planCap(desired, s, existingDrives, inv, testCons())
@@ -1388,10 +1300,7 @@ func Test_Heterogeneous_BalancedFresh_IgnoresExisting_WarnsDeleteOld(t *testing.
 	}
 }
 
-// Gate-drop: the heterogeneous fallback is a pure CREATE-on-fresh-nodes op (it abandons the dwarfed FDs,
-// never grows them), so it must fire REGARDLESS of enableDynamicDriveScalingForSharedDrives. This is the
-// same scenario as Test_Heterogeneous_BalancedFresh_IgnoresExisting_WarnsDeleteOld but with
-// AllowInPlaceGrowth=false — the plan must be identical (6 fresh 40 TiB FDs, 0 grows, deletion Warning).
+// Same scenario as the IgnoresExisting test above but with scaling disabled: the fallback is a pure create op, so it fires regardless of AllowInPlaceGrowth and the plan must be identical.
 func Test_Heterogeneous_BalancedFresh_FiresWithScalingDisabled(t *testing.T) {
 	s := testScheme()
 	var existingDrives []ExistingContainer
@@ -1423,11 +1332,8 @@ func Test_Heterogeneous_BalancedFresh_FiresWithScalingDisabled(t *testing.T) {
 	}
 }
 
-// NEW behavior: cover the delta with the FEWEST new FDs (largest per-FD up to maxPerFdCap). 6 full existing
-// FDs at T0=20 TiB + 6 fresh nodes; delta=90 TiB. maxPerFdCap = 210/6 = 35 TiB, so kMin=CeilDiv(90,35)=3 →
-// 3 new FDs of CeilDiv(90,3)=30 TiB = 90 TiB EXACTLY (30 <= maxPerFdCap 35, >= T0 20, and 30 < imbalance
-// boundary 2×avg=40). Existing specs untouched, 0 over-provision. Fewer containers than the old even-split
-// (which spread the same delta over 5 FDs of 18 TiB) — same capacity, less core/base-memory overhead.
+// Cover the delta with the FEWEST new FDs: maxPerFdCap=35 TiB, kMin=CeilDiv(90,35)=3, so 3 new FDs of 30
+// TiB each — fewer, larger containers than the old 5x18 TiB even-split, with 0 over-provision.
 func Test_Grow_PartialInPlace_RemainderCreatesNew(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	// 6 existing TLC containers on full nodes (no headroom) + 6 fresh empty nodes available.
@@ -1463,11 +1369,8 @@ func Test_Grow_PartialInPlace_RemainderCreatesNew(t *testing.T) {
 	}
 }
 
-// NEW behavior (uniform-or-infeasible): with only minFdNum heterogeneous nodes (3 big + 3 small) the
-// planner cannot tile 180 TiB into 6 uniform FDs — at N=6 the per-FD share is ceil(180/6)=30 TiB but the
-// small nodes cap at 25 TiB, and there are no extra candidates to grow N (-> a smaller share). A uniform
-// fill is gated by the smallest FD, so the heterogeneous 35/25 fill (same usable as 6×25 but more raw) is
-// never built; the pool is ClusterCapacityInfeasible (was: a feasible uneven fill + per-FD imbalance advisory).
+// uniform-or-infeasible: 3 big + 3 small nodes can't tile 180 TiB uniformly (ceil(180/6)=30 TiB exceeds the
+// small nodes' 25 TiB cap); a heterogeneous 35/25 fill would waste raw for the same usable, so it's never built.
 func Test_Imbalance_CannotTileUniformly_Infeasible(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	inv := append(nodes(3, 100*tib, 0, 64, "big"), nodes(3, 25*tib, 0, 64, "small")...)
@@ -1485,9 +1388,8 @@ func Test_Imbalance_CannotTileUniformly_Infeasible(t *testing.T) {
 
 func Test_Grow_SpreadsEvenlyAcrossAllExistingFDs(t *testing.T) {
 	s := testScheme() // minFdNum = 6
-	// 14 existing TLC containers (well above minFdNum), all equal at 30 TiB, on nodes with ample
-	// headroom. The pre-fix planner would top up only ~minFdNum of them (delta/minFd per FD); the
-	// fix spreads delta evenly across ALL 14 so they converge to an equal per-FD capacity.
+	// 14 existing FDs (well above minFdNum=6): the delta must spread evenly across all 14 so they converge
+	// to equal per-FD capacity.
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 14; i++ {
 		n := "n" + itoa(i)
@@ -1514,9 +1416,7 @@ func Test_Grow_SpreadsEvenlyAcrossAllExistingFDs(t *testing.T) {
 
 func Test_Grow_RebalancesPreExistingSkew_TowardAverage(t *testing.T) {
 	s := testScheme() // minFdNum = 6
-	// Pre-existing skew (e.g. after an earlier concentrated grow): 8 small FDs + 6 large FDs.
-	// A further grow with enough delta should top up the smaller FDs MORE than the larger ones,
-	// driving all FDs toward an equal per-FD capacity instead of preserving the skew.
+	// Pre-existing skew (8 small + 6 large FDs): a further grow should top up smaller FDs more, converging toward equal per-FD capacity instead of preserving the skew.
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 8; i++ {
 		n := "small" + itoa(i)
@@ -1554,11 +1454,9 @@ func Test_Grow_RebalancesPreExistingSkew_TowardAverage(t *testing.T) {
 	}
 }
 
-// NEW behavior: cover the increase on FRESH FDs with the FEWEST containers, WITHOUT growing existing ones.
-// 3 existing FDs (T0=30 TiB) + 6 fresh nodes; delta=270 TiB. maxPerFdCap = 360/6 = 60 TiB, so
-// kMin=CeilDiv(270,60)=5 → 5 new FDs of CeilDiv(270,5)=54 TiB = 270 TiB EXACTLY (54 <= maxPerFdCap 60,
-// >= T0 30, below imbalance boundary 2×avg=60). Final layout = 3 existing (untouched) + 5 new = 8 FDs
-// (>= minFd). Fewer, larger FDs than the old even-split (6 × 45 TiB) — same capacity, one fewer container.
+// Cover the increase on fresh FDs with the fewest containers, without growing existing ones: maxPerFdCap=
+// 360/6=60 TiB, kMin=CeilDiv(270,60)=5, so 5 new FDs of CeilDiv(270,5)=54 TiB (within [T0=30, cap=60], below
+// imbalance boundary 2xavg=60). Final layout: 3 existing (untouched) + 5 new = 8 FDs, fewer than the old 6x45.
 func Test_Grow_ExistingFewerThanMinFd_TopsUpExistingAndCreatesNew(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	var existingDrives []ExistingContainer
@@ -1601,10 +1499,7 @@ func Test_Grow_ExistingFewerThanMinFd_TopsUpExistingAndCreatesNew(t *testing.T) 
 	}
 }
 
-// NEW behavior (uniform-or-infeasible): when other clusters have reduced 3 of the 6 nodes to 25 TiB
-// headroom (the other 3 at 100 TiB), 180 TiB cannot tile into 6 uniform FDs — the 30 TiB per-FD share over 6
-// FDs exceeds the small nodes' 25 TiB cap and no extra candidate exists to lower the share. The pool is
-// ClusterCapacityInfeasible (was: a feasible uneven fill capping the small nodes at 25 TiB).
+// uniform-or-infeasible: headroom reduced by other clusters can't fit the per-FD share -> Infeasible.
 func Test_OtherClustersReduceHeadroom_CannotTileUniformly_Infeasible(t *testing.T) {
 	s := testScheme()
 	inv := append(nodes(3, 100*tib, 0, 64, "big"), nodes(3, 25*tib, 0, 64, "small")...)
@@ -1676,37 +1571,44 @@ func Test_RequiredDriveResources(t *testing.T) {
 	tests := []struct {
 		name               string
 		tlcGiB, qlcGiB     int
+		numDrives          int
 		wantHpMiB, wantMem int
 	}{
-		{"tlc exactly one core", 5 * tib, 0, 1600, 11000},
-		{"tlc rounds up", 5*tib + 1, 0, 3200, 14000},
-		{"qlc only one core", 0, 50 * tib, 1600, 11000},
-		{"mixed sums per-pool cores", 5 * tib, 50 * tib, 3200, 14000},
-		{"zero capacity floors at one core", 0, 0, 1600, 11000},
+		// numDrives == 0: the per-core-only branch (containerCapacity/clusterCapacity, whose pods carry no
+		// drive term either).
+		{"tlc exactly one core", 5 * tib, 0, 0, 1600, 11000},
+		{"tlc rounds up", 5*tib + 1, 0, 0, 3200, 14000},
+		{"qlc only one core", 0, 50 * tib, 0, 1600, 11000},
+		{"mixed sums per-pool cores", 5 * tib, 50 * tib, 0, 3200, 14000},
+		{"zero capacity floors at one core", 0, 0, 0, 1600, 11000},
+
+		// numDrives > 0: 1400/core + 200/drive, matching allocator.CalculateDriveHugepages. Drives may
+		// exceed cores, which is the whole reason the drive term cannot be folded into a per-core figure.
+		{"one drive per core matches the per-core figure", 5 * tib, 0, 1, 1400 + 200, 11000},
+		{"drives above cores add 200 MiB each", 5 * tib, 0, 4, 1400 + 800, 11000},
+		// The numDrives+driveCapacity case from the docs: 6 drives x 3500 GiB -> 21000 GiB -> 5 cores.
+		// Per-core-only would charge 5*1600 = 8000; the pod actually requests 5*1400 + 6*200 = 8200.
+		{"numDrives+driveCapacity: 6 drives on 5 cores", 6 * 3500, 0, 6, 5*1400 + 6*200, 23000},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			hp, mem := RequiredDriveResources(tt.tlcGiB, tt.qlcGiB, cons)
+			hp, mem := RequiredDriveResources(tt.tlcGiB, tt.qlcGiB, tt.numDrives, cons)
 			if hp != tt.wantHpMiB || mem != tt.wantMem {
-				t.Fatalf("RequiredDriveResources(%d,%d) = (hp %d, mem %d), want (%d, %d)",
-					tt.tlcGiB, tt.qlcGiB, hp, mem, tt.wantHpMiB, tt.wantMem)
+				t.Fatalf("RequiredDriveResources(%d,%d,%d) = (hp %d, mem %d), want (%d, %d)",
+					tt.tlcGiB, tt.qlcGiB, tt.numDrives, hp, mem, tt.wantHpMiB, tt.wantMem)
 			}
 		})
 	}
 }
 
-// Test_PlaceUniform_DoesNotDoubleChargeBaseMemoryForMergedContainer reproduces the cross-pool scenario
-// where the TLC pass has already created a (merged) new container on a node and the QLC pass then lands on
-// that same node via placeUniform. Per-container base memory must be charged at most once per merged
-// container — placeUniform must mirror its includeBase decision (existedNode => base already charged)
-// rather than unconditionally charging base again.
+// Cross-pool: the TLC pass already merged a new container on a node; the QLC pass must not re-charge
+// base memory for that same (existedNode) container.
 func Test_PlaceUniform_DoesNotDoubleChargeBaseMemoryForMergedContainer(t *testing.T) {
 	s := testScheme() // minFd = 6
 	cons := testCons()
 	minFd := s.MinFdNum()
 
-	// Six nodes, each on its own FD, with generous drive/core/hugepages so only memory is observable.
-	// TlcGiB seeds a per-node TLC container the earlier pass would have placed.
+	// Six nodes, one FD each; TlcGiB seeds the per-node TLC container the earlier pass would have placed.
 	const tlcPerNode = 30 * tib
 	tlcCores := util.CeilDiv(tlcPerNode, perCoreCap(poolTLC, cons))
 
@@ -1741,18 +1643,16 @@ func Test_PlaceUniform_DoesNotDoubleChargeBaseMemoryForMergedContainer(t *testin
 		return n
 	}
 
-	// Build one chosen fdGroup per node (AUTO mode: FD == node) and place T = 30 TiB of QLC uniformly. Each
-	// node already carries a new (TLC) container, so existedNode is true and base must NOT be re-charged.
+	// One fdGroup per node (AUTO mode); each already carries a new TLC container, so base must not re-charge.
 	T := 30 * tib
 	chosen := make([]*fdGroup, 0, minFd)
 	for i := 1; i <= minFd; i++ {
 		ns := states["n"+itoa(i)]
 		chosen = append(chosen, &fdGroup{nodes: []*nodeState{ns}, headroom: ns.nodeHeadroom(poolQLC, cons, true)})
 	}
-	placeUniform(poolQLC, T, chosen, nil /*no existing drives*/, states, cons, nil /*never grows*/, newByNode, newFor)
+	placeUniform(poolQLC, T, chosen, nil /*no existing drives*/, cons, nil /*never grows*/, newByNode, newFor)
 
-	// Each node should have been charged QLC core memory only — its base was already accounted for by
-	// the (simulated) TLC pass. A second MemoryBaseMiB charge here is the double-charge bug.
+	// Only QLC core memory should be charged; a second MemoryBaseMiB charge would be the double-charge bug.
 	for name, ns := range states {
 		addedQlc := newByNode[name].QlcGiB
 		if addedQlc <= 0 {
@@ -1770,15 +1670,11 @@ func Test_PlaceUniform_DoesNotDoubleChargeBaseMemoryForMergedContainer(t *testin
 
 // --- compute sizing (OP-329): node-core-aware compute container layout ---
 
-// Test_Compute_BugScenario_NodeCoreAware reproduces the OP-329 bug: 200 TiB usable / SW,RL,HS=3,2,1 /
-// TLC-only across 14 large nodes -> 90 TLC drive cores (raw = int(float64(200*1024*2)/0.9) = 455111 GiB;
-// 6 FDs; ceil(455111/6)=75852 GiB/FD; ceil(75852/5120)=15 cores/FD; 15×6=90 total drive cores).
-// The planner must derive a MINIMAL compute layout bounded by the per-node core cap (6 containers x 15 cores),
-// NOT 90 single-core containers.
+// OP-329: 90 TLC drive cores (6 FDs x 15) must derive a minimal compute layout (6x15), not 90 single-core containers.
 func Test_Compute_BugScenario_NodeCoreAware(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
-	cons.MaxComputeCoresPerNode = 16 // policy cap (default in prod)
+	cons.MaxCoresPerContainer = 19 // policy cap (default in prod)
 
 	inv := nodes(14, 100*tib, 0, 32, "n") // big nodes: ~6 drive cores leave ample compute headroom
 	plan := planCap(desiredFrom(200*tib, s, nil), s, nil, inv, cons)
@@ -1789,19 +1685,15 @@ func Test_Compute_BugScenario_NodeCoreAware(t *testing.T) {
 		t.Fatalf("want 90 TLC drive cores (15 cores × 6 FDs = 90), got %d", plan.TotalTlcDriveCores)
 	}
 	if plan.ComputeContainers != 6 || plan.ComputeCores != 15 {
-		t.Fatalf("want compute 6x15 (minimal count, cap-bound by MaxComputeCoresPerNode=16), got %dx%d", plan.ComputeContainers, plan.ComputeCores)
+		t.Fatalf("want compute 6x15 (minimal count, cap-bound by MaxCoresPerContainer=19), got %dx%d", plan.ComputeContainers, plan.ComputeCores)
 	}
 	if plan.ComputeContainers*plan.ComputeCores < plan.TotalTlcDriveCores {
 		t.Fatalf("compute:drive 1:1 violated: %d < %d", plan.ComputeContainers*plan.ComputeCores, plan.TotalTlcDriveCores)
 	}
 }
 
-// Test_Compute_Infeasible_NoCoreHeadroom asserts the planner reports infeasibility (so the caller
-// retries before creating drive containers) when the drive-bearing nodes have no spare cores for the
-// 1:1 compute, instead of emitting unschedulable single-core compute containers.
-// raw = int(float64(200*1024*2)/0.9) = 455111 GiB; with 14 FDs: ceil(455111/14) = 32508 GiB/FD;
-// ceil(32508/5120) = 7 data cores/FD. Giving each node 8 physical CPUs (7 data + 1 management core, non-HT
-// dedicated) fully consumes it with the drive container, leaving 0 spare for compute → infeasible.
+// Reports infeasibility rather than emitting unschedulable single-core compute when drive-bearing nodes
+// have no spare cores for 1:1 compute (each node's 8 CPUs are fully consumed by 7 data + 1 management core).
 func Test_Compute_Infeasible_NoCoreHeadroom(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
@@ -1813,39 +1705,38 @@ func Test_Compute_Infeasible_NoCoreHeadroom(t *testing.T) {
 	}
 }
 
-// Test_Compute_HeterogeneousNodes_BoundBySmallest asserts homogeneous, unpinned compute is bounded by
-// the SMALLEST compute node's core headroom (a tiny node forces more, smaller containers). Drives
-// concentrate on the minFdNum largest nodes, so the small node carries no drives and its 8 cores cap
-// every compute container.
-func Test_Compute_HeterogeneousNodes_BoundBySmallest(t *testing.T) {
+// Regression: unpinned compute sizing must be bounded only by the weakest node among the chosen N nodes,
+// not the weakest across the entire candidate set, even one the plan never placed on.
+func Test_Compute_HeterogeneousNodes_NotDraggedDownByUnusedTinyNode(t *testing.T) {
 	s := testScheme()
 	cons := testCons() // cap disabled -> real per-node headroom binds
 
-	// 13 big nodes (32 cores) + 1 small node (8 cores), all 100 TiB TLC. Drives land on 6 big nodes
-	// (minFdNum, minimize-count); the small node is left drive-free and its 8 cores bound compute.
+	// 13 big nodes + 1 tiny (8-core) node; drives land on 6 big nodes (minFdNum), leaving 7 big nodes and
+	// the tiny node untouched — compute must size off the untouched big nodes, not the tiny one.
 	inv := append(nodes(13, 100*tib, 0, 32, "big"), node("small1", 100*tib, 0, 8))
 	plan := planCap(desiredFrom(200*tib, s, nil), s, nil, inv, cons)
 	if plan.Infeasible != "" {
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
 	}
-	if plan.ComputeCores > 8 {
-		t.Fatalf("compute cores should be bounded by the smallest node (8), got %d", plan.ComputeCores)
+	if plan.ComputeCores <= 8 {
+		t.Fatalf("compute cores should NOT be dragged down to the unused tiny node's 8 cores, got %d", plan.ComputeCores)
+	}
+	for _, n := range plan.ComputeNodes {
+		if n == "small1" {
+			t.Fatalf("compute should not have needed the tiny node small1; ComputeNodes=%v", plan.ComputeNodes)
+		}
 	}
 	if plan.ComputeContainers*plan.ComputeCores < plan.TotalTlcDriveCores {
 		t.Fatalf("compute:drive 1:1 violated: %d < %d", plan.ComputeContainers*plan.ComputeCores, plan.TotalTlcDriveCores)
 	}
 }
 
-// Test_Compute_DisklessNodes_SizedOnComputePool asserts compute is sized over the compute-selector node
-// pool — which can be DISKLESS nodes outside the drive inventory — and not over the drive nodes. The
-// drive nodes here are fully core-consumed by their drive containers (0 spare compute cores), so sizing
-// compute over them (the old behavior) would be infeasible; the diskless compute pool makes it feasible.
-// raw = int(float64(200*1024*2)/0.9) = 455111 GiB; 6 FDs: ceil(455111/6) = 75852 GiB/FD;
-// ceil(75852/5120) = 15 cores/FD; 15×6 = 90 total drive cores.
+// Compute sizes over the compute-selector pool (which can be diskless), not the drive nodes: drive nodes
+// here are fully core-consumed by their own containers, so sizing compute on them would be infeasible.
 func Test_Compute_DisklessNodes_SizedOnComputePool(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
-	cons.MaxComputeCoresPerNode = 16
+	cons.MaxCoresPerContainer = 16
 
 	// 6 drive nodes with exactly enough CPUs for their drive container (15 data cores + 1 management CPU =
 	// 16 → 0 left for compute), plus 8 diskless compute-only nodes (no drives, 32 cores each).
@@ -1876,13 +1767,12 @@ func Test_Compute_DisklessNodes_SizedOnComputePool(t *testing.T) {
 	}
 }
 
-// Test_Compute_SubsetSmallerThanRequired_Infeasible asserts the compute count is capped by the number of
-// COMPUTE nodes (not drive nodes): when the compute selector matches fewer nodes than the 1:1 layout
-// needs, the plan is infeasible and names the compute-node shortfall.
+// Compute count is capped by the number of compute nodes (not drive nodes); a shortfall is named in the
+// infeasibility message.
 func Test_Compute_SubsetSmallerThanRequired_Infeasible(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
-	cons.MaxComputeCoresPerNode = 16 // needs ceil(84/16)=6 compute containers
+	cons.MaxCoresPerContainer = 16 // needs ceil(84/16)=6 compute containers
 
 	inv := nodes(14, 100*tib, 0, 32, "n") // 14 drive nodes, ample compute headroom
 	computeNodes := map[string]bool{}
@@ -1896,8 +1786,7 @@ func Test_Compute_SubsetSmallerThanRequired_Infeasible(t *testing.T) {
 	}
 }
 
-// Test_Compute_NilComputeNodes_Infeasible guards the bug case: a nil compute-node set must surface
-// loudly rather than silently sizing compute over an unintended node set.
+// A nil compute-node set must surface loudly, not silently size compute over an unintended node set.
 func Test_Compute_NilComputeNodes_Infeasible(t *testing.T) {
 	s := testScheme()
 	plan := PlanCapacity(desiredFrom(200*tib, s, nil), s, nil, nil, nodes(14, 100*tib, 0, 32, "n"), nil, testCons())
@@ -1906,8 +1795,7 @@ func Test_Compute_NilComputeNodes_Infeasible(t *testing.T) {
 	}
 }
 
-// tightNode builds a candidate node with a SPECIFIC hugepages budget (and generous memory) so the
-// hugepages dimension binds — used to reproduce the drive+compute co-location hugepages oversubscription.
+// tightNode builds a node with a specific hugepages budget (generous memory) so hugepages binds.
 func tightNode(name string, tlcGiB, cores, hugepagesMiB int) NodeCapacity {
 	return NodeCapacity{
 		NodeName:              name,
@@ -1920,49 +1808,47 @@ func tightNode(name string, tlcGiB, cores, hugepagesMiB int) NodeCapacity {
 	}
 }
 
-// Test_RequiredDriveResources_IncludesDpdk verifies the planner's drive hugepages reservation includes
-// the per-core DPDK base memory that GetContainerHugepages adds to the actual pod request. Without this
-// the planner under-reserves and co-locates pools the scheduler then rejects (Bug #1, cause 1).
+// Drive hugepages reservation must include per-core DPDK base memory, else the planner under-reserves
+// and co-locates pools the scheduler then rejects.
 func Test_RequiredDriveResources_IncludesDpdk(t *testing.T) {
 	cons := testCons()
 	cons.DriveDpdkPerCoreMiB = 64 // GetDpdkBaseMemoryMbByRole default
 	// 5 TiB + 1 -> 2 cores; hugepages = 2 * (1600 + 64) = 3328.
-	hp, _ := RequiredDriveResources(5*tib+1, 0, cons)
+	hp, _ := RequiredDriveResources(5*tib+1, 0, 0, cons)
 	if hp != 2*(1600+64) {
 		t.Fatalf("got hp %d, want %d", hp, 2*(1600+64))
 	}
+	// With a drive term the per-core part drops to 1400 but DPDK still applies per core, and each drive adds
+	// 200 MiB: 6 drives x 3500 GiB -> 5 cores -> 5*(1400+64) + 6*200 = 8520, the figure the pod requests.
+	hpDrives, _ := RequiredDriveResources(6*3500, 0, 6, cons)
+	if want := 5*(1400+64) + 6*200; hpDrives != want {
+		t.Fatalf("got hp %d, want %d", hpDrives, want)
+	}
 }
 
-// Test_ComputeHugepages_IncludesDpdk verifies the planner's compute hugepages estimate adds the per-core
-// DPDK base memory on top of the base formula, matching the actual compute pod request.
+// Compute hugepages estimate must add per-core DPDK base memory on top of the base formula.
 func Test_ComputeHugepages_IncludesDpdk(t *testing.T) {
 	base := testCons()
 	withDpdk := testCons()
 	withDpdk.ComputeDpdkPerCoreMiB = 64
 	raw := 180 * tib
-	got := computeContainerHugepagesMiB(raw, 0, 6, 4, withDpdk)
-	want := computeContainerHugepagesMiB(raw, 0, 6, 4, base) + 64*4
+	got := ComputeContainerHugepagesMiB(raw, 0, 6, 4, withDpdk)
+	want := ComputeContainerHugepagesMiB(raw, 0, 6, 4, base) + 64*4
 	if got != want {
 		t.Fatalf("compute hugepages with DPDK = %d, want base+64*cores = %d", got, want)
 	}
 }
 
-// Test_Compute_PinnedDisjointFromDrives_WhenHugepagesTight reproduces Bug #1 (cause 2): on nodes whose
-// hugepages fit a drive OR a compute container but not both, the planner must reserve compute on nodes
-// disjoint from the drive nodes (and expose them via ComputeNodes) so compute never lands on a
-// drive-pinned node and leaves the pinned drive pod unschedulable.
-func Test_Compute_PinnedDisjointFromDrives_WhenHugepagesTight(t *testing.T) {
+// On nodes whose hugepages fit a drive OR a compute container but not both, compute must reserve nodes
+// separate from the drive nodes (via ComputeNodes) rather than leave the pinned drive pod unschedulable.
+func Test_Compute_PinnedOffDriveNodes_WhenHugepagesTight(t *testing.T) {
 	s := testScheme() // minFd = 6
 	cons := testCons()
 	cons.DriveDpdkPerCoreMiB = 64
 	cons.ComputeDpdkPerCoreMiB = 64
 
-	// 12 nodes, each 22000 MiB hugepages: a 7-core drive reserves 7*(1600+64)=11648 (fits with 10352 left),
-	// but a 7-core compute needs max(3000*7,1700*7)+64*7 = 21448 MiB — so a drive node's post-drive
-	// remainder (22000-11648=10352 MiB) cannot also host compute. A fresh node (22000 MiB) CAN host compute
-	// (21448 < 22000). Disjoint placement IS possible (6 drive + 6 compute <= 12 nodes).
-	// raw = int(float64(90*1024*2)/0.9) = 204800 GiB; 6 FDs; ceil(204800/6) = 34134 GiB/FD;
-	// ceil(34134/5120) = 7 cores/FD; totalDriveCores = 42.
+	// 12 nodes @ 22000 MiB hugepages: a 7-core drive reserves 11648 (10352 left, not enough for the
+	// 21448 MiB a 7-core compute needs), but a fresh 22000 MiB node can host compute — separate placement fits.
 	inv := make([]NodeCapacity, 0, 12)
 	for i := 1; i <= 12; i++ {
 		inv = append(inv, tightNode("n"+itoa(i), 100*tib, 64, 22000))
@@ -1989,25 +1875,79 @@ func Test_Compute_PinnedDisjointFromDrives_WhenHugepagesTight(t *testing.T) {
 	}
 }
 
+// Cores-only sizing (floor=6) would need 15-core/45000 MiB containers, but each compute node has only
+// 36000 MiB free (64 cores never bind) — the scan must advance n until hugepages fit too: n=8/12 cores.
+func Test_Compute_HugepagesBound_PrefersMoreSmallerContainers(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	cons := testCons()
+
+	// 6 drive nodes, ample headroom (compute sizes over a separate diskless pool below).
+	inv := nodes(6, 100*tib, 0, 32, "d")
+	// 8 diskless compute nodes: ample cores, but only 36000 MiB hugepages — fits a 12-core container
+	// (12*3000) but not 13 (39000) or 15 (45000).
+	for i := 1; i <= 8; i++ {
+		inv = append(inv, tightNode("c"+itoa(i), 0, 64, 36000))
+	}
+	computeNodes := computeNodeSet("c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8")
+
+	// raw = int(float64(200*1024*2)/0.9) GiB; 6 FDs; ceil(raw/6/5120) = 15 cores/FD; totalDriveCores = 90.
+	plan := PlanCapacity(desiredFrom(200*tib, s, nil), s, nil, nil, inv, computeNodes, cons)
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if plan.ComputeContainers != 8 || plan.ComputeCores != 12 {
+		t.Fatalf("want compute 8x12 (hugepages-bound, more/smaller containers), got %dx%d", plan.ComputeContainers, plan.ComputeCores)
+	}
+	if plan.ComputeContainers*plan.ComputeCores < plan.TotalTlcDriveCores {
+		t.Fatalf("compute:drive 1:1 violated: %d < %d", plan.ComputeContainers*plan.ComputeCores, plan.TotalTlcDriveCores)
+	}
+}
+
+// A node hosting an existing compute is exempt from the aggregate hugepages gate (frozen-in-place is
+// always safe), but the exemption must not leak to fresh nodes: cmp1 (net 1 MiB free) is exempted, while
+// cmp2 (fresh, 100 MiB free) must still fail the real check.
+func Test_Compute_ExistingComputeHugepagesReclaimed_NotDoubleCharged(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	cons := testCons()
+
+	inv := nodes(6, 100*tib, 0, 32, "d")
+	// cmp1: existing 4-core compute charging 6400 MiB; raw free 6401 -> only 1 MiB genuinely free (exempt).
+	inv = append(inv, tightNode("cmp1", 0, 20, 6401))
+	// cmp2: fresh, hugepages-starved (100 MiB) — the exemption must not leak here.
+	inv = append(inv, tightNode("cmp2", 0, 64, 100))
+	// cmp3-6: FRESH, ample hugepages.
+	for i := 3; i <= 6; i++ {
+		inv = append(inv, tightNode("cmp"+itoa(i), 0, 64, 1<<28))
+	}
+	computeNodes := computeNodeSet("cmp1", "cmp2", "cmp3", "cmp4", "cmp5", "cmp6")
+
+	existingCompute := []ExistingComputeContainer{
+		{Name: "cmp1-existing", Node: "cmp1", NumCores: 4, HugepagesMiB: 6400},
+	}
+	inv = netCompute(inv, existingCompute, cons)
+
+	// Same drive sizing as the PrefersMoreSmallerContainers test: floor=d=6 means only n=6 (45000 MiB) is tried.
+	plan := PlanCapacity(desiredFrom(200*tib, s, nil), s, nil, existingCompute, inv, computeNodes, cons)
+	if plan.Infeasible == "" {
+		t.Fatalf("want infeasible: cmp2's genuine hugepages shortage should still be caught (compute %dx%d)", plan.ComputeContainers, plan.ComputeCores)
+	}
+	// cmp2's shortage is hugepages-only (cores fit comfortably); the message must attribute it to hugepages
+	// specifically rather than naming both dimensions ambiguously.
+	if !strings.Contains(plan.Infeasible, "hugepages insufficient for") {
+		t.Fatalf("want the hugepages-aware aggregate-gate message, got: %q", plan.Infeasible)
+	}
+}
+
 // --- Grow-path fixes (OP-329): heterogeneous-ceiling, remainder consolidation, compute footprint ---
 
-// Test_GrowA1_HeterogeneousCeiling_EvenGrow is the primary repro for Cause A: existing TLC drive FDs
-// near per-node ceilings, grow substantially. Before the fix the projected FD count was wrong (old
-// formula used len(existing) directly), which caused delta to be concentrated into a handful of FDs
-// and left fragment remainder containers. After the fix the planner raises projected until spill fits
-// and distributes evenly, yielding:
-//   - Infeasible == "" (plan is valid)
-//   - no failure-domain imbalance warning (all FDs converge within 10%)
-//   - final per-FD sizes within ~10% of each other
-//   - a small new-FD count (no MinChunk-floor fragment cluster)
+// Cause A: existing FDs near per-node ceilings grow substantially. The projected FD count must raise until
+// spill fits, converging per-FD sizes within ~10% with no new containers.
 func Test_GrowA1_HeterogeneousCeiling_EvenGrow(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
 
-	// 6 existing containers at 25 TiB each on 6 nodes that have 15 TiB of additional headroom.
-	// Ceiling per node: 25 + 15 = 40 TiB. Current: 6*25 = 150 TiB raw.
-	// Target: 240 TiB raw -> delta 90 TiB. Each node can absorb 15 TiB, total in-place room = 90 TiB.
-	// A correct planner grows each existing FD to 40 TiB and creates no new containers.
+	// 6 containers @ 25 TiB on nodes with 15 TiB headroom (ceiling 40 TiB); 150->240 TiB delta (90 TiB)
+	// fits entirely in-place (6*15), so every FD should grow to 40 TiB with 0 new containers.
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
 		n := "n" + itoa(i)
@@ -2023,10 +1963,8 @@ func Test_GrowA1_HeterogeneousCeiling_EvenGrow(t *testing.T) {
 	if plan.Infeasible != "" {
 		t.Fatalf("A1: unexpected infeasible: %s", plan.Infeasible)
 	}
-	// Collect final per-FD sizes.
 	perFD := map[string]int{}
 	for _, g := range plan.Grow {
-		// find the existing container to get FDValue
 		for _, e := range existingDrives {
 			if e.Name == g.Name {
 				perFD[e.FDValue] += g.NewTlcGiB
@@ -2057,10 +1995,8 @@ func Test_GrowA1_HeterogeneousCeiling_EvenGrow(t *testing.T) {
 	}
 }
 
-// NEW behavior: the uniform-FD rule forbids creating any failure domain smaller than T0 (the existing
-// per-FD chunk). When the existing FDs are drive-full (cannot grow) and no spare node can host a full-T0
-// FD, the increase is INFEASIBLE — the planner never opens a sub-T0 fragment FD (was: spread the
-// remainder across the fewest sub-T fresh FDs and fold a sub-MinChunk tail).
+// uniform-FD rule forbids a new FD smaller than T0: existing FDs are drive-full (can't grow) and no spare
+// node can host a full-T0 FD, so the increase is infeasible rather than opening a sub-T0 fragment.
 func Test_GrowA2_RemainderLandsOnFewestFds(t *testing.T) {
 	s := testScheme() // minFdNum = 6, MinChunkSizeGiB = 384
 	cons := testCons()
@@ -2096,15 +2032,12 @@ func Test_GrowA2_RemainderLandsOnFewestFds(t *testing.T) {
 	}
 }
 
-// Test_GrowA3_Homogeneous_ProjectedEqualsExisting guards the degenerate-to-old-formula property:
-// when all FD ceilings are ample (homogeneous) the projected FD count equals len(existing) and the
-// result is identical to the old formula.
+// Degenerate case: with ample headroom on every node (homogeneous), projected FD count equals len(existing).
 func Test_GrowA3_Homogeneous_Unchanged(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
 
-	// 10 existing TLC FDs of 20 TiB each. Nodes have 30 TiB headroom (ample).
-	// Current: 200 TiB. Target: 300 TiB -> delta 100 TiB -> +10 TiB per FD -> 30 TiB each.
+	// 10 FDs @ 20 TiB, 30 TiB headroom each; 200->300 TiB delta (+10 TiB/FD) -> 30 TiB each.
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 10; i++ {
 		n := "n" + itoa(i)
@@ -2132,11 +2065,8 @@ func Test_GrowA3_Homogeneous_Unchanged(t *testing.T) {
 	}
 }
 
-// NEW behavior: uniform grow with no spare nodes. The uniform-FD rule replaces the old asymmetric
-// "overflow onto other existing FDs" with a single common level L: with NO fresh FD available, every
-// existing FD is grown to the SAME L (each must be able to reach it). Here T0=10 TiB and all 6 nodes have
-// ample headroom, so delta=60 TiB raises every FD uniformly to 20 TiB — no FD is left below the others
-// and no FD is pushed above to compensate (was: n6 pinned at its 12 TiB ceiling while others overshoot).
+// uniform-FD rule: with no fresh FD available, every existing FD must grow to the same common level L,
+// never leaving one FD pinned at its ceiling while others overshoot.
 func Test_Grow_SymmetricOverflow_ExistingAbsorbsCeilingBoundDeficit(t *testing.T) {
 	s := testScheme()  // minFdNum = 6
 	cons := testCons() // scaling on (AllowInPlaceGrowth = true)
@@ -2170,7 +2100,6 @@ func Test_Grow_SymmetricOverflow_ExistingAbsorbsCeilingBoundDeficit(t *testing.T
 			}
 		}
 	}
-	// Every FD converges to the same uniform level (20 TiB) — no asymmetric overflow.
 	sum := 0
 	for fd, v := range final {
 		if v != 20*tib {
@@ -2183,11 +2112,9 @@ func Test_Grow_SymmetricOverflow_ExistingAbsorbsCeilingBoundDeficit(t *testing.T
 	}
 }
 
-// NEW behavior: uniform grow + create-new AT the uniform level. The grow must ADD failure domains and
-// the no-grow attempt cannot cover the delta with whole-T0 FDs (too few fresh nodes), so the planner
-// raises the uniform level L (above the 20% threshold) and brings EVERY final FD to L — existing FDs grow
-// to L and the new FDs are created AT L (not T0). 6 existing 30 TiB FDs (ceiling 42 TiB) + only 3 fresh
-// nodes; desired 378 TiB resolves to N=9 FDs at the uniform 42 TiB (a 40% grow, above minGrowthFraction).
+// Uniform grow + create-new AT the uniform level: when the no-grow attempt can't cover the delta with
+// whole-T0 fresh FDs, the planner raises the level L and brings every final FD (grown + new) to L.
+// 6 x 30 TiB FDs (ceiling 42 TiB) + 3 fresh nodes, desired 378 TiB -> 9 FDs at 42 TiB.
 func Test_Grow_AddsFds_LevelsExistingAndNew(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
@@ -2196,8 +2123,7 @@ func Test_Grow_AddsFds_LevelsExistingAndNew(t *testing.T) {
 		n := "ex" + itoa(i)
 		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 30 * tib, NumCores: 6})
 	}
-	// Existing nodes: 12 TiB headroom each (ceiling 42 TiB). Only 3 fresh nodes, so the no-grow attempt
-	// cannot cover the delta and the uniform level must rise to 42 TiB across 9 FDs.
+	// 12 TiB headroom/node (ceiling 42 TiB); only 3 fresh nodes, so no-grow can't cover delta -> level rises.
 	inv := append(nodes(6, 12*tib, 0, 64, "ex"), nodes(3, 100*tib, 0, 64, "fresh")...)
 	plan := planCap(DesiredCapacity{TlcRawGiB: 378 * tib}, s, existingDrives, inv, cons)
 	if plan.Infeasible != "" {
@@ -2237,12 +2163,8 @@ func Test_Grow_AddsFds_LevelsExistingAndNew(t *testing.T) {
 	}
 }
 
-// NEW behavior (uniform-or-infeasible): the old heterogeneous "fresh balanced set, delete the small ones"
-// fallback is gone. Here 6 tiny existing FDs (5 TiB, drive-full nodes) + 4 big fresh (100 TiB) + 2 fresh
-// capped at 60 TiB must reach 372 TiB. A uniform fill over 6 fresh FDs needs ceil(372/6)=62 TiB per FD, but
-// the 2 capped nodes hold only 60 TiB and there is no 7th fresh node to lower the share, and the existing
-// FDs are drive-full so they cannot grow. No uniform tiling reaches 372 TiB -> ClusterCapacityInfeasible
-// (was: a 6-FD heterogeneous fresh set totaling exactly 372 TiB + a delete-old warning).
+// uniform-or-infeasible: 6 drive-full FDs + 4 big fresh (100 TiB) + 2 fresh capped at 60 TiB must reach
+// 372 TiB. A uniform fill needs ceil(372/6)=62 TiB/FD, but the capped nodes hold only 60 -> Infeasible.
 func Test_Heterogeneous_Increase_CappedFreshNodes_Infeasible(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
@@ -2264,10 +2186,8 @@ func Test_Heterogeneous_Increase_CappedFreshNodes_Infeasible(t *testing.T) {
 	}
 }
 
-// Test_GrowB1_ComputeSaturatedNode_NewDriveAvoidsIt verifies that when an existing compute container
-// pins resources on a node, new drive FDs are steered away from that node (Cause B). The compute
-// footprint is charged against states before drive placement, so the compute-saturated node has zero
-// nodeHeadroom for drives and is naturally skipped.
+// Cause B: an existing compute container pins resources on a node, so new drive FDs steer away from it —
+// compute is charged against state before drive placement, leaving the saturated node zero drive headroom.
 func Test_GrowB1_ComputeSaturatedNode_NewDriveAvoidsIt(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
@@ -2282,10 +2202,8 @@ func Test_GrowB1_ComputeSaturatedNode_NewDriveAvoidsIt(t *testing.T) {
 		})
 	}
 
-	// "sat1" is a node with plentiful TLC drive space (100 TiB) but ALL its cores and hugepages are
-	// consumed by an existing compute container. After charging compute, nodeHeadroom for sat1 = 0.
-	// Cores: sat1 has exactly 30 cores and the compute container uses them all.
-	// Hugepages: sat1 has exactly 30*1600 MiB and the compute container uses them all.
+	// "sat1" has plentiful TLC drive space (100 TiB) but all cores/hugepages are consumed by existing
+	// compute, so nodeHeadroom for sat1 = 0 after charging.
 	saturateCores := 30
 	saturateHp := saturateCores * cons.HugepagesPerCoreMiB // 48000 MiB
 	existingCompute := []ExistingComputeContainer{
@@ -2297,12 +2215,7 @@ func Test_GrowB1_ComputeSaturatedNode_NewDriveAvoidsIt(t *testing.T) {
 		},
 	}
 
-	// Inventory:
-	// - old1-old6: drive-full (0 TiB headroom), ample cores/hugepages for compute only
-	// - sat1: 100 TiB drive headroom but zero usable after compute charge (exact saturation)
-	// - fresh1-fresh6: ample drive capacity, ample cores (these receive new drive FDs)
-	// Use PlanCapacity directly with a compute node set that only marks fresh nodes as compute-eligible
-	// (so the compute sizing doesn't interfere with the drive placement assertion).
+	// old1-6: drive-full. sat1: 100 TiB drive but 0 usable after compute charge. fresh1-6: ample everything.
 	invOld := nodes(6, 0, 0, 64, "old")
 	invSat := NodeCapacity{
 		NodeName:              "sat1",
@@ -2317,19 +2230,15 @@ func Test_GrowB1_ComputeSaturatedNode_NewDriveAvoidsIt(t *testing.T) {
 	inv := append(invOld, invSat)
 	inv = append(inv, invFresh...)
 
-	// Compute nodes: only the fresh nodes (which have ample headroom after drives) plus old nodes
-	// (drive-full but cores free). Exclude sat1 from compute eligibility so compute sizing succeeds.
 	computeNodes := make(map[string]bool, len(inv))
 	for _, nc := range invOld {
-		computeNodes[nc.NodeName] = true // old nodes: cores free after drive (drive-full, not core-full)
+		computeNodes[nc.NodeName] = true
 	}
 	for _, nc := range invFresh {
 		computeNodes[nc.NodeName] = true
 	}
-	// sat1 is NOT compute-eligible in this plan so compute sizing doesn't fail.
 
-	// Grow: add 60 TiB. Old nodes are drive-full; new FDs must go to sat1 or fresh1-fresh6.
-	// After charging sat1's compute footprint, sat1 has 0 drive headroom → must skip it.
+	// Grow +60 TiB: old nodes drive-full, sat1 has 0 headroom -> new FDs must land on fresh1-6.
 	inv = netCompute(inv, existingCompute, cons)
 	plan := PlanCapacity(DesiredCapacity{TlcRawGiB: 6*20*tib + 60*tib}, s, existingDrives, existingCompute, inv, computeNodes, cons)
 	if plan.Infeasible != "" {
@@ -2346,16 +2255,12 @@ func Test_GrowB1_ComputeSaturatedNode_NewDriveAvoidsIt(t *testing.T) {
 	}
 }
 
-// Test_GrowB2_DriveSharesNodeWithCompute_StillFeasible verifies that when drives and compute share
-// nodes that DO have spare headroom after accounting for the existing compute footprint, the grow
-// is feasible and drives are placed correctly.
+// When drives and compute share a node with spare headroom after the existing compute footprint, growth
+// remains feasible and drives place correctly.
 func Test_GrowB2_DriveSharesNodeWithCompute_Feasible(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
 
-	// 6 drive containers at 10 TiB on nodes that have 40 TiB more headroom.
-	// Each node has 64 cores; drive takes 2 cores (ceil(10*1024/5*1024)=2); compute takes 4 cores.
-	// Remaining cores after both: 64 - 2 - 4 = 58 — plenty for new drive growth.
 	computeHp := 4 * cons.HugepagesPerCoreMiB
 
 	var existingDrives []ExistingContainer
@@ -2376,7 +2281,6 @@ func Test_GrowB2_DriveSharesNodeWithCompute_Feasible(t *testing.T) {
 			HugepagesMiB: computeHp,
 		})
 	}
-	// Each node: 40 TiB free TLC headroom, 64 cores total, ample hugepages/memory.
 	inv := nodes(6, 40*tib, 0, 64, "n")
 
 	// Grow to 120 TiB raw (from 60 TiB -> +60 TiB, +10 TiB per existing FD).
@@ -2390,21 +2294,15 @@ func Test_GrowB2_DriveSharesNodeWithCompute_Feasible(t *testing.T) {
 	}
 }
 
-// Test_GrowC1_Infeasible_PinnedComputeCannotGrow reproduces the deficit-cannot-be-covered case (fix #2):
-// an existing SCHEDULED compute on "cmp1" cannot grow to the target (tight hugepages), so the planner
-// FREEZES it at its current size and tries to cover the resulting core deficit with a compensating
-// container. Here every other compute node is consumed by the net-new uniform computes, so there is NO
-// free fitting node left to compensate — the plan is cleanly Infeasible (the deficit message), and no
-// compute sizing is emitted (pre-mutation).
+// Cause C: a pinned compute (cmp1) can't grow to the target, gets frozen, and no free node remains to
+// compensate the deficit -> cleanly Infeasible, no compute sizing emitted.
 func Test_GrowC1_Infeasible_PinnedComputeCannotGrow(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
-	cons.MaxComputeCoresPerNode = 0 // disable policy cap so only real headroom binds
+	cons.MaxCoresPerContainer = 0 // disable policy cap so only real headroom binds
 
-	// Drives: 6 containers on nodes drv1-drv6, each with 25 TiB TLC.
-	// After grow to 50 TiB: totalTlcDriveCores = 6 * ceil(50*1024/5120) = 6*10 = 60.
-	// Compute layout: 6 compute-eligible nodes → ceil(60/6) = 10 cores each.
-	// Derived perContainerHP ≈ max(1700*10, 3000*10) = 30000 MiB per compute container.
+	// 6 drives x 25 TiB -> grow to 50 TiB gives 60 TLC drive cores -> 10 cores/container over 6 compute
+	// nodes -> perContainerHP ~= 30000 MiB.
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
 		n := "drv" + itoa(i)
@@ -2414,11 +2312,8 @@ func Test_GrowC1_Infeasible_PinnedComputeCannotGrow(t *testing.T) {
 		})
 	}
 
-	// cmp1 hosts an existing scheduled compute container with 4 cores and 4*1600=6400 MiB hugepages.
-	// cmp1's node budget: 6400 MiB (exactly consumed by the existing compute) + a tiny spare that is
-	// insufficient for the 30000 - 6400 = 23600 MiB hugepage delta the grown compute requires.
+	// cmp1: 4 cores/6400 MiB hugepages, only 1 MiB spare — far short of the 30000-6400=23600 MiB delta needed.
 	currentHp := 4 * cons.HugepagesPerCoreMiB // 6400 MiB
-	// Give cmp1 only 6400 + 1 MiB in total so hpDelta=23600 cannot fit (cmp1 spare = 1 MiB after charge).
 	cmp1TotalHp := currentHp + 1
 	existingCompute := []ExistingComputeContainer{
 		{
@@ -2426,12 +2321,9 @@ func Test_GrowC1_Infeasible_PinnedComputeCannotGrow(t *testing.T) {
 			Node:         "cmp1",
 			NumCores:     4,
 			HugepagesMiB: currentHp,
-			// Unscheduled: false (default) — this is a scheduled/running container
 		},
 	}
 
-	// Inventory: 6 drive nodes with ample hugepages + 6 compute-only nodes.
-	// 5 of the 6 compute nodes have ample hugepages. cmp1 has the tight budget.
 	inv := make([]NodeCapacity, 0, 12)
 	for i := 1; i <= 6; i++ {
 		inv = append(inv, NodeCapacity{
@@ -2443,7 +2335,6 @@ func Test_GrowC1_Infeasible_PinnedComputeCannotGrow(t *testing.T) {
 			AvailableMemoryMiB:    1 << 28,
 		})
 	}
-	// cmp1: zero drive capacity (diskless compute node), tight hugepages.
 	inv = append(inv, NodeCapacity{
 		NodeName:              "cmp1",
 		FDValue:               "cmp1",
@@ -2452,7 +2343,6 @@ func Test_GrowC1_Infeasible_PinnedComputeCannotGrow(t *testing.T) {
 		AvailableHugepagesMiB: cmp1TotalHp,
 		AvailableMemoryMiB:    1 << 28,
 	})
-	// cmp2-cmp5: ample hugepages for 5 more compute containers.
 	for i := 2; i <= 6; i++ {
 		inv = append(inv, NodeCapacity{
 			NodeName:              "cmp" + itoa(i),
@@ -2464,15 +2354,15 @@ func Test_GrowC1_Infeasible_PinnedComputeCannotGrow(t *testing.T) {
 		})
 	}
 
-	// Compute-eligible: only cmp1-cmp6 (diskless compute pool). Drive nodes are NOT compute-eligible
-	// so compute sizing is purely over the 6 cmp nodes.
+	// Only cmp1-cmp6 are compute-eligible; drive nodes are excluded from compute sizing.
 	computeNodes := make(map[string]bool)
 	for i := 1; i <= 6; i++ {
 		computeNodes["cmp"+itoa(i)] = true
 	}
 
-	// Grow from 6*25 TiB to 6*50 TiB. Derived compute target: 10 cores, 30000 MiB per container.
-	// cmp1 has only 1 MiB spare hugepages after existing charge; hpDelta=23600 doesn't fit → Cause C.
+	// cmp1's 1 MiB spare can't cover the 23600 MiB hpDelta. Existing compute is exempt from the aggregate
+	// hugepages gate (it can always freeze in place), so the deficit is caught later at placement time —
+	// rejecting at the aggregate gate instead would break Test_GrowD4.
 	inv = netCompute(inv, existingCompute, cons)
 	plan := PlanCapacity(
 		DesiredCapacity{TlcRawGiB: 6 * 50 * tib},
@@ -2482,7 +2372,7 @@ func Test_GrowC1_Infeasible_PinnedComputeCannotGrow(t *testing.T) {
 		t.Fatalf("C1: want infeasible when the frozen-compute deficit cannot be covered, got feasible plan (compute %dx%d)", plan.ComputeContainers, plan.ComputeCores)
 	}
 	if !strings.Contains(plan.Infeasible, "cannot place") || !strings.Contains(plan.Infeasible, "shortfall") {
-		t.Fatalf("C1: infeasible message should report the uncoverable shortfall, got: %q", plan.Infeasible)
+		t.Fatalf("C1: infeasible message should be the placement-time shortfall message (unchanged by Step 2), got: %q", plan.Infeasible)
 	}
 	// ComputeCores/ComputeContainers/ComputeLayout must NOT be set on an infeasible plan (pre-mutation).
 	if plan.ComputeCores != 0 || plan.ComputeContainers != 0 || len(plan.ComputeLayout) != 0 {
@@ -2490,20 +2380,15 @@ func Test_GrowC1_Infeasible_PinnedComputeCannotGrow(t *testing.T) {
 	}
 }
 
-// Test_GrowC2_Feasible_PinnedComputeCanGrow verifies the complement of C1: the pinned compute node
-// (cmp1) has ample hugepages, so the compute growth delta fits, plan.Infeasible == "", and
-// ComputeCores reflects the grown target. This also guards against double-reservation: cmp1's current
-// footprint is charged once (Step 1b), the delta is verified once (Cause C), and reserve is not
-// double-claimed in the fitNodes pass.
+// Test_GrowC2_Feasible_PinnedComputeCanGrow: complement of C1 — cmp1 has ample hugepages so the growth
+// delta fits, and the fix doesn't double-charge/double-claim cmp1's footprint in the fitNodes pass.
 func Test_GrowC2_Feasible_PinnedComputeCanGrow(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
-	cons.MaxComputeCoresPerNode = 0 // disable policy cap
+	cons.MaxCoresPerContainer = 0 // disable policy cap
 
-	// 6 TLC drive containers at 25 TiB each. Post-grow to 50 TiB → totalTlcDriveCores = 60.
-	// Compute over 6 cmp nodes: ceil(60/6) = 10 cores each; perContainerHP ≈ 30000 MiB.
-	// cmp1 has an existing compute container with 4 cores / 6400 MiB; ample budget to absorb
-	// 6 more cores (delta 9600 MiB hugepages) out of its large (1<<28) allowance.
+	// 6x25 TiB drives -> post-grow 60 TLC drive cores -> 10 cores/container, perContainerHP ~=30000 MiB.
+	// cmp1's existing 4-core/6400 MiB compute easily absorbs the 6-core/9600 MiB delta.
 	currentHp := 4 * cons.HugepagesPerCoreMiB // 6400 MiB
 
 	var existingDrives []ExistingContainer
@@ -2523,8 +2408,7 @@ func Test_GrowC2_Feasible_PinnedComputeCanGrow(t *testing.T) {
 		},
 	}
 
-	// Drive nodes: 25 TiB free headroom each, ample hugepages.
-	// Compute nodes (cmp1-cmp6): diskless (0 TiB), ample hugepages (1<<28 MiB).
+	// Drive nodes: 25 TiB headroom. Compute nodes cmp1-cmp6: diskless, ample hugepages.
 	inv := make([]NodeCapacity, 0, 12)
 	for i := 1; i <= 6; i++ {
 		inv = append(inv, NodeCapacity{
@@ -2587,20 +2471,14 @@ func computeNodeSet(names ...string) map[string]bool {
 	return m
 }
 
-// Test_GrowD1_ComputeCoreBump_RetainsExistingNodes_NoNetNew is the primary repro for the
-// compute-core-grow double-count bug: every compute container is pinned to a dedicated compute node
-// whose post-charge headroom comfortably fits its OWN growth delta but NOT a fresh full-footprint
-// placement. The buggy planner reserved each delta on its node and then re-required the full footprint
-// free on `count` nodes — the same nodes it had just delta-decremented failed the re-check, so only the
-// one genuinely-free node passed and the grow was falsely rejected ("only 1 of 6 fit"). The fix places
-// only the net-new computes (here 0): the 6 retained nodes are kept, no fresh node is consumed.
+// Cause D1: each pinned compute node's headroom fits its own growth delta but not a fresh full-footprint
+// placement; re-checking the full footprint on already-decremented nodes falsely rejected the grow.
 func Test_GrowD1_ComputeCoreBump_RetainsExistingNodes_NoNetNew(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
-	cons.MaxComputeCoresPerNode = 0 // disable policy cap; real per-node headroom binds
+	cons.MaxCoresPerContainer = 0 // disable policy cap; real per-node headroom binds
 
-	// 6 drive containers of 60 TiB each → 12 drive cores each, 72 total. Compute over 6 cmp nodes:
-	// count = max(floor 6, ceil(72/64)) = 6, cores = ceil(72/6) = 12, perContainerHP = 3000*12 = 36000.
+	// 6x60 TiB drives -> 72 drive cores -> compute count=6, cores=12, perContainerHP=36000 MiB.
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
 		n := "drv" + itoa(i)
@@ -2610,10 +2488,8 @@ func Test_GrowD1_ComputeCoreBump_RetainsExistingNodes_NoNetNew(t *testing.T) {
 		})
 	}
 
-	// Each cmp node hosts a 6-core / 18000-MiB existing compute and has a total hugepages budget of
-	// 36001 MiB: after charging the current 18000 it has 18001 free — enough for the 18000-MiB growth
-	// delta (→ 12 cores / 36000 MiB) but NOT for a fresh full 36000-MiB placement. The buggy planner
-	// would reject these nodes on the full re-check; the fix retains them (net-new = 0).
+	// Each cmp node: 6-core/18000-MiB existing compute, 36001-MiB total budget — enough for the
+	// 18000-MiB delta but not a fresh full 36000-MiB placement (the bug's false-reject scenario).
 	currentHp := 3000 * 6 // 18000 MiB
 	var existingCompute []ExistingComputeContainer
 	for i := 1; i <= 6; i++ {
@@ -2662,15 +2538,12 @@ func Test_GrowD1_ComputeCoreBump_RetainsExistingNodes_NoNetNew(t *testing.T) {
 	}
 }
 
-// Test_GrowD2_ComputeCoreBump_StuckCompute_CompensatedOnFreeNode is fix #2 scenario 1: one existing
-// compute (cmp1) cannot grow its delta on its node, so the planner FREEZES it at its current 6 cores
-// (no disruption) and covers the 6-core deficit with a compensating container on the free fitting node
-// (cmpfree). The grow is FEASIBLE; cmp2-6 grow to the 12-core target; cmp1 stays at 6; cmpfree holds a
-// 6-core compensating container; total layout cores >= the uniform target total.
+// Test_GrowD2_ComputeCoreBump_StuckCompute_CompensatedOnFreeNode: cmp1 can't grow its delta, so it's
+// frozen at 6 cores and the 6-core deficit is compensated on the free node (cmpfree); cmp2-6 grow to 12.
 func Test_GrowD2_ComputeCoreBump_StuckCompute_CompensatedOnFreeNode(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
-	cons.MaxComputeCoresPerNode = 0
+	cons.MaxCoresPerContainer = 0
 
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
@@ -2696,8 +2569,7 @@ func Test_GrowD2_ComputeCoreBump_StuckCompute_CompensatedOnFreeNode(t *testing.T
 		})
 	}
 	for i := 1; i <= 6; i++ {
-		// cmp1 is the offender: total 18100 MiB → only 100 free after the current 18000 charge, far below
-		// the 18000-MiB delta. cmp2-6 are ample.
+		// cmp1: 18100 MiB total, only 100 free after the 18000 charge — far below the 18000 delta.
 		hp := 1 << 28
 		if i == 1 {
 			hp = currentHp + 100
@@ -2747,13 +2619,12 @@ func Test_GrowD2_ComputeCoreBump_StuckCompute_CompensatedOnFreeNode(t *testing.T
 	}
 }
 
-// Test_GrowD3_ComputeCountGrows_PlacesNetNewOnly verifies a count increase (6 existing computes → 8
-// containers) places exactly the 2 net-new computes on free nodes while retaining the 6 existing pinned
-// nodes: ComputeNodes is the union of the 6 existing + 2 new.
+// Test_GrowD3_ComputeCountGrows_PlacesNetNewOnly: a count increase (6 -> 8 containers) places only the
+// 2 net-new computes on free nodes; ComputeNodes is the union of the 6 existing + 2 new.
 func Test_GrowD3_ComputeCountGrows_PlacesNetNewOnly(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
-	cons.MaxComputeCoresPerNode = 10 // count = max(6, ceil(72/10)) = 8, cores = ceil(72/8) = 9
+	cons.MaxCoresPerContainer = 10 // count = max(6, ceil(72/10)) = 8, cores = ceil(72/8) = 9
 
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
@@ -2819,14 +2690,12 @@ func Test_GrowD3_ComputeCountGrows_PlacesNetNewOnly(t *testing.T) {
 	}
 }
 
-// Test_GrowD4_DeficitSpreadAcrossMultipleCompensatingContainers is fix #2 scenario 3: THREE existing
-// computes are stuck (frozen at 6 cores) on cmp1-3, contributing a combined 18-core deficit (target 12).
-// That needs 2 compensating containers (ceil(18/12)); the deficit is split AS EVENLY AS POSSIBLE (9 + 9)
-// across the two free fitting nodes. cmp4-6 grow to 12; cmp1-3 stay frozen at 6.
+// Test_GrowD4_DeficitSpreadAcrossMultipleCompensatingContainers: 3 stuck computes (cmp1-3, frozen at 6)
+// create an 18-core deficit, split evenly (9+9) across 2 compensating free nodes; cmp4-6 grow to 12.
 func Test_GrowD4_DeficitSpreadAcrossMultipleCompensatingContainers(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
-	cons.MaxComputeCoresPerNode = 0 // uniform target 12 cores (72 drive cores / 6)
+	cons.MaxCoresPerContainer = 0 // uniform target 12 cores (72 drive cores / 6)
 
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
@@ -2903,17 +2772,12 @@ func Test_GrowD4_DeficitSpreadAcrossMultipleCompensatingContainers(t *testing.T)
 	}
 }
 
-// Test_GrowD5_FrozenPlusNetNew_BalancedFill pins the balanced-fill behavior: when a frozen existing
-// compute COEXISTS with genuinely net-new slots, the new containers are sized UNIFORMLY (the whole
-// shortfall split evenly), not "full ones at the uniform target plus a small remainder". One existing
-// compute (cmp1) is frozen at 6 cores; the uniform target is 6 containers × 12 = 72 cores, of which the
-// frozen compute supplies only 6 → a 66-core shortfall placed across 6 free nodes as 6 × 11 (not
-// [12,12,12,12,12,6]). Same node count and total cores as the older full-then-remainder layout, just
-// more even.
+// D5: a frozen compute (cmp1, 6 cores) coexisting with net-new slots must split the 66-core shortfall
+// uniformly across 6 free nodes (6x11), not full-then-remainder (12,12,12,12,12,6).
 func Test_GrowD5_FrozenPlusNetNew_BalancedFill(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
-	cons.MaxComputeCoresPerNode = 0 // uniform target 12 cores (72 drive cores / 6)
+	cons.MaxCoresPerContainer = 0 // uniform target 12 cores (72 drive cores / 6)
 
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
@@ -2923,8 +2787,7 @@ func Test_GrowD5_FrozenPlusNetNew_BalancedFill(t *testing.T) {
 			TlcGiB: 60 * tib, NumCores: 12,
 		})
 	}
-	// A SINGLE existing compute (cmp1), frozen: its node has only 100 MiB spare after the 18000 charge,
-	// far below the 18000-MiB grow delta. The other 5 uniform slots and the frozen deficit are all net-new.
+	// cmp1: only 100 MiB spare after the 18000 charge, far below the 18000-MiB delta -> frozen.
 	currentHp := 3000 * 6 // 18000 MiB
 	existingCompute := []ExistingComputeContainer{
 		{Name: "compute1", Node: "cmp1", NumCores: 6, HugepagesMiB: currentHp},
@@ -2981,14 +2844,11 @@ func Test_GrowD5_FrozenPlusNetNew_BalancedFill(t *testing.T) {
 
 // --- enableDynamicDriveScalingForSharedDrives=false: never extend existing containers ---
 
-// Test_Grow_DynamicScalingDisabled_CreatesNewInsteadOfExtending asserts that with in-place growth
-// disabled the planner does NOT grow any existing drive container (no CapacityGrowthApplied) — it places
-// the whole delta as NEW containers on fresh failure domains, using the FEWEST containers (largest per-FD
-// up to maxPerFdCap, imbalance-guarded). The enabled sub-run is the contrast: create-new-before-grow.
+// With in-place growth disabled, the delta is placed as new containers on fresh FDs (fewest,
+// imbalance-guarded), never grown in place. The enabled sub-run contrasts create-new-before-grow.
 func Test_Grow_DynamicScalingDisabled_CreatesNewInsteadOfExtending(t *testing.T) {
 	s := testScheme() // minFdNum = 6
-	// 6 existing TLC containers at 30 TiB on n1..n6 (each with 70 TiB / 58 cores headroom for growth),
-	// plus 6 fresh failure domains n7..n12 available for new containers.
+	// 6 existing TLC containers on n1-n6 (70 TiB/58 cores headroom each) + fresh FDs n7-n12.
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
 		n := "n" + itoa(i)
@@ -3027,9 +2887,8 @@ func Test_Grow_DynamicScalingDisabled_CreatesNewInsteadOfExtending(t *testing.T)
 		}
 	})
 
-	// NEW behavior: create-new-before-grow. With scaling enabled AND spare fresh FDs, a clean delta=180 TiB
-	// is covered by the fewest new FDs (4 × 45 TiB) on the fresh nodes — existing specs are left untouched
-	// (was: grow the 6 existing FDs to 60 TiB in place).
+	// create-new-before-grow: with spare fresh FDs, delta=180 TiB is covered by 4x45 TiB new FDs;
+	// existing specs stay untouched.
 	t.Run("enabled_creates_new_at_T", func(t *testing.T) {
 		cons := testCons() // AllowInPlaceGrowth = true
 		plan := planCap(desired, s, existingDrives, inv, cons)
@@ -3056,9 +2915,8 @@ func Test_Grow_DynamicScalingDisabled_CreatesNewInsteadOfExtending(t *testing.T)
 	})
 }
 
-// Test_Grow_DynamicScalingDisabled_NoFreshFD_Infeasible asserts that when in-place growth is disabled
-// and there are NO fresh failure domains to host new containers, the planner reports the plan infeasible
-// (with a flag-aware message) and extends nothing — rather than silently growing existing containers.
+// Test_Grow_DynamicScalingDisabled_NoFreshFD_Infeasible: no fresh FDs + growth disabled -> infeasible
+// with a flag-aware message, never a silent extend of existing containers.
 func Test_Grow_DynamicScalingDisabled_NoFreshFD_Infeasible(t *testing.T) {
 	s := testScheme()
 	var existingDrives []ExistingContainer
@@ -3083,14 +2941,11 @@ func Test_Grow_DynamicScalingDisabled_NoFreshFD_Infeasible(t *testing.T) {
 	}
 }
 
-// Test_Compute_DynamicScalingDisabled_FreezesExistingCreatesNew asserts that with in-place growth
-// disabled every existing compute container is FROZEN at its current size (no CapacityGrowthApplied) and
-// the 1:1 core deficit is covered by NEW compute containers on fresh nodes. The enabled sub-run is the
-// contrast: the existing computes grow in place to the uniform target.
+// With growth disabled, existing computes freeze at their current size and the deficit is covered by new
+// containers on fresh nodes; the enabled sub-run contrasts growing in place.
 func Test_Compute_DynamicScalingDisabled_FreezesExistingCreatesNew(t *testing.T) {
 	s := testScheme() // minFdNum = 6
-	// Drives already at target (no drive growth): 6 x 30 TiB TLC -> 6 cores each -> 36 TLC drive cores,
-	// so the compute 1:1 target is 36 cores (uniform 6 cores across 6 FDs).
+	// Drives at target: 6x30 TiB TLC -> 36 TLC drive cores -> compute 1:1 target = 6 cores x 6 FDs.
 	var existingDrives []ExistingContainer
 	for i := 1; i <= 6; i++ {
 		n := "n" + itoa(i)
@@ -3158,10 +3013,8 @@ func Test_Compute_DynamicScalingDisabled_FreezesExistingCreatesNew(t *testing.T)
 
 // --- uniform-FD increase path (planPoolUniformIncrease) ---
 
-// Test_UniformIncrease_PrefersNewFds_OverGrow: an existing pool with spare nodes and a small bump covers
-// the delta with a single new FD sized to the SHORTFALL (not a full-T0 clone) and leaves every existing
-// container's spec untouched (no grow). Sizing the new FD to the delta reaches desired EXACTLY, so there is
-// no rounding over-provision (was: 1 new full-T0=30 TiB FD, over-provisioning by 10 TiB).
+// A small bump with spare nodes is covered by one new FD sized to the shortfall (not a full-T0 clone),
+// leaving existing containers untouched and reaching desired exactly.
 func Test_UniformIncrease_PrefersNewFds_OverGrow(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
@@ -3172,8 +3025,7 @@ func Test_UniformIncrease_PrefersNewFds_OverGrow(t *testing.T) {
 		existingDrives = append(existingDrives, ExistingContainer{Name: "c" + itoa(i), Node: n, FDValue: n, TlcGiB: 30 * tib, NumCores: 6})
 	}
 	inv := append(nodes(6, 70*tib, 0, 64, "n"), nodes(2, 100*tib, 0, 64, "spare")...)
-	// current 180 TiB; target 200 TiB -> delta 20 TiB. maxPerFdCap = 200/6 = 33 TiB, so k=1 -> one 20 TiB
-	// FD fits (20 <= 33, >= MinChunk, below the imbalance boundary 2×30 TiB), reaching desired exactly.
+	// delta=20 TiB, maxPerFdCap=33 TiB -> k=1 fits (>=MinChunk, below the 2x30 TiB imbalance boundary).
 	plan := planCap(DesiredCapacity{TlcRawGiB: 200 * tib}, s, existingDrives, inv, cons)
 	if plan.Infeasible != "" {
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
@@ -3192,9 +3044,8 @@ func Test_UniformIncrease_PrefersNewFds_OverGrow(t *testing.T) {
 	}
 }
 
-// Test_UniformIncrease_NoSpare_BelowThreshold_Infeasible: with no spare node to host a new T0 FD and the
-// only alternative being a sub-minGrowthFraction in-place grow, the plan is infeasible with the threshold
-// message and places nothing.
+// Test_UniformIncrease_NoSpare_BelowThreshold_Infeasible: no spare node + a sub-minGrowthFraction grow
+// -> infeasible with the threshold message, nothing placed.
 func Test_UniformIncrease_NoSpare_BelowThreshold_Infeasible(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
@@ -3218,10 +3069,8 @@ func Test_UniformIncrease_NoSpare_BelowThreshold_Infeasible(t *testing.T) {
 	}
 }
 
-// Test_UniformIncrease_NoSpare_MinGrowthFractionZero_GrowsUniformly mirrors
-// Test_UniformIncrease_NoSpare_BelowThreshold_Infeasible but with MinGrowthFraction=0 ("always allow
-// in-place grow"). The same ~3% grow that is infeasible at the 0.2 default must now succeed — proving 0
-// is a meaningful value, not silently coerced to the default.
+// Test_UniformIncrease_NoSpare_MinGrowthFractionZero_GrowsUniformly: same ~3% grow as the BelowThreshold
+// test but MinGrowthFraction=0 ("always allow"), proving 0 is honored and not coerced to the default.
 func Test_UniformIncrease_NoSpare_MinGrowthFractionZero_GrowsUniformly(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
@@ -3250,10 +3099,8 @@ func Test_UniformIncrease_NoSpare_MinGrowthFractionZero_GrowsUniformly(t *testin
 	}
 }
 
-// Test_CapacityCoverTarget verifies the CapacityCoverTarget helper directly:
-//   - fraction 0 (unset) → returns desired unchanged (strict mode).
-//   - desired=6395, fraction=0.05 → band=ceil(319.75)=320 → 6075.
-//   - desired=100, fraction=0.011 → band=ceil(1.1)=2 → 98.
+// Test_CapacityCoverTarget verifies the CapacityCoverTarget helper: fraction=0 returns desired unchanged
+// (strict mode); otherwise desired minus ceil(desired*fraction).
 func Test_CapacityCoverTarget(t *testing.T) {
 	cases := []struct {
 		desired  int
@@ -3274,29 +3121,12 @@ func Test_CapacityCoverTarget(t *testing.T) {
 	}
 }
 
-// Test_UniformIncrease_EvenSplitToDelta_SizesNewFdsToShortfall validates the no-grow Step 4 even-split:
-// replacement/increase FDs are sized to SUM to the missing capacity (delta) using the FEWEST new FDs whose
-// even share stays within maxPerFdCap (= desiredRaw/minFd), NOT by cloning the smallest existing FD (T0) and
-// rounding the count up.
-//
-// Scenario arithmetic (all values in GiB) — worked example (a):
-//
-//	scheme: stripeWidth=3 / redundancy=2 / hotSpare=0 → minFd=5
-//	existing TLC pool: 3 FDs × 1250 GiB = 3750 GiB current
-//	desired TLC raw: 6395 GiB → delta = 6395 - 3750 = 2645
-//	maxPerFdCap = desiredRaw/minFd = 6395/5 = 1279  (no single FD may exceed this)
-//	Choose fewest new FDs k with even share CeilDiv(delta,k) <= maxPerFdCap:
-//	  k=1 → 2645 (>1279, no); k=2 → 1323 (>1279, no); k=3 → 882 (<=1279, yes)
-//	→ 3 new FDs of 882, total = 3750 + 3×882 = 6396 ≈ desired (no over-provision beyond +1).
-//
-//	The old T0-clone behavior would instead have created ceil(2645/1250)=3 FDs of 1250 (total 7500),
-//	over-provisioning by 1105 GiB. The new FDs (882) are SMALLER than the frozen existing FDs (1250) —
-//	a heterogeneous but valid layout (largest FD 1250 <= 1279). AllowInPlaceGrowth=false freezes the
-//	existing FDs so the only capacity added is the fresh even-split set.
+// New FDs sum to the delta using the fewest FDs whose even share stays within maxPerFdCap, not by
+// cloning T0 and rounding up count (old: 3x1250=7500, over-provisioning by 1105; new: 3x882=6396).
 func Test_UniformIncrease_EvenSplitToDelta_SizesNewFdsToShortfall(t *testing.T) {
 	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
 	cons := testCons()
-	cons.CapacityDeadbandFraction = 0.05 // present but does NOT change Step 4 (which targets exact delta)
+	cons.CapacityDeadbandFraction = 0.05 // present but does NOT change the even-split (which targets exact delta)
 	cons.AllowInPlaceGrowth = false      // freeze existing FDs; all new capacity is fresh even-split FDs
 
 	// 3 existing FDs of 1250 GiB each → current = 3750, T0 = 1250.
@@ -3306,8 +3136,7 @@ func Test_UniformIncrease_EvenSplitToDelta_SizesNewFdsToShortfall(t *testing.T) 
 		{Name: "c3", Node: "n3", FDValue: "n3", TlcGiB: 1250, NumCores: 1},
 	}
 
-	// Inventory: existing nodes (modest headroom — growth is frozen anyway) + 4 spare nodes
-	// with 5000 GiB TLC each so 3 of them can host an 882 GiB FD.
+	// Existing nodes (frozen anyway) + 4 spare nodes with 5000 GiB TLC to host the 882-GiB FDs.
 	inv := append(
 		nodes(3, 2000, 0, 8, "n"),
 		nodes(4, 5000, 0, 64, "spare")...,
@@ -3321,8 +3150,7 @@ func Test_UniformIncrease_EvenSplitToDelta_SizesNewFdsToShortfall(t *testing.T) 
 	if len(plan.Grow) != 0 {
 		t.Fatalf("AllowInPlaceGrowth=false: want 0 grows, got %d: %v", len(plan.Grow), plan.Grow)
 	}
-	// KEY ASSERTION: even-split to delta → 3 new FDs (fewest k with even share <= maxPerFdCap), NOT the
-	// old T0-clone count ceil(2645/1250)=3 of 1250, and NOT 2.
+	// 3 new FDs (fewest k with even share <= maxPerFdCap), not the old T0-clone count.
 	if len(plan.Create) != 3 {
 		t.Fatalf("even-split to delta should create 3 new FDs, got %d: %v\n"+
 			"  delta=2645, maxPerFdCap=1279; k=1→2645, k=2→1323 both exceed cap; k=3→882 fits",
@@ -3339,18 +3167,8 @@ func Test_UniformIncrease_EvenSplitToDelta_SizesNewFdsToShortfall(t *testing.T) 
 	}
 }
 
-// Test_UniformIncrease_EvenSplit_SubT0_SingleSmallFd validates worked example (b): when the shortfall is
-// smaller than a single existing FD, Step 4 covers it with ONE new FD sized to the shortfall itself, not a
-// full T0-sized clone (no sub-T0 quantization overshoot).
-//
-// Scenario arithmetic (all values in GiB):
-//
-//	scheme: stripeWidth=3 / redundancy=2 / hotSpare=0 → minFd=5
-//	existing TLC pool: 5 FDs × 1179 GiB = 5895 GiB current (T0 = 1179)
-//	desired TLC raw: 6395 GiB → delta = 500
-//	maxPerFdCap = 6395/5 = 1279
-//	k=1 → CeilDiv(500,1)=500 (>= MinChunkSizeGiB=384, <= 1279) → one 500-GiB FD, total 6395 exact.
-//	final FD count = 5 existing + 1 new = 6 >= minFd, feasible.
+// When the shortfall is smaller than a single existing FD, even-split covers it with one new FD sized
+// to the shortfall itself (500 GiB), not a full T0-sized clone (1179).
 func Test_UniformIncrease_EvenSplit_SubT0_SingleSmallFd(t *testing.T) {
 	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
 	cons := testCons()
@@ -3379,7 +3197,6 @@ func Test_UniformIncrease_EvenSplit_SubT0_SingleSmallFd(t *testing.T) {
 	if len(plan.Grow) != 0 {
 		t.Fatalf("AllowInPlaceGrowth=false: want 0 grows, got %d: %v", len(plan.Grow), plan.Grow)
 	}
-	// KEY ASSERTION: one new FD of 500 (the shortfall), NOT a 1179 T0 clone.
 	if len(plan.Create) != 1 {
 		t.Fatalf("sub-T0 delta should create exactly 1 new FD, got %d: %v", len(plan.Create), plan.Create)
 	}
@@ -3391,9 +3208,8 @@ func Test_UniformIncrease_EvenSplit_SubT0_SingleSmallFd(t *testing.T) {
 	}
 }
 
-// Test_UniformIncrease_NoSpare_AboveThreshold_GrowsUniformly: with no spare node and an in-place grow that
-// clears minGrowthFraction, every existing FD is grown to one common uniform level (no sub-T fragment, no
-// new FD).
+// With no spare node and an in-place grow that clears minGrowthFraction, every existing FD grows to one
+// common uniform level (no sub-T fragment, no new FD).
 func Test_UniformIncrease_NoSpare_AboveThreshold_GrowsUniformly(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
@@ -3421,9 +3237,8 @@ func Test_UniformIncrease_NoSpare_AboveThreshold_GrowsUniformly(t *testing.T) {
 	}
 }
 
-// Test_UniformIncrease_OversizedAnchor_DoesNotRaiseFloor: an over-sized existing FD (anchor) must not
-// raise T0 above the smallest existing FD; a new FD is created at T0 (the smallest existing chunk) and the
-// anchor is left untouched.
+// An over-sized existing FD (anchor) must not raise T0 above the smallest existing FD; a new FD is
+// created at T0 and the anchor is left untouched.
 func Test_UniformIncrease_OversizedAnchor_DoesNotRaiseFloor(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
@@ -3475,11 +3290,8 @@ func Test_UniformIncrease_ScalingDisabled_NoSpare_Infeasible(t *testing.T) {
 	}
 }
 
-// Test_GrowRestore_PrefersCleanNodeOverDeletingNode: deleting a drive container excludes it from the
-// existing set, so its node re-enters the fresh-candidate pool while still being charged in the
-// inventory. Once its capacity frees it is the emptiest (highest-headroom) node and, by pure
-// headroom-desc, would win — recreating the replacement on the node it was just deleted from. The
-// HasDeletingDriveContainer deprioritization must instead land the restored FD on a genuinely free node.
+// A deleting container's node re-enters the fresh-candidate pool as the highest-headroom node and would
+// win by pure headroom-desc; deprioritization must instead land the restored FD on a genuinely free node.
 func Test_GrowRestore_PrefersCleanNodeOverDeletingNode(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
@@ -3507,11 +3319,8 @@ func Test_GrowRestore_PrefersCleanNodeOverDeletingNode(t *testing.T) {
 	}
 }
 
-// Test_GrowRestore_FallsBackToDeletingNodeWhenSoleCandidate: the deprioritization is last-resort, never
-// an exclusion. When the only fresh candidate that can host the uniform chunk hosts a deleting container
-// (the other free node is too small), the planner must still restore the FD there rather than go
-// infeasible — this
-// guards the scarce-drive case (e.g. every QLC-capable node already used).
+// The deprioritization is last-resort, not an exclusion: when the deleting node is the only candidate
+// that fits, the planner must still restore there rather than go infeasible.
 func Test_GrowRestore_FallsBackToDeletingNodeWhenSoleCandidate(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
@@ -3571,9 +3380,8 @@ func Test_FrozenFDs_NewFDSizedFromMaxCap_NotT0(t *testing.T) {
 	}
 }
 
-// Test_FrozenFDs_ImbalanceGuardBlocks: same setup as Test_FrozenFDs_NewFDSizedFromMaxCap_NotT0 but with
-// ImbalanceFactor=1.1 so that 4436 >= 3750*1.1=4125 triggers the imbalance guard for all k values,
-// preventing the new-FD path from completing and leaving the plan infeasible.
+// Same setup as Test_FrozenFDs_NewFDSizedFromMaxCap_NotT0 but with ImbalanceFactor=1.1, so
+// 4436 >= 3750*1.1=4125 triggers the imbalance guard for all k, leaving the plan infeasible.
 func Test_FrozenFDs_ImbalanceGuardBlocks(t *testing.T) {
 	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0}
 	cons := testCons()
@@ -3597,9 +3405,8 @@ func Test_FrozenFDs_ImbalanceGuardBlocks(t *testing.T) {
 // --- enableDynamicDriveScalingForSharedDrives=false: fresh placement may not grow OR convert an existing
 // drive container; new capacity lands only on EMPTY nodes, else infeasible. ---
 
-// Flag OFF + a QLC-only container asked for TLC too (cross-pool conversion), with NO empty node: the
-// planner must NOT convert the existing QLC container to mixed and must report infeasible. Mirror of
-// Test_Grow_TlcOnlyContainer_ConvertedToMixed_WhenNodeHasQlc with the flag flipped and pools swapped.
+// Flag off + a QLC-only container asked for TLC too (cross-pool conversion), with no empty node: the
+// planner must not convert the existing QLC container to mixed and must report infeasible.
 func Test_ScalingDisabled_QlcOnly_AddTlc_NoEmptyNode_Infeasible(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	var existingDrives []ExistingContainer
@@ -3626,9 +3433,8 @@ func Test_ScalingDisabled_QlcOnly_AddTlc_NoEmptyNode_Infeasible(t *testing.T) {
 	}
 }
 
-// Flag OFF + same QLC-only-plus-TLC request, but now an EMPTY node is available: the planner must place
-// the new TLC capacity as brand-new standalone container(s) on the empty node(s) and never touch the
-// existing QLC containers.
+// Flag off + same request, but now an empty node is available: the planner must place the new TLC
+// capacity as brand-new container(s) on the empty node(s) and never touch the existing QLC containers.
 func Test_ScalingDisabled_QlcOnly_AddTlc_EmptyNodesAvailable_CreatesFresh(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	var existingDrives []ExistingContainer
@@ -3690,5 +3496,146 @@ func Test_ScalingEnabled_QlcOnly_AddTlc_ConvertsInPlace(t *testing.T) {
 		if g.NewTlcGiB != 28*tib || g.NewQlcGiB != 28*tib {
 			t.Fatalf("flag on: want converted to mixed TLC28+QLC28, got %+v", g)
 		}
+	}
+}
+
+// FullDriveCores: one core per drive, capped at cons.MaxCoresPerContainer when set (>0), unbounded when
+// cons is nil or the cap is unset, and always 0 for numDrives <= 0.
+func TestFullDriveCores(t *testing.T) {
+	capped := &CapacityConstraints{MaxCoresPerContainer: 19}
+	uncapped := &CapacityConstraints{} // MaxCoresPerContainer left zero-valued: unbounded
+
+	cases := []struct {
+		name      string
+		numDrives int
+		cons      *CapacityConstraints
+		want      int
+	}{
+		{"zero drives, nil cons", 0, nil, 0},
+		{"negative drives, capped cons", -3, capped, 0},
+		{"nil cons is unbounded", 25, nil, 25},
+		{"zero-valued cap is unbounded", 25, uncapped, 25},
+		{"below the cap is unaffected", 10, capped, 10},
+		{"exactly at the cap", 19, capped, 19},
+		{"above the cap is clamped to the cap", 25, capped, 19},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := FullDriveCores(c.numDrives, c.cons); got != c.want {
+				t.Errorf("FullDriveCores(%d, %+v) = %d, want %d", c.numDrives, c.cons, got, c.want)
+			}
+		})
+	}
+}
+
+// RequiredComputeCores: the drive-core total is a hard floor the configured ratios can only exceed, never
+// undercut; fullDrives selects FullDrivesComputeToDriveCoreRatio (TLC-only) instead of the TLC/QLC pair.
+func TestRequiredComputeCores(t *testing.T) {
+	unset := &CapacityConstraints{} // all ratios zero-valued: floor always wins
+	sharing := &CapacityConstraints{ComputeToTlcDriveCoreRatio: 2.0, ComputeToQlcDriveCoreRatio: 1.0}
+	subFloor := &CapacityConstraints{ComputeToTlcDriveCoreRatio: 0.5} // below 1:1 -> floor still wins
+	fullDrivesRatio := &CapacityConstraints{FullDrivesComputeToDriveCoreRatio: 2.0}
+	fractional := &CapacityConstraints{ComputeToTlcDriveCoreRatio: 1.3} // exercises the ceil()
+
+	cases := []struct {
+		name          string
+		tlcDriveCores int
+		qlcDriveCores int
+		fullDrives    bool
+		cons          *CapacityConstraints
+		want          int
+	}{
+		{"nil cons floors to the total regardless of fullDrives", 5, 3, false, nil, 8},
+		{"zero-valued ratios floor to the total", 5, 3, false, unset, 8},
+		{"drive-sharing ratios exceed the floor", 5, 3, false, sharing, 13},                      // ceil(2*5+1*3)=13
+		{"sub-1.0 ratio never takes compute below the floor", 10, 0, false, subFloor, 10},        // ceil(0.5*10)=5 < 10
+		{"fullDrives selects the full-drives ratio (TLC-only)", 5, 0, true, fullDrivesRatio, 10}, // ceil(2*5)=10
+		{"fullDrives ignores the drive-sharing ratios entirely", 5, 0, true, sharing, 5},         // qlcRatio forced to 0, tlcRatio from...
+		{"fractional ratio rounds up via ceil", 5, 0, false, fractional, 7},                      // ceil(1.3*5)=ceil(6.5)=7
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := RequiredComputeCores(c.tlcDriveCores, c.qlcDriveCores, c.fullDrives, c.cons)
+			if got != c.want {
+				t.Errorf("RequiredComputeCores(%d, %d, %v, %+v) = %d, want %d",
+					c.tlcDriveCores, c.qlcDriveCores, c.fullDrives, c.cons, got, c.want)
+			}
+		})
+	}
+}
+
+// MaxCoresPerContainer is a hard per-container limit: when a new drive container would need more cores
+// than the cap, fail fast with Binding "driveCores" rather than silently over-sizing.
+func TestPlanCapacity_MaxCoresPerContainer_DerivedCoresAboveLimit_Infeasible(t *testing.T) {
+	s := singleParityScheme() // minFdNum = 3
+	cons := testCons()
+	cons.AllowSingleParity = true
+	cons.MaxCoresPerContainer = 2 // each container may hold at most 2 cores
+
+	// 46080 GiB / 3 FDs = 15360 GiB/container; at TlcCapacityPerCoreGiB=5120 that derives 3 cores, one
+	// more than the 2-core cap.
+	plan := planCap(
+		DesiredCapacity{TlcRawGiB: 46080},
+		s,
+		nil,
+		nodes(3, 100*tib, 0, 1000, "n"),
+		cons,
+	)
+	if plan.Infeasible == "" {
+		t.Fatalf("expected infeasible (derived cores exceed MaxCoresPerContainer), got a feasible plan: %+v", plan)
+	}
+	if !strings.Contains(plan.Infeasible, "needs 3 cores") || !strings.Contains(plan.Infeasible, "above the 2-core per-container limit") {
+		t.Fatalf("Infeasible = %q, want it to cite the derived core count (3) and the configured limit (2)",
+			plan.Infeasible)
+	}
+	if plan.Infeasibility == nil || plan.Infeasibility.Binding != "driveCores" {
+		t.Fatalf("Infeasibility.Binding = %+v, want %q", plan.Infeasibility, "driveCores")
+	}
+}
+
+// orderFitNodesByFreshFD ordering. AUTO mode throughout (fdOf is identity), so these isolate node
+// selection from FD-spread grouping.
+
+func autoFdOf(node string) string { return node }
+
+func Test_OrderFitNodesByFreshFD_DeterministicAcrossRuns(t *testing.T) {
+	cons := testCons()
+	newStates := func() map[string]*nodeState {
+		return map[string]*nodeState{
+			"n1": stateFrom(node("n1", 0, 0, 100)),
+			"n2": stateFrom(node("n2", 0, 0, 90)),
+			"n3": stateFrom(node("n3", 0, 0, 50)),
+		}
+	}
+	first := orderFitNodesByFreshFD([]string{"n1", "n2", "n3"}, newStates(), nil, nil, 4, 0, autoFdOf, cons)
+	second := orderFitNodesByFreshFD([]string{"n3", "n1", "n2"}, newStates(), nil, nil, 4, 0, autoFdOf, cons)
+	if strings.Join(first, ",") != strings.Join(second, ",") {
+		t.Errorf("order not deterministic: got %v then %v for the same states regardless of input order", first, second)
+	}
+}
+
+// Test_CountPoolCapableNodes_IneligibleNode asserts an ineligible node (cordoned/not ready/untolerated
+// taint) is excluded from the "can physically host this pool" count unless poolUsed already credits it
+// with a pool-p container — a fresh placement can never land on an ineligible node, so counting it anyway
+// would inflate a pool's candidate count with a node no new container can actually reach.
+func Test_CountPoolCapableNodes_IneligibleNode(t *testing.T) {
+	states := map[string]*nodeState{
+		"eligible":           stateFrom(NodeCapacity{NodeName: "eligible", TlcGiB: 10 * tib}),
+		"ineligible-unused":  stateFrom(NodeCapacity{NodeName: "ineligible-unused", TlcGiB: 10 * tib, IneligibleReason: "cordoned"}),
+		"ineligible-hosting": stateFrom(NodeCapacity{NodeName: "ineligible-hosting", TlcGiB: 10 * tib, IneligibleReason: "not ready"}),
+		"no-tlc-capacity":    stateFrom(NodeCapacity{NodeName: "no-tlc-capacity", TlcGiB: 0}),
+	}
+	poolUsed := map[string]struct{}{"ineligible-hosting": {}}
+
+	// eligible + ineligible-hosting (already credited via poolUsed) = 2; ineligible-unused and
+	// no-tlc-capacity are both excluded.
+	if got := countPoolCapableNodes(states, poolUsed, poolTLC); got != 2 {
+		t.Fatalf("countPoolCapableNodes = %d, want 2 (eligible + ineligible-but-already-hosting; "+
+			"ineligible-unused must not count)", got)
+	}
+
+	// Without any poolUsed credit, the ineligible-hosting node drops out too.
+	if got := countPoolCapableNodes(states, nil, poolTLC); got != 1 {
+		t.Fatalf("countPoolCapableNodes with no poolUsed = %d, want 1 (only the plain eligible node)", got)
 	}
 }

@@ -57,6 +57,7 @@ func TestReconcilePropagatesServiceAccountToGeneratedContainers(t *testing.T) {
 		ns              = "default"
 		serviceAccount  = "weka-runtime"
 		image           = "adhoc:latest" // non-empty and not weka-in-container, so resign accepts it
+		signDrivesImage = "sign-drives:latest"
 		imagePullSecret = "weka-registry"
 	)
 	tolerations := []corev1.Toleration{
@@ -70,10 +71,18 @@ func TestReconcilePropagatesServiceAccountToGeneratedContainers(t *testing.T) {
 	config.Config.Timeouts.ReconcileTimeout = time.Minute
 	t.Cleanup(func() { config.Config.Timeouts.ReconcileTimeout = prevTimeout })
 
+	// discover-drives pins its image to SIGN_DRIVES_IMAGE rather than taking the owner's, and refuses
+	// to run when it is unset; like ReconcileTimeout, only ConfigureEnv populates it.
+	prevSignDrivesImage := config.Config.SignDrivesImage
+	config.Config.SignDrivesImage = signDrivesImage
+	t.Cleanup(func() { config.Config.SignDrivesImage = prevSignDrivesImage })
+
 	cases := []struct {
 		name    string
 		action  weka.WekaManualOperationAction
 		payload weka.ManualOperatorPayload
+		// Image the generated container is expected to carry: the owner's, except for discover-drives.
+		wantImage string
 	}{
 		{
 			name:   "ForceResignDrives",
@@ -81,6 +90,7 @@ func TestReconcilePropagatesServiceAccountToGeneratedContainers(t *testing.T) {
 			payload: weka.ManualOperatorPayload{
 				ForceResignDrives: &weka.ForceResignDrivesPayload{NodeName: "worker-node-1"},
 			},
+			wantImage: image,
 		},
 		{
 			name:   "DiscoverDrives",
@@ -88,6 +98,7 @@ func TestReconcilePropagatesServiceAccountToGeneratedContainers(t *testing.T) {
 			payload: weka.ManualOperatorPayload{
 				DiscoverDrives: &weka.DiscoverDrivesPayload{NodeSelector: map[string]string{}},
 			},
+			wantImage: signDrivesImage,
 		},
 		{
 			name:   "EnsureNICs",
@@ -95,6 +106,7 @@ func TestReconcilePropagatesServiceAccountToGeneratedContainers(t *testing.T) {
 			payload: weka.ManualOperatorPayload{
 				EnsureNICs: &weka.EnsureNICsPayload{NodeSelector: map[string]string{}},
 			},
+			wantImage: image,
 		},
 	}
 
@@ -178,8 +190,8 @@ func TestReconcilePropagatesServiceAccountToGeneratedContainers(t *testing.T) {
 			if got.ServiceAccountName != serviceAccount {
 				t.Errorf("generated WekaContainer ServiceAccountName = %q, want %q", got.ServiceAccountName, serviceAccount)
 			}
-			if got.Image != image {
-				t.Errorf("generated WekaContainer Image = %q, want %q", got.Image, image)
+			if got.Image != tc.wantImage {
+				t.Errorf("generated WekaContainer Image = %q, want %q", got.Image, tc.wantImage)
 			}
 			if got.ImagePullSecret != imagePullSecret {
 				t.Errorf("generated WekaContainer ImagePullSecret = %q, want %q", got.ImagePullSecret, imagePullSecret)

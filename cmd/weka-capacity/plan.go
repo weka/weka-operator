@@ -12,7 +12,6 @@ import (
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/capacityplanner/inventory"
-	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
@@ -75,7 +74,7 @@ type planData struct {
 	DesiredQlcRaw   int
 	CurrentTlc      int
 	CurrentQlc      int
-	Plan            *allocator.CapacityPlan
+	Plan            *capacityplanner.CapacityPlan
 	DriveGrow       []driveGrowRow
 	ComputeCreate   []computeRow
 	ComputeGrow     []computeRow
@@ -135,7 +134,7 @@ func (cmd *planCommand) Execute(_ []string) error {
 	// way the controller does. See funcs_fd_planning.go / cpu.go.
 	cons.CpuPolicy = cluster.Spec.CpuPolicy
 
-	s := allocator.ProtectionScheme{
+	s := capacityplanner.ProtectionScheme{
 		StripeWidth:     cluster.Spec.StripeWidth,
 		RedundancyLevel: cluster.Spec.RedundancyLevel,
 		HotSpare:        cluster.Spec.HotSpare,
@@ -144,9 +143,9 @@ func (cmd *planCommand) Execute(_ []string) error {
 	if err != nil {
 		return fmt.Errorf("parsing clusterCapacity: %w", err)
 	}
-	raw := allocator.RawCapacityGiB(capGiB, s.StripeWidth, s.RedundancyLevel, s.HotSpare)
+	raw := capacityplanner.RawCapacityGiB(capGiB, s.StripeWidth, s.RedundancyLevel, s.HotSpare)
 	tlcRaw, qlcRaw := weka.GetTlcQlcCapacity(raw, cluster.Spec.Dynamic.DriveTypesRatio)
-	desired := allocator.DesiredCapacity{
+	desired := capacityplanner.DesiredCapacity{
 		TlcRawGiB:         tlcRaw,
 		QlcRawGiB:         qlcRaw,
 		ComputeContainers: cluster.Spec.Dynamic.ComputeContainers,
@@ -159,7 +158,7 @@ func (cmd *planCommand) Execute(_ []string) error {
 	if err != nil {
 		return err
 	}
-	plan := allocator.PlanCapacity(desired, s, result.ExistingDrives, result.ExistingCompute, result.Inventory, result.ComputeNodes, cons)
+	plan := capacityplanner.PlanCapacity(desired, s, result.ExistingDrives, result.ExistingCompute, result.Inventory, result.ComputeNodes, cons)
 
 	var curTlc, curQlc int
 	for _, e := range result.ExistingDrives {
@@ -346,7 +345,7 @@ func driveGrowDiff(existing []capacityplanner.ExistingContainer, grow []capacity
 // be created or grown (the controller discards the whole plan when infeasible), names the blocking pool,
 // and flags any partial placement shown as diagnostic-only — so the create table is never mistaken for
 // an actionable plan.
-func planSummary(p *allocator.CapacityPlan, result *inventory.Result, desired allocator.DesiredCapacity) string {
+func planSummary(p *capacityplanner.CapacityPlan, result *inventory.Result, desired capacityplanner.DesiredCapacity) string {
 	newNodes := map[string]struct{}{}
 	var createRaw, createTlc, createQlc int
 	for _, c := range p.Create {

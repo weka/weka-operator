@@ -24,6 +24,13 @@ rules:
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list", "watch"]
+  # Cluster-wide, because the planner charges every scheduled pod against its node's headroom
+  # (inventory.chargeForeignPods), not just weka's own: a node with a foreign pod holding resources would
+  # otherwise report full headroom and get a container that then sits Pending. Without this rule every
+  # inventory build fails outright with "pods is forbidden".
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["weka.weka.io"]
     resources: ["wekaclusters", "wekacontainers", "wekaclusters/status", "wekacontainers/status"]
     verbs: ["get", "list", "watch"]

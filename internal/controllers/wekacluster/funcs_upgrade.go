@@ -3,6 +3,7 @@ package wekacluster
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -33,10 +34,15 @@ import (
 )
 
 // containerRoleSpec holds per-role values that are propagated from cluster spec to each container.
+// NumDrives is meaningful for the drive role alone; every other role leaves it zero.
 type containerRoleSpec struct {
 	ExtraCores    int
 	NumCores      int
+	NumDrives     int
 	HugepagesInfo allocator.ContainerHugepages
+	// HugepagesDeferred means this role's hugepages could not be derived on this pass, so HugepagesInfo is
+	// zero and none of the role's sizing may be written — see ErrDriveAllocationPending.
+	HugepagesDeferred bool
 }
 
 type UpdatableClusterSpec struct {
@@ -77,6 +83,7 @@ type UpdatableClusterSpec struct {
 	SmbwExtraCores            int
 	ComputeCores              int
 	DriveCores                int
+	DriveNumDrives            int
 	S3Cores                   int
 	NfsCores                  int
 	DataServicesCores         int
@@ -86,20 +93,21 @@ type UpdatableClusterSpec struct {
 	MachineIdentifierNodeRef  string
 	ComputeHugepages          allocator.ContainerHugepages
 	DriveHugepages            allocator.ContainerHugepages
+	ComputeHugepagesDeferred  bool
+	DriveHugepagesDeferred    bool
 	S3Hugepages               allocator.ContainerHugepages
 	NfsHugepages              allocator.ContainerHugepages
 	DataServicesHugepages     allocator.ContainerHugepages
 	SmbwHugepages             allocator.ContainerHugepages
 }
 
-// forRole returns the role-specific values for a given container mode, collapsing
-// all per-role switch dispatches into one place.
+// forRole returns the role-specific values for a given container mode.
 func (s *UpdatableClusterSpec) forRole(role string) containerRoleSpec {
 	switch role {
 	case weka.WekaContainerModeCompute:
-		return containerRoleSpec{ExtraCores: s.ComputeExtraCores, NumCores: s.ComputeCores, HugepagesInfo: s.ComputeHugepages}
+		return containerRoleSpec{ExtraCores: s.ComputeExtraCores, NumCores: s.ComputeCores, HugepagesInfo: s.ComputeHugepages, HugepagesDeferred: s.ComputeHugepagesDeferred}
 	case weka.WekaContainerModeDrive:
-		return containerRoleSpec{ExtraCores: s.DriveExtraCores, NumCores: s.DriveCores, HugepagesInfo: s.DriveHugepages}
+		return containerRoleSpec{ExtraCores: s.DriveExtraCores, NumCores: s.DriveCores, NumDrives: s.DriveNumDrives, HugepagesInfo: s.DriveHugepages, HugepagesDeferred: s.DriveHugepagesDeferred}
 	case weka.WekaContainerModeS3:
 		return containerRoleSpec{ExtraCores: s.S3ExtraCores, NumCores: s.S3Cores, HugepagesInfo: s.S3Hugepages}
 	case weka.WekaContainerModeNfs:
@@ -113,7 +121,6 @@ func (s *UpdatableClusterSpec) forRole(role string) containerRoleSpec {
 }
 
 func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta, containers []*weka.WekaContainer) (*UpdatableClusterSpec, error) {
-	// Helper function to safely convert pointer-to-map to HashableMap
 	safeHashableMap := func(ptr *map[string]string) *util.HashableMap {
 		if ptr == nil {
 			return nil
@@ -125,25 +132,33 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 
 	clusterForHp := &weka.WekaCluster{Spec: *spec}
 
-	// In clusterCapacity mode the capacity planner owns drive and compute containers' cores and
-	// hugepages (sized heterogeneously per failure domain), and the per-container propagation loop
-	// below skips those fields for these containers (see the plannerManaged guard). Computing
-	// compute/drive hugepages here would be discarded anyway, while needlessly emitting capacity
-	// hugepages logs and feeding template-default values into specHash. Skip them — other roles
-	// (s3/nfs/smbw/data-services) are not planner-managed and still compute below.
-	usesClusterCapacity := spec.Dynamic != nil && spec.Dynamic.UsesClusterCapacity()
+	// clusterCapacity and auto full drives size drive/compute hugepages via their own planners (per-FD, or
+	// per-node from signed drives) — computing them here would be discarded and, for auto full drives, error
+	// on unset numDrives. Other roles aren't planner-managed and still compute below.
+	plannerSizedContainers := allocator.IsPlannerManaged(spec.Dynamic)
 
 	var (
 		computeHp, driveHp allocator.ContainerHugepages
 		err                error
 	)
-	if !usesClusterCapacity {
+	// A role whose hugepages are not derivable yet is deferred, not fatal: the compute figure is
+	// extrapolated from a drive container already holding the template's numDrives, which a raise has not
+	// produced yet. Failing here would abort the drive-side propagation too, so the raise could never
+	// complete; deferring lets the drive role advance and the compute figure resolve on a later reconcile.
+	var computeHpDeferred, driveHpDeferred bool
+	if !plannerSizedContainers {
 		computeHp, err = allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "compute")
+		if stderrors.Is(err, allocator.ErrDriveAllocationPending) {
+			computeHpDeferred, computeHp, err = true, allocator.ContainerHugepages{}, nil
+		}
 		if err != nil {
 			return nil, errors.Wrap(err, "Cannot compute hugepages for compute containers")
 		}
 
 		driveHp, err = allocator.GetContainerHugepages(ctx, k8sClient, tmpl, clusterForHp, containers, "drive")
+		if stderrors.Is(err, allocator.ErrDriveAllocationPending) {
+			driveHpDeferred, driveHp, err = true, allocator.ContainerHugepages{}, nil
+		}
 		if err != nil {
 			return nil, errors.Wrap(err, "Cannot compute hugepages for drive containers")
 		}
@@ -207,6 +222,7 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 		SmbwExtraCores:            tmpl.ExtraCores.Smbw,
 		ComputeCores:              tmpl.Cores.Compute,
 		DriveCores:                tmpl.Cores.Drive,
+		DriveNumDrives:            tmpl.NumDrives,
 		S3Cores:                   tmpl.Cores.S3,
 		NfsCores:                  tmpl.Cores.Nfs,
 		DataServicesCores:         tmpl.Cores.DataServices,
@@ -216,6 +232,8 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 		MachineIdentifierNodeRef:  spec.GetOverrides().MachineIdentifierNodeRef,
 		ComputeHugepages:          computeHp,
 		DriveHugepages:            driveHp,
+		ComputeHugepagesDeferred:  computeHpDeferred,
+		DriveHugepagesDeferred:    driveHpDeferred,
 		S3Hugepages:               s3Hp,
 		NfsHugepages:              nfsHp,
 		SmbwHugepages:             smbwHp,
@@ -350,8 +368,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		if container.IsComputeContainer() {
 			if updatableSpec.UpgradeForceReplaceDrives {
-				// if we are in this mode, we also want NOT to force replace computes, otherwise we would use the common flag
-				// and most surely we are with "evict container on pod deletion" mode, so we want to disable it so computes will weka local stop
+				// Don't also force-replace computes here: with EvictContainerOnDeletion on, that would evict them via the common flag.
 				if config.Config.EvictContainerOnDeletion {
 					overrides.UpgradePreventEviction = true
 				}
@@ -391,9 +408,8 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		if role != weka.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
 			newNodeSelector := cluster.GetNodeSelectorForRole(role)
-			// clusterCapacity drive containers pin to their node via Spec.NodeAffinity (set by the
-			// capacity planner) — a dedicated field this NodeSelector overwrite never touches — so the
-			// pin survives without any hostname preservation here.
+			// Planner-managed drive containers pin via Spec.NodeAffinity (set by the planner), a separate
+			// field this NodeSelector overwrite never touches, so the pin survives untouched.
 			oldNodeSelector := util.NewHashableMap(container.Spec.NodeSelector)
 			if !util.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
 				container.Spec.NodeSelector = newNodeSelector
@@ -433,20 +449,23 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		rv := updatableSpec.forRole(role)
 
-		// In clusterCapacity mode the capacity planner OWNS drive and compute containers' cores,
-		// extra cores, hugepages, drive-types ratio and container capacity: it assigns them
-		// heterogeneously per container (sized per failure domain from TLC/QLC capacity, and the
-		// compute 1:1 sizing) and reconciles them in applyClusterCapacityGrowth /
-		// applyClusterCapacityComputeGrowth. The cluster-level values in updatableSpec are computed
-		// from the template-default cores and do NOT represent these containers, so propagating them
-		// here would clobber the planner-managed sizing — e.g. reset a multi-core drive/compute
-		// container back to a 1-core hugepage value, which weka then rejects for being below its
-		// minimum memory. Skip those fields for these containers; everything else (image, drivers,
-		// node selector, cpu/core-id policy, labels, dpdk) still propagates below/above.
-		plannerManaged := cluster.Spec.Dynamic != nil && cluster.Spec.Dynamic.UsesClusterCapacity() &&
+		// clusterCapacity/auto full drives owns drive/compute cores, hugepages, drive-type ratio and capacity
+		// (reconciled in applyPlannerDriveGrowth/applyPlannerComputeGrowth); propagating
+		// updatableSpec's template defaults here would clobber that sizing. Other fields still propagate.
+		plannerManaged := r.plannerManaged() &&
 			(role == weka.WekaContainerModeDrive || role == weka.WekaContainerModeCompute)
 
-		if !plannerManaged {
+		// coresRaisedTo/drivesRaisedTo carry an increase applied below out to the post-Patch event
+		// (0 = unchanged). Declared here because the update itself is scoped to the !plannerManaged branch.
+		coresRaisedTo, drivesRaisedTo := 0, 0
+
+		// Sizing is written as a set or not at all. With HugepagesInfo zero, writing cores or drives would
+		// pair a new size with a stale — or zero — reservation, the exact disagreement the hugepages rework
+		// exists to prevent. sizingDeferred also suppresses the spec-hash record below so the next reconcile
+		// retries instead of treating this container as fully applied.
+		sizingDeferred := !plannerManaged && rv.HugepagesDeferred
+
+		if !plannerManaged && !rv.HugepagesDeferred {
 			// ExtraCores allows zero (explicit removal), so uses equality guard.
 			// NumCores and Hugepages treat zero as "not set" — only update when non-zero.
 			if container.Spec.ExtraCores != rv.ExtraCores {
@@ -458,6 +477,18 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			if rv.NumCores > container.Spec.NumCores {
 				container.Spec.NumCores = rv.NumCores
 				coresUpdated = true
+				coresRaisedTo = rv.NumCores
+			}
+
+			// A raised drive count must reach the container: the drive role's hugepages already carry the
+			// template's numDrives, and the container claims drives up to its own Spec.NumDrives, so leaving
+			// it behind reserves for drives the container never takes. Increase-only, like NumCores: a node
+			// that cannot satisfy the higher count fails allocation, surfaced as an InsufficientDrives event.
+			drivesUpdated := false
+			if rv.NumDrives > container.Spec.NumDrives {
+				container.Spec.NumDrives = rv.NumDrives
+				drivesUpdated = true
+				drivesRaisedTo = rv.NumDrives
 			}
 
 			dpdkChanged := rv.HugepagesInfo.DpdkBaseMemoryMb > 0 && container.Spec.DpdkBaseMemoryMb != rv.HugepagesInfo.DpdkBaseMemoryMb
@@ -465,7 +496,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 				container.Spec.DpdkBaseMemoryMb = rv.HugepagesInfo.DpdkBaseMemoryMb
 			}
 
-			if coresUpdated || dpdkChanged {
+			if coresUpdated || dpdkChanged || drivesUpdated {
 				container.Spec.Hugepages = rv.HugepagesInfo.Hugepages
 				container.Spec.HugepagesOffset = rv.HugepagesInfo.HugepagesOffset
 			}
@@ -492,6 +523,35 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		if err != nil {
 			return err
 		}
+
+		// Drive cores are derived (containerCapacity or numDrives×driveCapacity), so can rise without a
+		// user edit; neither NumCores nor NumDrives is part of the pod config hash, so warn since the pod
+		// won't auto-recreate. A drives-only raise still owes the restart: the hugepages reservation grew
+		// with the drives, and the pod's limit and weka.io/drives request are both immutable.
+		if (coresRaisedTo > 0 || drivesRaisedTo > 0) && role == weka.WekaContainerModeDrive {
+			var what string
+			switch {
+			case coresRaisedTo > 0 && drivesRaisedTo > 0:
+				what = fmt.Sprintf("cores to %d and drives to %d", coresRaisedTo, drivesRaisedTo)
+			case coresRaisedTo > 0:
+				what = fmt.Sprintf("cores to %d", coresRaisedTo)
+			default:
+				what = fmt.Sprintf("drives to %d", drivesRaisedTo)
+			}
+			r.Recorder.Event(
+				container, v1.EventTypeWarning, "CapacityGrowthApplied",
+				fmt.Sprintf("raised drive container %s (derived from the cluster template); the drive spec changed — the pod must be recreated to apply the new sizing", what),
+			)
+		}
+
+		if sizingDeferred {
+			// Recording the hash would mark this container fully applied and the skipped sizing would never
+			// be retried — the gate at the top of this loop only reprocesses containers whose hash differs.
+			logger.Info("deferred this container's sizing: hugepages not derivable yet, will retry",
+				"container", container.Name, "mode", role)
+			return nil
+		}
+
 		err = r.getClient().Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: container.Name}, container)
 		if err != nil {
 			if apierrors.IsNotFound(err) {

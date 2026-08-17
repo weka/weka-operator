@@ -9,7 +9,7 @@ import (
 
 // cluster_capacity_assignment.go holds the k8s-coupled failure-domain label resolution shared by the
 // clusterCapacity planner and the controller layer. The pure drive-type classification
-// (RatioFromCaps, gcdInt, DriveType* tags) now lives in internal/capacityplanner/ratio.go.
+// (capacityplanner.RatioFromCaps, gcdInt, DriveType* tags) now lives in internal/capacityplanner/ratio.go.
 
 // ResolveNodeFDValue resolves a node's label-based failure-domain value from a FailureDomain config:
 // a single Label, or CompositeLabels joined with "-". It returns the RAW label value(s) WITHOUT the

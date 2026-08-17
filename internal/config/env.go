@@ -174,9 +174,8 @@ type SmbwConfig struct {
 }
 
 type ClusterCapacityConfig struct {
-	MaxComputeCoresPerNode int
-	TlcCapacityPerCoreGiB  int
-	QlcCapacityPerCoreGiB  int
+	TlcCapacityPerCoreGiB int
+	QlcCapacityPerCoreGiB int
 	// ImbalanceFactor gates the heterogeneous "balanced fresh" growth fallback: when each new drive
 	// container would be at least this factor (8.0 = 8.0x) of the existing containers' average
 	// capacity, the planner lays out a fresh balanced set instead. 0 falls back to the default (8.0).
@@ -185,6 +184,18 @@ type ClusterCapacityConfig struct {
 	// growth is ignored, to avoid re-planning/thrashing on trivial clusterCapacity bumps. 0 disables
 	// the deadband (exact-match: any positive delta grows).
 	CapacityDeadbandFraction float64
+}
+
+// CapacityPlannerConfig holds knobs shared by both capacity planners (clusterCapacity/drive sharing
+// and auto full drives/daemonset), unlike ClusterCapacityConfig which is clusterCapacity-specific.
+type CapacityPlannerConfig struct {
+	// MaxCoresPerContainer caps per-container cores for drive and compute containers. 0 disables the
+	// policy cap (real per-node headroom still binds).
+	MaxCoresPerContainer int
+	// Compute:drive core ratios. The total drive-core count is a hard 1:1 floor regardless of these.
+	ComputeToTlcDriveCoreRatio        float64
+	ComputeToQlcDriveCoreRatio        float64
+	FullDrivesComputeToDriveCoreRatio float64
 }
 
 type DriveSharingConfig struct {
@@ -334,9 +345,10 @@ var Config struct {
 	DeleteEnvoyWithoutS3NeighborTimeout          time.Duration
 	DeleteTelemetryWithoutComputeNeighborTimeout time.Duration
 	DeleteUnschedulablePodsAfter                 time.Duration
-	// How long a clusterCapacity drive container may stay unscheduled before the operator deletes it
-	// so the planner can re-place its capacity on a node that can host it.
-	UnschedulableDriveContainerGCTimeout time.Duration
+	// How long a pinned, planner-managed container (drive or compute, under clusterCapacity or auto full
+	// drives) may sit with a confirmed scheduling failure before the operator deletes it so the planner can
+	// re-place its capacity on a node that can actually host it.
+	UnschedulablePlannerContainerGCTimeout time.Duration
 	// How long an adhoc-op container's pod may fail to produce a result before the
 	// operator deletes the container, so a pod that can never run cannot leak the CR
 	// forever. StuckAdhocPodStartingTimeout applies while the pod is still legitimately
@@ -366,6 +378,7 @@ var Config struct {
 	Nfs                    NfsConfig
 	Smbw                   SmbwConfig
 	ClusterCapacity        ClusterCapacityConfig
+	CapacityPlanner        CapacityPlannerConfig
 	DriveSharing           DriveSharingConfig
 	PortAllocation         PortAllocationConfig
 	HugepagesUpdate        HugepagesUpdateConfig
@@ -515,11 +528,15 @@ func LoadCapacityEnv() {
 	Config.DriveSharing.DefaultHotSpare = getIntEnvOrDefault("PROTECTION_HOT_SPARE", 0)
 
 	// Cluster capacity configuration
-	Config.ClusterCapacity.MaxComputeCoresPerNode = getIntEnvOrDefault("CLUSTER_CAPACITY_MAX_COMPUTE_CORES_PER_NODE", 16)
 	Config.ClusterCapacity.TlcCapacityPerCoreGiB = getIntEnvOrDefault("CLUSTER_CAPACITY_TLC_CAPACITY_PER_CORE_GIB", 5*1024)
 	Config.ClusterCapacity.QlcCapacityPerCoreGiB = getIntEnvOrDefault("CLUSTER_CAPACITY_QLC_CAPACITY_PER_CORE_GIB", 50*1024)
 	Config.ClusterCapacity.ImbalanceFactor = getFloatEnvOrDefault("CLUSTER_CAPACITY_IMBALANCE_FACTOR", 8.0)
 	Config.ClusterCapacity.CapacityDeadbandFraction = getFloatEnvOrDefault("CLUSTER_CAPACITY_DEADBAND_FRACTION", 0.05)
+
+	Config.CapacityPlanner.MaxCoresPerContainer = getIntEnvOrDefault("CAPACITY_MAX_CORES_PER_CONTAINER", 19) // capacityplanner.DefaultMaxCoresPerContainer
+	Config.CapacityPlanner.ComputeToTlcDriveCoreRatio = getFloatEnvOrDefault("CAPACITY_COMPUTE_TO_TLC_DRIVE_CORE_RATIO", 1.0)
+	Config.CapacityPlanner.ComputeToQlcDriveCoreRatio = getFloatEnvOrDefault("CAPACITY_COMPUTE_TO_QLC_DRIVE_CORE_RATIO", 0.0)
+	Config.CapacityPlanner.FullDrivesComputeToDriveCoreRatio = getFloatEnvOrDefault("CAPACITY_FULL_DRIVES_COMPUTE_TO_DRIVE_CORE_RATIO", 2.0)
 
 	// Compute hugepages cap
 	Config.ComputeMaxHugepagesMiB = getIntEnvOrDefault("COMPUTE_MAX_HUGEPAGES_MIB", 360000)
@@ -629,7 +646,9 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DeleteEnvoyWithoutS3NeighborTimeout = getDurationEnvOrDefault("DELETE_ENVOY_WITHOUT_S3_NEIGHBOR_TIMEOUT", 5*time.Minute)
 	Config.DeleteTelemetryWithoutComputeNeighborTimeout = getDurationEnvOrDefault("DELETE_TELEMETRY_WITHOUT_COMPUTE_NEIGHBOR_TIMEOUT", 5*time.Minute)
 	Config.DeleteUnschedulablePodsAfter = getDurationEnvOrDefault("DELETE_UNSCHEDULABLE_PODS_AFTER", 1*time.Minute)
-	Config.UnschedulableDriveContainerGCTimeout = getDurationEnvOrDefault("UNSCHEDULABLE_DRIVE_CONTAINER_GC_TIMEOUT", 2*time.Minute)
+	// The env var and Helm key keep the DRIVE name for compatibility; the timeout covers compute
+	// containers too.
+	Config.UnschedulablePlannerContainerGCTimeout = getDurationEnvOrDefault("UNSCHEDULABLE_DRIVE_CONTAINER_GC_TIMEOUT", 2*time.Minute)
 	Config.StuckAdhocPodTimeout = getDurationEnvOrDefault("STUCK_ADHOC_POD_TIMEOUT", 10*time.Minute)
 	Config.StuckAdhocPodStartingTimeout = getDurationEnvOrDefault("STUCK_ADHOC_POD_STARTING_TIMEOUT", 30*time.Minute)
 	Config.RemoveFailedDrivesFromWeka = getBoolEnvOrDefault("REMOVE_FAILED_DRIVES_FROM_WEKA", false)

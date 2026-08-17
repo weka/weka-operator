@@ -3,17 +3,13 @@ package capacityplanner
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
-// infeasibility.go holds the structured infeasibility report that accompanies the free-text
-// plan.Infeasible string. The report carries the binding cause, the per-node rejection breakdown and
-// an ordered list of actionable fix tips. The tips live HERE (in the planner) so every consumer — the
-// weka-capacity dry-run CLI and the controller's ClusterCapacityInfeasible event — shares one source
-// of truth rather than re-deriving remediation advice from the message text.
+// infeasibility.go holds the structured infeasibility report for plan.Infeasible, shared by all
+// consumers (weka-capacity CLI, ClusterCapacityInfeasible event).
 
-// NodeRejection records why one candidate node cannot host a failure domain for a pool: the tightest
-// binding dimension and the free-vs-needed capacity. It is the structured form of one entry in the
-// rejectedNodesBreakdown message.
+// NodeRejection is the structured form of one rejectedNodesBreakdown entry.
 type NodeRejection struct {
 	Node string
 	// Binding is the dimension that caps the node below the minimum chunk, or "already hosts a <pool>
@@ -23,16 +19,21 @@ type NodeRejection struct {
 	FreeGiB int
 	// NeededGiB is the per-FD floor the node must clear to be a candidate (the minimum chunk size).
 	NeededGiB int
+	// Needed/Available/Unit describe a rejection whose binding dimension is not capacity — the
+	// auto-full-drives node-fit gate, where a node falls short on physical CPU, hugepages or memory. Unit
+	// is the human unit ("physical CPU", "MiB hugepages", "MiB memory"), empty when the GiB pair above
+	// carries the numbers: a GiB humanizer would otherwise print a CPU count of 16 as "16 GiB".
+	Needed    int
+	Available int
+	Unit      string
 }
 
-// InfeasibilityReport is the structured explanation for plan.Infeasible. Reason mirrors the free-text
-// Infeasible string (kept for back-compat); the remaining fields let callers render the binding cause
-// and actionable fixes without re-parsing the message.
+// InfeasibilityReport is the structured explanation for plan.Infeasible, letting callers render the
+// binding cause and fixes without re-parsing the message.
 type InfeasibilityReport struct {
 	// Reason is the human summary; it is byte-identical to plan.Infeasible.
 	Reason string
-	// Pool is the pool the verdict is about: "tlc", "qlc", "compute", or "" (cluster-wide, e.g. the
-	// protection-floor check).
+	// Pool is "tlc", "qlc", "compute", or "" (cluster-wide, e.g. protection-floor check).
 	Pool string
 	// Binding is the tightest cause: "drive capacity" | "cores" | "hugepages" | "memory" |
 	// "failure domains" | "protection" | "driveContainers" | "driveCores" | "" (unclassified).
@@ -45,6 +46,63 @@ type InfeasibilityReport struct {
 	Fixes []string
 }
 
+// autoFullDrivesMaxNamedNodes caps how many node names the node-fit message spells out before switching to a
+// "(+N more)" tail; RejectedNodes always carries every offender.
+const autoFullDrivesMaxNamedNodes = 10
+
+// autoNodeFitInfeasible turns the auto-full-drives walk's collected fit failures into the plan-wide
+// infeasibility. There is no partial-fit outcome in that mode — drives are never dropped to make a container
+// fit — so one node short of resources blocks the whole cluster, and the fixes say how to exclude it if that
+// is the intent.
+func autoNodeFitInfeasible(failures []autoFitFailure) *InfeasibilityReport {
+	names := make([]string, 0, len(failures))
+	details := make([]string, 0, len(failures))
+	rejected := make([]NodeRejection, 0, len(failures))
+	bindings := map[string]int{}
+	for i := range failures {
+		f := &failures[i]
+		names = append(names, f.node)
+		bindings[f.fit.binding]++
+		if len(details) < autoFullDrivesMaxNamedNodes {
+			details = append(details, fmt.Sprintf(
+				"%s (%s: %d drive(s) at %d core(s) needs %d %s, %d free)",
+				f.node, f.kind, f.numDrives, f.toCores, f.fit.needed, f.fit.unit, f.fit.available))
+		}
+		rejected = append(rejected, NodeRejection{
+			Node:      f.node,
+			Binding:   f.fit.binding,
+			Needed:    f.fit.needed,
+			Available: f.fit.available,
+			Unit:      f.fit.unit,
+		})
+	}
+	list := strings.Join(details, "; ")
+	if len(failures) > len(details) {
+		list += fmt.Sprintf(" (+%d more)", len(failures)-len(details))
+	}
+
+	// Name a single binding dimension only when every node agrees on it; otherwise leave it unclassified
+	// rather than let one node's cause stand for the fleet.
+	binding := ""
+	if len(bindings) == 1 {
+		for b := range bindings {
+			binding = b
+		}
+	}
+
+	return &InfeasibilityReport{
+		Reason: fmt.Sprintf(
+			"auto full drives: %d node(s) cannot host a drive container sized for their own signed full drives — "+
+				"drives are never dropped to make a container fit, so the whole plan is infeasible and nothing is "+
+				"created: %s",
+			len(failures), list),
+		Pool:          "drive",
+		Binding:       binding,
+		RejectedNodes: rejected,
+		Fixes:         fixesAutoFullDrivesNodeFit(names),
+	}
+}
+
 // tag returns the lower-case pool tag ("tlc"/"qlc") used in the structured report's Pool field.
 func (p poolKind) tag() string {
 	if p == poolQLC {
@@ -53,17 +111,14 @@ func (p poolKind) tag() string {
 	return DriveTypeTLC
 }
 
-// setInfeasible records both the free-text reason (Infeasible, kept for back-compat) and the structured
-// report on the plan. report.Reason is authoritative; plan.Infeasible mirrors it exactly.
+// setInfeasible records report on plan, mirroring report.Reason into the legacy Infeasible string.
 func setInfeasible(plan *CapacityPlan, report *InfeasibilityReport) {
 	plan.Infeasible = report.Reason
 	plan.Infeasibility = report
 }
 
-// rejectedNodes returns the structured per-node breakdown that rejectedNodesBreakdown formats into
-// text: one NodeRejection per node that is NOT a usable pool-p candidate, in sorted-name order and
-// uncapped (the string formatter applies its own caps). Mirrors rejectedNodesBreakdown's classification
-// exactly so the structured list and the message never disagree.
+// rejectedNodes is the structured, uncapped form of rejectedNodesBreakdown's text; classification must
+// stay in sync with it.
 func rejectedNodes(p poolKind, states map[string]*nodeState, poolUsed map[string]struct{}, cons *CapacityConstraints) []NodeRejection {
 	names := make([]string, 0, len(states))
 	for name := range states {
@@ -76,6 +131,10 @@ func rejectedNodes(p poolKind, states map[string]*nodeState, poolUsed map[string
 		ns := states[name]
 		if _, used := poolUsed[name]; used {
 			out = append(out, NodeRejection{Node: name, Binding: fmt.Sprintf("already hosts a %s container", p)})
+			continue
+		}
+		if ns.nc.IneligibleReason != "" {
+			out = append(out, NodeRejection{Node: name, Binding: fmt.Sprintf("ineligible (%s)", ns.nc.IneligibleReason)})
 			continue
 		}
 		h, binding := ns.nodeHeadroomBinding(p, cons, true)
@@ -110,6 +169,16 @@ func fixesDriveContainers(resolved int) []string {
 func fixesDriveCores(needed int) []string {
 	return []string{
 		fmt.Sprintf("raise driveCores to >=%d, or unset it to auto-size from capacity", needed),
+	}
+}
+
+// fixesMaxCoresPerContainer: a drive container's core count exceeds the hard per-container limit; the
+// fix is more containers over the same capacity, not raising the limit.
+func fixesMaxCoresPerContainer(limit int) []string {
+	return []string{
+		fmt.Sprintf("raise driveContainers so each container holds less capacity and needs at most %d cores", limit),
+		"or lower clusterCapacity so the same container count suffices",
+		fmt.Sprintf("driveCores, when pinned, must itself be <=%d — weka allows no more cores in one container", limit),
 	}
 }
 
@@ -170,5 +239,80 @@ func fixesCompute() []string {
 	return []string{
 		"add compute-eligible nodes (matching the cluster's compute role selector) with free cores + hugepages",
 		"or lower computeContainers / computeCores, or reduce clusterCapacity so fewer TLC drive cores are needed",
+	}
+}
+
+// fixesDriveCoresAboveDriveCount: a pinned dynamicTemplate.driveCores exceeds the node's physical
+// full-drive count (full drives allow at most one core per device).
+func fixesDriveCoresAboveDriveCount(numDrives int) []string {
+	return []string{
+		fmt.Sprintf("lower dynamicTemplate.driveCores to at most %d — the node's signed full-drive count", numDrives),
+		"or drop the pin so the operator derives one core per drive, per node",
+		"or switch to a drive-sharing mode (containerCapacity or clusterCapacity) to run more cores than physical drives",
+	}
+}
+
+// fixesAutoFullDrivesNodeFit: one or more nodes cannot host a drive container sized for their own signed
+// full drives, which in auto-full-drives mode fails the whole plan (drives are never dropped to fit).
+// The first tip leads: lowering driveCores keeps every drive and only reduces the cores they run on, so
+// it costs no capacity at all.
+func fixesAutoFullDrivesNodeFit(nodes []string) []string {
+	named := nodes
+	suffix := ""
+	if len(named) > 5 {
+		named, suffix = named[:5], fmt.Sprintf(" (+%d more)", len(nodes)-5)
+	}
+	list := strings.Join(named, ", ") + suffix
+	return []string{
+		"pin dynamicTemplate.driveCores lower — drives are decoupled from cores, so a lower pin keeps every " +
+			"drive on every node and simply runs them on fewer cores",
+		fmt.Sprintf("or free physical CPU / hugepages / memory on %s (evict other pods, raise the node's "+
+			"hugepages reservation)", list),
+		fmt.Sprintf("or take those nodes out of the drive role — narrow spec.roleNodeSelector.drive so it no "+
+			"longer matches %s, or unsign their drives — so the plan is not required to place a container there", list),
+		"or switch to a drive-sharing mode (containerCapacity or clusterCapacity), which sizes containers from " +
+			"a capacity target instead of each node's full drive set",
+	}
+}
+
+// fixesAutoFullDrivesCompute: compute cannot be sized/placed in auto-full-drives mode. Every drive is
+// claimed, so total capacity is fixed by the fleet and the capacity-based share of each compute
+// container's hugepages scales with it — the remedies are about that coefficient, the divisor (compute
+// node count), or claiming less capacity. There is no computeContainers lever here.
+func fixesAutoFullDrivesCompute(cons *CapacityConstraints) []string {
+	fixes := []string{
+		"add compute-eligible nodes (matching spec.roleNodeSelector.compute) with free cores + hugepages — " +
+			"the capacity-based share of compute hugepages is divided by the compute container count, so more " +
+			"compute nodes is the direct lever",
+	}
+	if cons != nil && cons.ComputeHugepagesTlcRatio > 0 {
+		fixes = append(fixes, fmt.Sprintf(
+			"or raise the hugepagesTlcRatio Helm value (currently %d — each compute container asks for "+
+				"clusterTlcGiB*1024/%d MiB divided by the container count)",
+			cons.ComputeHugepagesTlcRatio, cons.ComputeHugepagesTlcRatio))
+	}
+	if cons != nil && cons.ComputeMaxHugepagesMiB > 0 {
+		fixes = append(fixes, fmt.Sprintf(
+			"or lower the computeMaxHugepagesMiB Helm value (currently %d MiB) to cap what one compute container "+
+				"may request", cons.ComputeMaxHugepagesMiB))
+	}
+	return append(fixes,
+		"or pin dynamicTemplate.driveCores lower — the planner will NOT reduce drive cores on its own to make "+
+			"compute fit, so this is the operator's lever, and it costs no drives at all: every drive stays "+
+			"claimed, on fewer cores, and the compute requirement falls with the ratio",
+		"or pin dynamicTemplate.numDrives lower so each node claims fewer drives — less claimed capacity means a "+
+			"smaller compute hugepages bill",
+		"or lower dynamicTemplate.computeCores if it is pinned")
+}
+
+// fixesNumDrivesAboveCount: a pinned dynamicTemplate.numDrives asks for more full drives than a node has
+// signed. The pin is fleet-wide, so it must hold on the shortest eligible node.
+func fixesNumDrivesAboveCount(pin, count int, node string) []string {
+	return []string{
+		fmt.Sprintf("lower dynamicTemplate.numDrives to at most %d — node %s has only that many signed full "+
+			"drive(s), and the pin applies to every eligible node", count, node),
+		"or unset numDrives so each node claims every full drive it has signed, however many that is",
+		fmt.Sprintf("or sign %d more full drive(s) on %s, or take it out of spec.roleNodeSelector.drive",
+			pin-count, node),
 	}
 }
