@@ -1501,14 +1501,40 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 	}
 
 	numa := f.container.Spec.Numa
-	if numa != nil && numa.Single && numa.Region != nil &&
-		(numa.Method == "" || numa.Method == weka.WekaNumaMethodDevicePlugin) {
-		numaResourceName := corev1.ResourceName(consts.WekaNumaRegionResourcePrefix + strconv.Itoa(*numa.Region))
-		pod.Spec.Containers[0].Resources.Requests[numaResourceName] = resource.MustParse("1")
-		pod.Spec.Containers[0].Resources.Limits[numaResourceName] = resource.MustParse("1")
+	if numa != nil && numa.Single && numa.Region != nil {
+		switch numa.Method {
+		case "", weka.WekaNumaMethodDevicePlugin:
+			numaResourceName := corev1.ResourceName(consts.WekaNumaRegionResourcePrefix + strconv.Itoa(*numa.Region))
+			pod.Spec.Containers[0].Resources.Requests[numaResourceName] = resource.MustParse("1")
+			pod.Spec.Containers[0].Resources.Limits[numaResourceName] = resource.MustParse("1")
+		case weka.WekaNumaMethodDra:
+			// The claim object itself (created in the wekacontainer reconciler, see
+			// ensureNumaResourceClaimForCPUCount) requests dra.cpu/cpu capacity equal to
+			// capacityplanner.CPURequestCores(&f.container.Spec, cpuTopo) — the exact same call
+			// this function makes above to compute cpuRequestStr/cpuLimitStr for the
+			// DedicatedHT/Dedicated cpuPolicy branch. Both sides resolve node topology from the
+			// container's actual target node, so the pod's CPU request and the claim's CPU count
+			// can't diverge by construction; no extended resource is requested on this path.
+			claimName := NumaClaimNameForContainer(f.container.Name)
+			pod.Spec.ResourceClaims = append(pod.Spec.ResourceClaims, corev1.PodResourceClaim{
+				Name:              consts.WekaNumaClaimName,
+				ResourceClaimName: &claimName,
+			})
+			pod.Spec.Containers[0].Resources.Claims = append(pod.Spec.Containers[0].Resources.Claims, corev1.ResourceClaim{
+				Name: consts.WekaNumaClaimName,
+			})
+		}
 	}
 
 	return nil
+}
+
+// NumaClaimNameForContainer returns the name of the namespace-scoped DRA ResourceClaim object
+// created for a container's NUMA region confinement when Numa.Method is "dra". The object itself
+// is created by the wekacontainer reconciler (ensureNumaResourceClaim); this helper keeps the
+// naming convention shared between that ensure step and the pod wiring here.
+func NumaClaimNameForContainer(containerName string) string {
+	return containerName + "-numa"
 }
 
 func (f *PodFactory) initAffinities(ctx context.Context, affinity *corev1.Affinity) *corev1.Affinity {

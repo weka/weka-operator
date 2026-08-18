@@ -289,6 +289,14 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.HasNodeAffinity,
 			},
 		},
+		// Ensure the DRA DeviceClass and this container's ResourceClaim exist before the pod
+		// references them, when NUMA confinement uses the "dra" method.
+		&lifecycle.SimpleStep{
+			Run: r.ensureNumaDraClaim,
+			Predicates: lifecycle.Predicates{
+				r.needsNumaDraClaim,
+			},
+		},
 		&lifecycle.SimpleStep{
 			Run: r.ensurePod,
 			Predicates: lifecycle.Predicates{

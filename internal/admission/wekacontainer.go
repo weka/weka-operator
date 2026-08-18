@@ -23,9 +23,11 @@ type WekaContainerCustomValidator struct {
 var _ webhook.CustomValidator = &WekaContainerCustomValidator{}
 
 func RegisterWekaContainerWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&wekav1alpha1.WekaContainer{}).
-		WithValidator(&WekaContainerCustomValidator{Client: mgr.GetClient()}).
+	// WithCustomValidator (not the generic WithValidator) deliberately keeps the untyped
+	// webhook.CustomValidator interface (ValidateCreate/Update/Delete taking runtime.Object) this
+	// validator already implements, rather than migrating to the new generic admission.Validator[T].
+	return ctrl.NewWebhookManagedBy(mgr, &wekav1alpha1.WekaContainer{}).
+		WithCustomValidator(&WekaContainerCustomValidator{Client: mgr.GetClient()}).
 		Complete()
 }
 

@@ -123,7 +123,8 @@ type CsiNodeResources struct {
 
 // NodeAgentDevicePluginConfig configures the kubelet device plugin run by the node agent
 // that advertises each NUMA region on the node as an extended resource
-// (weka.io/numa-region-<N>).
+// (weka.io/numa-region-<N>). Disabled by default: node-agent must not expose the device
+// plugin unless explicitly enabled.
 type NodeAgentDevicePluginConfig struct {
 	Enabled     bool
 	KubeletPath string
@@ -630,8 +631,10 @@ func ConfigureEnv(ctx context.Context) {
 	// Metrics server environment configuration
 	Config.MetricsServerEnv.NodeName = env.GetString("NODE_NAME", "")
 
-	// Node agent device plugin configuration (NUMA region extended resources)
-	Config.NodeAgentDevicePlugin.Enabled = getBoolEnvOrDefault("NODE_AGENT_DEVICE_PLUGIN_ENABLED", true)
+	// Node agent device plugin configuration (NUMA region extended resources). Off by
+	// default; the chart always emits NODE_AGENT_DEVICE_PLUGIN_ENABLED explicitly so
+	// nodeAgent.devicePlugin.enabled=true still turns it on.
+	Config.NodeAgentDevicePlugin.Enabled = getBoolEnvOrDefault("NODE_AGENT_DEVICE_PLUGIN_ENABLED", false)
 	Config.NodeAgentDevicePlugin.KubeletPath = strings.TrimRight(getEnvOrDefault("NODE_AGENT_KUBELET_PATH", "/var/lib/kubelet"), "/")
 
 	Config.NetnsEnabled = getBoolEnvOrDefault("NETNS_ENABLED", true)

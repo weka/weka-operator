@@ -83,3 +83,20 @@ const (
 	// via the device-plugin method; the region index is appended (e.g. "weka.io/numa-region-1").
 	WekaNumaRegionResourcePrefix = "weka.io/numa-region-"
 )
+
+// DRA (Dynamic Resource Allocation) NUMA confinement, via kubernetes-sigs/dra-driver-cpu.
+const (
+	// WekaDraDeviceClassName is the DeviceClass dra-driver-cpu publishes CPU devices under
+	// (grouped by NUMA node), used when NUMA confinement uses the "dra" method. Installed by
+	// dra-driver-cpu itself, not the weka operator — see checkNumaDeviceClassInstalled in
+	// internal/controllers/wekacontainer/funcs_numa_dra.go.
+	WekaDraDeviceClassName = "dra.cpu"
+
+	// WekaDraCPUCapacity is the partitionable capacity name dra-driver-cpu exposes per device,
+	// used to request N CPU cores from within the single NUMA-region device a claim allocates.
+	WekaDraCPUCapacity = "dra.cpu/cpu"
+
+	// WekaNumaClaimName is the pod-local resource claim name referenced by pod.spec.resourceClaims
+	// and the weka container's resources.claims when NUMA confinement uses the "dra" method.
+	WekaNumaClaimName = "numa"
+)

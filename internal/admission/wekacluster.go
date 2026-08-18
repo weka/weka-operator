@@ -24,9 +24,11 @@ type WekaClusterCustomValidator struct {
 var _ webhook.CustomValidator = &WekaClusterCustomValidator{}
 
 func RegisterWekaClusterWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&wekav1alpha1.WekaCluster{}).
-		WithValidator(&WekaClusterCustomValidator{Client: mgr.GetClient()}).
+	// WithCustomValidator (not the generic WithValidator) deliberately keeps the untyped
+	// webhook.CustomValidator interface (ValidateCreate/Update/Delete taking runtime.Object) this
+	// validator already implements, rather than migrating to the new generic admission.Validator[T].
+	return ctrl.NewWebhookManagedBy(mgr, &wekav1alpha1.WekaCluster{}).
+		WithCustomValidator(&WekaClusterCustomValidator{Client: mgr.GetClient()}).
 		Complete()
 }
 

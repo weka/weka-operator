@@ -31,6 +31,7 @@ import (
 	obslogger "github.com/weka/go-weka-observability/logger"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -67,6 +68,7 @@ var scheme = runtime.NewScheme()
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(resourcev1.AddToScheme(scheme))
 
 	utilruntime.Must(wekav1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
@@ -261,7 +263,7 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		Version: "v1",
 		Kind:    "Pod",
 	}
-	restClient, err := apiutil.RESTClientForGVK(gvk, false, mgr.GetConfig(), serializer.NewCodecFactory(mgr.GetScheme()), httpClient)
+	restClient, err := apiutil.RESTClientForGVK(gvk, false, false, mgr.GetConfig(), serializer.NewCodecFactory(mgr.GetScheme()), httpClient)
 	if err != nil {
 		logger.Error(err, "unable to create rest client")
 		os.Exit(1)

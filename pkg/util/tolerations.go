@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
 )
 
 // CheckTolerations Check if the given taints can be tolerated by the given tolerations.
@@ -19,7 +20,10 @@ TAINT:
 			continue
 		}
 		for _, toleration := range tolerations {
-			if toleration.ToleratesTaint(&taint) {
+			// enableComparisonOperators=false preserves the pre-bump behavior: Lt/Gt toleration
+			// operators (new in this client-go version) are not used anywhere in this operator, so
+			// they must not start silently matching taints now.
+			if toleration.ToleratesTaint(klog.Background(), &taint, false) {
 				continue TAINT
 			}
 		}

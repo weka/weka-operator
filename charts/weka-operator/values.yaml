@@ -264,7 +264,8 @@ nodeAgent:
   devicePlugin:
     # Advertise each node's NUMA regions as weka.io/numa-region-<N> extended resources via a
     # kubelet device plugin. Requires access to the host's kubelet device-plugins directory.
-    enabled: true
+    # Off by default.
+    enabled: false
 
 metrics:
   clusters:

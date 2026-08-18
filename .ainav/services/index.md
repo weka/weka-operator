@@ -50,7 +50,7 @@ HTTP server running on each node (via daemonset or pod):
 
 Related:
 - `scrapper.go` - Metrics scraping logic
-- `deviceplugin/` - Kubelet device plugin (gRPC) advertising each NUMA region as extended resource `weka.io/numa-region-<N>`; discovery, plugin server, and restart-aware registration manager.
+- `deviceplugin/` - Kubelet device plugin (gRPC) advertising each NUMA region as extended resource `weka.io/numa-region-<N>`; discovery, plugin server, and restart-aware registration manager. Off by default (`NODE_AGENT_DEVICE_PLUGIN_ENABLED`).
 
 ## Weka Home CR Reporter
 

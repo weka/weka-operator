@@ -67,7 +67,8 @@ type UpdatableClusterSpec struct {
 	RoleCoreIds               weka.RoleCoreIds
 	RoleNonDatapathCoreIds    weka.RoleCoreIds
 	CpuPolicy                 weka.CpuPolicy
-	Numa                      *weka.WekaClusterNuma
+	Numa                      *weka.WekaNuma
+	RoleNuma                  weka.RoleNumaSelector
 	ComputeExtraCores         int
 	DriveExtraCores           int
 	S3ExtraCores              int
@@ -197,6 +198,7 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 		RoleNonDatapathCoreIds:    spec.RoleNonDatapathCoreIds,
 		CpuPolicy:                 spec.CpuPolicy,
 		Numa:                      spec.Numa,
+		RoleNuma:                  spec.RoleNuma,
 		ComputeExtraCores:         tmpl.ExtraCores.Compute,
 		DriveExtraCores:           tmpl.ExtraCores.Drive,
 		S3ExtraCores:              tmpl.ExtraCores.S3,
@@ -423,7 +425,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			weka.WekaContainerModeSmbw,
 			weka.WekaContainerModeDataServices,
 		}, role) {
-			wantNuma := updatableSpec.Numa.NumaForRole(role)
+			wantNuma := cluster.GetNumaForRole(role)
 			if !reflect.DeepEqual(container.Spec.Numa, wantNuma) {
 				container.Spec.Numa = wantNuma
 			}

@@ -61,7 +61,7 @@ func TestPlugin_ServeAllocateListAndWatch(t *testing.T) {
 
 	allocResp, err := client.Allocate(ctx, &pluginapi.AllocateRequest{
 		ContainerRequests: []*pluginapi.ContainerAllocateRequest{
-			{DevicesIDs: []string{DeviceID(2, 0)}},
+			{DevicesIds: []string{DeviceID(2, 0)}},
 		},
 	})
 	if err != nil {
