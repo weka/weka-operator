@@ -148,7 +148,7 @@ jobs:
           HELM_USERNAME: ${{ secrets.CI_HELM_USERNAME }}
           HELM_PASSWORD: ${{ secrets.CI_HELM_PASSWORD }}
         with:
-          version: "0.19.10"
+          version: "0.21.8"
           workdir: operator/.dagger/src
           module: operator_flows
           args: >-
@@ -346,7 +346,7 @@ jobs:
           SOURCE_KUBECONFIG: ${{ secrets.UPGRADE_TEST_KUBECONFIG }}
           OCP_KUBECONFIG: ${{ secrets.OCP_CLUSTER_KUBECONFIG }}
         with:
-          version: "0.19.10"
+          version: "0.21.8"
           workdir: operator/.dagger/src
           module: operator_flows
           args: >-
