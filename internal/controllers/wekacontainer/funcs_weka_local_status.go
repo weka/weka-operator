@@ -86,6 +86,8 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	if localContainer.Name == "" {
 		localContainer = localContainers[0]
 	}
+
+	r.localContainer = &localContainer
 	status := localContainer.RunStatus
 
 	// check local container status and propagate failure message (if any) as event
@@ -108,7 +110,6 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	}
 
 	containerStatus := weka.ContainerStatus(status)
-	r.hasLease = localContainer.InternalStatus.HasLease
 
 	if (container.Status.Status != containerStatus && r.IsStatusOverwritableByLocal()) ||
 		container.Status.InternalStatus != internalStatus {

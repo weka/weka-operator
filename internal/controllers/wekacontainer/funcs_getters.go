@@ -326,6 +326,57 @@ func (r *containerReconcilerLoop) getCluster(ctx context.Context) (*weka.WekaClu
 	return r._cluster, nil
 }
 
+// errNoOverrideOwner marks the terminal case where the container has no single owner object that
+// could carry a per-object override, as opposed to an owner read that simply did not complete.
+// Callers proceed on the operator-wide default for this error and requeue for any other.
+var errNoOverrideOwner = errors.New("no owner object to read overrides from")
+
+// resolveWaitSinceIoProcessesUpOverride reads the waitSinceIoProcessesUpTimeout override from the
+// object that actually owns this container: the WekaClient for client containers, the WekaCluster
+// for everything else. Client containers are owned by a WekaClient, so they must not go through
+// getCluster() - that matches owner UIDs against WekaClusters and would always report
+// "Cluster not found" for them. Returns nil when the owner sets no override.
+//
+// r.wekaClient is populated earlier in the flow by GetWekaClient, but only when
+// WekaContainerManagesCsi() holds (client container AND CSI enabled), so it can still be nil here.
+// Fetch it lazily so the override also resolves with CSI disabled.
+//
+// Errors are split so callers can tell "there is no owner to read an override from" - wrapped in
+// errNoOverrideOwner, and terminal, so retrying would block forever - from "I could not read the
+// owner", which is worth a requeue. See the call site in applyCurrentImage.
+func (r *containerReconcilerLoop) resolveWaitSinceIoProcessesUpOverride(ctx context.Context) (*metav1.Duration, error) {
+	// Checked up front so both terminal owner-ref cases are reported as errNoOverrideOwner rather
+	// than as the plain errors getCluster/GetWekaClient would produce for them further down.
+	if ownerRefs := r.container.GetOwnerReferences(); len(ownerRefs) != 1 {
+		return nil, errors.Wrapf(errNoOverrideOwner, "expected exactly one owner reference, got %d", len(ownerRefs))
+	}
+
+	if r.container.IsClientContainer() {
+		if r.wekaClient == nil {
+			if err := r.GetWekaClient(ctx); err != nil {
+				return nil, err
+			}
+		}
+
+		// GetWekaClient returns a nil error but leaves wekaClient nil when there are no owner
+		// references or the owner is not a WekaClient - neither should happen for a client
+		// container, so say so rather than dereferencing nil. Terminal: no WekaClient will ever
+		// appear for this owner ref, so there is nothing to retry.
+		if r.wekaClient == nil {
+			return nil, errors.Wrap(errNoOverrideOwner, "owner of client container is not a WekaClient")
+		}
+
+		return r.wekaClient.Spec.GetOverrides().WaitSinceIoProcessesUpTimeout, nil
+	}
+
+	cluster, err := r.getCluster(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return cluster.Spec.GetOverrides().WaitSinceIoProcessesUpTimeout, nil
+}
+
 func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*weka.WekaContainer, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "getClusterContainers")
 	defer logger.End()

@@ -743,6 +743,7 @@
         "Completed",
         "Building",
         "StoppingAttempt",
+        "IoProcessesUp",
         "Stale"
       ],
       "baseType": "string",
@@ -2521,6 +2522,74 @@
         "WekaCluster"
       ]
     },
+    "RoleNumaSelector": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Compute",
+          "jsonName": "compute",
+          "type": {
+            "$ref": "#/definitions/WekaNuma"
+          },
+          "description": "NUMA configuration for compute weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Drive",
+          "jsonName": "drive",
+          "type": {
+            "$ref": "#/definitions/WekaNuma"
+          },
+          "description": "NUMA configuration for drive weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "S3",
+          "jsonName": "s3",
+          "type": {
+            "$ref": "#/definitions/WekaNuma"
+          },
+          "description": "NUMA configuration for s3 weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Nfs",
+          "jsonName": "nfs",
+          "type": {
+            "$ref": "#/definitions/WekaNuma"
+          },
+          "description": "NUMA configuration for nfs weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Smbw",
+          "jsonName": "smbw",
+          "type": {
+            "$ref": "#/definitions/WekaNuma"
+          },
+          "description": "NUMA configuration for smbw weka containers",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DataServices",
+          "jsonName": "dataServices",
+          "type": {
+            "$ref": "#/definitions/WekaNuma"
+          },
+          "description": "NUMA configuration for data services weka containers",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
     "RoleTopologySpreadConstraints": {
       "kind": "struct",
       "fields": [
@@ -3674,6 +3743,16 @@
           "description": "EXPERIMENTAL, ALPHA STATE, should not be used in production: if set, allows to reuse the same csi resources for multiple clients",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "Numa",
+          "jsonName": "numa",
+          "type": {
+            "$ref": "#/definitions/WekaNuma"
+          },
+          "description": "Numa configures NUMA confinement for this client container",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -3744,6 +3823,14 @@
           "jsonName": "dpdkBaseMemoryMb",
           "type": "int",
           "optional": true
+        },
+        {
+          "name": "WaitSinceIoProcessesUpTimeout",
+          "jsonName": "waitSinceIoProcessesUpTimeout",
+          "type": "k8s:metav1.Duration",
+          "description": "how long to wait, once IO processes are reported up, before considering the container's applied\nimage settled. nil/0 (default): don't wait.",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -3931,6 +4018,15 @@
             "$ref": "#/definitions/RoleNetworkSelector"
           },
           "description": "network selector for the weka containers per role, overrides global network",
+          "optional": true
+        },
+        {
+          "name": "RoleNuma",
+          "jsonName": "roleNuma",
+          "type": {
+            "$ref": "#/definitions/RoleNumaSelector"
+          },
+          "description": "NUMA configuration for the weka containers per role, overrides global numa",
           "optional": true
         },
         {
@@ -4227,6 +4323,16 @@
           "description": "Catalog configuration for data catalog service",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "Numa",
+          "jsonName": "numa",
+          "type": {
+            "$ref": "#/definitions/WekaNuma"
+          },
+          "description": "NUMA confinement configuration for all weka containers, overridden per role by roleNuma",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -4365,6 +4471,14 @@
           "type": "string",
           "description": "used to override machine identifier node reference for backend containers (drive, compute, etc.)",
           "optional": true
+        },
+        {
+          "name": "WaitSinceIoProcessesUpTimeout",
+          "jsonName": "waitSinceIoProcessesUpTimeout",
+          "type": "k8s:metav1.Duration",
+          "description": "how long to wait, once IO processes are reported up, before considering the container's applied\nimage settled. nil/0 (default): don't wait.",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -5283,6 +5397,16 @@
           },
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "Numa",
+          "jsonName": "numa",
+          "type": {
+            "$ref": "#/definitions/WekaNuma"
+          },
+          "description": "Numa configures NUMA confinement for this container",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -5740,6 +5864,55 @@
       ],
       "usedBy": [
         "WekaManualOperation"
+      ]
+    },
+    "WekaNuma": {
+      "kind": "struct",
+      "description": "WekaNuma configures NUMA confinement for a single weka container",
+      "fields": [
+        {
+          "name": "Single",
+          "jsonName": "single",
+          "type": "bool",
+          "description": "Single, when true, confines the container to a single NUMA region",
+          "optional": true
+        },
+        {
+          "name": "Region",
+          "jsonName": "region",
+          "type": "int",
+          "description": "Region is the NUMA region index to pin this container to",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Method",
+          "jsonName": "method",
+          "type": {
+            "$ref": "#/definitions/WekaNumaMethod"
+          },
+          "description": "Method selects the enforcement mechanism",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaClient",
+        "WekaCluster",
+        "WekaContainer"
+      ]
+    },
+    "WekaNumaMethod": {
+      "kind": "enum",
+      "description": "WekaNumaMethod defines how NUMA confinement is enforced",
+      "enumValues": [
+        "device-plugin",
+        "dra"
+      ],
+      "baseType": "string",
+      "usedBy": [
+        "WekaClient",
+        "WekaCluster",
+        "WekaContainer"
       ]
     },
     "WekaOwnerDetails": {
