@@ -311,13 +311,14 @@ type WekaOverride struct {
 //		"state": "READY"
 //	}
 //
-// - when IO processes are still coming up (the count is quoted by weka):
+// - when IO processes are still coming up (weka quotes the process ids and
+// separates them with commas):
 //
 //	"internalStatus": {
 //		"action": "NONE",
 //		"display_status": "READY",
 //		"message": "Ready",
-//		"io_processes_not_up": "3",
+//		"io_processes_not_up": "15011, 15014",
 //		"state": "READY"
 //	}
 type WekaLocalInternalStatus struct {
@@ -326,44 +327,41 @@ type WekaLocalInternalStatus struct {
 	HasLease      *bool  `json:"has_lease"`
 	Message       string `json:"message"`
 	State         string `json:"state"`
-	// IoProcessesNotUp is weka's count of IO processes not yet up, kept as raw
-	// JSON because the shape varies: weka quotes the count ("3") and reports ""
-	// on STEM-mode / disabled containers. Decoding it into a fixed Go type would
-	// let one unexpected shape fail the whole `weka local ps` unmarshal - and
-	// that error path can force a drivers reload. Use IoProcessesNotUpCount().
-	IoProcessesNotUp json.RawMessage `json:"io_processes_not_up"`
+	// IoProcessesNotUpRaw is weka's report of the IO processes that are not yet
+	// up, kept as raw JSON because the shape varies: weka quotes it, lists the
+	// process ids comma-separated ("15011, 15014"), and reports "" on STEM-mode /
+	// disabled containers. Decoding it into a fixed Go type would let one
+	// unexpected shape fail the whole `weka local ps` unmarshal - and that error
+	// path can force a drivers reload. Use IoProcessesNotUp().
+	IoProcessesNotUpRaw json.RawMessage `json:"io_processes_not_up"`
 }
 
-// IoProcessesNotUpCount parses IoProcessesNotUp. It returns nil when the count
-// is not reported (field absent, null, or "" as on STEM-mode / disabled
-// containers), and an error when it is reported in a shape we don't understand.
-// Callers read nil as "no information", which is fail-open for the upgrade gate
-// in applyCurrentImage - hence the error rather than a silent nil.
-func (s *WekaLocalInternalStatus) IoProcessesNotUpCount() (*int, error) {
-	raw := strings.TrimSpace(string(s.IoProcessesNotUp))
+// IoProcessesNotUp returns weka's io_processes_not_up value, unquoted and
+// trimmed, plus whether weka reports any IO process as not up. The value is
+// deliberately not parsed: its shape is set by the weka CLI, and a shape we
+// failed to parse would have to fail open, silently skipping the upgrade gate in
+// applyCurrentImage. Empty (field absent, null, or "" as on STEM-mode / disabled
+// containers) and "0" mean nothing is down; anything else does.
+func (s *WekaLocalInternalStatus) IoProcessesNotUp() (string, bool) {
+	raw := strings.TrimSpace(string(s.IoProcessesNotUpRaw))
 	if raw == "" || raw == "null" {
-		return nil, nil
+		return "", false
 	}
 
-	// Quoted ("3") is what weka emits today; accept a bare 3 too. Decoded with
-	// encoding/json rather than strconv.Unquote because the input is JSON, and
-	// Unquote reads Go string-literal syntax - a different escape grammar.
+	// Decoded with encoding/json rather than strconv.Unquote because the input is
+	// JSON, and Unquote reads Go string-literal syntax - a different escape
+	// grammar. A shape that is not a JSON string keeps its raw text.
 	value := raw
 	var quoted string
-	if err := json.Unmarshal(s.IoProcessesNotUp, &quoted); err == nil {
+	if err := json.Unmarshal(s.IoProcessesNotUpRaw, &quoted); err == nil {
 		value = strings.TrimSpace(quoted)
 	}
 
-	if value == "" {
-		return nil, nil
+	if value == "" || value == "0" {
+		return value, false
 	}
 
-	n, err := strconv.Atoi(value)
-	if err != nil {
-		return nil, fmt.Errorf("unexpected io_processes_not_up value %s: %w", raw, err)
-	}
-
-	return &n, nil
+	return value, true
 }
 
 type WekaLocalContainer struct {
@@ -384,6 +382,19 @@ type WekaClusterContainer struct {
 	Uid           string `json:"uid"`
 	State         string `json:"state"`
 	Status        string `json:"status"`
+	// SwReleaseString carries a build suffix ("1.2.3.4-custom-build") on feature/custom builds;
+	// otherwise it equals SwVersion ("1.2.3.4").
+	SwVersion       string `json:"sw_version"`
+	SwReleaseString string `json:"sw_release_string"`
+}
+
+// ReportedVersion returns the version weka is running: the release string when it carries a build
+// suffix, else the base version. Empty when weka reports neither.
+func (c *WekaClusterContainer) ReportedVersion() string {
+	if c.SwReleaseString != "" && c.SwReleaseString != c.SwVersion {
+		return c.SwReleaseString
+	}
+	return c.SwVersion
 }
 
 type Process struct {

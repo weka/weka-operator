@@ -65,6 +65,8 @@ make test-e2e
 ## Code Style
 
 - Go code follows standard Go conventions
+- Comments should be short, explain what the code does and why it is the way it is — nothing else.
+  Do NOT write comments about: history or changelog, anything restating the line below it, or narrating obvious mechanics
 - Never swallow errors unless explicitly asked for
 - Controllers use `go-steps-engine` for step-based reconciliation
 - Kubernetes resources use controller-runtime patterns

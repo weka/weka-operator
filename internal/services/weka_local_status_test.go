@@ -5,29 +5,29 @@ import (
 	"testing"
 )
 
-// TestIoProcessesNotUpCount pins the tolerance of the io_processes_not_up decode. The field's shape
-// is set by the weka CLI, not by us: it is quoted today ("3"), and reported as "" on STEM-mode and
-// disabled containers. Decoding it into a fixed Go type would make any shape we did not anticipate
-// fail the *entire* `weka local ps` unmarshal, and that error path in reconcileWekaLocalStatus can
-// force a drivers reload — so the enclosing unmarshal succeeding is the property under test here,
-// not just the parsed value.
-func TestIoProcessesNotUpCount(t *testing.T) {
-	three := 3
-
+// TestIoProcessesNotUp pins the tolerance of the io_processes_not_up decode. The field's shape is
+// set by the weka CLI, not by us: it is quoted, holds a comma-separated list of process ids
+// ("15011, 15014"), and is reported as "" on STEM-mode and disabled containers. Decoding it into a
+// fixed Go type would make any shape we did not anticipate fail the *entire* `weka local ps`
+// unmarshal, and that error path in reconcileWekaLocalStatus can force a drivers reload — so the
+// enclosing unmarshal succeeding is the property under test here, not just the returned value.
+func TestIoProcessesNotUp(t *testing.T) {
 	cases := []struct {
-		name    string
-		field   string // raw JSON for the io_processes_not_up member, "" to omit it entirely
-		want    *int
-		wantErr bool
+		name      string
+		field     string // raw JSON for the io_processes_not_up member, "" to omit it entirely
+		wantValue string
+		wantNotUp bool
 	}{
-		{name: "quoted count (what weka emits today)", field: `"3"`, want: &three},
-		{name: "empty string (STEM mode / disabled)", field: `""`, want: nil},
-		{name: "unquoted count (hypothetical future build)", field: `3`, want: &three},
-		{name: "null", field: `null`, want: nil},
-		{name: "field absent", field: "", want: nil},
-		{name: "quoted zero", field: `"0"`, want: new(int)},
-		{name: "unparsable", field: `"n/a"`, want: nil, wantErr: true},
-		{name: "unexpected object", field: `{"up":1}`, want: nil, wantErr: true},
+		{name: "process id list (what weka emits today)", field: `"15011, 15014"`, wantValue: "15011, 15014", wantNotUp: true},
+		{name: "single process id", field: `"3"`, wantValue: "3", wantNotUp: true},
+		{name: "empty string (STEM mode / disabled)", field: `""`, wantValue: "", wantNotUp: false},
+		{name: "quoted zero", field: `"0"`, wantValue: "0", wantNotUp: false},
+		{name: "null", field: `null`, wantValue: "", wantNotUp: false},
+		{name: "field absent", field: "", wantValue: "", wantNotUp: false},
+		{name: "unquoted (hypothetical future build)", field: `3`, wantValue: "3", wantNotUp: true},
+		// Nothing is parsed, so an unrecognized shape blocks the upgrade gate rather than
+		// failing open past a container we know nothing about.
+		{name: "unexpected object", field: `{"up":1}`, wantValue: `{"up":1}`, wantNotUp: true},
 	}
 
 	for _, c := range cases {
@@ -49,21 +49,12 @@ func TestIoProcessesNotUpCount(t *testing.T) {
 				t.Errorf("display_status = %q, want READY", status.DisplayStatus)
 			}
 
-			got, err := status.IoProcessesNotUpCount()
-			if c.wantErr && err == nil {
-				t.Errorf("want an error so the fail-open is visible in the log, got nil")
+			value, notUp := status.IoProcessesNotUp()
+			if value != c.wantValue {
+				t.Errorf("value = %q, want %q", value, c.wantValue)
 			}
-			if !c.wantErr && err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-
-			switch {
-			case c.want == nil && got != nil:
-				t.Errorf("count = %d, want nil", *got)
-			case c.want != nil && got == nil:
-				t.Errorf("count = nil, want %d", *c.want)
-			case c.want != nil && got != nil && *c.want != *got:
-				t.Errorf("count = %d, want %d", *got, *c.want)
+			if notUp != c.wantNotUp {
+				t.Errorf("notUp = %v, want %v", notUp, c.wantNotUp)
 			}
 		})
 	}
