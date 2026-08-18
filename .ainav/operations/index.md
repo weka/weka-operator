@@ -37,7 +37,7 @@ Manual operations, policies, CSI, and driver management.
 
 | File | Purpose |
 |------|---------|
-| `discover_node.go` | Node discovery |
+| `discover_node.go` | Node discovery; recreates discovery container on owner-spec drift (image/tolerations/pullSecret/serviceAccount) |
 | `ensure_nics.go` | NIC configuration |
 | `trace_session.go` | Remote trace collection |
 | `cleanup_persistent_dir.go` | Cleanup operations |
