@@ -16,6 +16,7 @@
 - [WekaClientSpecOverrides](#wekaclientspecoverrides)
 - [PVCConfig](#pvcconfig)
 - [ClientCsiConfig](#clientcsiconfig)
+- [WekaNuma](#wekanuma)
 - [ClientMetrics](#clientmetrics)
 - [ClientPrinterColumns](#clientprintercolumns)
 - [NetworkSelector](#networkselector)
@@ -71,6 +72,7 @@
 | autoRemoveTimeout | metav1.Duration | sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config |
 | globalPVC | *PVCConfig |  |
 | csiConfig | *ClientCsiConfig | EXPERIMENTAL, ALPHA STATE, should not be used in production: if set, allows to reuse the same csi resources for multiple clients |
+| numa | *WekaNuma | Numa configures NUMA confinement for this client container |
 
 ---
 
@@ -177,6 +179,7 @@
 | dropAffinityConstraints | bool | unsafe parameter, disables anti-affinities on client pods, allowing to schedule more than one client pod per node.<br>Running multiple clients for multiple clusters on the same node is not fully supported yet, and this flag should not be used in production. |
 | wekaContainerName | string | override name used in weka local setup for the container<br>this can be used for integration with external client on the host |
 | dpdkBaseMemoryMb | int |  |
+| waitSinceIoProcessesUpTimeout | *metav1.Duration | how long to wait, once IO processes are reported up, before considering the container's applied<br>image settled. nil/0 (default): don't wait. |
 
 ---
 
@@ -196,6 +199,16 @@
 | csiGroup | string |  |
 | disableControllerCreation | bool |  |
 | advanced | *AdvancedCsiConfig |  |
+
+---
+
+## WekaNuma
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| single | bool | Single, when true, confines the container to a single NUMA region |
+| region | *int | Region is the NUMA region index to pin this container to |
+| method | WekaNumaMethod | Method selects the enforcement mechanism |
 
 ---
 

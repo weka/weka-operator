@@ -67,6 +67,8 @@ func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
 		if !errors.As(err, &nfsIgExists) {
 			return err
 		}
+
+		logger.Info("Tolerating pre-existing NFS interface group", "error", err)
 	}
 
 	logger.SetStatus(codes.Ok, "NFS ensured")

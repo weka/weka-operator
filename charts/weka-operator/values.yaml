@@ -75,6 +75,11 @@ kubeExecTimeout: 5m
 # overrides this to 30m so managed-nodegroup drains don't hang. Per-cluster override:
 # spec.overrides.podTerminationDeactivationTimeout.
 podTerminationDeactivationTimeout: 0
+# -- How long to wait, once IO processes are reported up, before considering the container's
+# applied image settled. 0 = don't wait (default). Per-object override:
+# spec.overrides.waitSinceIoProcessesUpTimeout on the WekaCluster (backend containers) or on the
+# WekaClient (client containers).
+waitSinceIoProcessesUpTimeout: 0
 # -- maximum number of workers for each reconciler (for each resource type)
 maxWorkers:
   wekaCluster: 5

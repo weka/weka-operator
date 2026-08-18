@@ -9,6 +9,7 @@
 - [RoleNodeSelector](#rolenodeselector)
 - [RoleAnnotations](#roleannotations)
 - [RoleNetworkSelector](#rolenetworkselector)
+- [RoleNumaSelector](#rolenumaselector)
 - [FailureDomain](#failuredomain)
 - [PodConfiguration](#podconfiguration)
 - [TracesConfiguration](#tracesconfiguration)
@@ -28,6 +29,7 @@
 - [SmbwConfig](#smbwconfig)
 - [TelemetryConfig](#telemetryconfig)
 - [CatalogConfig](#catalogconfig)
+- [WekaNuma](#wekanuma)
 - [ClusterMetrics](#clustermetrics)
 - [ClusterPrinterColumns](#clusterprintercolumns)
 - [RoleTopologySpreadConstraints](#roletopologyspreadconstraints)
@@ -74,6 +76,7 @@
 | roleNodeSelector | RoleNodeSelector | node selector for the weka containers per role, overrides global nodeSelector |
 | roleAnnotations | RoleAnnotations | annotations for the weka containers per role |
 | roleNetworkSelector | RoleNetworkSelector | network selector for the weka containers per role, overrides global network |
+| roleNuma | RoleNumaSelector | NUMA configuration for the weka containers per role, overrides global numa |
 | failureDomain | *FailureDomain | failure domain configuration for weka containers |
 | podConfig | *PodConfiguration | advanced pod affinities configuration |
 | cpuPolicy | CpuPolicy | cpu policy to use for scheduling cores for weka, unless instructed by weka team, keep default of auto<br>manual and shared are same, with shared being deprecated<br>when manual is used - no exclusive cores will be allocaated on k8s/cgroup level, assuming good alignment of cores usage across different applications, like weka and slurm<br>there is no need to specify siblings in this list, but on the side of other applications like slurm, both weka core and its siblings should be excluded from used cpu set |
@@ -107,6 +110,7 @@
 | smbw | *SmbwConfig |  |
 | telemetry | *TelemetryConfig | Telemetry configuration for exporting audit logs and other telemetry data |
 | catalog | *CatalogConfig | Catalog configuration for data catalog service |
+| numa | *WekaNuma | NUMA confinement configuration for all weka containers, overridden per role by roleNuma |
 
 ---
 
@@ -173,6 +177,19 @@
 | nfs | *Network | network selector for nfs weka containers |
 | smbw | *Network | network selector for smbw weka containers |
 | dataServices | *Network | network selector for data services weka containers |
+
+---
+
+## RoleNumaSelector
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| compute | *WekaNuma | NUMA configuration for compute weka containers |
+| drive | *WekaNuma | NUMA configuration for drive weka containers |
+| s3 | *WekaNuma | NUMA configuration for s3 weka containers |
+| nfs | *WekaNuma | NUMA configuration for nfs weka containers |
+| smbw | *WekaNuma | NUMA configuration for smbw weka containers |
+| dataServices | *WekaNuma | NUMA configuration for data services weka containers |
 
 ---
 
@@ -337,6 +354,7 @@
 | cancelDeletion | bool | Cancel deletion of the cluster if it is in graceful destroy period, a disaster recovery mechanism |
 | dpdkBaseMemoryMb | DpdkBaseMemoryMbOverride |  |
 | machineIdentifierNodeRef | string | used to override machine identifier node reference for backend containers (drive, compute, etc.) |
+| waitSinceIoProcessesUpTimeout | *metav1.Duration | how long to wait, once IO processes are reported up, before considering the container's applied<br>image settled. nil/0 (default): don't wait. |
 
 ---
 
@@ -435,6 +453,16 @@
 |------------|------|-------------|
 | indexInterval | string | IndexInterval specifies how often the catalog index is updated (e.g., "1d", "1m") |
 | retentionPeriod | string | RetentionPeriod specifies how long catalog data is retained (e.g., "30d", "10m") |
+
+---
+
+## WekaNuma
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| single | bool | Single, when true, confines the container to a single NUMA region |
+| region | *int | Region is the NUMA region index to pin this container to |
+| method | WekaNumaMethod | Method selects the enforcement mechanism |
 
 ---
 

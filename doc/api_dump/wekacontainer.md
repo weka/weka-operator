@@ -17,6 +17,7 @@
 - [PodResourcesSpec](#podresourcesspec)
 - [PVCConfig](#pvcconfig)
 - [DataServicesConfig](#dataservicesconfig)
+- [WekaNuma](#wekanuma)
 - [ContainerAllocations](#containerallocations)
 - [Drive](#drive)
 - [WekaContainerMetrics](#wekacontainermetrics)
@@ -98,6 +99,7 @@
 | pvc | *PVCConfig |  |
 | dpdkBaseMemoryMb | int |  |
 | dataServicesConfig | *DataServicesConfig |  |
+| numa | *WekaNuma | Numa configures NUMA confinement for this container |
 
 ---
 
@@ -250,6 +252,16 @@
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | dataServicesFeCores | int |  |
+
+---
+
+## WekaNuma
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| single | bool | Single, when true, confines the container to a single NUMA region |
+| region | *int | Region is the NUMA region index to pin this container to |
+| method | WekaNumaMethod | Method selects the enforcement mechanism |
 
 ---
 

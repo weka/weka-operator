@@ -300,12 +300,24 @@ type WekaOverride struct {
 //		"state": "READY"
 //	}
 //
-// - when container is in STEM mode:
+// - when container is in STEM mode (note io_processes_not_up is reported as an
+// empty string, not 0):
 //
 //	"internalStatus": {
 //		"action": "NONE",
 //		"display_status": "STEM",
 //		"message": "STEM mode",
+//		"io_processes_not_up": "",
+//		"state": "READY"
+//	}
+//
+// - when IO processes are still coming up (the count is quoted by weka):
+//
+//	"internalStatus": {
+//		"action": "NONE",
+//		"display_status": "READY",
+//		"message": "Ready",
+//		"io_processes_not_up": "3",
 //		"state": "READY"
 //	}
 type WekaLocalInternalStatus struct {
@@ -314,6 +326,44 @@ type WekaLocalInternalStatus struct {
 	HasLease      *bool  `json:"has_lease"`
 	Message       string `json:"message"`
 	State         string `json:"state"`
+	// IoProcessesNotUp is weka's count of IO processes not yet up, kept as raw
+	// JSON because the shape varies: weka quotes the count ("3") and reports ""
+	// on STEM-mode / disabled containers. Decoding it into a fixed Go type would
+	// let one unexpected shape fail the whole `weka local ps` unmarshal - and
+	// that error path can force a drivers reload. Use IoProcessesNotUpCount().
+	IoProcessesNotUp json.RawMessage `json:"io_processes_not_up"`
+}
+
+// IoProcessesNotUpCount parses IoProcessesNotUp. It returns nil when the count
+// is not reported (field absent, null, or "" as on STEM-mode / disabled
+// containers), and an error when it is reported in a shape we don't understand.
+// Callers read nil as "no information", which is fail-open for the upgrade gate
+// in applyCurrentImage - hence the error rather than a silent nil.
+func (s *WekaLocalInternalStatus) IoProcessesNotUpCount() (*int, error) {
+	raw := strings.TrimSpace(string(s.IoProcessesNotUp))
+	if raw == "" || raw == "null" {
+		return nil, nil
+	}
+
+	// Quoted ("3") is what weka emits today; accept a bare 3 too. Decoded with
+	// encoding/json rather than strconv.Unquote because the input is JSON, and
+	// Unquote reads Go string-literal syntax - a different escape grammar.
+	value := raw
+	var quoted string
+	if err := json.Unmarshal(s.IoProcessesNotUp, &quoted); err == nil {
+		value = strings.TrimSpace(quoted)
+	}
+
+	if value == "" {
+		return nil, nil
+	}
+
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return nil, fmt.Errorf("unexpected io_processes_not_up value %s: %w", raw, err)
+	}
+
+	return &n, nil
 }
 
 type WekaLocalContainer struct {
@@ -1283,6 +1333,7 @@ func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams *NFSParams)
 	_, stderr, err = executor.ExecNamed(ctx, "ConfigureNfsInterfaceGroup", cmd)
 	if err != nil {
 		if strings.Contains(stderr.String(), "already exists") {
+			logger.Info("NFS interface group already exists, tolerating", "interfaceGroup", interfaceGroupName)
 			// Pointer, not value: EnsureNfs matches this with errors.As against
 			// *NfsInterfaceGroupExists, which never matches a value-typed error.
 			return &NfsInterfaceGroupExists{err}
