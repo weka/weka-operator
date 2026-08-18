@@ -317,7 +317,7 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	// from the instruction payload over inferring it from ProxyDrives length: a shared run that
 	// legitimately signs zero proxy drives would otherwise fall through to the non-proxy branch
 	// and corrupt the node's drive bookkeeping. Fall back to the length check when the payload
-	// is absent/unparseable, or the instruction is discover-drives (no "shared" field).
+	// is absent/unparsable, or the instruction is discover-drives (no "shared" field).
 	isProxyMode := len(opResult.ProxyDrives) > 0
 	if r.container.Spec.Instructions != nil && r.container.Spec.Instructions.Type == weka.InstructionTypeSignDrives {
 		var payload weka.SignDrivesPayload

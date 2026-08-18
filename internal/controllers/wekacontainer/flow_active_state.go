@@ -13,6 +13,7 @@ import (
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sTypes "k8s.io/apimachinery/pkg/types"
 
 	"github.com/weka/weka-operator/internal/config"
@@ -965,12 +966,94 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 			return lifecycle.NewWaitError(fmt.Errorf("container status is not READY: %s", container.Status.InternalStatus))
 		}
 
+		// ReconcileWekaLocalStatus leaves this nil when it could not read `weka local status` -
+		// most notably when it bails out early on a NotReady node. Without it the lease and
+		// IO-process gates below would all read zero values and silently pass, letting a rolling
+		// upgrade advance past a container we know nothing about. Wait instead.
+		if r.localContainer == nil {
+			logger.Info("Weka local status is not available yet")
+			return lifecycle.NewWaitError(errors.New("weka local status is not available yet"))
+		}
+
 		// Check VALID LEASE (only available in Weka >= 5.1.2; nil means field absent, skip)
-		if r.hasLease != nil && !*r.hasLease {
+		if r.localContainer.InternalStatus.HasLease != nil && !*r.localContainer.InternalStatus.HasLease {
 			logger.Info("Container does not have a valid lease")
 			return lifecycle.NewWaitError(errors.New("container does not have a valid lease"))
 		}
+
+		ioProcessesNotUp, ioErr := r.localContainer.InternalStatus.IoProcessesNotUpCount()
+		if ioErr != nil {
+			// Shape we don't understand: don't block the upgrade on it, but make it
+			// visible - a nil count means the gate below silently passes.
+			logger.Error(ioErr, "Could not read io_processes_not_up, skipping IO-process gate")
+		}
+
+		if ioProcessesNotUp != nil && *ioProcessesNotUp > 0 {
+			// Not up yet: drop any previously recorded "IO processes up" anchor, and keep waiting
+			// (uncapped - we don't give up and proceed anyway).
+			if _, ok := container.Status.Timestamps[string(weka.TimestampIoProcessesUp)]; ok {
+				delete(container.Status.Timestamps, string(weka.TimestampIoProcessesUp))
+				if updateErr := r.Status().Update(ctx, container); updateErr != nil {
+					return updateErr
+				}
+			}
+
+			msg := fmt.Sprintf("container has %d IO processes not up", *ioProcessesNotUp)
+
+			// The wait is uncapped by design, so also raise an event: otherwise a permanently
+			// wedged IO process stalls the whole cluster's rolling upgrade with no signal outside
+			// the operator log.
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "IoProcessesNotUp", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+
+			logger.Debug("Container has IO processes not up", "count", *ioProcessesNotUp)
+			return lifecycle.NewWaitError(errors.New(msg))
+		}
+
+		// IO processes are up. If a settle period is configured, hold off marking the image applied
+		// until it has elapsed since IO processes were first observed up. Resolved here rather than
+		// above so the not-up path does not depend on reading the cluster.
+		waitSince := config.Config.Timeouts.WaitSinceIoProcessesUpTimeout
+
+		if r.container.ShouldJoinCluster() {
+			cluster, clusterErr := r.getCluster(ctx)
+			if clusterErr != nil {
+				return clusterErr
+			}
+
+			if override := cluster.Spec.GetOverrides().WaitSinceIoProcessesUpTimeout; override != nil {
+				waitSince = override.Duration
+			}
+		}
+
+		if waitSince > 0 {
+			anchor, ok := container.Status.Timestamps[string(weka.TimestampIoProcessesUp)]
+
+			// An anchor older than the pod belongs to a previous one
+			if ok && pod.Status.StartTime != nil && anchor.Time.Before(pod.Status.StartTime.Time) {
+				ok = false
+			}
+
+			if !ok {
+				container.Status.Timestamps[string(weka.TimestampIoProcessesUp)] = metav1.Time{Time: time.Now()}
+				if updateErr := r.Status().Update(ctx, container); updateErr != nil {
+					return updateErr
+				}
+				return lifecycle.NewWaitErrorWithDuration(errors.New("waiting for IO processes to settle"), waitSince)
+			}
+
+			if elapsed := time.Since(anchor.Time); elapsed < waitSince {
+				return lifecycle.NewWaitErrorWithDuration(
+					fmt.Errorf("waiting for IO processes to settle, %v elapsed of %v", elapsed, waitSince),
+					max(waitSince-elapsed, time.Second),
+				)
+			}
+		}
 	}
+
+	// Clear the settle anchor so the next image roll re-arms the wait from scratch instead of
+	// reusing this roll's timestamp (which would make the wait a no-op). Persisted by the
+	// Status().Update below. Deleting an absent key is a no-op.
+	delete(container.Status.Timestamps, string(weka.TimestampIoProcessesUp))
 
 	logger.Info("Updating LastAppliedImage", "image", container.Spec.Image)
 

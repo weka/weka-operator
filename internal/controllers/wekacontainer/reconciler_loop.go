@@ -13,6 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
@@ -70,9 +71,10 @@ type containerReconcilerLoop struct {
 	// is in deletion process or its node is not available
 	clusterContainers []*weka.WekaContainer
 	// values shared between steps
-	hasLease      *bool
-	activeMounts  *int
-	ThrottlingMap throttling.Throttler
+	// nil until ReconcileWekaLocalStatus successfully reads `weka local status`
+	localContainer *services.WekaLocalContainer
+	activeMounts   *int
+	ThrottlingMap  throttling.Throttler
 	// NOTE: always use getCluster() to access this field
 	_cluster *weka.WekaCluster
 }

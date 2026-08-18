@@ -337,6 +337,7 @@
 | cancelDeletion | bool | Cancel deletion of the cluster if it is in graceful destroy period, a disaster recovery mechanism |
 | dpdkBaseMemoryMb | DpdkBaseMemoryMbOverride |  |
 | machineIdentifierNodeRef | string | used to override machine identifier node reference for backend containers (drive, compute, etc.) |
+| waitSinceIoProcessesUpTimeout | *metav1.Duration | how long to wait, once IO processes are reported up, before considering the container's applied<br>image settled. nil/0 (default): don't wait. |
 
 ---
 

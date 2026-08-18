@@ -743,6 +743,7 @@
         "Completed",
         "Building",
         "StoppingAttempt",
+        "IoProcessesUp",
         "Stale"
       ],
       "baseType": "string",
@@ -4365,6 +4366,14 @@
           "type": "string",
           "description": "used to override machine identifier node reference for backend containers (drive, compute, etc.)",
           "optional": true
+        },
+        {
+          "name": "WaitSinceIoProcessesUpTimeout",
+          "jsonName": "waitSinceIoProcessesUpTimeout",
+          "type": "k8s:metav1.Duration",
+          "description": "how long to wait, once IO processes are reported up, before considering the container's applied\nimage settled. nil/0 (default): don't wait.",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
