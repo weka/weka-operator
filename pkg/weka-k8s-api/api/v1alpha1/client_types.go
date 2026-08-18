@@ -77,6 +77,12 @@ type WekaClientSpecOverrides struct {
 	// this can be used for integration with external client on the host
 	WekaContainerName string `json:"wekaContainerName,omitempty"`
 	DpdkBaseMemoryMb  int    `json:"dpdkBaseMemoryMb,omitempty"`
+	// how long to wait, once IO processes are reported up, before considering the container's applied
+	// image settled. nil/0 (default): don't wait.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	// +optional
+	WaitSinceIoProcessesUpTimeout *metav1.Duration `json:"waitSinceIoProcessesUpTimeout,omitempty"`
 }
 
 type UpgradePolicy struct {

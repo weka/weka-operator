@@ -1336,6 +1336,25 @@ spec:
                 type: integer
               numDrives:
                 type: integer
+              numa:
+                description: Numa configures NUMA confinement for this container
+                properties:
+                  method:
+                    description: Method selects the enforcement mechanism
+                    enum:
+                    - device-plugin
+                    - dra
+                    type: string
+                  region:
+                    description: Region is the NUMA region index to pin this container
+                      to
+                    minimum: 0
+                    type: integer
+                  single:
+                    description: Single, when true, confines the container to a single
+                      NUMA region
+                    type: boolean
+                type: object
               overrides:
                 properties:
                   debugSleepOnTerminate:

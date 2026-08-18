@@ -339,6 +339,25 @@ spec:
                 items:
                   type: integer
                 type: array
+              numa:
+                description: Numa configures NUMA confinement for this client container
+                properties:
+                  method:
+                    description: Method selects the enforcement mechanism
+                    enum:
+                    - device-plugin
+                    - dra
+                    type: string
+                  region:
+                    description: Region is the NUMA region index to pin this container
+                      to
+                    minimum: 0
+                    type: integer
+                  single:
+                    description: Single, when true, confines the container to a single
+                      NUMA region
+                    type: boolean
+                type: object
               overrides:
                 properties:
                   dpdkBaseMemoryMb:
@@ -372,6 +391,12 @@ spec:
                     description: unsafe operation, runs nsenter in root namespace
                       to umount all wekafs mounts visible on host
                     type: boolean
+                  waitSinceIoProcessesUpTimeout:
+                    description: |-
+                      how long to wait, once IO processes are reported up, before considering the container's applied
+                      image settled. nil/0 (default): don't wait.
+                    pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                    type: string
                   wekaContainerName:
                     description: |-
                       override name used in weka local setup for the container

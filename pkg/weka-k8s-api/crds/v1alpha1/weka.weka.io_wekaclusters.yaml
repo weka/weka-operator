@@ -712,6 +712,26 @@ spec:
                   type: string
                 description: node selector for the weka containers
                 type: object
+              numa:
+                description: NUMA confinement configuration for all weka containers,
+                  overridden per role by roleNuma
+                properties:
+                  method:
+                    description: Method selects the enforcement mechanism
+                    enum:
+                    - device-plugin
+                    - dra
+                    type: string
+                  region:
+                    description: Region is the NUMA region index to pin this container
+                      to
+                    minimum: 0
+                    type: integer
+                  single:
+                    description: Single, when true, confines the container to a single
+                      NUMA region
+                    type: boolean
+                type: object
               operatorSecretRef:
                 description: reference to the secret containing the weka system credentials
                   used by operator, used in flow of migration
@@ -1743,6 +1763,125 @@ spec:
                     items:
                       type: integer
                     type: array
+                type: object
+              roleNuma:
+                description: NUMA configuration for the weka containers per role,
+                  overrides global numa
+                properties:
+                  compute:
+                    description: NUMA configuration for compute weka containers
+                    properties:
+                      method:
+                        description: Method selects the enforcement mechanism
+                        enum:
+                        - device-plugin
+                        - dra
+                        type: string
+                      region:
+                        description: Region is the NUMA region index to pin this container
+                          to
+                        minimum: 0
+                        type: integer
+                      single:
+                        description: Single, when true, confines the container to
+                          a single NUMA region
+                        type: boolean
+                    type: object
+                  dataServices:
+                    description: NUMA configuration for data services weka containers
+                    properties:
+                      method:
+                        description: Method selects the enforcement mechanism
+                        enum:
+                        - device-plugin
+                        - dra
+                        type: string
+                      region:
+                        description: Region is the NUMA region index to pin this container
+                          to
+                        minimum: 0
+                        type: integer
+                      single:
+                        description: Single, when true, confines the container to
+                          a single NUMA region
+                        type: boolean
+                    type: object
+                  drive:
+                    description: NUMA configuration for drive weka containers
+                    properties:
+                      method:
+                        description: Method selects the enforcement mechanism
+                        enum:
+                        - device-plugin
+                        - dra
+                        type: string
+                      region:
+                        description: Region is the NUMA region index to pin this container
+                          to
+                        minimum: 0
+                        type: integer
+                      single:
+                        description: Single, when true, confines the container to
+                          a single NUMA region
+                        type: boolean
+                    type: object
+                  nfs:
+                    description: NUMA configuration for nfs weka containers
+                    properties:
+                      method:
+                        description: Method selects the enforcement mechanism
+                        enum:
+                        - device-plugin
+                        - dra
+                        type: string
+                      region:
+                        description: Region is the NUMA region index to pin this container
+                          to
+                        minimum: 0
+                        type: integer
+                      single:
+                        description: Single, when true, confines the container to
+                          a single NUMA region
+                        type: boolean
+                    type: object
+                  s3:
+                    description: NUMA configuration for s3 weka containers
+                    properties:
+                      method:
+                        description: Method selects the enforcement mechanism
+                        enum:
+                        - device-plugin
+                        - dra
+                        type: string
+                      region:
+                        description: Region is the NUMA region index to pin this container
+                          to
+                        minimum: 0
+                        type: integer
+                      single:
+                        description: Single, when true, confines the container to
+                          a single NUMA region
+                        type: boolean
+                    type: object
+                  smbw:
+                    description: NUMA configuration for smbw weka containers
+                    properties:
+                      method:
+                        description: Method selects the enforcement mechanism
+                        enum:
+                        - device-plugin
+                        - dra
+                        type: string
+                      region:
+                        description: Region is the NUMA region index to pin this container
+                          to
+                        minimum: 0
+                        type: integer
+                      single:
+                        description: Single, when true, confines the container to
+                          a single NUMA region
+                        type: boolean
+                    type: object
                 type: object
               s3:
                 properties:
