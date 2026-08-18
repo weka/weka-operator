@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
+	k8sutil "github.com/weka/weka-k8s-api/util"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -170,10 +172,34 @@ func (o *DiscoverNodeOperation) GetContainer(ctx context.Context) error {
 	return nil
 }
 
+// isContainerSpecChanged reports whether the existing discovery container no longer matches the owner-derived spec
+func (o *DiscoverNodeOperation) isContainerSpecChanged() bool {
+	spec := o.container.Spec
+	return spec.Image != o.image ||
+		spec.ImagePullSecret != o.pullSecret ||
+		spec.ServiceAccountName != o.serviceAccount ||
+		!reflect.DeepEqual(k8sutil.NormalizeTolerations(spec.Tolerations), k8sutil.NormalizeTolerations(o.tolerations))
+}
+
 func (o *DiscoverNodeOperation) EnsureContainers(ctx context.Context) error {
 
 	if o.container != nil {
-		return nil
+		if o.container.GetDeletionTimestamp() != nil {
+			return lifecycle.NewWaitError(fmt.Errorf("discovery container %s is being deleted", o.container.Name))
+		}
+		// the discovery container is a shared per-node singleton; only its controller-owner
+		// enforces spec drift, otherwise owners with different specs delete each other's container in a loop
+		if !metav1.IsControlledBy(o.container, o.ownerRef) {
+			return nil
+		}
+		if !o.isContainerSpecChanged() {
+			return nil
+		}
+		// recreate on a later pass — a same-name Create would fail while the old container is terminating
+		if err := o.DeleteContainers(ctx); err != nil {
+			return err
+		}
+		return lifecycle.NewWaitError(fmt.Errorf("discovery container spec changed, recreating"))
 	}
 
 	// If we already have valid discovery information, skip container creation
