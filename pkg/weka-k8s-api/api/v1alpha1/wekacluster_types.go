@@ -965,6 +965,12 @@ type WekaClusterSpecOverrides struct {
 	DpdkBaseMemoryMb DpdkBaseMemoryMbOverride `json:"dpdkBaseMemoryMb,omitempty"`
 	// used to override machine identifier node reference for backend containers (drive, compute, etc.)
 	MachineIdentifierNodeRef string `json:"machineIdentifierNodeRef,omitempty"`
+	// how long to wait, once IO processes are reported up, before considering the container's applied
+	// image settled. nil/0 (default): don't wait.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	// +optional
+	WaitSinceIoProcessesUpTimeout *metav1.Duration `json:"waitSinceIoProcessesUpTimeout,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
