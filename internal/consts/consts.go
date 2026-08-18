@@ -85,15 +85,30 @@ const (
 )
 
 // DRA (Dynamic Resource Allocation) NUMA confinement, via kubernetes-sigs/dra-driver-cpu.
+//
+// WekaDraDriverName and WekaDraDeviceClassName share the same value today ("dra.cpu") but are
+// distinct concepts owned by different parts of dra-driver-cpu: the driver name is published on
+// the ResourceSlices dra-driver-cpu's kubelet plugin advertises (and is therefore the attribute
+// domain CEL selectors key into, e.g. device.attributes["dra.cpu"]), while the DeviceClass is a
+// separate cluster-scoped object dra-driver-cpu installs that groups those devices. Keep them as
+// separate constants so a future dra-driver-cpu release that diverges the two doesn't require
+// hunting down which "dra.cpu" string means which thing.
 const (
+	// WekaDraDriverName is dra-driver-cpu's DRA driver name — the attribute domain used in CEL
+	// device.attributes[...] selectors. Verified against a live cluster (kubernetes-sigs/
+	// dra-driver-cpu, docs/user/device-attributes.md); not pinnable in unit tests since it's an
+	// external project's naming convention, not something this repo defines.
+	WekaDraDriverName = "dra.cpu"
+
 	// WekaDraDeviceClassName is the DeviceClass dra-driver-cpu publishes CPU devices under
 	// (grouped by NUMA node), used when NUMA confinement uses the "dra" method. Installed by
 	// dra-driver-cpu itself, not the weka operator — see checkNumaDeviceClassInstalled in
 	// internal/controllers/wekacontainer/funcs_numa_dra.go.
 	WekaDraDeviceClassName = "dra.cpu"
 
-	// WekaDraCPUCapacity is the partitionable capacity name dra-driver-cpu exposes per device,
-	// used to request N CPU cores from within the single NUMA-region device a claim allocates.
+	// WekaDraCPUCapacity is dra-driver-cpu's partitionable capacity name, used to request N CPU
+	// cores from within the single NUMA-region device a claim allocates. Same external-naming
+	// caveat as WekaDraDriverName.
 	WekaDraCPUCapacity = "dra.cpu/cpu"
 
 	// WekaNumaClaimName is the pod-local resource claim name referenced by pod.spec.resourceClaims

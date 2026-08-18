@@ -290,11 +290,16 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		// Ensure the DRA DeviceClass and this container's ResourceClaim exist before the pod
-		// references them, when NUMA confinement uses the "dra" method.
+		// references them, when NUMA confinement uses the "dra" method. Gated on PodNotSet like
+		// ensurePod itself below: this is pod-creation-time wiring, not a steady-state
+		// reconciliation concern once the pod exists — a live pod already has its claim reserved,
+		// and the recreate-on-drift path in ensureNumaResourceClaimForCPUCount is deliberately
+		// conservative about touching a claim that's still in use (see its ReservedFor check).
 		&lifecycle.SimpleStep{
 			Run: r.ensureNumaDraClaim,
 			Predicates: lifecycle.Predicates{
 				r.needsNumaDraClaim,
+				r.PodNotSet,
 			},
 		},
 		&lifecycle.SimpleStep{

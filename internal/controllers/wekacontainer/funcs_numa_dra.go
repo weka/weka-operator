@@ -3,8 +3,10 @@ package wekacontainer
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	resourcev1 "k8s.io/api/resource/v1"
@@ -20,6 +22,13 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/resources"
 )
 
+// numaClaimRequeueDelay is how long ensureNumaResourceClaimForCPUCount asks the reconciler to wait
+// before retrying: both after deleting a stale claim (the delete may not have fully propagated,
+// or the object may still be terminating behind a finalizer) and after Create hits AlreadyExists
+// (the old object is still being removed). Short because both are just waiting on the API server
+// to finish a removal already in flight, not on external/slow state.
+const numaClaimRequeueDelay = 5 * time.Second
+
 // needsNumaDraClaim reports whether this container requests NUMA region confinement via the DRA
 // method (as opposed to the device-plugin extended-resource method, or no NUMA confinement at all).
 func (r *containerReconcilerLoop) needsNumaDraClaim() bool {
@@ -29,7 +38,8 @@ func (r *containerReconcilerLoop) needsNumaDraClaim() bool {
 
 // ensureNumaDraClaim verifies dra-driver-cpu's DeviceClass is installed, then ensures this
 // container's namespace-scoped ResourceClaim exists and matches the desired shape. Called only
-// when needsNumaDraClaim is true.
+// when needsNumaDraClaim is true, and only while PodNotSet (see flow_active_state.go) — this is
+// pod-creation-time wiring, not steady-state reconciliation.
 func (r *containerReconcilerLoop) ensureNumaDraClaim(ctx context.Context) error {
 	if err := r.checkNumaDeviceClassInstalled(ctx); err != nil {
 		return err
@@ -59,14 +69,22 @@ func (r *containerReconcilerLoop) checkNumaDeviceClassInstalled(ctx context.Cont
 // numaClaimCPUCount computes the integer CPU core count to request via the DRA NUMA claim's
 // dra.cpu/cpu capacity, reusing the exact same capacityplanner.CPURequestCores helper and node
 // topology (IsHt, FullPcpusOnly) that PodFactory.setResources uses to size the pod's own CPU
-// request, so the claim and the pod it backs can never diverge. Resolves the container's target
-// node the same way ensurePod does (existing node affinity if set, else pick a matching node),
-// since this step runs before ensurePod in the reconcile flow (see flow_active_state.go).
+// request, so the claim and the pod it backs can never diverge — enforced here by rejecting any
+// cpu policy that doesn't resolve to dedicated/dedicated_ht (manual/shared don't reserve whole
+// cores, so they can't back an exclusive-CPU DRA claim).
 func (r *containerReconcilerLoop) numaClaimCPUCount(ctx context.Context) (int, error) {
 	container := r.container
 
-	nodeAffinity := container.GetNodeAffinity()
-	if nodeAffinity == "" {
+	var nodeAffinity weka.NodeName
+	if r.node != nil {
+		// The reconcile flow already resolved the target node earlier in this pass (see GetNode
+		// in ContainerReconcileSteps) whenever the container has node affinity — reuse it instead
+		// of re-running pickMatchingNode, which has no guarantee of landing on the same node twice
+		// if cluster state shifts between the two calls within one reconcile.
+		nodeAffinity = weka.NodeName(r.node.Name)
+	} else if aff := container.GetNodeAffinity(); aff != "" {
+		nodeAffinity = aff
+	} else {
 		node, err := r.pickMatchingNode(ctx)
 		if err != nil {
 			return 0, err
@@ -79,11 +97,52 @@ func (r *containerReconcilerLoop) numaClaimCPUCount(ctx context.Context) (int, e
 		return 0, err
 	}
 
+	cpuPolicy, err := resolveNumaClaimCPUPolicy(&container.Spec, nodeInfo.IsHt)
+	if err != nil {
+		return 0, err
+	}
+
+	// specForCPU copies the spec and overwrites CpuPolicy with the resolved value, mirroring
+	// pod.go's specForCPU pattern exactly (~1223-1224) so CPURequestCores computes the same
+	// integer the pod's own CPU request will use, and does not re-resolve auto itself.
+	specForCPU := container.Spec
+	specForCPU.CpuPolicy = cpuPolicy
 	topo := capacityplanner.NodeCPUTopology{
 		IsHt:          nodeInfo.IsHt,
 		FullPcpusOnly: config.Config.FullPcpusOnly || nodeInfo.NodeFullPcpusOnly,
 	}
-	return capacityplanner.CPURequestCores(&container.Spec, topo), nil
+	return capacityplanner.CPURequestCores(&specForCPU, topo), nil
+}
+
+// resolveNumaClaimCPUPolicy resolves the effective cpu policy exactly like PodFactory.setResources
+// does (pod.go ~1171-1185: invalid policies rejected, "auto" resolved via CoreIds/node HT) so it
+// mirrors what the pod will actually run with, then rejects anything that isn't
+// dedicated/dedicated_ht — NUMA confinement via a DRA claim hands the pod an exclusive cpuset, so
+// manual/shared policies (which don't reserve whole cores) can't back it. A pure function, split
+// out from numaClaimCPUCount so it's testable without faking node discovery (it only needs isHt,
+// not the full discovery.DiscoveryNodeInfo).
+func resolveNumaClaimCPUPolicy(spec *weka.WekaContainerSpec, isHt bool) (weka.CpuPolicy, error) {
+	cpuPolicy := spec.CpuPolicy
+	if !cpuPolicy.IsValid() {
+		return "", fmt.Errorf("invalid CPU policy: %s", cpuPolicy)
+	}
+	if cpuPolicy == weka.CpuPolicyAuto {
+		if len(spec.CoreIds) > 0 {
+			cpuPolicy = weka.CpuPolicyManual
+		}
+		if isHt {
+			cpuPolicy = weka.CpuPolicyDedicatedHT
+		} else {
+			cpuPolicy = weka.CpuPolicyDedicated
+		}
+	}
+	if cpuPolicy != weka.CpuPolicyDedicated && cpuPolicy != weka.CpuPolicyDedicatedHT {
+		return "", errors.Errorf(
+			"numa method \"dra\" requires a dedicated cpu policy (got %q): manual/shared cpu policies cannot mirror an exclusive-CPU resource claim",
+			cpuPolicy,
+		)
+	}
+	return cpuPolicy, nil
 }
 
 // ensureNumaResourceClaim resolves the CPU count this container's claim must request (mirroring
@@ -127,12 +186,33 @@ func (r *containerReconcilerLoop) ensureNumaResourceClaimForCPUCount(ctx context
 		if !claimNeedsRecreate(existing, region, cpuCount) {
 			return nil
 		}
+
+		if len(existing.Status.ReservedFor) > 0 {
+			// The claim is still reserved by a consumer (a pod). Deleting it now would fight with
+			// that reservation instead of resolving it — this step only runs while PodNotSet (see
+			// flow_active_state.go), so reaching a reserved+drifted claim here means the old pod
+			// hasn't finished terminating yet. Its own replacement clears the reservation; a later
+			// reconcile (once the pod is actually gone) will pick the drift back up.
+			logger.Info("NUMA DRA claim is drifted but still reserved by a consumer, leaving it in place",
+				"claim", claimName, "reservedFor", len(existing.Status.ReservedFor))
+			return nil
+		}
+
 		// ResourceClaim device requests are immutable once created (and doubly so once allocated
 		// to a pod), so a spec drift — region or CPU-count change, or migrating off the old
 		// numa-region.weka.io shape — can only be applied by deleting and recreating the claim.
-		if delErr := r.Delete(ctx, existing); delErr != nil && !apierrors.IsNotFound(delErr) {
+		// Preconditions{UID} guards against a race where the object we read has already been
+		// replaced by the time the delete reaches the API server.
+		if delErr := r.Delete(ctx, existing, client.Preconditions{UID: &existing.UID}); delErr != nil && !apierrors.IsNotFound(delErr) {
 			return errors.Wrapf(delErr, "failed to delete stale %s ResourceClaim", claimName)
 		}
+		// Don't create in the same pass: the delete may not have fully propagated, or the object
+		// may still be terminating behind a finalizer. Requeue and let the next reconcile see it
+		// actually gone before recreating.
+		return lifecycle.NewWaitErrorWithDuration(
+			errors.Errorf("deleted stale %s ResourceClaim, waiting for removal before recreating", claimName),
+			numaClaimRequeueDelay,
+		)
 	case apierrors.IsNotFound(err):
 		// fall through to create
 	default:
@@ -147,7 +227,13 @@ func (r *containerReconcilerLoop) ensureNumaResourceClaimForCPUCount(ctx context
 
 	if createErr := r.Create(ctx, claim); createErr != nil {
 		if apierrors.IsAlreadyExists(createErr) {
-			return nil
+			// The old object is still terminating — requeue rather than treat this as done, so a
+			// later pass actually verifies (and if needed re-drives) the claim's shape once it's
+			// really gone.
+			return lifecycle.NewWaitErrorWithDuration(
+				errors.Errorf("%s ResourceClaim already exists (old object still terminating), retrying", claimName),
+				numaClaimRequeueDelay,
+			)
 		}
 		return errors.Wrapf(createErr, "failed to create %s ResourceClaim (resource.k8s.io/v1 API may be unavailable on this cluster)", claimName)
 	}
@@ -200,7 +286,7 @@ func buildNumaResourceClaim(container *weka.WekaContainer, region int, cpuCount 
 // on a specific NUMA node. Shared between buildNumaResourceClaim and claimNeedsRecreate so the two
 // can never disagree on the expression shape.
 func numaRegionCELExpression(region int) string {
-	return fmt.Sprintf("device.attributes[%q].numaNodeID == %d", consts.WekaDraDeviceClassName, region)
+	return fmt.Sprintf("device.attributes[%q].numaNodeID == %d", consts.WekaDraDriverName, region)
 }
 
 // claimNeedsRecreate reports whether an existing ResourceClaim's spec differs from the desired

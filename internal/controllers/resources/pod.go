@@ -1512,17 +1512,26 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 			// ensureNumaResourceClaimForCPUCount) requests dra.cpu/cpu capacity equal to
 			// capacityplanner.CPURequestCores(&f.container.Spec, cpuTopo) — the exact same call
 			// this function makes above to compute cpuRequestStr/cpuLimitStr for the
-			// DedicatedHT/Dedicated cpuPolicy branch. Both sides resolve node topology from the
-			// container's actual target node, so the pod's CPU request and the claim's CPU count
-			// can't diverge by construction; no extended resource is requested on this path.
+			// DedicatedHT/Dedicated cpuPolicy branch. That equality only holds for
+			// dedicated/dedicated_ht (or auto resolving to one of them) — the claim ensure-step
+			// rejects manual/shared cpu policies outright (see numaClaimCPUCount), so it's an
+			// enforced invariant here, not a guarantee "by construction" for every cpu policy.
+			// No extended resource is requested on this path.
 			claimName := NumaClaimNameForContainer(f.container.Name)
-			pod.Spec.ResourceClaims = append(pod.Spec.ResourceClaims, corev1.PodResourceClaim{
-				Name:              consts.WekaNumaClaimName,
-				ResourceClaimName: &claimName,
-			})
-			pod.Spec.Containers[0].Resources.Claims = append(pod.Spec.Containers[0].Resources.Claims, corev1.ResourceClaim{
-				Name: consts.WekaNumaClaimName,
-			})
+			// Assign rather than append: setResources can run more than once against the same
+			// pod object (e.g. a caller re-deriving the spec), and append would duplicate these
+			// entries on a second invocation.
+			pod.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:              consts.WekaNumaClaimName,
+					ResourceClaimName: &claimName,
+				},
+			}
+			pod.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: consts.WekaNumaClaimName},
+			}
+		default:
+			return fmt.Errorf("unsupported numa method %q", numa.Method)
 		}
 	}
 

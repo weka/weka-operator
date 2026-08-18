@@ -2,20 +2,37 @@ package wekacontainer
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	resourcev1 "k8s.io/api/resource/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 )
+
+// assertRequeue asserts that err is a *lifecycle.WaitError (the go-steps-engine idiom for "not
+// failed, come back and try again"), not a plain error and not nil.
+func assertRequeue(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected a requeue (*lifecycle.WaitError), got nil (treated as success)")
+	}
+	var waitErr *lifecycle.WaitError
+	if !errors.As(err, &waitErr) {
+		t.Fatalf("expected a *lifecycle.WaitError, got %T: %v", err, err)
+	}
+}
 
 func numaDraTestScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
@@ -197,14 +214,26 @@ func TestEnsureNumaResourceClaimForCPUCount(t *testing.T) {
 		}
 	})
 
-	t.Run("stale cpu count triggers delete and recreate", func(t *testing.T) {
+	t.Run("drifted unreserved claim: delete + requeue, then a later pass recreates it", func(t *testing.T) {
 		container := newContainer()
-		staleClaim := buildNumaResourceClaim(container, region2, 2) // old count
+		staleClaim := buildNumaResourceClaim(container, region2, 2) // old count, ReservedFor empty
 		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(container, staleClaim).Build()
 		r := &containerReconcilerLoop{Client: fakeClient, Scheme: scheme, container: container}
 
+		// First pass: deletes the stale claim and requeues rather than recreating in the same
+		// pass (the delete may not have fully propagated yet).
+		err := r.ensureNumaResourceClaimForCPUCount(context.Background(), 4)
+		assertRequeue(t, err)
+
+		afterDelete := &resourcev1.ResourceClaim{}
+		getErr := fakeClient.Get(context.Background(), client.ObjectKey{Name: staleClaim.Name, Namespace: staleClaim.Namespace}, afterDelete)
+		if !apierrors.IsNotFound(getErr) {
+			t.Fatalf("expected the stale claim to be deleted after the first pass, got err=%v obj=%+v", getErr, afterDelete)
+		}
+
+		// Second pass ("a later reconcile"): the claim is gone, so this call creates the new one.
 		if err := r.ensureNumaResourceClaimForCPUCount(context.Background(), 4); err != nil {
-			t.Fatalf("ensureNumaResourceClaimForCPUCount returned unexpected error: %v", err)
+			t.Fatalf("ensureNumaResourceClaimForCPUCount (second pass) returned unexpected error: %v", err)
 		}
 
 		got := &resourcev1.ResourceClaim{}
@@ -217,7 +246,7 @@ func TestEnsureNumaResourceClaimForCPUCount(t *testing.T) {
 		}
 	})
 
-	t.Run("old numa-region.weka.io shape triggers delete and recreate", func(t *testing.T) {
+	t.Run("old numa-region.weka.io shape: delete + requeue, then a later pass recreates it", func(t *testing.T) {
 		container := newContainer()
 		oldShapeClaim := &resourcev1.ResourceClaim{
 			ObjectMeta: metav1.ObjectMeta{
@@ -245,8 +274,10 @@ func TestEnsureNumaResourceClaimForCPUCount(t *testing.T) {
 		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(container, oldShapeClaim).Build()
 		r := &containerReconcilerLoop{Client: fakeClient, Scheme: scheme, container: container}
 
+		assertRequeue(t, r.ensureNumaResourceClaimForCPUCount(context.Background(), 4))
+
 		if err := r.ensureNumaResourceClaimForCPUCount(context.Background(), 4); err != nil {
-			t.Fatalf("ensureNumaResourceClaimForCPUCount returned unexpected error: %v", err)
+			t.Fatalf("ensureNumaResourceClaimForCPUCount (second pass) returned unexpected error: %v", err)
 		}
 
 		got := &resourcev1.ResourceClaim{}
@@ -256,6 +287,48 @@ func TestEnsureNumaResourceClaimForCPUCount(t *testing.T) {
 		if got.Spec.Devices.Requests[0].Name != "cpus" || got.Spec.Devices.Requests[0].Exactly.DeviceClassName != consts.WekaDraDeviceClassName {
 			t.Errorf("expected the old-shape claim to be replaced with the new dra.cpu shape, got: %+v", got.Spec.Devices.Requests[0])
 		}
+	})
+
+	t.Run("reserved+drifted claim: no delete issued, returns success", func(t *testing.T) {
+		container := newContainer()
+		reservedClaim := buildNumaResourceClaim(container, region2, 2) // old count -> drifted
+		reservedClaim.Status.ReservedFor = []resourcev1.ResourceClaimConsumerReference{
+			{Resource: "pods", Name: "some-pod", UID: "some-pod-uid"},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(container, reservedClaim).Build()
+		r := &containerReconcilerLoop{Client: fakeClient, Scheme: scheme, container: container}
+
+		if err := r.ensureNumaResourceClaimForCPUCount(context.Background(), 4); err != nil {
+			t.Fatalf("expected success (no-op) for a reserved+drifted claim, got: %v", err)
+		}
+
+		// The claim must still exist, untouched (same UID) — no delete was issued.
+		got := &resourcev1.ResourceClaim{}
+		if err := fakeClient.Get(context.Background(), client.ObjectKey{Name: reservedClaim.Name, Namespace: reservedClaim.Namespace}, got); err != nil {
+			t.Fatalf("expected the reserved claim to still be present: %v", err)
+		}
+		if got.UID != reservedClaim.UID {
+			t.Errorf("expected the reserved claim to be left untouched, got a different UID")
+		}
+		gotQty := got.Spec.Devices.Requests[0].Exactly.Capacity.Requests[resourcev1.QualifiedName(consts.WekaDraCPUCapacity)]
+		if !gotQty.Equal(resource.MustParse("2")) {
+			t.Errorf("expected the drifted (stale) spec to remain untouched, got capacity %s", gotQty.String())
+		}
+	})
+
+	t.Run("AlreadyExists on create returns a requeue, not success", func(t *testing.T) {
+		container := newContainer()
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(container).Build()
+		// Get sees nothing (NotFound), but Create is intercepted to simulate a race where the old
+		// object is still being removed by the API server underneath us.
+		interceptedClient := interceptor.NewClient(fakeClient, interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				return apierrors.NewAlreadyExists(resourcev1.SchemeGroupVersion.WithResource("resourceclaims").GroupResource(), obj.GetName())
+			},
+		})
+		r := &containerReconcilerLoop{Client: interceptedClient, Scheme: scheme, container: container}
+
+		assertRequeue(t, r.ensureNumaResourceClaimForCPUCount(context.Background(), 4))
 	})
 
 	t.Run("non-positive cpu count is rejected", func(t *testing.T) {
@@ -294,5 +367,76 @@ func TestClaimNeedsRecreate(t *testing.T) {
 	emptySpec := &resourcev1.ResourceClaim{}
 	if !claimNeedsRecreate(emptySpec, 2, 4) {
 		t.Error("expected a claim with no device requests to need recreation")
+	}
+}
+
+// TestResolveNumaClaimCPUPolicy verifies that the DRA method only ever proceeds with an
+// exclusive-CPU policy (dedicated/dedicated_ht, including auto resolving to one of them) and
+// rejects manual/shared outright, since those don't reserve whole cores and so can't back a DRA
+// claim that hands the pod a fixed cpuset.
+func TestResolveNumaClaimCPUPolicy(t *testing.T) {
+	cases := []struct {
+		name       string
+		spec       weka.WekaContainerSpec
+		isHt       bool
+		wantPolicy weka.CpuPolicy
+		wantErr    bool
+	}{
+		{
+			name:    "manual is rejected",
+			spec:    weka.WekaContainerSpec{CpuPolicy: weka.CpuPolicyManual, CoreIds: []int{0, 1}},
+			wantErr: true,
+		},
+		{
+			name:    "shared is rejected",
+			spec:    weka.WekaContainerSpec{CpuPolicy: weka.CpuPolicyShared},
+			wantErr: true,
+		},
+		{
+			name:       "dedicated passes through unchanged",
+			spec:       weka.WekaContainerSpec{CpuPolicy: weka.CpuPolicyDedicated},
+			wantPolicy: weka.CpuPolicyDedicated,
+		},
+		{
+			name:       "dedicated_ht passes through unchanged",
+			spec:       weka.WekaContainerSpec{CpuPolicy: weka.CpuPolicyDedicatedHT},
+			wantPolicy: weka.CpuPolicyDedicatedHT,
+		},
+		{
+			name:       "auto on a non-HT node resolves to dedicated",
+			spec:       weka.WekaContainerSpec{CpuPolicy: weka.CpuPolicyAuto},
+			isHt:       false,
+			wantPolicy: weka.CpuPolicyDedicated,
+		},
+		{
+			name:       "auto on an HT node resolves to dedicated_ht",
+			spec:       weka.WekaContainerSpec{CpuPolicy: weka.CpuPolicyAuto},
+			isHt:       true,
+			wantPolicy: weka.CpuPolicyDedicatedHT,
+		},
+		{
+			name:    "invalid policy is rejected",
+			spec:    weka.WekaContainerSpec{CpuPolicy: weka.CpuPolicy("bogus")},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveNumaClaimCPUPolicy(&tc.spec, tc.isHt)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error, got policy %q", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveNumaClaimCPUPolicy returned unexpected error: %v", err)
+			}
+			if got != tc.wantPolicy {
+				t.Errorf("resolveNumaClaimCPUPolicy() = %q, want %q", got, tc.wantPolicy)
+			}
+		})
 	}
 }

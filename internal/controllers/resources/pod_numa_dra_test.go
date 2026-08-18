@@ -113,3 +113,53 @@ func TestSetResources_NumaDraMethod(t *testing.T) {
 		})
 	}
 }
+
+// TestSetResources_NumaUnknownMethod verifies that setResources rejects a Numa.Method it doesn't
+// recognize instead of silently doing nothing (e.g. a typo, or a future method rolled out to the
+// CRD before the operator knows how to wire it).
+func TestSetResources_NumaUnknownMethod(t *testing.T) {
+	region1 := 1
+	nodeInfo := &discovery.DiscoveryNodeInfo{}
+	factory := makeFactory(2, weka.CpuPolicyDedicatedHT, nodeInfo)
+	factory.container.Spec.Numa = &weka.WekaNuma{
+		Single: true,
+		Region: &region1,
+		Method: weka.WekaNumaMethod("bogus-method"),
+	}
+	pod := makePod(weka.CpuPolicyDedicatedHT)
+
+	err := factory.setResources(context.Background(), pod, minimalHgDetails())
+	if err == nil {
+		t.Fatal("expected setResources to reject an unknown numa method, got nil")
+	}
+}
+
+// TestSetResources_NumaDraMethod_Idempotent verifies that calling setResources twice against the
+// same pod (setResources can run more than once while a caller re-derives the pod spec) does not
+// duplicate the resourceClaims/resources.claims entries — they must be assigned, not appended to.
+func TestSetResources_NumaDraMethod_Idempotent(t *testing.T) {
+	region3 := 3
+	nodeInfo := &discovery.DiscoveryNodeInfo{}
+	factory := makeFactory(2, weka.CpuPolicyDedicatedHT, nodeInfo)
+	factory.container.Spec.Numa = &weka.WekaNuma{
+		Single: true,
+		Region: &region3,
+		Method: weka.WekaNumaMethodDra,
+	}
+	pod := makePod(weka.CpuPolicyDedicatedHT)
+	hgDetails := minimalHgDetails()
+
+	if err := factory.setResources(context.Background(), pod, hgDetails); err != nil {
+		t.Fatalf("setResources (first call) returned unexpected error: %v", err)
+	}
+	if err := factory.setResources(context.Background(), pod, hgDetails); err != nil {
+		t.Fatalf("setResources (second call) returned unexpected error: %v", err)
+	}
+
+	if len(pod.Spec.ResourceClaims) != 1 {
+		t.Errorf("expected exactly one pod.Spec.ResourceClaims entry after two calls, got %d: %+v", len(pod.Spec.ResourceClaims), pod.Spec.ResourceClaims)
+	}
+	if len(pod.Spec.Containers[0].Resources.Claims) != 1 {
+		t.Errorf("expected exactly one container resource claim after two calls, got %d: %+v", len(pod.Spec.Containers[0].Resources.Claims), pod.Spec.Containers[0].Resources.Claims)
+	}
+}
