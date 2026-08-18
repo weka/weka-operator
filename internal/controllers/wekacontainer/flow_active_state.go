@@ -989,14 +989,8 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 			return lifecycle.NewWaitError(errors.New("container does not have a valid lease"))
 		}
 
-		ioProcessesNotUp, ioErr := r.localContainer.InternalStatus.IoProcessesNotUpCount()
-		if ioErr != nil {
-			// Shape we don't understand: don't block the upgrade on it, but make it
-			// visible - a nil count means the gate below silently passes.
-			logger.Error(ioErr, "Could not read io_processes_not_up, skipping IO-process gate")
-		}
-
-		if ioProcessesNotUp != nil && *ioProcessesNotUp > 0 {
+		ioProcessesNotUp, hasIoProcessesNotUp := r.localContainer.InternalStatus.IoProcessesNotUp()
+		if hasIoProcessesNotUp {
 			// Not up yet: drop any previously recorded "IO processes up" anchor, and keep waiting
 			// (uncapped - we don't give up and proceed anyway).
 			if _, ok := container.Status.Timestamps[string(weka.TimestampIoProcessesUp)]; ok {
@@ -1006,15 +1000,25 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 				}
 			}
 
-			msg := fmt.Sprintf("container has %d IO processes not up", *ioProcessesNotUp)
+			msg := fmt.Sprintf("container has IO processes not up: %s", ioProcessesNotUp)
 
 			// The wait is uncapped by design, so also raise an event: otherwise a permanently
 			// wedged IO process stalls the whole cluster's rolling upgrade with no signal outside
 			// the operator log.
 			_ = r.RecordEventThrottled(v1.EventTypeWarning, "IoProcessesNotUp", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
 
-			logger.Debug("Container has IO processes not up", "count", *ioProcessesNotUp)
+			// Logged at Info, not Debug: the wait below is uncapped, so the reported
+			// process ids have to be visible at the default log level.
+			logger.Info("Container has IO processes not up", "io_processes_not_up", ioProcessesNotUp)
 			return lifecycle.NewWaitError(errors.New(msg))
+		}
+
+		// Checked before the settle wait below so the settle window does not start ticking while the
+		// cluster still reports the old version.
+		if r.container.ShouldJoinCluster() {
+			if err := r.verifyClusterContainerApplied(ctx); err != nil {
+				return err
+			}
 		}
 
 		// IO processes are up. If a settle period is configured, hold off marking the image applied
@@ -1030,15 +1034,12 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 				if override != nil {
 					waitSince = override.Duration
 				}
-			case errors.Is(overrideErr, errNoOverrideOwner), apierrors.IsNotFound(overrideErr):
-				// No owner object can carry an override at all, so retrying would block the image
-				// roll forever: proceed on the operator-wide default and make it visible.
+			case errors.Is(overrideErr, errNoOverrideOwner):
+				// Nothing to retry: proceed on the operator-wide default.
 				logger.Error(overrideErr, "No owner override available, using default waitSinceIoProcessesUpTimeout")
 			default:
-				// A read we could not complete. Requeue rather than falling back to the default:
-				// that default is 0 in the shipped chart, so falling back would collapse a
-				// configured settle window to no wait at all on a transient API error - the one
-				// error path here where failing would make the gate weaker rather than slower.
+				// Requeue instead of using the default: that default is 0 in the shipped chart, so a
+				// transient read failure would collapse a configured settle window to no wait at all.
 				return overrideErr
 			}
 		}

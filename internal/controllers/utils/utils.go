@@ -220,15 +220,29 @@ func ResolveDriversDistService(ctx context.Context, c client.Client, namespace, 
 	}
 }
 
-// GetSoftwareVersion extracts the software version of weka
+// GetSoftwareVersion extracts the software version of weka, without the build suffix. Empty when the
+// reference carries no tag to read it from.
 func GetSoftwareVersion(image string) string {
-	idx := strings.LastIndex(image, ":")
-	if idx == -1 {
+	tag := GetImageTag(image)
+	if tag == "" {
 		return ""
 	}
-	tag := image[idx+1:]
 	parts := strings.Split(tag, "-")
 	return parts[0]
+}
+
+// GetImageTag returns the image tag as-is, build suffix included. Empty when the reference carries no
+// tag: a digest-pinned image has none, and the last ":" in "registry:5000/repo" is a port, not a tag
+// separator - both would otherwise yield a digest or a path fragment as the "tag".
+func GetImageTag(image string) string {
+	if strings.Contains(image, "@") {
+		return ""
+	}
+	idx := strings.LastIndex(image, ":")
+	if idx == -1 || strings.Contains(image[idx+1:], "/") {
+		return ""
+	}
+	return image[idx+1:]
 }
 
 // GetDpdkBaseMemoryMbByRole returns the DPDK base memory (in MiB) for a given role.
