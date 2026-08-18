@@ -197,10 +197,15 @@ type DataServicesConfig struct {
 }
 
 // WekaNumaMethod defines how NUMA confinement is enforced
-// +kubebuilder:validation:Enum=device-plugin
+// +kubebuilder:validation:Enum=device-plugin;dra
 type WekaNumaMethod string
 
-const WekaNumaMethodDevicePlugin WekaNumaMethod = "device-plugin"
+const (
+	WekaNumaMethodDevicePlugin WekaNumaMethod = "device-plugin"
+	// WekaNumaMethodDra requests the NUMA region through a DRA ResourceClaim
+	// (driver numa.weka.io) instead of a device-plugin extended resource.
+	WekaNumaMethodDra WekaNumaMethod = "dra"
+)
 
 // WekaNuma configures NUMA confinement for a single weka container
 type WekaNuma struct {
