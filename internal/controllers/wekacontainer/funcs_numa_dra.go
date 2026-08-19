@@ -245,7 +245,7 @@ func (r *containerReconcilerLoop) ensureNumaResourceClaimForCPUCount(ctx context
 // confinement via dra-driver-cpu: one device request named "cpus" for exactly one device from the
 // dra.cpu DeviceClass, filtered to the given NUMA region via a CEL selector on the numaNodeID
 // attribute, requesting cpuCount CPU cores of dra.cpu/cpu capacity from that device.
-func buildNumaResourceClaim(container *weka.WekaContainer, region int, cpuCount int) *resourcev1.ResourceClaim {
+func buildNumaResourceClaim(container *weka.WekaContainer, region, cpuCount int) *resourcev1.ResourceClaim {
 	claimName := resources.NumaClaimNameForContainer(container.Name)
 
 	return &resourcev1.ResourceClaim{
@@ -293,7 +293,7 @@ func numaRegionCELExpression(region int) string {
 // dra-driver-cpu shape (device class, request name, region selector, cpu-count capacity), meaning
 // it must be deleted and recreated — covers both "stale cpu count" and "old numa-region.weka.io
 // shape" drift.
-func claimNeedsRecreate(existing *resourcev1.ResourceClaim, region int, cpuCount int) bool {
+func claimNeedsRecreate(existing *resourcev1.ResourceClaim, region, cpuCount int) bool {
 	reqs := existing.Spec.Devices.Requests
 	if len(reqs) != 1 || reqs[0].Exactly == nil {
 		return true

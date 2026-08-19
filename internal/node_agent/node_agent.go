@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"os"
@@ -25,7 +26,6 @@ import (
 	obslogger "github.com/weka/go-weka-observability/logger"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"golang.org/x/exp/rand"
 	"golang.org/x/sync/singleflight"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -146,7 +146,6 @@ type LocalConfigStateResponse struct {
 }
 
 func NewNodeAgent(logger logr.Logger) *NodeAgent {
-	rand.Seed(uint64(time.Now().UnixNano()))
 	return &NodeAgent{
 		logger: logger,
 		containersData: containersData{
