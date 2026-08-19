@@ -70,7 +70,7 @@ func (clusterCapacityChunkFeasibility) Validate(ctx context.Context, c client.Cl
 	}{{"TLC", tlcRaw}, {"QLC", qlcRaw}} {
 		if pool.raw > 0 && pool.raw < numFDmin*allocator.MinChunkSizeGiB {
 			return field.ErrorList{field.Invalid(
-				field.NewPath("spec", "dynamic", "clusterCapacity"),
+				field.NewPath("spec", "dynamicTemplate", "clusterCapacity"),
 				cluster.Spec.Dynamic.ClusterCapacity,
 				fmt.Sprintf("clusterCapacity %s share spread across %d failure domains is below the minimum "+
 					"drive chunk of %d GiB. Adjust clusterCapacity or driveTypesRatio "+

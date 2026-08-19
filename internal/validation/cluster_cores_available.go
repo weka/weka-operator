@@ -58,7 +58,7 @@ func (clusterCoresAvailable) Validate(ctx context.Context, c client.Client, obj 
 		var nodes corev1.NodeList
 		if err := c.List(ctx, &nodes, client.MatchingLabels(selector)); err != nil {
 			errs = append(errs, field.InternalError(
-				field.NewPath("spec", "dynamic", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
 				fmt.Errorf("listing nodes for role %q: %w", ch.role, err),
 			))
 			continue
@@ -83,21 +83,21 @@ func (clusterCoresAvailable) Validate(ctx context.Context, c client.Client, obj 
 
 		if perContainerMilli > minNodeAllocMilli {
 			detail := fmt.Sprintf(
-				"spec.dynamic.%s (%d cores) exceeds the smallest matched node's "+
+				"spec.dynamicTemplate.%s (%d cores) exceeds the smallest matched node's "+
 					"allocatable CPU (%dm) for role %q. No matched node can host "+
 					"even one %s container; pods will stay Pending. Reduce %s or "+
 					"use larger nodes.",
 				ch.fieldName, ch.cores, minNodeAllocMilli, ch.role, ch.role, ch.fieldName,
 			)
 			errs = append(errs, field.Invalid(
-				field.NewPath("spec", "dynamic", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
 				ch.cores, detail,
 			))
 		}
 
 		if totalRequestedMilli > totalAllocMilli {
 			detail := fmt.Sprintf(
-				"spec.dynamic.%s × %s (%d × %d = %d cores) exceeds "+
+				"spec.dynamicTemplate.%s × %s (%d × %d = %d cores) exceeds "+
 					"total allocatable CPU across %d matched node(s) (%dm) for "+
 					"role %q. Some containers will fail to schedule. Reduce %s, "+
 					"%s, or label more nodes.",
@@ -106,7 +106,7 @@ func (clusterCoresAvailable) Validate(ctx context.Context, c client.Client, obj 
 				ch.role, ch.fieldName, ch.containersFieldName,
 			)
 			errs = append(errs, field.Invalid(
-				field.NewPath("spec", "dynamic", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
 				ch.cores, detail,
 			))
 		}

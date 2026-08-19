@@ -55,7 +55,7 @@ func (clusterSelectedNodesCount) Validate(ctx context.Context, c client.Client, 
 		var nodes corev1.NodeList
 		if err := c.List(ctx, &nodes, client.MatchingLabels(selector)); err != nil {
 			errs = append(errs, field.InternalError(
-				field.NewPath("spec", "dynamic", r.fieldName),
+				field.NewPath("spec", "dynamicTemplate", r.fieldName),
 				fmt.Errorf("listing nodes for role %q: %w", r.role, err),
 			))
 			continue
@@ -65,14 +65,14 @@ func (clusterSelectedNodesCount) Validate(ctx context.Context, c client.Client, 
 			continue
 		}
 		detail := fmt.Sprintf(
-			"spec.dynamic.%s (%d) exceeds the number of nodes matching the "+
+			"spec.dynamicTemplate.%s (%d) exceeds the number of nodes matching the "+
 				"%q-role selector (%d). The cluster cannot deploy %d %s containers "+
 				"on %d node(s); some containers will fail to schedule. Reduce "+
 				"%s or label more nodes.",
 			r.fieldName, r.containers, r.role, matched, r.containers, r.role, matched, r.fieldName,
 		)
 		errs = append(errs, field.Invalid(
-			field.NewPath("spec", "dynamic", r.fieldName),
+			field.NewPath("spec", "dynamicTemplate", r.fieldName),
 			r.containers,
 			detail,
 		))

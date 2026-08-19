@@ -10,7 +10,7 @@ Compute container hugepages are calculated dynamically from cluster drive capaci
 
 `GetContainerHugepages(role="compute")` → `calculateDynamicComputeHugepages` → `ComputeCapacityBasedHugepages`
 
-If `.spec.dynamic.computeHugepages` is set by the user, it is used as-is (plus DPDK overhead) and the dynamic calculation is skipped.
+If `.spec.dynamicTemplate.computeHugepages` is set by the user, it is used as-is (plus DPDK overhead) and the dynamic calculation is skipped.
 
 ## Step 1: Determine total raw drive capacity (GiB)
 
@@ -33,7 +33,7 @@ If no drive container with fully allocated drives exists yet, the function retur
 
 ## Step 2: Compute hugepages from capacity (`ComputeCapacityBasedHugepages`)
 
-Capacity is split into TLC and QLC portions via `.spec.dynamic.driveTypesRatio` (defaults to 100% TLC).
+Capacity is split into TLC and QLC portions via `.spec.dynamicTemplate.driveTypesRatio` (defaults to 100% TLC).
 
 ```
 clusterHugepagesMiB = tlcCapGiB × 1024 / tlcRatio

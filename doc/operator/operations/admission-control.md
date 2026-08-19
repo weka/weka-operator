@@ -46,8 +46,8 @@ in one pass.
 
 ```
 $ kubectl apply -f my-cluster.yaml
-Warning: spec.dynamic.driveContainers: Invalid value: 12: spec.dynamic.driveContainers (12) exceeds the number of nodes matching the "drive"-role selector (6). The cluster cannot deploy 12 drive containers on 6 node(s); some containers will fail to schedule. Reduce driveContainers or label more nodes.
-Warning: spec.dynamic.numDrives: Invalid value: 5: spec.dynamic.driveContainers × numDrives (12 × 5 = 60) exceeds the total signed and non-blocked drives across 6 matched drive node(s) (6). Some drive containers will not be able to claim a drive. Reduce numDrives, reduce driveContainers, sign more drives, or label more nodes.
+Warning: spec.dynamicTemplate.driveContainers: Invalid value: 12: spec.dynamicTemplate.driveContainers (12) exceeds the number of nodes matching the "drive"-role selector (6). The cluster cannot deploy 12 drive containers on 6 node(s); some containers will fail to schedule. Reduce driveContainers or label more nodes.
+Warning: spec.dynamicTemplate.numDrives: Invalid value: 5: spec.dynamicTemplate.driveContainers × numDrives (12 × 5 = 60) exceeds the total signed and non-blocked drives across 6 matched drive node(s) (6). Some drive containers will not be able to claim a drive. Reduce numDrives, reduce driveContainers, sign more drives, or label more nodes.
 wekacluster.weka.weka.io/cluster-dev created
 ```
 

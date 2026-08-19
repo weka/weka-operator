@@ -40,13 +40,13 @@ func (clusterDataservicesFeCores) Validate(_ context.Context, _ client.Client, o
 	}
 
 	detail := fmt.Sprintf(
-		"spec.dynamic.dataServicesFeCores (%d) must be 0 when dataServicesContainers (%d) is greater than 0. "+
+		"spec.dynamicTemplate.dataServicesFeCores (%d) must be 0 when dataServicesContainers (%d) is greater than 0. "+
 			"Data services containers must not have frontend cores assigned.",
 		feCores, d.DataServicesContainers,
 	)
 	return field.ErrorList{
 		field.Invalid(
-			field.NewPath("spec", "dynamic", "dataServicesFeCores"),
+			field.NewPath("spec", "dynamicTemplate", "dataServicesFeCores"),
 			feCores,
 			detail,
 		),

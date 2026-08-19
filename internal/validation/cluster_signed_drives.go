@@ -39,7 +39,7 @@ func (clusterSignedDrives) Validate(ctx context.Context, c client.Client, obj ru
 		return nil
 	}
 
-	fldPath := field.NewPath("spec", "dynamic").Child("numDrives")
+	fldPath := field.NewPath("spec", "dynamicTemplate").Child("numDrives")
 
 	selector := cluster.GetNodeSelectorForRole("drive")
 	var nodes corev1.NodeList
@@ -85,7 +85,7 @@ func (clusterSignedDrives) Validate(ctx context.Context, c client.Client, obj ru
 	}
 
 	detail := fmt.Sprintf(
-		"spec.dynamic.driveContainers × numDrives (%d × %d = %d) exceeds the "+
+		"spec.dynamicTemplate.driveContainers × numDrives (%d × %d = %d) exceeds the "+
 			"total signed and non-blocked drives across %d matched drive node(s) (%d). "+
 			"Some drive containers will not be able to claim a drive. Reduce numDrives, "+
 			"reduce driveContainers, sign more drives, or label more nodes.",

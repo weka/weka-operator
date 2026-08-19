@@ -11,7 +11,7 @@ import (
 )
 
 // clusterCoresDecrease rejects WekaCluster updates that reduce any cores
-// field in spec.dynamic to a smaller EXPLICIT (positive) value. Unsetting a
+// field in spec.dynamicTemplate to a smaller EXPLICIT (positive) value. Unsetting a
 // field — new == 0 for plain ints, or nil for nullable *int — means "revert
 // to operator-derived sizing" and is ALLOWED (e.g. when migrating from
 // containerCapacity to clusterCapacity, where the planner derives cores).
@@ -62,7 +62,7 @@ func (clusterCoresDecrease) ValidateUpdate(_ context.Context, _ client.Client, o
 		// sizing) — allowed. Only block an explicit positive decrease.
 		if ch.new != 0 && ch.new < ch.old {
 			errs = append(errs, field.Forbidden(
-				field.NewPath("spec", "dynamic", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
 				fmt.Sprintf("decreasing %s from %d to %d is not allowed; "+
 					"reducing cores can destabilize a running cluster",
 					ch.fieldName, ch.old, ch.new),
@@ -75,7 +75,7 @@ func (clusterCoresDecrease) ValidateUpdate(_ context.Context, _ client.Client, o
 	if o.DataServicesFeCores != nil && n.DataServicesFeCores != nil &&
 		*n.DataServicesFeCores < *o.DataServicesFeCores {
 		errs = append(errs, field.Forbidden(
-			field.NewPath("spec", "dynamic", "dataServicesFeCores"),
+			field.NewPath("spec", "dynamicTemplate", "dataServicesFeCores"),
 			fmt.Sprintf("decreasing dataServicesFeCores from %d to %d is not allowed; "+
 				"reducing cores can destabilize a running cluster",
 				*o.DataServicesFeCores, *n.DataServicesFeCores),

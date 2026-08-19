@@ -453,7 +453,7 @@ protection:
   hotSpare: 0
 
 # Hugepages update propagation to existing compute/drive containers.
-# User-set hugepages values (spec.dynamic.computeHugepages / driveHugepages) are always
+# User-set hugepages values (spec.dynamicTemplate.computeHugepages / driveHugepages) are always
 # propagated to existing containers regardless of these flags.
 # These flags control auto-calculation from cluster capacity for containers where no
 # explicit value is set in the spec. S3/NFS/DataServices hugepages are always
@@ -718,7 +718,7 @@ admissionPolicies:
   #   # WekaCluster.
   #   client_target_cluster_exists:         default  # strict: error  | relaxed: warn
   #
-  #   # Decreasing any cores field on a WekaCluster (spec.dynamic.*Cores)
+  #   # Decreasing any cores field on a WekaCluster (spec.dynamicTemplate.*Cores)
   #   # is denied — reducing cores on a running cluster can destabilize
   #   # active workloads. Applies on Update only; also blocks unsetting an
   #   # explicit value back to 0 (operator-derived).

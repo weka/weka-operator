@@ -80,7 +80,7 @@ func (clusterNetworkEthdevice) Validate(ctx context.Context, c client.Client, ob
 		var nodes corev1.NodeList
 		if err := c.List(ctx, &nodes, client.MatchingLabels(selector)); err != nil {
 			errs = append(errs, field.InternalError(
-				field.NewPath("spec", "dynamic", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
 				fmt.Errorf("listing nodes for role %q: %w", ch.role, err),
 			))
 			continue
@@ -121,7 +121,7 @@ func (clusterNetworkEthdevice) Validate(ctx context.Context, c client.Client, ob
 
 		if perContainer > minNodeAllocNics {
 			detail := fmt.Sprintf(
-				"spec.dynamic.%s (%d cores → %d NICs per container in DPDK mode) "+
+				"spec.dynamicTemplate.%s (%d cores → %d NICs per container in DPDK mode) "+
 					"exceeds the smallest matched node's allocatable weka.io/weka-nics (%d) "+
 					"for role %q. No matched node can host even one %s container; pods "+
 					"will stay Pending. Reduce %s, switch to udpMode, or add NICs.",
@@ -129,14 +129,14 @@ func (clusterNetworkEthdevice) Validate(ctx context.Context, c client.Client, ob
 				ch.role, ch.role, ch.fieldName,
 			)
 			errs = append(errs, field.Invalid(
-				field.NewPath("spec", "dynamic", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
 				ch.cores, detail,
 			))
 		}
 
 		if totalRequested > totalAllocNics {
 			detail := fmt.Sprintf(
-				"spec.dynamic.%s × %s (%d × %d = %d NICs total) exceeds "+
+				"spec.dynamicTemplate.%s × %s (%d × %d = %d NICs total) exceeds "+
 					"total allocatable weka.io/weka-nics across %d matched node(s) (%d) for "+
 					"role %q. Some containers will fail to schedule. Reduce %s, "+
 					"%s, switch to udpMode, or add NICs.",
@@ -145,7 +145,7 @@ func (clusterNetworkEthdevice) Validate(ctx context.Context, c client.Client, ob
 				ch.role, ch.fieldName, ch.containersFieldName,
 			)
 			errs = append(errs, field.Invalid(
-				field.NewPath("spec", "dynamic", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
 				ch.cores, detail,
 			))
 		}

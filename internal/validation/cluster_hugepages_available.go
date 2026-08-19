@@ -62,7 +62,7 @@ func (clusterHugepagesAvailable) Validate(ctx context.Context, c client.Client, 
 		var nodes corev1.NodeList
 		if err := c.List(ctx, &nodes, client.MatchingLabels(selector)); err != nil {
 			errs = append(errs, field.InternalError(
-				field.NewPath("spec", "dynamic", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
 				fmt.Errorf("listing nodes for role %q: %w", ch.role, err),
 			))
 			continue
@@ -87,7 +87,7 @@ func (clusterHugepagesAvailable) Validate(ctx context.Context, c client.Client, 
 
 		if perContainerBytes > minNodeAllocBytes {
 			detail := fmt.Sprintf(
-				"spec.dynamic.%s (%d MiB) exceeds the smallest matched node's "+
+				"spec.dynamicTemplate.%s (%d MiB) exceeds the smallest matched node's "+
 					"allocatable hugepages-2Mi (%d MiB) for role %q. No matched "+
 					"node can host even one %s container; pods will stay Pending. "+
 					"Reduce %s or configure more hugepages on the nodes.",
@@ -95,14 +95,14 @@ func (clusterHugepagesAvailable) Validate(ctx context.Context, c client.Client, 
 				ch.role, ch.fieldName,
 			)
 			errs = append(errs, field.Invalid(
-				field.NewPath("spec", "dynamic", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
 				ch.hugepages, detail,
 			))
 		}
 
 		if totalRequestedBytes > totalAllocBytes {
 			detail := fmt.Sprintf(
-				"spec.dynamic.%s × %s (%d × %d = %d MiB) exceeds "+
+				"spec.dynamicTemplate.%s × %s (%d × %d = %d MiB) exceeds "+
 					"total allocatable hugepages-2Mi across %d matched node(s) "+
 					"(%d MiB) for role %q. Some containers will fail to schedule. "+
 					"Reduce %s, %s, or add more hugepages.",
@@ -111,7 +111,7 @@ func (clusterHugepagesAvailable) Validate(ctx context.Context, c client.Client, 
 				totalAllocBytes/mib, ch.role, ch.fieldName, ch.containersFieldName,
 			)
 			errs = append(errs, field.Invalid(
-				field.NewPath("spec", "dynamic", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
 				ch.hugepages, detail,
 			))
 		}
