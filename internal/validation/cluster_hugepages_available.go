@@ -33,26 +33,10 @@ func (clusterHugepagesAvailable) Validate(ctx context.Context, c client.Client, 
 	if cluster.Spec.Dynamic == nil {
 		return nil
 	}
-	d := cluster.Spec.Dynamic
-	checks := []struct {
-		role                string
-		fieldName           string
-		containersFieldName string
-		hugepages           int // MiB per container
-		containers          int
-	}{
-		{"drive", "driveHugepages", "driveContainers", d.DriveHugepages, d.DriveContainers},
-		{"compute", "computeHugepages", "computeContainers", d.ComputeHugepages, d.ComputeContainers},
-		{"s3", "s3FrontendHugepages", "s3Containers", d.S3FrontendHugepages, d.S3Containers},
-		{"nfs", "nfsFrontendHugepages", "nfsContainers", d.NfsFrontendHugepages, d.NfsContainers},
-		{"smbw", "smbwFrontendHugepages", "smbwContainers", d.SmbwFrontendHugepages, d.SmbwContainers},
-		{"data-services", "dataServicesHugepages", "dataServicesContainers", d.DataServicesHugepages, d.DataServicesContainers},
-	}
-
 	hpResource := corev1.ResourceName(string(corev1.ResourceHugePagesPrefix) + "2Mi")
 
 	var errs field.ErrorList
-	for _, ch := range checks {
+	for _, ch := range rolesForTemplate(cluster.Spec.Dynamic) {
 		if ch.hugepages <= 0 || ch.containers <= 0 {
 			continue
 		}
@@ -60,7 +44,7 @@ func (clusterHugepagesAvailable) Validate(ctx context.Context, c client.Client, 
 		var nodes corev1.NodeList
 		if err := c.List(ctx, &nodes, client.MatchingLabels(selector)); err != nil {
 			errs = append(errs, field.InternalError(
-				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.hugepagesField),
 				fmt.Errorf("listing nodes for role %q: %w", ch.role, err),
 			))
 			continue
@@ -89,11 +73,11 @@ func (clusterHugepagesAvailable) Validate(ctx context.Context, c client.Client, 
 					"allocatable hugepages-2Mi (%d MiB) for role %q. No matched "+
 					"node can host even one %s container; pods will stay Pending. "+
 					"Reduce %s or configure more hugepages on the nodes.",
-				ch.fieldName, ch.hugepages, minNodeAllocBytes/mib, ch.role,
-				ch.role, ch.fieldName,
+				ch.hugepagesField, ch.hugepages, minNodeAllocBytes/mib, ch.role,
+				ch.role, ch.hugepagesField,
 			)
 			errs = append(errs, field.Invalid(
-				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.hugepagesField),
 				ch.hugepages, detail,
 			))
 		}
@@ -104,12 +88,12 @@ func (clusterHugepagesAvailable) Validate(ctx context.Context, c client.Client, 
 					"total allocatable hugepages-2Mi across %d matched node(s) "+
 					"(%d MiB) for role %q. Some containers will fail to schedule. "+
 					"Reduce %s, %s, or add more hugepages.",
-				ch.fieldName, ch.containersFieldName, ch.hugepages, ch.containers,
+				ch.hugepagesField, ch.containersField, ch.hugepages, ch.containers,
 				ch.hugepages*ch.containers, len(nodes.Items),
-				totalAllocBytes/mib, ch.role, ch.fieldName, ch.containersFieldName,
+				totalAllocBytes/mib, ch.role, ch.hugepagesField, ch.containersField,
 			)
 			errs = append(errs, field.Invalid(
-				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.hugepagesField),
 				ch.hugepages, detail,
 			))
 		}

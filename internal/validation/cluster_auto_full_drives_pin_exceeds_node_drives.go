@@ -13,21 +13,15 @@ import (
 	"github.com/weka/weka-operator/internal/consts"
 )
 
-// clusterAutoFullDrivesPinExceedsNodeDrives checks the two per-node pins of auto-full-drives
-// ("acts as a daemonset") mode against what each drive-role node actually has signed. Both legs
-// describe a plan that never converges: the planner reports the whole cluster infeasible and creates
-// nothing, so this is an Error under strict mode.
+// clusterAutoFullDrivesPinExceedsNodeDrives rejects an auto-full-drives numDrives or driveCores pin
+// above a drive-role node's signed full drive count: numDrives selects that many of the node's largest
+// drives, and weka runs at most one drive core per physical drive, so neither can be honored where
+// fewer are signed. The planner then reports the whole cluster infeasible and creates nothing. Both
+// legs name the fewest-drives node.
 //
-//   - driveCores ABOVE a node's EFFECTIVE drive count: weka runs at most one drive core per physical
-//     drive, so the pin cannot be satisfied there. Names the FEWEST-drives node. Skipped when
-//     numDrives is pinned — CEL (numDrives >= driveCores) already covers that exact comparison, and
-//     reporting it twice would only duplicate the rejection.
-//   - numDrives ABOVE a node's signed drive count: the pin selects that many largest drives per node
-//     and cannot be honored where fewer exist. Names the FEWEST-drives node.
-//
-// A driveCores pin BELOW the drive count is deliberately NOT reported: drives are decoupled from
-// cores, so the node keeps every drive and simply runs them on fewer cores. That is a supported,
-// lossless configuration.
+// The driveCores leg is skipped under a numDrives pin — CEL (numDrives >= driveCores) already covers
+// that comparison. A driveCores pin BELOW the drive count is deliberately not reported: drives are
+// decoupled from cores, so the node keeps every drive and runs them on fewer cores.
 type clusterAutoFullDrivesPinExceedsNodeDrives struct{}
 
 func (clusterAutoFullDrivesPinExceedsNodeDrives) ID() string {
@@ -123,11 +117,11 @@ func (clusterAutoFullDrivesPinExceedsNodeDrives) Validate(ctx context.Context, c
 		detail := fmt.Sprintf(
 			"spec.dynamicTemplate.numDrives (%d) exceeds node %q's %d signed full drive(s) — the worst "+
 				"(fewest-drives) of %d affected node(s). numDrives pins how many of each node's largest "+
-				"drives the cluster takes, so it cannot be honored where fewer are signed, and the whole "+
-				"plan is reported infeasible (AutoFullDrivesInfeasible) — no drive or compute container is "+
-				"created anywhere. Lower numDrives to at most %d, drop the pin so each node contributes "+
-				"every drive it has signed, sign more drives on that node, or remove it from "+
-				"spec.roleNodeSelector.drive.",
+				"drives the cluster takes, so it cannot be honored where fewer are signed: the whole plan "+
+				"is reported infeasible (AutoFullDrivesInfeasible) and no container is created anywhere. "+
+				"Lower numDrives to at most %d, drop the pin so each node contributes every drive it has "+
+				"signed, sign more drives on that node, or remove it from the drive-role node selector "+
+				"(spec.roleNodeSelector.drive, or spec.nodeSelector when that is unset).",
 			numDrives, drivesWorstNode, drivesWorstCount, drivesAffected, drivesWorstCount,
 		)
 		out = append(out, field.Invalid(fldPath.Child("numDrives"), numDrives, detail))
@@ -136,11 +130,10 @@ func (clusterAutoFullDrivesPinExceedsNodeDrives) Validate(ctx context.Context, c
 		detail := fmt.Sprintf(
 			"spec.dynamicTemplate.driveCores (%d) exceeds node %q's %d signed full drive(s) — the worst "+
 				"(fewest-drives) of %d affected node(s). Full-drives mode runs at most one drive core per "+
-				"physical drive, so this pin cannot be satisfied there and the whole plan is reported "+
-				"infeasible (AutoFullDrivesInfeasible) — no drive or compute container is created "+
-				"anywhere. Lower driveCores to at most %d, drop the pin so cores are derived per node, or "+
-				"switch to drive-sharing mode (containerCapacity or clusterCapacity) to run more cores "+
-				"than physical drives.",
+				"physical drive, so the pin cannot be satisfied there: the whole plan is reported "+
+				"infeasible (AutoFullDrivesInfeasible) and no container is created anywhere. Lower "+
+				"driveCores to at most %d, drop the pin so cores are derived per node, or switch to "+
+				"drive-sharing (containerCapacity or clusterCapacity) to run more cores than drives.",
 			driveCores, coresWorstNode, coresWorstCount, coresAffected, coresWorstCount,
 		)
 		out = append(out, field.Invalid(fldPath.Child("driveCores"), driveCores, detail))

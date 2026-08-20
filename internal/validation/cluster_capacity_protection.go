@@ -31,15 +31,15 @@ func (clusterCapacityProtection) Validate(_ context.Context, _ client.Client, ob
 	// Report the raw spec value as the bad value (what the API client set), but check and message the effective one.
 	if sw < minSW {
 		errs = append(errs, field.Invalid(field.NewPath("spec", "stripeWidth"), specSW,
-			fmt.Sprintf("clusterCapacity requires stripeWidth >= %d (effective value %d; raise spec.stripeWidth to >= %d, or leave spec.stripeWidth=0 to fall back to the PROTECTION_STRIPE_WIDTH default — which must itself be >= %d)", minSW, sw, minSW, minSW)))
+			fmt.Sprintf("clusterCapacity requires stripeWidth >= %d (effective value %d; raise spec.stripeWidth to >= %d, or leave spec.stripeWidth=0 to fall back to the protection.stripeWidth default — which must itself be >= %d)", minSW, sw, minSW, minSW)))
 	}
 	if rl < minRL {
 		errs = append(errs, field.Invalid(field.NewPath("spec", "redundancyLevel"), specRL,
-			fmt.Sprintf("clusterCapacity requires redundancyLevel >= %d (effective value %d; raise spec.redundancyLevel to >= %d, or leave spec.redundancyLevel=0 to fall back to the PROTECTION_REDUNDANCY_LEVEL default — which must itself be >= %d)", minRL, rl, minRL, minRL)))
+			fmt.Sprintf("clusterCapacity requires redundancyLevel >= %d (effective value %d; raise spec.redundancyLevel to >= %d, or leave spec.redundancyLevel=0 to fall back to the protection.redundancyLevel default — which must itself be >= %d)", minRL, rl, minRL, minRL)))
 	}
 	if hs < minHS {
 		errs = append(errs, field.Invalid(field.NewPath("spec", "hotSpare"), specHS,
-			fmt.Sprintf("clusterCapacity requires hotSpare >= %d (effective value %d; raise spec.hotSpare to >= %d, or leave spec.hotSpare=0 to fall back to the PROTECTION_HOT_SPARE default — which must itself be >= %d)", minHS, hs, minHS, minHS)))
+			fmt.Sprintf("clusterCapacity requires hotSpare >= %d (effective value %d; raise spec.hotSpare to >= %d, or leave spec.hotSpare=0 to fall back to the protection.hotSpare default — which must itself be >= %d)", minHS, hs, minHS, minHS)))
 	}
 	return errs
 }

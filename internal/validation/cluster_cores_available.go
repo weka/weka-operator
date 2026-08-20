@@ -29,24 +29,8 @@ func (clusterCoresAvailable) Validate(ctx context.Context, c client.Client, obj 
 	if cluster.Spec.Dynamic == nil {
 		return nil
 	}
-	d := cluster.Spec.Dynamic
-	checks := []struct {
-		role                string
-		fieldName           string
-		containersFieldName string
-		cores               int
-		containers          int
-	}{
-		{"drive", "driveCores", "driveContainers", d.DriveCores, d.DriveContainers},
-		{"compute", "computeCores", "computeContainers", d.ComputeCores, d.ComputeContainers},
-		{"s3", "s3Cores", "s3Containers", d.S3Cores, d.S3Containers},
-		{"nfs", "nfsCores", "nfsContainers", d.NfsCores, d.NfsContainers},
-		{"smbw", "smbwCores", "smbwContainers", d.SmbwCores, d.SmbwContainers},
-		{"data-services", "dataServicesCores", "dataServicesContainers", d.DataServicesCores, d.DataServicesContainers},
-	}
-
 	var errs field.ErrorList
-	for _, ch := range checks {
+	for _, ch := range rolesForTemplate(cluster.Spec.Dynamic) {
 		if ch.cores <= 0 || ch.containers <= 0 {
 			continue
 		}
@@ -54,7 +38,7 @@ func (clusterCoresAvailable) Validate(ctx context.Context, c client.Client, obj 
 		var nodes corev1.NodeList
 		if err := c.List(ctx, &nodes, client.MatchingLabels(selector)); err != nil {
 			errs = append(errs, field.InternalError(
-				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.coresField),
 				fmt.Errorf("listing nodes for role %q: %w", ch.role, err),
 			))
 			continue
@@ -83,10 +67,10 @@ func (clusterCoresAvailable) Validate(ctx context.Context, c client.Client, obj 
 					"allocatable CPU (%dm) for role %q. No matched node can host "+
 					"even one %s container; pods will stay Pending. Reduce %s or "+
 					"use larger nodes.",
-				ch.fieldName, ch.cores, minNodeAllocMilli, ch.role, ch.role, ch.fieldName,
+				ch.coresField, ch.cores, minNodeAllocMilli, ch.role, ch.role, ch.coresField,
 			)
 			errs = append(errs, field.Invalid(
-				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.coresField),
 				ch.cores, detail,
 			))
 		}
@@ -97,12 +81,12 @@ func (clusterCoresAvailable) Validate(ctx context.Context, c client.Client, obj 
 					"total allocatable CPU across %d matched node(s) (%dm) for "+
 					"role %q. Some containers will fail to schedule. Reduce %s, "+
 					"%s, or label more nodes.",
-				ch.fieldName, ch.containersFieldName, ch.cores, ch.containers,
+				ch.coresField, ch.containersField, ch.cores, ch.containers,
 				ch.cores*ch.containers, len(nodes.Items), totalAllocMilli,
-				ch.role, ch.fieldName, ch.containersFieldName,
+				ch.role, ch.coresField, ch.containersField,
 			)
 			errs = append(errs, field.Invalid(
-				field.NewPath("spec", "dynamicTemplate", ch.fieldName),
+				field.NewPath("spec", "dynamicTemplate", ch.coresField),
 				ch.cores, detail,
 			))
 		}

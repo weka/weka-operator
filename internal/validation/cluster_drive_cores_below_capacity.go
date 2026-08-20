@@ -13,15 +13,12 @@ import (
 )
 
 // clusterDriveCoresBelowCapacity warns when an explicit driveCores is below what the configured drive
-// capacity (containerCapacity, or numDrives+driveCapacity) requires — getDriveCores no longer clamps it
-// up, so this surfaces the shortfall at admission instead of failing later via
-// DriveCapacityResourceShortfall on add-drive. Warn-only.
+// capacity (containerCapacity, or numDrives+driveCapacity) requires. getDriveCores does not clamp it up,
+// so the shortfall would otherwise surface later as DriveCapacityResourceShortfall on add-drive.
 //
-// Silent in auto-full-drives mode by construction: DerivedDriveCores has no capacity basis there (no
-// containerCapacity, and numDrives without driveCapacity is a drive COUNT, not capacity), so it
-// returns ok=false and this returns nil. That is deliberate — {numDrives: 4, driveCores: 3} is a
-// blessed configuration in that mode (all four drives claimed, run on three cores), not a shortfall.
-// See clusterAutoFullDrivesPinExceedsNodeDrives for the pins that ARE checked there.
+// Silent in auto-full-drives mode: DerivedDriveCores has no capacity basis there — numDrives without
+// driveCapacity is a drive COUNT — so {numDrives: 4, driveCores: 3} is a blessed configuration (all four
+// drives claimed, run on three cores), not a shortfall.
 type clusterDriveCoresBelowCapacity struct{}
 
 func (clusterDriveCoresBelowCapacity) ID() string {

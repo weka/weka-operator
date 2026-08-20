@@ -11,7 +11,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	globalconfig "github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/allocator"
 )
 
 // clusterDriveComputeCoreRatio warns when the drive:compute core ratio exceeds the recommended maximum
@@ -32,26 +31,12 @@ func (clusterDriveComputeCoreRatio) Validate(_ context.Context, _ client.Client,
 	if !ok {
 		return nil
 	}
-	if cluster.Spec.Dynamic == nil {
-		return nil
-	}
 
 	config := cluster.Spec.Dynamic
-	// Same exclusion as clusterComputeDriveCoresFloor: under clusterCapacity the planner assigns both
-	// sides, so GetWekaContainerCores' template defaults describe a cluster that never exists.
-	if allocator.IsPlannerManaged(config) {
+	driveSide, computeSide, ok := templateCoreSides(config)
+	if !ok {
 		return nil
 	}
-
-	driveContainers := config.DriveContainers
-	computeContainers := config.ComputeContainers
-	if driveContainers <= 0 || computeContainers <= 0 {
-		return nil
-	}
-
-	cores := allocator.GetWekaContainerCores(config)
-	driveSide := driveContainers * cores.Drive
-	computeSide := computeContainers * cores.Compute
 
 	// clusterComputeDriveCoresFloor already owns and reports this case exclusively.
 	if computeSide < driveSide {

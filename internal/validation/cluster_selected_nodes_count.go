@@ -22,12 +22,6 @@ func (clusterSelectedNodesCount) ID() string {
 	return "cluster_selected_nodes_count"
 }
 
-type roleSpec struct {
-	role       string
-	fieldName  string
-	containers int
-}
-
 func (clusterSelectedNodesCount) Validate(ctx context.Context, c client.Client, obj runtime.Object) field.ErrorList {
 	cluster, ok := obj.(*wekav1alpha1.WekaCluster)
 	if !ok {
@@ -36,18 +30,8 @@ func (clusterSelectedNodesCount) Validate(ctx context.Context, c client.Client, 
 	if cluster.Spec.Dynamic == nil {
 		return nil
 	}
-	d := cluster.Spec.Dynamic
-	roles := []roleSpec{
-		{"drive", "driveContainers", d.DriveContainers},
-		{"compute", "computeContainers", d.ComputeContainers},
-		{"s3", "s3Containers", d.S3Containers},
-		{"nfs", "nfsContainers", d.NfsContainers},
-		{"smbw", "smbwContainers", d.SmbwContainers},
-		{"data-services", "dataServicesContainers", d.DataServicesContainers},
-	}
-
 	var errs field.ErrorList
-	for _, r := range roles {
+	for _, r := range rolesForTemplate(cluster.Spec.Dynamic) {
 		if r.containers <= 0 {
 			continue
 		}
@@ -55,7 +39,7 @@ func (clusterSelectedNodesCount) Validate(ctx context.Context, c client.Client, 
 		var nodes corev1.NodeList
 		if err := c.List(ctx, &nodes, client.MatchingLabels(selector)); err != nil {
 			errs = append(errs, field.InternalError(
-				field.NewPath("spec", "dynamicTemplate", r.fieldName),
+				field.NewPath("spec", "dynamicTemplate", r.containersField),
 				fmt.Errorf("listing nodes for role %q: %w", r.role, err),
 			))
 			continue
@@ -69,10 +53,10 @@ func (clusterSelectedNodesCount) Validate(ctx context.Context, c client.Client, 
 				"%q-role selector (%d). The cluster cannot deploy %d %s containers "+
 				"on %d node(s); some containers will fail to schedule. Reduce "+
 				"%s or label more nodes.",
-			r.fieldName, r.containers, r.role, matched, r.containers, r.role, matched, r.fieldName,
+			r.containersField, r.containers, r.role, matched, r.containers, r.role, matched, r.containersField,
 		)
 		errs = append(errs, field.Invalid(
-			field.NewPath("spec", "dynamicTemplate", r.fieldName),
+			field.NewPath("spec", "dynamicTemplate", r.containersField),
 			r.containers,
 			detail,
 		))

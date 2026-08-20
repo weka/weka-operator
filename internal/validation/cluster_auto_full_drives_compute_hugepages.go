@@ -17,41 +17,30 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-// clusterAutoFullDrivesComputeHugepages rejects an auto-full-drives ("acts as a daemonset") cluster
-// whose compute containers can never be placed, because the hugepages each one needs exceeds what any
-// compute-eligible node has.
+// clusterAutoFullDrivesComputeHugepages rejects an auto-full-drives cluster whose compute containers
+// can never be placed, because the hugepages each one needs exceeds what any compute-eligible node has.
 //
-// Why this mode specifically — and why the check is decidable at admission: nothing here is
-// negotiable. Every signed drive is claimed, so the cluster's total TLC capacity is fixed by the
-// hardware; each node's drive cores are min(effectiveDriveCount, maxCoresPerContainer) or the
-// driveCores pin, and are NEVER traded away to make compute fit (that co-sizing search was deleted —
-// it silently ran 48 drives on 8 cores). So the capacity-based share of a compute container's
-// hugepages, totalTlcMiB / computeHugepagesTlcRatio / containerCount, and the core requirement that
-// sits on top of it are both determined the moment the drives are signed. If no container count fits,
-// the plan is infeasible up front and nothing is ever created. Catching it here turns a cluster that
-// would never form into a kubectl-apply error.
+// Decidable at admission because nothing here is negotiable: every signed drive is claimed, so total
+// TLC capacity is fixed by the hardware, and each node's drive cores are min(effectiveDriveCount,
+// maxCoresPerContainer) or the driveCores pin — never traded away to make compute fit. So a compute
+// container's hugepages share (totalTlcMiB / computeHugepagesTlcRatio / containerCount) and the core
+// requirement on top of it are both fixed the moment the drives are signed. If no container count fits,
+// nothing is ever created.
 //
 // The only free variable is the container count, swept from the form-cluster floor up to the
-// compute-eligible node count (the planner places at most one compute container per node), taking the
-// fewest cores that still cover the requirement. A single fitting count anywhere in that sweep admits
-// the cluster. This mirrors the worked example in doc/operator/deployment/act-as-daemonset.md; the two
-// must agree number for number.
+// compute-eligible node count (compute spreads one per node), taking the fewest cores that still cover
+// the requirement; one fitting count anywhere admits the cluster. Mirrors the worked example in
+// doc/operator/deployment/act-as-daemonset.md — the two must agree number for number.
 //
-// Hyperconverged nodes are charged for their own drive container: a compute-eligible node that is also
-// a signed drive-role node has cores × (HugepagesPerCoreMiB + DriveDpdkPerCoreMiB) subtracted from its
-// allocatable hugepages before it is offered to compute. Skipping that would over-state headroom on
-// exactly the fleet shape this mode is built for.
+// Hyperconverged nodes are charged for their own drive container: on a node that is also a signed
+// drive-role node, cores × (HugepagesPerCoreMiB + DriveDpdkPerCoreMiB) comes off allocatable before the
+// remainder is offered to compute. Skipping that would over-state headroom on exactly the fleet shape
+// this mode is built for.
 //
-// Skipped when: some other sizing mode is in play; no drive-role node carries the full-drives
-// annotation yet (nothing to project from — clusterDrivesUnsignedAdvisory owns that); the compute
-// selector matches no node (clusterSelectedNodesCount owns that); or the form-cluster floor already
-// exceeds the compute-eligible node count, which is a distinct infeasibility this message would
-// misattribute to hugepages (clusterAutoFullDrivesMinNodes owns that one).
-//
-// Node headroom is otherwise read as ALLOCATABLE hugepages-2Mi, the same source
-// clusterHugepagesAvailable uses, so foreign pods are not subtracted. That over-states what is free on
-// a busy node, which is the safe direction for an Error policy: this only fires when the requirement
-// does not fit even an idle fleet.
+// Headroom is read as ALLOCATABLE hugepages-2Mi, like clusterHugepagesAvailable, so foreign pods are
+// not subtracted — over-stating what is free is the safe direction for an Error policy. Also skipped
+// when the form-cluster floor already exceeds the compute-eligible node count: a distinct
+// infeasibility this message would misattribute to hugepages.
 type clusterAutoFullDrivesComputeHugepages struct{}
 
 func (clusterAutoFullDrivesComputeHugepages) ID() string {
@@ -144,8 +133,9 @@ func (clusterAutoFullDrivesComputeHugepages) Validate(ctx context.Context, c cli
 				"%d compute-eligible node(s) top out at %d compute core(s) — short of the requirement no "+
 				"matter how much memory they have. The planner reports the plan infeasible "+
 				"(AutoFullDrivesInfeasible) and creates nothing. Remedies: label more nodes for "+
-				"spec.roleNodeSelector.compute; raise the maxCoresPerContainer Helm value (currently %d); "+
-				"%sor pin spec.dynamicTemplate.numDrives lower so each node contributes less capacity.",
+				"spec.roleNodeSelector.compute, or spec.nodeSelector when that is unset; raise the "+
+				"maxCoresPerContainer Helm value (currently %d); %sor pin spec.dynamicTemplate.numDrives "+
+				"lower so each node contributes less capacity.",
 			autoFullDrivesClaimPreamble(claimedTlcGiB, annotatedNodes, driveCores, requiredComputeCores),
 			cons.MaxCoresPerContainer, bestCount, bestCount*cons.MaxCoresPerContainer,
 			cons.MaxCoresPerContainer, driveCoresRemedyText(config, claim),
@@ -196,10 +186,11 @@ func (clusterAutoFullDrivesComputeHugepages) Validate(ctx context.Context, c cli
 			"Drive cores are never reduced to make compute fit, so no container-count/core combination "+
 			"fits: the plan is reported infeasible (AutoFullDrivesInfeasible) and no container is ever "+
 			"created.%s Remedies: add compute-eligible nodes (label more nodes for "+
-			"spec.roleNodeSelector.compute); %sraise the hugepagesTlcRatio Helm value (currently "+
-			"%d) so each GiB of capacity costs less hugepages; lower "+
-			"the computeMaxHugepagesMiB Helm value (currently %d) to cap the per-container request; or "+
-			"pin spec.dynamicTemplate.numDrives lower so each node contributes less capacity.",
+			"spec.roleNodeSelector.compute, or spec.nodeSelector when that is unset); %sraise the "+
+			"hugepagesTlcRatio Helm value (currently %d) so each GiB of capacity costs less hugepages; "+
+			"lower the computeMaxHugepagesMiB Helm value (currently %d) to cap the per-container "+
+			"request; or pin spec.dynamicTemplate.numDrives lower so each node contributes less "+
+			"capacity.",
 		autoFullDrivesClaimPreamble(claimedTlcGiB, annotatedNodes, driveCores, requiredComputeCores),
 		bestCount, requiredMiB, largestFreeMiB, sufficientText, capNote, driveCoresRemedy,
 		cons.ComputeHugepagesTlcRatio, cons.ComputeMaxHugepagesMiB,
@@ -243,9 +234,10 @@ func validateAutoFullDrivesPinnedComputeCores(
 			"%s With spec.dynamicTemplate.computeCores pinned at %d, that takes %d "+
 				"compute container(s) (one per node), but only %d node(s) are compute-eligible. The planner "+
 				"reports the plan infeasible (AutoFullDrivesInfeasible) and creates nothing. Remedies: add "+
-				"compute-eligible nodes (label more nodes for spec.roleNodeSelector.compute); raise "+
-				"computeCores so fewer containers are needed; unpin computeCores to let it auto-derive; "+
-				"%sor pin spec.dynamicTemplate.numDrives lower so each node contributes less capacity.",
+				"compute-eligible nodes (label more nodes for spec.roleNodeSelector.compute, or "+
+				"spec.nodeSelector when that is unset); raise computeCores so fewer containers are "+
+				"needed; unpin computeCores to let it auto-derive; %sor pin "+
+				"spec.dynamicTemplate.numDrives lower so each node contributes less capacity.",
 			autoFullDrivesClaimPreamble(claimedTlcGiB, annotatedNodes, driveCores, requiredComputeCores),
 			cores, count, len(freeMiB),
 			driveCoresRemedyText(config, claim),
@@ -265,8 +257,9 @@ func validateAutoFullDrivesPinnedComputeCores(
 			"container(s), each needing %d MiB of hugepages, but the %d-th most generous compute-eligible "+
 			"node has only %d MiB free after drive placement (the largest has %d MiB allocatable). The "+
 			"planner reports the plan infeasible (AutoFullDrivesInfeasible) and creates nothing. Remedies: "+
-			"add compute-eligible nodes (label more nodes for spec.roleNodeSelector.compute); unpin "+
-			"spec.dynamicTemplate.computeCores to let it auto-derive; raise the hugepagesTlcRatio Helm "+
+			"add compute-eligible nodes (label more nodes for spec.roleNodeSelector.compute, or "+
+			"spec.nodeSelector when that is unset); unpin spec.dynamicTemplate.computeCores to let it "+
+			"auto-derive; raise the hugepagesTlcRatio Helm "+
 			"value (currently %d) so each GiB of capacity costs less hugepages; lower the "+
 			"computeMaxHugepagesMiB Helm value (currently %d) to cap the per-container request; %sor pin "+
 			"spec.dynamicTemplate.numDrives lower so each node contributes less capacity.",

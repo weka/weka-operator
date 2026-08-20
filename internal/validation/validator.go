@@ -1,6 +1,3 @@
-// Package validation holds admission-validation rules for Weka CRDs.
-// Validators are context-free — the caller decides what to do with the
-// returned violations.
 package validation
 
 import (

@@ -86,7 +86,8 @@ func TestClusterNumDrivesBelowRequiredCores(t *testing.T) {
 				"numDrives caps driveCores at 4",
 				"Raising numDrives does not help",
 				"Lower driveCapacity to at most 5120 GiB",
-				"CLUSTER_CAPACITY_TLC_CAPACITY_PER_CORE_GIB Helm value (currently 5120)",
+				"clusterCapacity.tlcCapacityPerCoreGiB",
+				"switch to spec.dynamicTemplate.containerCapacity",
 			},
 		},
 	}

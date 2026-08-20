@@ -49,7 +49,7 @@ func TestAutoFullDrivesPin_DriveCoresAboveDriveCount(t *testing.T) {
 		t.Errorf("expected field %q, got %q", want, got)
 	}
 	detail := errs[0].Detail
-	for _, want := range []string{"big-node", "at most 3", "AutoFullDrivesInfeasible"} {
+	for _, want := range []string{"big-node", "at most 3", "AutoFullDrivesInfeasible", "drive-sharing"} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("expected message to contain %q, got: %s", want, detail)
 		}
@@ -92,7 +92,7 @@ func TestAutoFullDrivesPin_NumDrivesAboveSignedCount(t *testing.T) {
 		t.Errorf("expected field %q, got %q", want, got)
 	}
 	detail := errs[0].Detail
-	for _, want := range []string{"n-small", "at most 4", "1 affected node"} {
+	for _, want := range []string{"n-small", "at most 4", "1 affected node", "roleNodeSelector.drive"} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("expected message to contain %q, got: %s", want, detail)
 		}

@@ -73,7 +73,7 @@ func TestClusterMinContainers(t *testing.T) {
 			wantN:      1,
 			wantSubs: []string{
 				"driveContainers", "(3)", "below the 5 drive container(s)", "MinContainersNotReady",
-				"raise driveContainers to at least 5", "FORM_CLUSTER_MIN_DRIVE_CONTAINERS",
+				"raise driveContainers to at least 5",
 			},
 		},
 		{
@@ -82,7 +82,7 @@ func TestClusterMinContainers(t *testing.T) {
 			minCompute: 5,
 			dynamic:    &weka.WekaClusterTemplate{ComputeContainers: 2},
 			wantN:      1,
-			wantSubs:   []string{"computeContainers", "(2)", "below the 5 compute container(s)", "FORM_CLUSTER_MIN_COMPUTE_CONTAINERS"},
+			wantSubs:   []string{"computeContainers", "(2)", "below the 5 compute container(s)"},
 			// The auto-full-drives remedies are gone: they were unreachable (both counts are 0 in that
 			// mode, so the "unset" skip fires first) and their wording was wrong.
 			wantNotSubs: []string{"caps how many eligible nodes are used", "remove the pin"},

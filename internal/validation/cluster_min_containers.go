@@ -12,16 +12,14 @@ import (
 	globalconfig "github.com/weka/weka-operator/internal/config"
 )
 
-// clusterMinContainers rejects a pinned driveContainers/computeContainers below the minimum weka needs to
-// form a cluster at all (FormClusterMinDriveContainers/FormClusterMinComputeContainers, 5 by default, 3
-// with ALLOW_SINGLE_PARITY). This is an Error in both modes: below the minimum, FormCluster refuses to
-// proceed and the cluster loops on MinContainersNotReady forever with its containers healthy but idle —
-// a plan the planner happily accepts, e.g. clusterCapacity alongside a single pinned count of 3.
+// clusterMinContainers rejects a pinned driveContainers/computeContainers below the minimum weka needs
+// to form a cluster at all (FormClusterMinDrive/ComputeContainers — 5 by default, 3 with
+// ALLOW_SINGLE_PARITY). Below it FormCluster refuses to proceed and the cluster loops on
+// MinContainersNotReady forever with its containers healthy but idle — a plan the planner happily
+// accepts, e.g. clusterCapacity alongside a single pinned count of 3.
 //
-// Only explicit pins are checked, which is also why auto-full-drives mode never reaches the body: both
-// counts are 0 there by definition (setting either one is what leaves the mode), so the "unset" skip
-// fires first. An auto-full-drives cluster whose nodeSelector matches too few nodes stalls the same
-// way; that is caught at runtime instead.
+// Only explicit pins are checked, which is why auto-full-drives never reaches the body: both counts are
+// 0 there by definition, so the "unset" skip fires first.
 type clusterMinContainers struct{}
 
 func (clusterMinContainers) ID() string {
@@ -65,22 +63,10 @@ func (clusterMinContainers) Validate(_ context.Context, _ client.Client, obj run
 		detail := fmt.Sprintf(
 			"spec.dynamicTemplate.%s (%d) is below the %d %s container(s) weka needs to form a cluster — "+
 				"the cluster would never be created, it would wait forever on MinContainersNotReady with its "+
-				"containers running but idle. %s. The minimum is configurable via FORM_CLUSTER_MIN_%s_CONTAINERS.",
-			c.field, c.count, c.min, c.role, remedy, upperRole(c.role),
+				"containers running but idle. %s.",
+			c.field, c.count, c.min, c.role, remedy,
 		)
 		out = append(out, field.Invalid(field.NewPath("spec", "dynamicTemplate", c.field), c.count, detail))
 	}
 	return out
-}
-
-// upperRole renders a role name for the env-var hint in the message ("drive" -> "DRIVE").
-func upperRole(role string) string {
-	switch role {
-	case "drive":
-		return "DRIVE"
-	case "compute":
-		return "COMPUTE"
-	default:
-		return role
-	}
 }

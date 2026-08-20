@@ -83,12 +83,11 @@ func TestClusterCapacityMinDriveContainers(t *testing.T) {
 			wantSubs: []string{
 				"stripeWidth=3, redundancyLevel=2, hotSpare=0",
 				"floor is 5 drive container(s)",
-				"FormClusterMinDriveContainers=7",
+				"below the 7 weka needs to form a cluster",
 				"as small as 5 drive containers",
 				"MinContainersNotReady",
 				"floor reaches 7",
 				"driveContainers to at least 7",
-				"FORM_CLUSTER_MIN_DRIVE_CONTAINERS to at most 5",
 			},
 		},
 		{

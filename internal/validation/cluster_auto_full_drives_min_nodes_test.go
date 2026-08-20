@@ -78,7 +78,6 @@ func TestAutoFullDrivesMinNodes_BothRolesBelowFloor(t *testing.T) {
 				"Nothing reports this at runtime",
 				"MinContainersNotReady",
 				"Label at least 5 node(s) for spec.roleNodeSelector.drive",
-				"FORM_CLUSTER_MIN_DRIVE_CONTAINERS",
 			} {
 				if !strings.Contains(e.Detail, want) {
 					t.Errorf("drive message missing %q, got: %s", want, e.Detail)
@@ -92,7 +91,6 @@ func TestAutoFullDrivesMinNodes_BothRolesBelowFloor(t *testing.T) {
 			for _, want := range []string{
 				"matches 2 node(s), below the 5 compute container(s)",
 				"AutoFullDrivesInfeasible",
-				"FORM_CLUSTER_MIN_COMPUTE_CONTAINERS",
 			} {
 				if !strings.Contains(e.Detail, want) {
 					t.Errorf("compute message missing %q, got: %s", want, e.Detail)
