@@ -104,10 +104,30 @@ func planAutoFullDrivesDrives(
 		remaining[nodes[i].nc.NodeName] = nodes[i].nc
 	}
 
-	// Both collected across the whole walk and reported after it: stranding because its cause is one
-	// fleet-wide pin, failures so the infeasibility names every offending node rather than the first.
+	// All collected across the whole walk and reported by flushWarnings, one aggregated Warning per condition
+	// instead of one per node: stranding because its cause is one fleet-wide pin, the rest because the
+	// same condition (a cordoned node, an unscheduled pod) commonly hits several nodes in one pass.
 	var stranded []strandedNode
 	var failures []autoFitFailure
+	var ineligible []string  // "h1-2-a (cordoned)"
+	var ineligibleDrives int // free signed drives on those nodes, for formatIneligibleWarning's total
+	var deferred []string    // nodes whose existing container's pod is unscheduled
+	var deleting []string    // nodes with HasDeletingDriveContainer
+
+	// Called on both exits. The infeasibility check below returns from inside the walk, and a condition
+	// already collected is still true of the plan that return carries — the CLI's per-node NOTE column points
+	// at these warnings, so dropping them would leave a row citing a WARNINGS entry that was never written.
+	flushWarnings := func() {
+		if len(stranded) > 0 {
+			plan.Warnings = append(plan.Warnings, formatStrandedWarning(stranded, desired.NumDrives))
+		}
+		if len(ineligible) > 0 {
+			plan.Warnings = append(plan.Warnings, formatIneligibleWarning(ineligible, ineligibleDrives))
+		}
+		if len(deferred) > 0 || len(deleting) > 0 {
+			plan.Warnings = append(plan.Warnings, formatPlacementDeferredWarning(deferred, deleting))
+		}
+	}
 
 	for i := range nodes {
 		n := &nodes[i]
@@ -133,19 +153,14 @@ func planAutoFullDrivesDrives(
 			if n.nc.IneligibleReason != "" {
 				totals.drivesAvailable += len(drives)
 				totals.tlcGiBAvailable += sumInts(drives)
-				plan.Warnings = append(plan.Warnings, nodeWarning(WarningKindNodeIneligible, name,
-					"auto full drives: node %s has %d signed free full drive(s) but is ineligible for a new "+
-						"drive container (%s)",
-					name, len(drives), n.nc.IneligibleReason))
+				ineligible = append(ineligible, fmt.Sprintf("%s (%s)", name, n.nc.IneligibleReason))
+				ineligibleDrives += len(drives)
 				continue
 			}
 			// The one per-node skip that is a skip rather than an infeasibility: it clears itself, so failing
 			// the plan would stall every reconcile behind one deletion.
 			if n.nc.HasDeletingDriveContainer {
-				plan.Warnings = append(plan.Warnings, nodeWarning(WarningKindTransient, name,
-					"auto full drives: node %s still hosts a this-cluster drive container that is being deleted — "+
-						"skipping new container placement this pass (retried automatically once deletion completes)",
-					name))
+				deleting = append(deleting, name)
 				continue
 			}
 			if len(drives) == 0 {
@@ -156,6 +171,7 @@ func planAutoFullDrivesDrives(
 		np, report := autoSizeNode(name, drives, desired, cons)
 		if report != nil {
 			setInfeasible(&plan, report)
+			flushWarnings()
 			return plan, totals, remaining
 		}
 
@@ -195,10 +211,7 @@ func planAutoFullDrivesDrives(
 		// harder to schedule. Skipped after the totals so the fleet accounting still reflects its drives, and
 		// before the fit so it cannot manufacture an infeasibility.
 		if n.existing != nil && n.existing.Unscheduled {
-			plan.Warnings = append(plan.Warnings, nodeWarning(WarningKindTransient, name,
-				"auto full drives: node %s hosts a drive container whose pod has not been scheduled yet — "+
-					"skipping growth this pass (retried automatically once the pod is scheduled)",
-				name))
+			deferred = append(deferred, name)
 			continue
 		}
 
@@ -239,9 +252,7 @@ func planAutoFullDrivesDrives(
 		remaining[name] = nc
 	}
 
-	if len(stranded) > 0 {
-		plan.Warnings = append(plan.Warnings, formatStrandedWarning(stranded, desired.NumDrives))
-	}
+	flushWarnings()
 
 	// The infeasibility gate: after the full walk so every offender is named, and before compute is sized, so
 	// an infeasible plan carries no ComputeLayout. Partial Create/Grow entries stay on the plan for

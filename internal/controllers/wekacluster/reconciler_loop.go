@@ -183,21 +183,6 @@ func (r *wekaClusterReconcilerLoop) RecordEventThrottled(eventtype, reason, mess
 	return r.RecordEvent(eventtype, reason, message)
 }
 
-// RecordEventThrottledPerSubject throttles on eventtype+reason+subject — the node/container the event is
-// about — instead of the message text. Use for a reason whose messages embed changing numbers (e.g. free
-// hugepages, node counts): per-message throttling would key on that changing prose and never dedupe.
-// Empty subject collapses to RecordEventThrottled's per-reason behavior.
-func (r *wekaClusterReconcilerLoop) RecordEventThrottledPerSubject(eventtype, reason, subject, message string, interval time.Duration) error {
-	if !r.Throttler.ShouldRun(eventtype+reason+subject, &throttling.ThrottlingSettings{
-		Interval:                    interval,
-		DisableRandomPreSetInterval: true,
-	}) {
-		return nil
-	}
-
-	return r.RecordEvent(eventtype, reason, message)
-}
-
 func (r *wekaClusterReconcilerLoop) ClusterDeletionCancelled() bool {
 	return r.cluster.Spec.GetOverrides().CancelDeletion
 }

@@ -65,7 +65,7 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*c
 	// failure-domain set is temporarily reduced, and planning against that snapshot would wrongly
 	// concentrate capacity onto the survivors. Defer here; the reconcile retries once pods settle.
 	if name, transient := firstUnscheduledDriveContainer(r.containers); transient {
-		r.emitPlannerEvent(reasonClusterCapacityDeferred, "",
+		r.emitPlannerEvent(reasonClusterCapacityDeferred,
 			fmt.Sprintf("deferring clusterCapacity planning: drive container %s is unscheduled (pod (re)scheduling); will retry once it settles", name))
 		logger.Debug("deferring clusterCapacity planning while a drive container is transiently unscheduled", "container", name)
 		return r.noopCapacityPlan(ctx, cons), nil
@@ -111,24 +111,24 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*c
 	// the shrink/heterogeneous-growth/over-provision advisories (they would just be noise on a plan
 	// that creates/grows nothing).
 	if plan.Infeasible != "" {
-		r.emitPlannerEvent(reasonClusterCapacityInfeasible, "", plan.Infeasible)
+		r.emitPlannerEvent(reasonClusterCapacityInfeasible, plan.Infeasible)
 		return nil, lifecycle.NewWaitErrorWithDuration(fmt.Errorf("clusterCapacity infeasible: %s", plan.Infeasible), time.Minute)
 	}
 	for _, msg := range plan.ShrinkEvents {
-		r.emitPlannerEvent(reasonClusterCapacityShrink, "", msg)
+		r.emitPlannerEvent(reasonClusterCapacityShrink, msg)
 	}
 	// clusterCapacity uses a single reason for all its warnings (layout advisories); only the message is
 	// read from the classified Warning. Auto full drives instead splits by cause (autoFullDrivesWarningReason).
 	for _, w := range plan.Warnings {
-		r.emitPlannerEvent(reasonClusterCapacityHeterogeneousGrowth, "", w.Message)
+		r.emitPlannerEvent(reasonClusterCapacityHeterogeneousGrowth, w.Message)
 	}
 	for _, msg := range plan.OverProvisions {
-		r.emitPlannerEvent(reasonClusterCapacityOverProvisioned, "", msg)
+		r.emitPlannerEvent(reasonClusterCapacityOverProvisioned, msg)
 	}
 	// Feasible plan that places capacity: emit a Normal summary event, gated on Create/Grow so steady-state
 	// reconciles stay silent.
 	if len(plan.Create) > 0 || len(plan.Grow) > 0 {
-		r.emitPlannerEvent(reasonClusterCapacityPlanned, "",
+		r.emitPlannerEvent(reasonClusterCapacityPlanned,
 			formatCapacityPlanSummary(&plan, desired, s, existingDrives))
 	}
 	return &plan, nil
@@ -186,7 +186,7 @@ func (r *wekaClusterReconcilerLoop) planAutoFullDrives(ctx context.Context) (*ca
 		}
 	}
 	if !hasSignedDrives {
-		r.emitPlannerEvent(reasonAutoFullDrivesNoSignedDrives, "",
+		r.emitPlannerEvent(reasonAutoFullDrivesNoSignedDrives,
 			"deferring auto full drives planning: no node matching the drive-role selector has any signed, non-blocked full drive yet; sign drives (weka.io/weka-full-drives) and the operator will pick them up on its own")
 		logger.Debug("deferring auto full drives planning: no node has signed full drives yet", "candidateNodes", len(nodeInv))
 		return nil, lifecycle.NewWaitErrorWithDuration(fmt.Errorf("auto full drives: no node has signed full drives yet"), time.Minute)
@@ -218,7 +218,7 @@ func (r *wekaClusterReconcilerLoop) planAutoFullDrives(ctx context.Context) (*ca
 	// An infeasible plan is the sole signal: emit only AutoFullDrivesInfeasible and return, skipping the
 	// warnings advisory (it would just be noise on a plan that creates nothing).
 	if plan.Infeasible != "" {
-		r.emitPlannerEvent(reasonAutoFullDrivesInfeasible, "", plan.Infeasible)
+		r.emitPlannerEvent(reasonAutoFullDrivesInfeasible, plan.Infeasible)
 		return nil, lifecycle.NewWaitErrorWithDuration(fmt.Errorf("auto full drives infeasible: %s", plan.Infeasible), time.Minute)
 	}
 	// Drive cores are never traded away to make compute fit — a fleet that cannot host the required
@@ -227,15 +227,15 @@ func (r *wekaClusterReconcilerLoop) planAutoFullDrives(ctx context.Context) (*ca
 	// plan.Grow is not announced here: applyPlannerDriveGrowth can decline an entry or fail its Update,
 	// and emits AutoFullDrivesGrowthDetected for what it actually wrote.
 
-	// One reason per cause, throttled per subject (not message) so N constrained nodes each get their own
-	// event instead of the first starving the rest.
+	// One reason per cause: each Warning here is already an aggregate naming every node it affects, so one
+	// event per warning is one event per condition, not per node.
 	for _, w := range plan.Warnings {
-		r.emitPlannerEvent(autoFullDrivesWarningReason(w.Kind), w.Subject, w.Message)
+		r.emitPlannerEvent(autoFullDrivesWarningReason(w.Kind), w.Message)
 	}
 	// Gated on Create only: plan.Grow is applied separately by applyPlannerDriveGrowth, whose caller emits
 	// own cluster-level AutoFullDrivesGrowthDetected and per-container CapacityGrowthApplied events.
 	if len(plan.Create) > 0 {
-		r.emitPlannerEvent(reasonAutoFullDrivesPlanned, "", formatAutoFullDrivesPlanSummary(&plan))
+		r.emitPlannerEvent(reasonAutoFullDrivesPlanned, formatAutoFullDrivesPlanSummary(&plan))
 	}
 	return &plan, nil
 }

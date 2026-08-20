@@ -87,8 +87,8 @@ type planData struct {
 }
 
 // autoFullDrivesNodeRow is the per-node dry-run view: DrivesAvail vs DrivesUsed, with State one of
-// create/grow/existing/not-planned. Note surfaces the matching plan.Warnings message when
-// DrivesUsed < DrivesAvail.
+// create/grow/existing/not-planned. Note explains a row holding fewer drives than it offers — derived from
+// that node's own condition, not from the warning text — and points at WARNINGS for the fleet-wide detail.
 type autoFullDrivesNodeRow struct {
 	Node        string `json:"node"`
 	FD          string `json:"fd"`
@@ -599,25 +599,14 @@ func autoFullDrivesDriveGrowDiff(existing []capacityplanner.ExistingContainer, g
 	return rows
 }
 
-// warningForNode returns the plan.Warning whose Subject matches node (set by the producer in
-// autofulldrives.go), avoiding a fragile substring match on the warning's prose message. Returns "" if
-// none match.
-func warningForNode(warnings []capacityplanner.Warning, node string) string {
-	for _, w := range warnings {
-		if w.Subject == node {
-			return w.Message
-		}
-	}
-	return ""
-}
-
-// hasFleetWarning reports whether plan carries a fleet-wide warning of the given kind — one with no
-// Subject, because its cause (e.g. a numDrives pin) applies across the whole fleet rather than to one
-// node. DrivesStranded is the live example: formatStrandedWarning aggregates every stranded node into a
-// single warning instead of fanning one out per node, so warningForNode can never find it by Subject.
+// hasFleetWarning reports whether plan carries a warning of the given kind. Every planner warning is
+// fleet-wide (see capacityplanner.Warning), naming every affected node in its Message rather than in a
+// per-warning field, so a row can only point at the warning by Kind — it can never pull its own text out of
+// one. Deriving a row's text from a kind is only sound for a single-cause kind (DrivesStranded); gating a
+// pointer at the WARNINGS section is sound for any kind.
 func hasFleetWarning(warnings []capacityplanner.Warning, kind capacityplanner.WarningKind) bool {
 	for _, w := range warnings {
-		if w.Kind == kind && w.Subject == "" {
+		if w.Kind == kind {
 			return true
 		}
 	}
@@ -628,10 +617,12 @@ func hasFleetWarning(warnings []capacityplanner.Warning, kind capacityplanner.Wa
 // skipped). State is grow/existing/create by cross-referencing plan.Grow/Create, else nodeStateNotPlanned
 // — reachable on a FEASIBLE plan for a node withheld from a new container (cordoned/not ready/untolerated
 // taint), not only on an infeasible one. DrivesAvail sums own-claimed + free (not free-only, so
-// self-claimed nodes still show); Note surfaces warningForNode when DrivesUsed < DrivesAvail — which
-// covers both the per-node WarningKindNodeIneligible case and the stranded case below — falling back to a
-// short pointer at the fleet-wide DrivesStranded warning (a numDrives pin, never attributed to one node's
-// Subject — see hasFleetWarning) on a row the plan actually placed something on. Sorted by node name.
+// self-claimed nodes still show); when DrivesUsed < DrivesAvail, Note explains the gap. For a row the walk
+// never sized at all (nodeStateNotPlanned) the node's own inventory holds the authoritative answer, so the
+// reason is read from IneligibleReason/HasDeletingDriveContainer rather than from the aggregated warning —
+// which names every affected node in one message and so cannot say which condition applies to THIS row. A
+// row the walk did size but couldn't claim every signed drive on gets a pointer at DrivesStranded (a
+// numDrives pin), whose one cause needs no per-node disambiguation. Sorted by node name.
 func autoFullDrivesNodeRows(nodeInv []capacityplanner.NodeCapacity, existing []capacityplanner.ExistingContainer, plan *capacityplanner.CapacityPlan) []autoFullDrivesNodeRow {
 	existingByNode := make(map[string]capacityplanner.ExistingContainer, len(existing))
 	for _, e := range existing {
@@ -644,6 +635,16 @@ func autoFullDrivesNodeRows(nodeInv []capacityplanner.NodeCapacity, existing []c
 	createByNode := make(map[string]capacityplanner.NewContainer, len(plan.Create))
 	for _, cr := range plan.Create {
 		createByNode[cr.Node] = cr
+	}
+
+	// The reason is the node's own; the pointer is only earned when the matching aggregate reached
+	// plan.Warnings — a mid-walk infeasible abort stops collecting, leaving later nodes a condition
+	// with no warning to point at.
+	note := func(kind capacityplanner.WarningKind, reason string) string {
+		if hasFleetWarning(plan.Warnings, kind) {
+			return reason + " — see WARNINGS"
+		}
+		return reason
 	}
 
 	rows := make([]autoFullDrivesNodeRow, 0, len(nodeInv))
@@ -687,13 +688,14 @@ func autoFullDrivesNodeRows(nodeInv []capacityplanner.NodeCapacity, existing []c
 			row.DrivesUsed = 0
 		}
 		if row.DrivesUsed < row.DrivesAvail {
-			row.Note = warningForNode(plan.Warnings, n.NodeName)
-			// A stranded node has no per-node Subject to match above (see hasFleetWarning) — point at the
-			// fleet warning instead, but only for a row the plan actually placed something on:
-			// nodeStateNotPlanned means the walk never sized this node at all, so "held back by the pin"
-			// would misattribute an infeasibility skip to the pin.
-			if row.Note == "" && row.State != nodeStateNotPlanned &&
-				hasFleetWarning(plan.Warnings, capacityplanner.WarningKindDrivesStranded) {
+			switch {
+			case row.State == nodeStateNotPlanned && n.IneligibleReason != "":
+				row.Note = note(capacityplanner.WarningKindNodeIneligible, n.IneligibleReason)
+			case row.State == nodeStateNotPlanned && n.HasDeletingDriveContainer:
+				row.Note = note(capacityplanner.WarningKindTransient, "drive container being deleted")
+			case existingByNode[n.NodeName].Unscheduled:
+				row.Note = note(capacityplanner.WarningKindTransient, "pod has not been scheduled yet")
+			case row.State != nodeStateNotPlanned && hasFleetWarning(plan.Warnings, capacityplanner.WarningKindDrivesStranded):
 				row.Note = "drives held back by the numDrives pin — see WARNINGS"
 			}
 		}
