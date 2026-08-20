@@ -21,11 +21,11 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
-// Collector reads Kubernetes to build the capacity-planner inputs. It holds a controller-runtime client;
-// the WekaContainer listing goes through kubernetes.KubeService built from that client.
+// Collector reads Kubernetes to build the capacity-planner inputs from one controller-runtime client. Every
+// List it issues passes UnsafeDisableDeepCopy (contract in chargeForeignPods): helpers may only read the
+// objects they are handed, and must not retain one.
 type Collector struct {
 	Client client.Client
 }
@@ -126,13 +126,9 @@ type NodeDetail struct {
 // discovery.GetClusterContainers(...)). cons carries the sizing knobs. Collect is CLI-only: unlike
 // NodeInventory, it lists nodes/containers once and shares them across nodeInventoryFromLists/nodeDetailsFromLists.
 func (c Collector) Collect(ctx context.Context, cluster *weka.WekaCluster, ownContainers []*weka.WekaContainer, cons *capacityplanner.CapacityConstraints) (Result, error) {
-	driveNodes, computeNodeList, topos, err := c.listRoleNodesAndTopos(ctx, cluster, "Collect")
+	driveNodes, computeNodeList, topos, containers, err := c.listInventoryInputs(ctx, cluster, "Collect")
 	if err != nil {
 		return Result{}, err
-	}
-	containers, err := c.listAllWekaContainers(ctx)
-	if err != nil {
-		return Result{}, fmt.Errorf("Collect: %w", err)
 	}
 	fdByNode, inv, computeNodes, err := c.nodeInventoryFromLists(ctx, cluster, ownContainers, cons, driveNodes, computeNodeList, topos, containers)
 	if err != nil {
@@ -190,13 +186,9 @@ func (c Collector) listRoleNodesAndTopos(ctx context.Context, cluster *weka.Weka
 // the union of drive candidates and compute candidates, net of every weka drive container already on the
 // node (any cluster, including this one). computeNodes (always non-nil) marks which nodes compute may use.
 func (c Collector) NodeInventory(ctx context.Context, cluster *weka.WekaCluster, ownContainers []*weka.WekaContainer, cons *capacityplanner.CapacityConstraints) (fds map[string]string, inv []capacityplanner.NodeCapacity, eligible map[string]bool, err error) {
-	driveNodes, computeNodeList, topos, err := c.listRoleNodesAndTopos(ctx, cluster, "NodeInventory")
+	driveNodes, computeNodeList, topos, containers, err := c.listInventoryInputs(ctx, cluster, "NodeInventory")
 	if err != nil {
 		return nil, nil, nil, err
-	}
-	containers, err := c.listAllWekaContainers(ctx)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("NodeInventory: %w", err)
 	}
 	return c.nodeInventoryFromLists(ctx, cluster, ownContainers, cons, driveNodes, computeNodeList, topos, containers)
 }
@@ -205,12 +197,13 @@ func (c Collector) NodeInventory(ctx context.Context, cluster *weka.WekaCluster,
 // node/container-listing pass across the inventory build and nodeDetailsFromLists instead of each
 // independently re-listing.
 func (c Collector) nodeInventoryFromLists(ctx context.Context, cluster *weka.WekaCluster, ownContainers []*weka.WekaContainer, cons *capacityplanner.CapacityConstraints, driveNodes, computeNodeList []corev1.Node, topos map[string]capacityplanner.NodeCPUTopology, containers []weka.WekaContainer) (fds map[string]string, inv []capacityplanner.NodeCapacity, eligible map[string]bool, err error) {
-	consumed, err := c.consumedNodeResourcesFromContainers(ctx, containers, cons, topos)
+	fdConfig := cluster.Spec.FailureDomain
+
+	consumed, err := c.consumedNodeResources(ctx, containers, cons, topos)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NodeInventory: %w", err)
 	}
 
-	fdConfig := cluster.Spec.FailureDomain
 	tolerations := resources.GetWekaPodTolerationsForCluster(cluster)
 
 	// Nodes hosting THIS cluster's drive container being deleted: excluded from existingDrives, so its
@@ -298,19 +291,22 @@ func (c Collector) nodeInventoryFromLists(ctx context.Context, cluster *weka.Wek
 // FullDrivesInventory is NodeInventory's auto-full-drives counterpart: same drive/compute-candidate +
 // mergeRoleNodes shape, but reads info.AvailableDrives instead of info.SharedDrives. Consumed by
 // PlanAutoFullDrives, not PlanCapacity. It duplicates NodeInventory's candidate-building rather than
-// sharing it, to keep the clusterCapacity and auto-full-drives paths isolated; nodeHeadroom, listRoleNodesAndTopos, and resources.NodeIneligibleReason are the mode-agnostic pieces shared between them.
+// sharing it, to keep the clusterCapacity and auto-full-drives paths isolated; nodeHeadroom, listInventoryInputs, and resources.NodeIneligibleReason are the mode-agnostic pieces shared between them.
 func (c Collector) FullDrivesInventory(ctx context.Context, cluster *weka.WekaCluster, ownContainers []*weka.WekaContainer, cons *capacityplanner.CapacityConstraints) (fds map[string]string, inv []capacityplanner.NodeCapacity, eligible map[string]bool, err error) {
-	driveNodes, computeNodeList, topos, err := c.listRoleNodesAndTopos(ctx, cluster, "FullDrivesInventory")
+	driveNodes, computeNodeList, topos, containers, err := c.listInventoryInputs(ctx, cluster, "FullDrivesInventory")
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	consumed, allocatedDrives, err := c.consumedNodeResourcesAndDrives(ctx, cons, topos)
+	fdConfig := cluster.Spec.FailureDomain
+
+	consumed, err := c.consumedNodeResources(ctx, containers, cons, topos)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("FullDrivesInventory: %w", err)
 	}
-
-	fdConfig := cluster.Spec.FailureDomain
+	// info.AvailableDrives carries no allocation exclusion of its own (unlike info.SharedDrives), so the
+	// drive loop below subtracts what any WekaContainer already holds.
+	allocatedDrives := allocatedNodeDrives(containers)
 	tolerations := resources.GetWekaPodTolerationsForCluster(cluster)
 
 	deletingDriveNodes := map[string]bool{}
@@ -436,8 +432,7 @@ func (c Collector) ExploreNodes(ctx context.Context, selector map[string]string,
 	if err != nil {
 		return nil, fmt.Errorf("ExploreNodes: %w", err)
 	}
-	kubeService := kubernetes.NewKubeService(c.Client)
-	allContainers, err := kubeService.GetWekaContainersSimple(ctx, "", "", nil)
+	allContainers, err := c.listAllWekaContainers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("ExploreNodes: listing weka containers: %w", err)
 	}
@@ -589,7 +584,8 @@ func ExistingCompute(ctx context.Context, ownContainers []*weka.WekaContainer) [
 	return existing
 }
 
-// nodeResources holds per-node resource consumption across all weka containers.
+// nodeResources holds per-node resource consumption: weka containers via aggregateContainerResources, every
+// other scheduled pod via chargeForeignPods. Both charge cluster-wide, so every node key is complete.
 type nodeResources struct {
 	tlc, qlc, cores, hugepages, memory map[string]int
 }
@@ -614,11 +610,11 @@ func containerPodKey(c *weka.WekaContainer) podKey {
 	return podKey{Namespace: c.Namespace, Name: c.Name}
 }
 
-// consumedNodeResourcesFromContainers returns, per node, the TLC/QLC/CPU/hugepages/memory already claimed
-// by every WekaContainer (aggregateContainerResources) plus every other scheduled pod (chargeForeignPods).
-// It takes an already-listed container set so Collect (CLI-only) can reuse one container listing across
-// both the inventory build and nodeDetailsFromLists instead of each independently re-listing.
-func (c Collector) consumedNodeResourcesFromContainers(ctx context.Context, containers []weka.WekaContainer, cons *capacityplanner.CapacityConstraints, topos map[string]capacityplanner.NodeCPUTopology) (nodeResources, error) {
+// consumedNodeResources returns, per node, the TLC/QLC/CPU/hugepages/memory already claimed by every
+// WekaContainer (aggregateContainerResources) plus every other scheduled pod (chargeForeignPods), both
+// cluster-wide. It takes an already-listed container set so one listing serves both the inventory build
+// and, in Collect, nodeDetailsFromLists.
+func (c Collector) consumedNodeResources(ctx context.Context, containers []weka.WekaContainer, cons *capacityplanner.CapacityConstraints, topos map[string]capacityplanner.NodeCPUTopology) (nodeResources, error) {
 	res, charged := aggregateContainerResources(containers, cons, topos)
 	if err := c.chargeForeignPods(ctx, &res, charged); err != nil {
 		return nodeResources{}, fmt.Errorf("charging foreign pods: %w", err)
@@ -627,36 +623,55 @@ func (c Collector) consumedNodeResourcesFromContainers(ctx context.Context, cont
 }
 
 // listAllWekaContainers lists every WekaContainer cluster-wide (all clusters, all modes) — the shared fetch
-// consumedNodeResourcesFromContainers and nodeDetailsFromLists both build their respective per-node views from.
+// consumedNodeResources, nodeDetailsFromLists, and ExploreNodes all build their per-node views from. Not
+// scoped to the candidate nodes: a container on any node charges headroom there, and its own cluster is
+// irrelevant to that.
+//
+// UnsafeDisableDeepCopy (contract in chargeForeignPods): aggregateContainerResources, allocatedNodeDrives,
+// and consumerFrom read spec/status only, copying every value they keep into fresh maps.
 func (c Collector) listAllWekaContainers(ctx context.Context) ([]weka.WekaContainer, error) {
-	kubeService := kubernetes.NewKubeService(c.Client)
-	return kubeService.GetWekaContainersSimple(ctx, "", "", nil)
+	list := &weka.WekaContainerList{}
+	if err := c.Client.List(ctx, list, client.UnsafeDisableDeepCopy); err != nil {
+		return nil, err
+	}
+	return list.Items, nil
 }
 
-// consumedNodeResourcesAndDrives is FullDrivesInventory's variant of consumedNodeResourcesFromContainers: alongside the
-// same resource footprint, it also returns the full-drive serials already committed to any WekaContainer,
-// per node — needed because info.AvailableDrives, unlike info.SharedDrives, carries no allocation
-// exclusion of its own.
-func (c Collector) consumedNodeResourcesAndDrives(ctx context.Context, cons *capacityplanner.CapacityConstraints, topos map[string]capacityplanner.NodeCPUTopology) (nodeResources, map[string]map[string]bool, error) {
-	kubeService := kubernetes.NewKubeService(c.Client)
-	containers, err := kubeService.GetWekaContainersSimple(ctx, "", "", nil)
+// listInventoryInputs resolves everything the inventory builds start from: the drive/compute role node
+// lists, their CPU topology map, and the cluster-wide WekaContainer list. errPrefix names the caller in
+// wrapped errors.
+func (c Collector) listInventoryInputs(ctx context.Context, cluster *weka.WekaCluster, errPrefix string) (driveNodes, computeNodeList []corev1.Node, topos map[string]capacityplanner.NodeCPUTopology, containers []weka.WekaContainer, err error) {
+	driveNodes, computeNodeList, topos, err = c.listRoleNodesAndTopos(ctx, cluster, errPrefix)
 	if err != nil {
-		return nodeResources{}, nil, fmt.Errorf("listing weka containers: %w", err)
+		return nil, nil, nil, nil, err
 	}
-	res, charged := aggregateContainerResources(containers, cons, topos)
-	if err := c.chargeForeignPods(ctx, &res, charged); err != nil {
-		return nodeResources{}, nil, fmt.Errorf("charging foreign pods: %w", err)
+	containers, err = c.listAllWekaContainers(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("%s: listing weka containers: %w", errPrefix, err)
 	}
-	return res, allocatedNodeDrives(containers), nil
+	return driveNodes, computeNodeList, topos, containers, nil
 }
 
 // chargeForeignPods adds, into res, the effective resource requests (cpu, memory, hugepages-2Mi) of every
 // scheduled, non-terminal pod not already charged as a WekaContainer (charged, keyed by podKey). Without
 // this, a node with a foreign pod holding resources reports full headroom and the planner schedules a
-// container there that sits Pending forever. spec.nodeName is indexed, so this stays a single cached List.
+// container there that sits Pending forever.
+//
+// One cluster-wide List, not one per candidate node: on the cached client it is a single informer-store
+// scan (cheaper than N indexed lookups), and being one snapshot it cannot double-charge or miss a pod that
+// is rescheduled mid-pass. Charging a node the inventory never reads costs only a map key.
+//
+// The Pod cache must stay unfiltered for this to hold: a label-scoped cache would hide exactly the foreign
+// pods charged here, leaving the planner to place containers that then sit Pending forever. See the Cache
+// options in cmd/manager/main.go.
+//
+// UnsafeDisableDeepCopy: a cached client hands back pods sharing their maps and slices with the informer
+// store, so this must only read them and must not retain one past it. effectivePodResourceRequests is
+// read-only and every resource.Quantity it reaches is a map-value copy. An uncached client ignores the
+// option and pays a real List anyway.
 func (c Collector) chargeForeignPods(ctx context.Context, res *nodeResources, charged map[podKey]bool) error {
 	podList := &corev1.PodList{}
-	if err := c.Client.List(ctx, podList); err != nil {
+	if err := c.Client.List(ctx, podList, client.UnsafeDisableDeepCopy); err != nil {
 		return fmt.Errorf("listing pods: %w", err)
 	}
 	for i := range podList.Items {
@@ -667,15 +682,13 @@ func (c Collector) chargeForeignPods(ctx context.Context, res *nodeResources, ch
 		if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
 			continue // terminal: resources already released back to the node
 		}
-		key := podKey{Namespace: pod.Namespace, Name: pod.Name}
-		if charged[key] {
+		if charged[podKey{Namespace: pod.Namespace, Name: pod.Name}] {
 			continue // already charged above as a WekaContainer's own pod — do not double-count
 		}
 		cpu, hugepagesMiB, memoryMiB := effectivePodResourceRequests(pod)
-		node := pod.Spec.NodeName
-		res.cores[node] += cpu
-		res.hugepages[node] += hugepagesMiB
-		res.memory[node] += memoryMiB
+		res.cores[pod.Spec.NodeName] += cpu
+		res.hugepages[pod.Spec.NodeName] += hugepagesMiB
+		res.memory[pod.Spec.NodeName] += memoryMiB
 	}
 	return nil
 }
@@ -1132,8 +1145,12 @@ func mergeRoleNodes(driveInv, computeInv []capacityplanner.NodeCapacity) (invent
 // eligibility — every caller narrates or plans over the full matching set and applies its own eligibility
 // handling on top (planner callers via NodeCapacity.IneligibleReason, ExploreNodes via NodeDetail's field).
 // An empty selector matches every node in the cluster (standard Kubernetes label-selector semantics).
+//
+// UnsafeDisableDeepCopy (contract in chargeForeignPods): nodes carry the KB-scale discovery.json and drive
+// annotations, so skipping their copy saves the most of any List in the pass. Every consumer only reads
+// maps or unmarshals annotation strings into fresh structs, and no *corev1.Node outlives its caller.
 func listNodesForSelector(ctx context.Context, c client.Client, selector map[string]string) ([]corev1.Node, error) {
-	listOpts := []client.ListOption{}
+	listOpts := []client.ListOption{client.UnsafeDisableDeepCopy}
 	if len(selector) > 0 {
 		listOpts = append(listOpts, client.MatchingLabels(selector))
 	}

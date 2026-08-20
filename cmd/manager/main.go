@@ -237,6 +237,7 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		// LeaderElectionReleaseOnCancel: true,
 
 		// TODO: enable cache filtering when we have "app.kubernetes.io/created-by" label on all Weka pods
+		// Pods must stay unfiltered regardless — see inventory.chargeForeignPods for why.
 		// Cache: cache.Options{
 		// 	ByObject: map[client.Object]cache.ByObject{
 		// 		&corev1.Pod{}: {
