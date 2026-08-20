@@ -174,13 +174,10 @@ const (
 	WarningKindNodeIneligible WarningKind = "NodeIneligible"
 )
 
-// Warning is one classified planner advisory. Subject is the node/container it's about and the event
-// throttling key (one warning per subject per window); empty for fleet-wide warnings, throttled per
-// reason instead — throttling on Message alone breaks once a count in the text drifts (e.g. "6 node(s)"
-// -> "5 node(s)").
+// Warning is one classified planner advisory. Every auto-full-drives warning is fleet-wide: a condition
+// that can hit several nodes in one pass is reported once, naming every affected node in Message.
 type Warning struct {
 	Kind    WarningKind
-	Subject string
 	Message string
 }
 
@@ -197,12 +194,7 @@ func WarningMessages(warnings []Warning) []string {
 	return out
 }
 
-// nodeWarning builds a per-node classified warning, formatting the message from args.
-func nodeWarning(kind WarningKind, node, format string, args ...any) Warning {
-	return Warning{Kind: kind, Subject: node, Message: fmt.Sprintf(format, args...)}
-}
-
-// fleetWarning builds a classified warning with no single subject (throttled per reason).
+// fleetWarning builds a classified warning (throttled per reason, not per node).
 func fleetWarning(kind WarningKind, format string, args ...any) Warning {
 	return Warning{Kind: kind, Message: fmt.Sprintf(format, args...)}
 }

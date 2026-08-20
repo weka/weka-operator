@@ -1327,8 +1327,8 @@ func TestPlanAutoFullDrives_SkipsNodeWithDeletingDriveContainer(t *testing.T) {
 		t.Fatalf("expected no Grow entry (no existing container in existingByNode to grow), got %+v", plan.Grow)
 	}
 	joined := strings.Join(WarningMessages(plan.Warnings), " | ")
-	if !strings.Contains(joined, "still hosts a this-cluster drive container that is being deleted") {
-		t.Errorf("expected a warning explaining the skip, got %q", joined)
+	if !strings.Contains(joined, "n1") || !strings.Contains(joined, "still being deleted") {
+		t.Errorf("expected a warning naming n1 and explaining the skip, got %q", joined)
 	}
 }
 
@@ -1434,15 +1434,15 @@ func TestPlanAutoFullDrives_IneligibleNode_ExistingCapacityCountedNoNewContainer
 	}
 	found := false
 	for _, w := range plan.Warnings {
-		if w.Kind == WarningKindNodeIneligible && w.Subject == "n2" {
+		if w.Kind == WarningKindNodeIneligible {
 			found = true
 			if !strings.Contains(w.Message, "n2") || !strings.Contains(w.Message, "not ready") {
-				t.Errorf("n2's NodeIneligible warning message = %q, want it to name n2 and its reason verbatim (not ready)", w.Message)
+				t.Errorf("NodeIneligible warning message = %q, want it to name n2 and its reason verbatim (not ready)", w.Message)
 			}
 		}
 	}
 	if !found {
-		t.Fatalf("Warnings = %+v, want a WarningKindNodeIneligible warning for n2", plan.Warnings)
+		t.Fatalf("Warnings = %+v, want a WarningKindNodeIneligible warning naming n2", plan.Warnings)
 	}
 	// DriveSizing.TlcGiBTaken is the exact number PlanAutoFullDrives hands to compute as its capacity
 	// numerator, but pin it there too: 29600 only comes out of n1's 4000 GiB alone. If n2's free drives (which
@@ -2152,17 +2152,24 @@ func TestPlanAutoFullDrives_FormClusterFloorAboveDeficit_NoZeroCoreContainers(t 
 				"containers, not empty ones", spec.Node, spec.NumCores)
 		}
 	}
-	// The surplus is surfaced, not silent.
-	var warned bool
+	// The surplus is surfaced, not silent — and in exactly one ComputeLayout warning. Every advisory from the
+	// compute step is joined into one, because they all land on the single reason AutoFullDrivesComputeLayout
+	// whose throttle key ignores the message: a second one would be dropped for the whole window, not shown.
+	var layout []Warning
 	for _, w := range plan.Warnings {
-		if strings.Contains(w.Message, "cannot form below 5 compute container(s)") &&
-			strings.Contains(w.Message, "1-core minimum") {
-			warned = true
-			break
+		if w.Kind == WarningKindComputeLayout {
+			layout = append(layout, w)
 		}
 	}
-	if !warned {
-		t.Errorf("want a warning naming the 5-container floor and the 1-core minimum, got: %v", plan.Warnings)
+	if len(layout) != 1 {
+		t.Fatalf("WarningKindComputeLayout warnings = %+v, want exactly 1 joining every compute advisory", layout)
+	}
+	if !strings.Contains(layout[0].Message, "cannot form below 5 compute container(s)") ||
+		!strings.Contains(layout[0].Message, "1-core minimum") {
+		t.Errorf("warning = %q, want it to name the 5-container floor and the 1-core minimum", layout[0].Message)
+	}
+	if !strings.HasPrefix(layout[0].Message, "auto full drives: ") {
+		t.Errorf("warning = %q, want the shared \"auto full drives: \" prefix the joined message carries once", layout[0].Message)
 	}
 }
 
@@ -2985,13 +2992,113 @@ func TestPlanAutoFullDrives_UnscheduledDriveContainer_FreezesGrowth(t *testing.T
 
 	found := false
 	for _, w := range plan.Warnings {
-		if w.Kind == WarningKindTransient && w.Subject == "unscheduled" {
+		if w.Kind == WarningKindTransient {
 			found = true
+			if !strings.Contains(w.Message, "unscheduled") {
+				t.Errorf("WarningKindTransient warning message = %q, want it to name node %q", w.Message, "unscheduled")
+			}
 		}
 	}
 	if !found {
 		t.Errorf("plan.Warnings = %+v, want a WarningKindTransient warning naming node %q", plan.Warnings, "unscheduled")
 	}
+}
+
+// Both placement-deferral causes (unscheduled pod, container being deleted) map to the same
+// AutoFullDrivesPlacementDeferred reason, so a pass hitting both must still produce exactly one warning —
+// two would let the event throttle (keyed on reason alone) silently drop one of them.
+func TestPlanAutoFullDrives_UnscheduledAndDeletingCauses_MergeIntoOneWarning(t *testing.T) {
+	cons := testCons()
+	const bigFree = 1 << 28
+
+	existingDrives := []ExistingContainer{
+		{Name: "drive-scheduled", Node: "scheduled", FDValue: "scheduled", TlcGiB: 3000, NumCores: 3, NumDrives: 3},
+		{Name: "drive-unscheduled", Node: "unscheduled", FDValue: "unscheduled", TlcGiB: 3000, NumCores: 3, NumDrives: 3, Unscheduled: true},
+		// No entry for "deleting" — mirrors ExistingDrives already filtering out the mid-deletion container.
+	}
+	inv := []NodeCapacity{
+		{
+			NodeName: "scheduled", FDValue: "scheduled",
+			OwnDriveCapacitiesGiB: uniformDrives(3, 1000),
+			AllocatableCPU:        100, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+		},
+		{
+			NodeName: "unscheduled", FDValue: "unscheduled",
+			OwnDriveCapacitiesGiB: uniformDrives(3, 1000),
+			AllocatableCPU:        100, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+		},
+		{
+			NodeName: "deleting", FDValue: "deleting",
+			DriveCapacitiesGiB: uniformDrives(3, 1000), TlcGiB: 3000,
+			AllocatableCPU: 100, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+			HasDeletingDriveContainer: true,
+		},
+	}
+	computeNodes := computeNodeSet("scheduled", "unscheduled", "deleting")
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{}, existingDrives, nil, inv, computeNodes, cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+
+	var transient []Warning
+	for _, w := range plan.Warnings {
+		if w.Kind == WarningKindTransient {
+			transient = append(transient, w)
+		}
+	}
+	if len(transient) != 1 {
+		t.Fatalf("WarningKindTransient warnings = %+v, want exactly 1 covering both causes", transient)
+	}
+	w := transient[0]
+	if !strings.Contains(w.Message, "unscheduled") {
+		t.Errorf("warning message = %q, want it to name the unscheduled node %q", w.Message, "unscheduled")
+	}
+	if !strings.Contains(w.Message, "deleting") {
+		t.Errorf("warning message = %q, want it to name the deleting node %q", w.Message, "deleting")
+	}
+	if !strings.Contains(w.Message, "both retry automatically") {
+		t.Errorf("warning message = %q, want the merged-causes retry clause \"both retry automatically\"", w.Message)
+	}
+}
+
+// The walk returns from inside the loop when a node's pins cannot be satisfied. Warnings collected before
+// that node describe the plan it returns and must survive it: the CLI renders an ineligible node's row as
+// "cordoned — see WARNINGS", so losing the warning leaves a row citing an entry nothing wrote.
+func TestPlanAutoFullDrives_InfeasibleMidWalk_KeepsWarningsAlreadyCollected(t *testing.T) {
+	cons := testCons()
+	const bigFree = 1 << 28
+
+	// Nodes are walked in name order, so a-cordoned records its warning before z-pinned aborts the walk.
+	inv := []NodeCapacity{
+		{
+			NodeName: "a-cordoned", FDValue: "a-cordoned",
+			DriveCapacitiesGiB: uniformDrives(3, 1000),
+			AllocatableCPU:     100, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+			IneligibleReason: "cordoned",
+		},
+		// One signed drive under numDrives=2: autoSizeNode reports and planAutoFullDrivesDrives returns.
+		{
+			NodeName: "z-pinned", FDValue: "z-pinned",
+			DriveCapacitiesGiB: uniformDrives(1, 1000),
+			AllocatableCPU:     100, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+		},
+	}
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{NumDrives: 2}, nil, nil, inv,
+		computeNodeSet("a-cordoned", "z-pinned"), cons)
+
+	if plan.Infeasible == "" {
+		t.Fatalf("plan is feasible, so it no longer exercises the mid-walk return; plan=%+v", plan)
+	}
+	for _, w := range plan.Warnings {
+		if w.Kind == WarningKindNodeIneligible && strings.Contains(w.Message, "a-cordoned") {
+			return
+		}
+	}
+	t.Errorf("Warnings = %+v, want the NodeIneligible warning naming a-cordoned to survive the mid-walk return",
+		plan.Warnings)
 }
 
 // The unscheduled node gets 2 free drives beyond the 1 it owns, so planned (3 drives, 3000 GiB) and

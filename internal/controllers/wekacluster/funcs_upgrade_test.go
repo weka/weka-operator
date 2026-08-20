@@ -50,7 +50,7 @@ func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
 // newUpgradeLoop builds a wekaClusterReconcilerLoop wired with a real fake client seeded with cluster and
 // containers, ready to exercise HandleSpecUpdates end-to-end. Throttler is a real (not nil) SyncMapThrottler
 // since FetchCluster — which normally wires it — is never called by tests that build the loop directly, and
-// RecordEventThrottled/RecordEventThrottledPerSubject panic on a nil Throttler.
+// RecordEventThrottled panics on a nil Throttler.
 func newUpgradeLoop(t *testing.T, cluster *weka.WekaCluster, containers []*weka.WekaContainer) *wekaClusterReconcilerLoop {
 	t.Helper()
 	objs := make([]client.Object, 0, len(containers)+1)

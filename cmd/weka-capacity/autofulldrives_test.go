@@ -205,21 +205,26 @@ func TestDescribeSizingMode(t *testing.T) {
 }
 
 // TestAutoFullDrivesNodeRows covers the four per-node states (create/grow/existing/not-planned),
-// drives-used-vs-avail accounting, and surfacing a node's Warnings entry in its row Note.
+// drives-used-vs-avail accounting, and reading a not-planned row's Note from the node's own
+// IneligibleReason rather than from the aggregated fleet warning.
 func TestAutoFullDrivesNodeRows(t *testing.T) {
 	nodeInv := []capacityplanner.NodeCapacity{
 		{NodeName: "n-create", FDValue: "n-create", DriveCapacitiesGiB: []int{3840, 3840}},
 		{NodeName: "n-grow", FDValue: "n-grow", DriveCapacitiesGiB: []int{3840, 3840, 3840}},
 		{NodeName: "n-existing", FDValue: "n-existing", DriveCapacitiesGiB: []int{3840}},
-		{NodeName: "n-deferred", FDValue: "n-deferred", DriveCapacitiesGiB: []int{3840, 3840}},
+		// IneligibleReason, not the plan's aggregated warning, is what the row's Note must read.
+		{NodeName: "n-ineligible", FDValue: "n-ineligible", DriveCapacitiesGiB: []int{3840, 3840}, IneligibleReason: "not ready"},
 		{NodeName: "n-empty", FDValue: "n-empty", DriveCapacitiesGiB: nil}, // 0 signed drives — must be skipped entirely
 		// n-own-only: both drives already own-claimed (0 free); avail must be len(Own)+len(Drive) (plan.go §7).
 		{NodeName: "n-own-only", FDValue: "n-own-only", OwnDriveCapacitiesGiB: []int{3840, 3840}, DriveCapacitiesGiB: nil},
+		// n-unsched: growth deferred because its pod has not bound, so used < avail with no numDrives pin.
+		{NodeName: "n-unsched", FDValue: "n-unsched", OwnDriveCapacitiesGiB: []int{3840}, DriveCapacitiesGiB: []int{3840, 3840}},
 	}
 	existing := []capacityplanner.ExistingContainer{
 		{Name: "c-grow", Node: "n-grow", TlcGiB: 7680, NumCores: 2, NumDrives: 2},
 		{Name: "c-existing", Node: "n-existing", TlcGiB: 3840, NumCores: 1, NumDrives: 1},
 		{Name: "c-own-only", Node: "n-own-only", TlcGiB: 7680, NumCores: 2, NumDrives: 2},
+		{Name: "c-unsched", Node: "n-unsched", TlcGiB: 3840, NumCores: 1, NumDrives: 1, Unscheduled: true},
 	}
 	plan := &capacityplanner.CapacityPlan{
 		Create: []capacityplanner.NewContainer{
@@ -228,19 +233,15 @@ func TestAutoFullDrivesNodeRows(t *testing.T) {
 		Grow: []capacityplanner.ContainerGrowth{
 			{Name: "c-grow", NewTlcGiB: 11520, NewCores: 3, NewNumDrives: 3},
 		},
-		// Subject is what warningForNode matches on, so it must be set exactly as the planner sets it.
-		// Transient (placement deferred) is now the ONLY node-subject warning the planner emits: the two
-		// per-node fit warnings became whole-plan infeasibilities, and stranding is fleet-wide.
 		Warnings: []capacityplanner.Warning{{
-			Kind:    capacityplanner.WarningKindTransient,
-			Subject: "n-deferred",
-			Message: "node n-deferred still hosts a drive container being deleted — placement deferred",
+			Kind:    capacityplanner.WarningKindNodeIneligible,
+			Message: "1 node(s) holding 2 signed free full drive(s) are ineligible for a new drive container: n-ineligible (not ready)",
 		}},
 	}
 
 	rows := autoFullDrivesNodeRows(nodeInv, existing, plan)
-	if len(rows) != 5 {
-		t.Fatalf("autoFullDrivesNodeRows() returned %d rows, want 5 (n-empty must be skipped, n-own-only must NOT be); rows=%+v", len(rows), rows)
+	if len(rows) != 6 {
+		t.Fatalf("autoFullDrivesNodeRows() returned %d rows, want 6 (n-empty must be skipped, n-own-only must NOT be); rows=%+v", len(rows), rows)
 	}
 	byNode := map[string]autoFullDrivesNodeRow{}
 	for _, r := range rows {
@@ -265,12 +266,12 @@ func TestAutoFullDrivesNodeRows(t *testing.T) {
 		t.Errorf("existing row = %+v, want state=existing used=1 avail=1 tlc=3840 cores=1", existingRow)
 	}
 
-	deferred := byNode["n-deferred"]
-	if deferred.State != nodeStateNotPlanned || deferred.DrivesUsed != 0 || deferred.DrivesAvail != 2 {
-		t.Errorf("unplanned row = %+v, want state=%s used=0 avail=2", deferred, nodeStateNotPlanned)
+	ineligible := byNode["n-ineligible"]
+	if ineligible.State != nodeStateNotPlanned || ineligible.DrivesUsed != 0 || ineligible.DrivesAvail != 2 {
+		t.Errorf("unplanned row = %+v, want state=%s used=0 avail=2", ineligible, nodeStateNotPlanned)
 	}
-	if !strings.Contains(deferred.Note, "placement deferred") {
-		t.Errorf("unplanned row Note = %q, want it to carry the matching Warnings entry", deferred.Note)
+	if !strings.Contains(ineligible.Note, "not ready") || !strings.Contains(ineligible.Note, "WARNINGS") {
+		t.Errorf("unplanned row Note = %q, want the node's own reason verbatim plus a pointer to WARNINGS", ineligible.Note)
 	}
 
 	ownOnly, ok := byNode["n-own-only"]
@@ -282,6 +283,14 @@ func TestAutoFullDrivesNodeRows(t *testing.T) {
 	}
 	if ownOnly.Note != "" {
 		t.Errorf("n-own-only row Note = %q, want empty (used == avail, nothing held back)", ownOnly.Note)
+	}
+
+	unsched := byNode["n-unsched"]
+	if unsched.State != "existing" || unsched.DrivesUsed != 1 || unsched.DrivesAvail != 3 {
+		t.Errorf("n-unsched row = %+v, want state=existing used=1 avail=3 (no Grow entry is written while the pod is unbound)", unsched)
+	}
+	if !strings.Contains(unsched.Note, "not been scheduled") {
+		t.Errorf("n-unsched row Note = %q, want the deferred-growth reason", unsched.Note)
 	}
 }
 
@@ -312,70 +321,70 @@ func TestAutoFullDrivesNodeRows_FeasiblePlanPlacesEveryNode(t *testing.T) {
 	}
 }
 
-// TestWarningForNode covers correlating a Warnings entry to its node row via Subject, not message prose;
-// the n1/n10 case proves the old prefix-collision risk is structurally impossible.
-//
-// Three WarningKinds survive — DrivesStranded, Transient, ComputeLayout — and only Transient carries a
-// node Subject (autofulldrives.go's placement-deferred warning is its sole producer). So the NODES
-// table's NOTE column can now say exactly one thing. The two per-node fit warnings this function used
-// to correlate became whole-plan infeasibilities and are rendered by renderRejectedNodes instead.
-func TestWarningForNode(t *testing.T) {
-	warnings := []capacityplanner.Warning{
-		{
-			Kind: capacityplanner.WarningKindTransient, Subject: "n1",
-			Message: "node n1 still hosts a drive container being deleted — placement deferred",
-		},
-		{
-			Kind: capacityplanner.WarningKindTransient, Subject: "n10",
-			Message: "node n10 still hosts a drive container being deleted — placement deferred",
-		},
-	}
-	if got := warningForNode(warnings, "n1"); !strings.Contains(got, "node n1 ") {
-		t.Errorf("warningForNode(n1) = %q, want the n1 message", got)
-	}
-	if got := warningForNode(warnings, "n10"); !strings.Contains(got, "node n10 ") {
-		t.Errorf("warningForNode(n10) = %q, want the n10 message", got)
-	}
-	if got := warningForNode(warnings, "n2"); got != "" {
-		t.Errorf("warningForNode(n2) = %q, want empty (no warning names n2)", got)
-	}
-	// A fleet-wide warning has no Subject and must never be attributed to a node's row. DrivesStranded is
-	// the live example: one aggregated message for the whole fleet, not a per-node warning.
-	fleet := []capacityplanner.Warning{{Kind: capacityplanner.WarningKindDrivesStranded, Message: "numDrives=2 pinned; 3 node(s) leave drives unused"}}
-	if got := warningForNode(fleet, "n1"); got != "" {
-		t.Errorf("warningForNode(n1) = %q, want empty — a subject-less fleet warning belongs to no node row", got)
-	}
-}
-
-// TestHasFleetWarning covers the helper autoFullDrivesNodeRows uses to point a stranded row's NOTE at the
-// fleet-wide DrivesStranded warning it can never match via warningForNode's Subject comparison (see
-// TestWarningForNode's fleet case).
+// TestHasFleetWarning covers the helper autoFullDrivesNodeRows uses to point a row's NOTE at the
+// fleet-wide DrivesStranded/NodeIneligible warning that explains it.
 func TestHasFleetWarning(t *testing.T) {
 	stranded := capacityplanner.Warning{Kind: capacityplanner.WarningKindDrivesStranded, Message: "numDrives=2 pinned"}
-	nodeScoped := capacityplanner.Warning{Kind: capacityplanner.WarningKindTransient, Subject: "n1", Message: "deferred"}
+	other := capacityplanner.Warning{Kind: capacityplanner.WarningKindTransient, Message: "deferred"}
 
 	if !hasFleetWarning([]capacityplanner.Warning{stranded}, capacityplanner.WarningKindDrivesStranded) {
-		t.Error("hasFleetWarning() = false, want true for a subject-less DrivesStranded warning")
+		t.Error("hasFleetWarning() = false, want true for a matching DrivesStranded warning")
 	}
-	if hasFleetWarning([]capacityplanner.Warning{nodeScoped}, capacityplanner.WarningKindDrivesStranded) {
+	if hasFleetWarning([]capacityplanner.Warning{other}, capacityplanner.WarningKindDrivesStranded) {
 		t.Error("hasFleetWarning() = true, want false — no DrivesStranded warning present")
 	}
 	if hasFleetWarning(nil, capacityplanner.WarningKindDrivesStranded) {
 		t.Error("hasFleetWarning(nil) = true, want false")
 	}
-	// formatStrandedWarning always builds a DrivesStranded warning via fleetWarning (no Subject), but the
-	// helper must key on Subject=="" rather than Kind alone in case that ever changes.
-	subjected := capacityplanner.Warning{Kind: capacityplanner.WarningKindDrivesStranded, Subject: "n1", Message: "x"}
-	if hasFleetWarning([]capacityplanner.Warning{subjected}, capacityplanner.WarningKindDrivesStranded) {
-		t.Error("hasFleetWarning() = true, want false for a Subject-bearing warning even of the fleet kind")
+}
+
+// A not-planned row must take its NOTE from its own node state, never from the presence of a fleet-wide
+// NodeIneligible warning: that warning names every ineligible node in the fleet, so keying off its mere
+// existence labels EVERY not-planned row "cordoned/not ready/untolerated taint" — including a node skipped
+// only because a drive container on it is still being deleted, and every fit-failure node on an infeasible
+// plan. Each of the three nodes below is not-planned with used < avail for a different reason, and each must
+// get its own answer.
+func TestAutoFullDrivesNodeRows_NotPlannedNoteFromNodeStateNotFleetWarning(t *testing.T) {
+	nodeInv := []capacityplanner.NodeCapacity{
+		{NodeName: "n-cordoned", FDValue: "n-cordoned", DriveCapacitiesGiB: []int{3840}, IneligibleReason: "cordoned"},
+		{NodeName: "n-deleting", FDValue: "n-deleting", DriveCapacitiesGiB: []int{3840}, HasDeletingDriveContainer: true},
+		// Neither ineligible nor mid-deletion — a plain fit failure, which renderRejectedNodes explains
+		// instead. Its NOTE must stay empty rather than borrow n-cordoned's reason.
+		{NodeName: "n-unfit", FDValue: "n-unfit", DriveCapacitiesGiB: []int{3840}},
+	}
+	plan := &capacityplanner.CapacityPlan{
+		Warnings: []capacityplanner.Warning{{
+			Kind:    capacityplanner.WarningKindNodeIneligible,
+			Message: "auto full drives: 1 node(s) holding 1 signed free full drive(s) are ineligible for a new drive container: n-cordoned (cordoned)",
+		}},
+	}
+
+	byNode := map[string]autoFullDrivesNodeRow{}
+	for _, r := range autoFullDrivesNodeRows(nodeInv, nil, plan) {
+		if r.State != nodeStateNotPlanned {
+			t.Fatalf("row %+v is not %s — the fixture no longer exercises the not-planned branch", r, nodeStateNotPlanned)
+		}
+		byNode[r.Node] = r
+	}
+
+	if got := byNode["n-cordoned"].Note; !strings.Contains(got, "cordoned") {
+		t.Errorf("n-cordoned Note = %q, want its own IneligibleReason verbatim", got)
+	}
+	if got := byNode["n-deleting"].Note; !strings.Contains(got, "being deleted") {
+		t.Errorf("n-deleting Note = %q, want the deletion reason — not n-cordoned's condition", got)
+	}
+	if got := byNode["n-deleting"].Note; strings.Contains(got, "cordoned") {
+		t.Errorf("n-deleting Note = %q, must not inherit another node's cordon reason", got)
+	}
+	if got := byNode["n-unfit"].Note; got != "" {
+		t.Errorf("n-unfit Note = %q, want empty — no per-node condition applies, so nothing to attribute", got)
 	}
 }
 
 // TestAutoFullDrivesNodeRows_StrandedNodeNoteFromFleetWarning covers §8b: a node stranded by a numDrives
-// pin (used < avail) has no per-node Subject to match via warningForNode — formatStrandedWarning
-// aggregates every stranded node into one fleet-wide warning — so the NOTE column used to stay empty even
-// though the row visibly shows used < avail. autoFullDrivesNodeRows must fall back to a pointer at that
-// fleet warning instead.
+// pin (used < avail) — formatStrandedWarning aggregates every stranded node into one fleet-wide warning
+// rather than fanning one out per node — so the NOTE column must fall back to a pointer at that fleet
+// warning instead of staying empty.
 func TestAutoFullDrivesNodeRows_StrandedNodeNoteFromFleetWarning(t *testing.T) {
 	nodeInv := []capacityplanner.NodeCapacity{
 		{NodeName: "n1", FDValue: "n1", DriveCapacitiesGiB: []int{3840, 3840, 3840}},
@@ -424,6 +433,55 @@ func TestAutoFullDrivesNodeRows_NotPlannedRowGetsNoStrandedNote(t *testing.T) {
 	}
 	if rows[0].Note != "" {
 		t.Errorf("autoFullDrivesNodeRows() Note = %q, want empty on a not-planned row even with a fleet warning present", rows[0].Note)
+	}
+}
+
+// TestAutoFullDrivesNodeRows_ConditionWithoutWarning_NoWarningsPointer is the regression for the
+// mid-walk-abort shape: the walk stops collecting fleet warnings the moment it hits an infeasible node
+// (autofulldrives.go), so a node sorting after it can carry a condition in the inventory with
+// plan.Warnings left empty. Each of the three gated arms must still surface the node's own reason, but
+// none may point at a WARNINGS section that was never written.
+func TestAutoFullDrivesNodeRows_ConditionWithoutWarning_NoWarningsPointer(t *testing.T) {
+	nodeInv := []capacityplanner.NodeCapacity{
+		{NodeName: "n-ineligible", FDValue: "n-ineligible", DriveCapacitiesGiB: []int{3840, 3840}, IneligibleReason: "cordoned"},
+		{NodeName: "n-deleting", FDValue: "n-deleting", DriveCapacitiesGiB: []int{3840, 3840}, HasDeletingDriveContainer: true},
+		{NodeName: "n-unsched", FDValue: "n-unsched", DriveCapacitiesGiB: []int{3840, 3840}},
+	}
+	existing := []capacityplanner.ExistingContainer{
+		{Name: "c-unsched", Node: "n-unsched", TlcGiB: 3840, NumCores: 1, NumDrives: 1, Unscheduled: true},
+	}
+	plan := &capacityplanner.CapacityPlan{
+		Infeasible: "some other node cannot fit",
+		Warnings:   nil,
+	}
+
+	byNode := map[string]autoFullDrivesNodeRow{}
+	for _, r := range autoFullDrivesNodeRows(nodeInv, existing, plan) {
+		byNode[r.Node] = r
+	}
+
+	ineligible := byNode["n-ineligible"]
+	if !strings.Contains(ineligible.Note, "cordoned") {
+		t.Errorf("n-ineligible Note = %q, want its own IneligibleReason verbatim", ineligible.Note)
+	}
+	if strings.Contains(ineligible.Note, "WARNINGS") {
+		t.Errorf("n-ineligible Note = %q, must not point at WARNINGS — plan.Warnings is empty", ineligible.Note)
+	}
+
+	deleting := byNode["n-deleting"]
+	if !strings.Contains(deleting.Note, "being deleted") {
+		t.Errorf("n-deleting Note = %q, want the deletion reason", deleting.Note)
+	}
+	if strings.Contains(deleting.Note, "WARNINGS") {
+		t.Errorf("n-deleting Note = %q, must not point at WARNINGS — plan.Warnings is empty", deleting.Note)
+	}
+
+	unsched := byNode["n-unsched"]
+	if !strings.Contains(unsched.Note, "not been scheduled") {
+		t.Errorf("n-unsched Note = %q, want the deferred-growth reason", unsched.Note)
+	}
+	if strings.Contains(unsched.Note, "WARNINGS") {
+		t.Errorf("n-unsched Note = %q, must not point at WARNINGS — plan.Warnings is empty", unsched.Note)
 	}
 }
 
@@ -494,7 +552,7 @@ func TestAutoFullDrivesPlanSummary(t *testing.T) {
 		t.Errorf("autoFullDrivesPlanSummary() = %q, want no warning mention when Warnings is empty", steady)
 	}
 
-	steadyWithWarnings := autoFullDrivesPlanSummary(&capacityplanner.CapacityPlan{Warnings: []capacityplanner.Warning{{Kind: capacityplanner.WarningKindTransient, Subject: "n1", Message: "placement deferred"}}}, signedSteady)
+	steadyWithWarnings := autoFullDrivesPlanSummary(&capacityplanner.CapacityPlan{Warnings: []capacityplanner.Warning{{Kind: capacityplanner.WarningKindTransient, Message: "placement deferred"}}}, signedSteady)
 	if !strings.Contains(steadyWithWarnings, "steady state") || !strings.Contains(steadyWithWarnings, "1 warning") {
 		t.Errorf("autoFullDrivesPlanSummary() = %q, want steady state AND a warning count", steadyWithWarnings)
 	}
@@ -556,7 +614,7 @@ func TestRenderAutoFullDrivesPlanText(t *testing.T) {
 	d := autoFullDrivesPlanData{
 		Cluster: "test-cluster",
 		Plan: &capacityplanner.CapacityPlan{
-			Warnings: []capacityplanner.Warning{{Kind: capacityplanner.WarningKindTransient, Subject: "n-deferred", Message: "node n-deferred still hosts a drive container being deleted — placement deferred"}},
+			Warnings: []capacityplanner.Warning{{Kind: capacityplanner.WarningKindTransient, Message: "node n-deferred still hosts a drive container being deleted — placement deferred"}},
 		},
 		Nodes: []autoFullDrivesNodeRow{
 			{Node: "n-create", FD: "n-create", DrivesUsed: 2, DrivesAvail: 2, TlcGiB: 7680, Cores: 2, State: "create"},

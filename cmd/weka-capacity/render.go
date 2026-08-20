@@ -479,7 +479,8 @@ func renderAutoFullDrivesPlanText(d *autoFullDrivesPlanData) string {
 	}
 
 	// NODES: one row per node with a signed full drive — drives used/avail, TLC, cores, and STATE
-	// (create/grow/existing/not-planned). NOTE surfaces the matching Warnings entry directly on the row.
+	// (create/grow/existing/not-planned). NOTE explains a row holding fewer drives than it offers and points
+	// at the WARNINGS list below for the fleet-wide detail.
 	if len(d.Nodes) > 0 {
 		fmt.Fprintln(&buf, "\nNODES") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
 		tw := tabwriter.NewWriter(&buf, 0, 2, 2, ' ', 0)

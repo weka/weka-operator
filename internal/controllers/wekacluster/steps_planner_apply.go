@@ -326,11 +326,11 @@ func (r *wekaClusterReconcilerLoop) announceDriveGrowth(plan *capacityplanner.Ca
 			msg += fmt.Sprintf("; %d of %d planned container(s) could not be grown and will be retried (see the operator log)",
 				failed, len(plan.Grow))
 		}
-		r.emitPlannerEvent(reasonAutoFullDrivesGrowthDetected, "", msg)
+		r.emitPlannerEvent(reasonAutoFullDrivesGrowthDetected, msg)
 		return
 	}
 	if err != nil {
-		r.emitPlannerEvent(reasonAutoFullDrivesGrowthDeferred, "",
+		r.emitPlannerEvent(reasonAutoFullDrivesGrowthDeferred,
 			fmt.Sprintf("auto full drives growth was planned for %d drive container(s) but none could be applied: %v; the operator retries on the next reconcile, but a later plan may no longer offer the same growth",
 				len(plan.Grow), err))
 	}

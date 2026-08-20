@@ -43,60 +43,52 @@ const (
 // alerting. Reasons describing a transition or a hard stop keep the shorter window.
 const plannerConvergedEventInterval = 15 * time.Minute
 
-type throttleKey int
-
-const (
-	// keyPerReason: one event per reason per window.
-	keyPerReason throttleKey = iota
-	// keyPerNode: one event per node per window, so N constrained nodes each get one instead of the first
-	// starving the rest. Keying on the message instead would post a fresh event every time an embedded
-	// number drifted.
-	keyPerNode
-)
+// plannerAggregateEventInterval throttles the fleet-wide aggregates, whose message names the affected node
+// set. RecordEventThrottled keys on eventtype+reason and ignores the message, so a window also withholds an
+// aggregate naming a *different* set: a node cordoned two minutes after the first event would otherwise wait
+// out the whole converged-state window. Short enough that a changed set is reported promptly, long enough
+// that a stable one is not re-posted every reconcile.
+const plannerAggregateEventInterval = 3 * time.Minute
 
 type plannerEventSpec struct {
 	eventType string
 	interval  time.Duration
-	key       throttleKey
 }
 
 var plannerEventSpecs = map[string]plannerEventSpec{
-	reasonClusterCapacityPlanned:             {corev1.EventTypeNormal, time.Minute, keyPerReason},
-	reasonClusterCapacityInfeasible:          {corev1.EventTypeWarning, time.Minute, keyPerReason},
-	reasonClusterCapacityDeferred:            {corev1.EventTypeNormal, time.Minute, keyPerReason},
-	reasonClusterCapacityShrink:              {corev1.EventTypeNormal, time.Minute, keyPerReason},
-	reasonClusterCapacityOverProvisioned:     {corev1.EventTypeNormal, time.Minute, keyPerReason},
-	reasonClusterCapacityHeterogeneousGrowth: {corev1.EventTypeWarning, time.Minute, keyPerReason},
+	reasonClusterCapacityPlanned:             {corev1.EventTypeNormal, time.Minute},
+	reasonClusterCapacityInfeasible:          {corev1.EventTypeWarning, time.Minute},
+	reasonClusterCapacityDeferred:            {corev1.EventTypeNormal, time.Minute},
+	reasonClusterCapacityShrink:              {corev1.EventTypeNormal, time.Minute},
+	reasonClusterCapacityOverProvisioned:     {corev1.EventTypeNormal, time.Minute},
+	reasonClusterCapacityHeterogeneousGrowth: {corev1.EventTypeWarning, time.Minute},
 
-	reasonAutoFullDrivesPlanned:        {corev1.EventTypeNormal, time.Minute, keyPerReason},
-	reasonAutoFullDrivesInfeasible:     {corev1.EventTypeWarning, time.Minute, keyPerReason},
-	reasonAutoFullDrivesNoSignedDrives: {corev1.EventTypeNormal, time.Minute, keyPerReason},
-	reasonAutoFullDrivesGrowthDetected: {corev1.EventTypeNormal, time.Minute, keyPerReason},
-	reasonAutoFullDrivesGrowthDeferred: {corev1.EventTypeWarning, plannerConvergedEventInterval, keyPerReason},
+	reasonAutoFullDrivesPlanned:        {corev1.EventTypeNormal, time.Minute},
+	reasonAutoFullDrivesInfeasible:     {corev1.EventTypeWarning, time.Minute},
+	reasonAutoFullDrivesNoSignedDrives: {corev1.EventTypeNormal, time.Minute},
+	reasonAutoFullDrivesGrowthDetected: {corev1.EventTypeNormal, time.Minute},
+	reasonAutoFullDrivesGrowthDeferred: {corev1.EventTypeWarning, plannerConvergedEventInterval},
 	// Stranding is expected under a numDrives pin and a transient deferral clears itself, so neither is a
 	// Warning — emitting them as such made a healthy converged cluster accumulate Warnings.
-	reasonAutoFullDrivesDrivesStranded:    {corev1.EventTypeNormal, plannerConvergedEventInterval, keyPerReason},
-	reasonAutoFullDrivesPlacementDeferred: {corev1.EventTypeNormal, plannerConvergedEventInterval, keyPerNode},
+	reasonAutoFullDrivesDrivesStranded:    {corev1.EventTypeNormal, plannerAggregateEventInterval},
+	reasonAutoFullDrivesPlacementDeferred: {corev1.EventTypeNormal, plannerAggregateEventInterval},
 	// Normal, not Warning: withholding a node costs nothing on its own — the plan proceeds on the rest, and
 	// when the loss does matter the plan turns infeasible and AutoFullDrivesInfeasible carries that as a
-	// Warning. Keyed per node so one node's condition cannot starve another's out of the throttle window.
-	reasonAutoFullDrivesNodeIneligible: {corev1.EventTypeNormal, plannerConvergedEventInterval, keyPerNode},
-	reasonAutoFullDrivesComputeLayout:  {corev1.EventTypeWarning, plannerConvergedEventInterval, keyPerReason},
-	reasonAutoFullDrivesWarning:        {corev1.EventTypeWarning, plannerConvergedEventInterval, keyPerReason},
+	// Warning. Aggregate window, not the converged one: cordon/taint is an administrative state that persists
+	// for minutes-to-hours, but the set of cordoned nodes changes within that, and the throttle key cannot
+	// tell one node list from another.
+	reasonAutoFullDrivesNodeIneligible: {corev1.EventTypeNormal, plannerAggregateEventInterval},
+	reasonAutoFullDrivesComputeLayout:  {corev1.EventTypeWarning, plannerConvergedEventInterval},
+	reasonAutoFullDrivesWarning:        {corev1.EventTypeWarning, plannerConvergedEventInterval},
 }
 
-// emitPlannerEvent records message on the WekaCluster under reason, with that reason's policy. subject is the
-// node name, used only by keyPerNode rows.
-func (r *wekaClusterReconcilerLoop) emitPlannerEvent(reason, subject, message string) {
+// emitPlannerEvent records message on the WekaCluster under reason, with that reason's policy.
+func (r *wekaClusterReconcilerLoop) emitPlannerEvent(reason, message string) {
 	spec, known := plannerEventSpecs[reason]
 	if !known {
 		// A reason with no row is a programming error that TestPlannerEventSpecsCoverEveryReason catches; still
 		// emit rather than silently drop it.
 		spec = plannerEventSpec{eventType: corev1.EventTypeWarning, interval: time.Minute}
-	}
-	if spec.key == keyPerNode {
-		_ = r.RecordEventThrottledPerSubject(spec.eventType, reason, subject, message, spec.interval) //nolint:errcheck // best effort
-		return
 	}
 	_ = r.RecordEventThrottled(spec.eventType, reason, message, spec.interval) //nolint:errcheck // best effort
 }

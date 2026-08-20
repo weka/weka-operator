@@ -1,9 +1,6 @@
 package capacityplanner
 
-import (
-	"fmt"
-	"strings"
-)
+import "fmt"
 
 // autofulldrives_sizing.go is the pure sizing layer of the auto-full-drives mode: every semantics rule about
 // how big a container is, with no resource model at all. The create and growth paths share it verbatim.
@@ -90,30 +87,4 @@ func autoSizeNode(
 	}
 
 	return autoNodePlan{node: name, drives: drives[:taken], cores: cores}, nil
-}
-
-// strandedNode is one node where a pinned dynamicTemplate.numDrives left signed full drives unused,
-// collected during the walk so the whole fleet is reported in a single DrivesStranded warning.
-type strandedNode struct {
-	node   string
-	signed int // drives signed on the node
-	used   int // drives the container takes
-}
-
-// formatStrandedWarning renders the aggregated DrivesStranded message. The only cause is a pinned numDrives,
-// an operator choice, hence Normal rather than Warning downstream. Aggregated because the cause is one
-// fleet-wide setting: per-node fan-out would turn one condition into one near-identical Warning per node,
-// each repeating the same ~300-character remedy.
-func formatStrandedWarning(stranded []strandedNode, pin int) Warning {
-	parts := make([]string, 0, len(stranded))
-	unused := 0
-	for _, s := range stranded {
-		parts = append(parts, fmt.Sprintf("%s (%d of %d)", s.node, s.used, s.signed))
-		unused += s.signed - s.used
-	}
-	return fleetWarning(WarningKindDrivesStranded,
-		"auto full drives: dynamicTemplate.numDrives=%d is pinned, so each container takes only its node's %d "+
-			"largest drive(s) — %d node(s) have more, leaving %d drive(s) unused in total; per node (used of "+
-			"signed): %s; unset numDrives to claim every signed full drive on every node",
-		pin, pin, len(stranded), unused, strings.Join(parts, ", "))
 }

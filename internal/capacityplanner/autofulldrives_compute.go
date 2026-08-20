@@ -3,6 +3,7 @@ package capacityplanner
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // autofulldrives_compute.go sizes the compute side of an auto-full-drives plan. Compute is derived from the
@@ -160,10 +161,16 @@ func planComputeAutoFullDrives(in *autoComputeInput, plan *CapacityPlan) {
 		if !autoRederiveKeptHugepages(kept, len(kept)+count, in, plan) {
 			return
 		}
-		for _, w := range warnings {
-			plan.Warnings = append(plan.Warnings, Warning{Kind: WarningKindComputeLayout, Message: w})
+		// Every compute advisory accumulates here and leaves as one Warning: they share the single reason
+		// AutoFullDrivesComputeLayout, whose throttle key ignores the message, so a second Warning under that
+		// reason is silently dropped for the whole window instead of reported. autoPlaceNewCompute's surplus
+		// advisory is the only contributor today: deriveComputeLayout never populates its warnings return.
+		advisories := append([]string(nil), warnings...)
+		autoPlaceNewCompute(in, plan, kept, placeable, coreHeadroom, count, cores, newTarget, &advisories)
+		if len(advisories) > 0 {
+			plan.Warnings = append(plan.Warnings,
+				fleetWarning(WarningKindComputeLayout, "auto full drives: %s", strings.Join(advisories, "; ")))
 		}
-		autoPlaceNewCompute(in, plan, kept, placeable, coreHeadroom, count, cores, newTarget)
 		return
 	}
 
@@ -336,7 +343,7 @@ func autoRederiveKeptHugepages(kept []autoComputeEntry, totalCount int, in *auto
 // them to cover `target` cores, and finishes the plan.
 func autoPlaceNewCompute(
 	in *autoComputeInput, plan *CapacityPlan, kept []autoComputeEntry,
-	placeable []string, coreHeadroom []int, count, cores, target int,
+	placeable []string, coreHeadroom []int, count, cores, target int, advisories *[]string,
 ) {
 	layout := autoComputeSpecs(kept)
 	if count <= 0 {
@@ -375,9 +382,9 @@ func autoPlaceNewCompute(
 	if in.desired.ComputeCores > 0 {
 		shortfall = count * cores
 	} else if target < count {
-		plan.Warnings = append(plan.Warnings, fleetWarning(WarningKindComputeLayout,
-			"auto full drives: a cluster cannot form below %d compute container(s) but the compute:drive ratio "+
-				"needs only %d more core(s); the surplus container(s) are created with the 1-core minimum",
+		*advisories = append(*advisories, fmt.Sprintf(
+			"a cluster cannot form below %d compute container(s) but the compute:drive ratio needs only %d more "+
+				"core(s); the surplus container(s) are created with the 1-core minimum",
 			count, target))
 	}
 
