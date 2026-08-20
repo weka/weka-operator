@@ -12,23 +12,16 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
-// clusterSizingModeFlip rejects an update that changes the cluster's DERIVED sizing mode while drive
-// containers already exist. The mode is implicit — it follows from which of
-// computeContainers/driveContainers/clusterCapacity/containerCapacity/driveCapacity are set — so
+// clusterSizingModeFlip rejects an update that changes the cluster's derived sizing mode while drive
+// containers already exist. The mode is implicit — it follows from which sizing fields are set — so
 // nothing else makes the flip loud. Left unchecked, adding driveContainers to a live auto-full-drives
-// ("acts as a daemonset") cluster starts creating count-based single-drive containers alongside the
-// node-sized ones already running, and the two sizing regimes fight over the same drives forever.
+// cluster starts creating count-based single-drive containers alongside the node-sized ones already
+// running, and the two regimes fight over the same drives forever; the capacity modes fail the same way
+// in their own idiom (see modeFlipConsequence). Two switches are supported, allowlisted in
+// modeSwitchSupported.
 //
-// It covers EVERY transition, not only the ones touching auto-full-drives, because nothing else does:
-// the cluster_capacity_* policies are create-shaped and never see the old object, and
-// cluster_capacity_chunk_feasibility deliberately disarms itself once drive containers exist. The
-// capacity modes fail the same way in their own idiom — see modeFlipConsequence for each.
-//
-// Two switches ARE supported and are allowlisted in modeSwitchSupported.
-//
-// Error in BOTH modes: unlike a capacity check, there is no degraded-but-working outcome here.
-// Deliberately scoped to clusters that already HAVE drive containers — before any exist the mode is
-// still free to change, which is what makes fixing a mistyped spec possible.
+// Scoped to clusters that already HAVE drive containers: before any exist the mode is still free to
+// change, which is what makes fixing a mistyped spec possible.
 type clusterSizingModeFlip struct{}
 
 func (clusterSizingModeFlip) ID() string { return "cluster_sizing_mode_flip" }

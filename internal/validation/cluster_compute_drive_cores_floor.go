@@ -8,8 +8,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/weka/weka-operator/internal/controllers/allocator"
 )
 
 // clusterComputeDriveCoresFloor enforces the hard 1:1 floor between total compute and drive cores
@@ -29,28 +27,11 @@ func (clusterComputeDriveCoresFloor) Validate(_ context.Context, _ client.Client
 	if !ok {
 		return nil
 	}
-	if cluster.Spec.Dynamic == nil {
+
+	driveSide, computeSide, ok := templateCoreSides(cluster.Spec.Dynamic)
+	if !ok {
 		return nil
 	}
-
-	// clusterCapacity sizes both sides through the planner: computeCores/driveCores left at 0 mean
-	// "auto-derive" there (funcs_fd_planning.go), and the compute containers are built from
-	// plan.ComputeCores/plan.ComputeLayout rather than the template. Reading GetWekaContainerCores'
-	// static-template defaults (unset -> 1 core) would compare numbers the cluster never uses and reject
-	// a plan the planner sizes correctly. Auto full drives is excluded by the count guard below.
-	if allocator.IsPlannerManaged(cluster.Spec.Dynamic) {
-		return nil
-	}
-
-	driveContainers := cluster.Spec.Dynamic.DriveContainers
-	computeContainers := cluster.Spec.Dynamic.ComputeContainers
-	if driveContainers <= 0 || computeContainers <= 0 {
-		return nil
-	}
-
-	cores := allocator.GetWekaContainerCores(cluster.Spec.Dynamic)
-	driveSide := driveContainers * cores.Drive
-	computeSide := computeContainers * cores.Compute
 
 	if computeSide >= driveSide {
 		return nil
