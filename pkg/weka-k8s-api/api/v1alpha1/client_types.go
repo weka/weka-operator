@@ -104,6 +104,9 @@ type PortRange struct {
 type PodResources struct {
 	Cpu    resource.Quantity `json:"cpu,omitempty"`
 	Memory resource.Quantity `json:"memory,omitempty"`
+	// Hugepages2Mi is requested verbatim as the pod's hugepages-2Mi resource. 1Gi pages are
+	// not settable through this field.
+	Hugepages2Mi resource.Quantity `json:"hugepages-2Mi,omitempty"`
 }
 
 type PodResourcesSpec struct {

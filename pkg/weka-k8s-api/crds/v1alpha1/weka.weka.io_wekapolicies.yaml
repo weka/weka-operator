@@ -137,6 +137,60 @@ spec:
                           DistNodeSelector is the node selector for the drivers distribution (dist) container.
                           If not specified, the dist container will be scheduled on any available node.
                         type: object
+                      distResources:
+                        description: |-
+                          DistResources overrides the pod resources of the drivers distribution (dist) container.
+                          Fields left empty keep the built-in sizing.
+                        properties:
+                          limits:
+                            properties:
+                              cpu:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              hugepages-2Mi:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: |-
+                                  Hugepages2Mi is requested verbatim as the pod's hugepages-2Mi resource. 1Gi pages are
+                                  not settable through this field.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              memory:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                            type: object
+                          requests:
+                            properties:
+                              cpu:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              hugepages-2Mi:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: |-
+                                  Hugepages2Mi is requested verbatim as the pod's hugepages-2Mi resource. 1Gi pages are
+                                  not settable through this field.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              memory:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                            type: object
+                        type: object
                       ensureImages:
                         description: EnsureImages is a list of Weka images for which
                           drivers should be proactively built.

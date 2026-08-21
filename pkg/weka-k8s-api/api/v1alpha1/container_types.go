@@ -643,6 +643,24 @@ func (w *WekaContainer) ShouldJoinCluster() bool {
 	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsEnvoy() && !w.IsSSDProxyContainer() && !w.IsTelemetry()
 }
 
+// NamedHugepages2MiMiB returns the hugepages-2Mi amount (MiB) that spec.resources names, and
+// whether it named one at all. Request and limit are interchangeable here since kubelet requires
+// a hugepages request and its limit to be equal. Shared so the pod's real request and the
+// capacity planner's charge for it cannot drift apart.
+func (s *WekaContainerSpec) NamedHugepages2MiMiB() (int, bool) {
+	if s.Resources == nil {
+		return 0, false
+	}
+	q := s.Resources.Requests.Hugepages2Mi
+	if q.IsZero() {
+		q = s.Resources.Limits.Hugepages2Mi
+	}
+	if q.IsZero() {
+		return 0, false
+	}
+	return int(q.Value() / (1024 * 1024)), true
+}
+
 func (w *WekaContainer) IsDriversContainer() bool {
 	return slices.Contains([]string{
 		WekaContainerModeDist,

@@ -115,6 +115,9 @@ type DriverDistPayload struct {
 	// DistNodeSelector is the node selector for the drivers distribution (dist) container.
 	// If not specified, the dist container will be scheduled on any available node.
 	DistNodeSelector map[string]string `json:"distNodeSelector,omitempty"`
+	// DistResources overrides the pod resources of the drivers distribution (dist) container.
+	// Fields left empty keep the built-in sizing.
+	DistResources *PodResourcesSpec `json:"distResources,omitempty"`
 }
 
 func init() {
