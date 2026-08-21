@@ -247,6 +247,7 @@
 |------------|------|-------------|
 | cpu | resource.Quantity |  |
 | memory | resource.Quantity |  |
+| hugepages-2Mi | resource.Quantity | Hugepages2Mi is requested verbatim as the pod's hugepages-2Mi resource. 1Gi pages are<br>not settable through this field. |
 
 ---
 

@@ -1180,6 +1180,16 @@
           },
           "description": "DistNodeSelector is the node selector for the drivers distribution (dist) container.\nIf not specified, the dist container will be scheduled on any available node.",
           "optional": true
+        },
+        {
+          "name": "DistResources",
+          "jsonName": "distResources",
+          "type": {
+            "$ref": "#/definitions/PodResourcesSpec"
+          },
+          "description": "DistResources overrides the pod resources of the drivers distribution (dist) container.\nFields left empty keep the built-in sizing.",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -1984,11 +1994,19 @@
           "jsonName": "memory",
           "type": "k8s:resource.Quantity",
           "optional": true
+        },
+        {
+          "name": "Hugepages2Mi",
+          "jsonName": "hugepages-2Mi",
+          "type": "k8s:resource.Quantity",
+          "description": "Hugepages2Mi is requested verbatim as the pod's hugepages-2Mi resource. 1Gi pages are\nnot settable through this field.",
+          "optional": true
         }
       ],
       "usedBy": [
         "WekaClient",
-        "WekaContainer"
+        "WekaContainer",
+        "WekaPolicy"
       ]
     },
     "PodResourcesSpec": {
@@ -2013,7 +2031,8 @@
       ],
       "usedBy": [
         "WekaClient",
-        "WekaContainer"
+        "WekaContainer",
+        "WekaPolicy"
       ]
     },
     "PolicyPayload": {

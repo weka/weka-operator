@@ -5,6 +5,7 @@ import (
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -309,4 +310,47 @@ func TestMergeRoleNodes(t *testing.T) {
 			t.Errorf("computeOnly should be diskless and compute-eligible, got tlc=%d qlc=%d eligible=%v", byName["computeOnly"].TlcGiB, byName["computeOnly"].QlcGiB, eligible["computeOnly"])
 		}
 	})
+}
+
+// TestSpec2MiHugepages_HonorsNamedResources covers spec.resources naming hugepages-2Mi outright.
+// The planner has to charge what the POD actually requests, otherwise it reserves one amount
+// while the scheduler is handed another and the node silently ends up over- or under-subscribed.
+func TestSpec2MiHugepages_HonorsNamedResources(t *testing.T) {
+	withResources := func(hugepages int, size string, r *weka.PodResourcesSpec) *weka.WekaContainer {
+		c := &weka.WekaContainer{}
+		c.Spec.Mode = weka.WekaContainerModeClient
+		c.Spec.Hugepages = hugepages
+		c.Spec.HugepagesSize = size
+		c.Spec.Resources = r
+		return c
+	}
+	q := func(s string) *weka.PodResourcesSpec {
+		return &weka.PodResourcesSpec{
+			Requests: weka.PodResources{Hugepages2Mi: resource.MustParse(s)},
+		}
+	}
+
+	cases := []struct {
+		name string
+		c    *weka.WekaContainer
+		want int
+	}{
+		{"no resources falls back to spec.hugepages", withResources(3000, "", nil), 3000},
+		{"empty resources falls back to spec.hugepages", withResources(3000, "", &weka.PodResourcesSpec{}), 3000},
+		{"named resources win over spec.hugepages", withResources(3000, "", q("2Gi")), 2048},
+		{"named resources charged on a 1Gi container too", withResources(4096, "1Gi", q("2Gi")), 2048},
+		{"1Gi container without an override charges no 2Mi", withResources(4096, "1Gi", nil), 0},
+		{"limits side alone is charged", withResources(0, "", &weka.PodResourcesSpec{
+			Limits: weka.PodResources{Hugepages2Mi: resource.MustParse("1Gi")},
+		}), 1024},
+		{"drivers-dist with no sizing of its own charges nothing", withResources(0, "", nil), 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := spec2MiHugepages(tc.c); got != tc.want {
+				t.Errorf("spec2MiHugepages = %d, want %d", got, tc.want)
+			}
+		})
+	}
 }

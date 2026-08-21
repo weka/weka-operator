@@ -631,6 +631,12 @@ func DriveContainerCapacities(c *weka.WekaContainer) (tlcGiB, qlcGiB int) {
 // spec2MiHugepages returns the container's 2Mi hugepage request (MiB). The planner's headroom tracks
 // hugepages-2Mi only; a container reserving 1Gi hugepages draws from a distinct pool.
 func spec2MiHugepages(c *weka.WekaContainer) int {
+	// spec.resources may name hugepages-2Mi outright, in which case that — not spec.Hugepages — is
+	// what the pod requests (resources/pod.go applyResourcesOverride writes it under its own name,
+	// on 1Gi-paged containers too), so it is what has to be charged against the node.
+	if named, ok := c.Spec.NamedHugepages2MiMiB(); ok {
+		return named
+	}
 	if c.Spec.Hugepages <= 0 || c.Spec.HugepagesSize == "1Gi" {
 		return 0
 	}

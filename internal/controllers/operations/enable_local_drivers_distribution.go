@@ -449,6 +449,14 @@ func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) er
 	}
 
 	_, err = controllerutil.CreateOrUpdate(ctx, o.client, wc, func() error {
+		// Sizing is not owned by the policy: carry what is already on the container across this
+		// full-spec rewrite so a direct patch sticks, unless the payload states it.
+		additionalMemory := wc.Spec.AdditionalMemory
+		hugepages, hugepagesSize := wc.Spec.Hugepages, wc.Spec.HugepagesSize
+		podResources := wc.Spec.Resources
+		if o.payload.DistResources != nil {
+			podResources = o.payload.DistResources.DeepCopy()
+		}
 		wc.Spec = weka.WekaContainerSpec{
 			Image:              o.containerDetails.Image, // Image from WekaPolicy.Spec.Image
 			ImagePullSecret:    o.containerDetails.ImagePullSecret,
@@ -460,11 +468,11 @@ func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) er
 			Tolerations:        o.containerDetails.Tolerations,
 			NodeSelector:       o.payload.DistNodeSelector, // Use the new DistNodeSelector
 			ServiceAccountName: o.containerDetails.ServiceAccountName,
-			// Affinity, Resources etc. as needed for a dist service
-			// This container needs to run on a node that can host the service.
+			AdditionalMemory:   additionalMemory,
+			Hugepages:          hugepages,
+			HugepagesSize:      hugepagesSize,
+			Resources:          podResources,
 		}
-		// Add other necessary spec fields for drivers-dist container
-		// For example, port configuration, resource requests/limits.
 		return controllerutil.SetControllerReference(o.policy, wc, o.scheme)
 	})
 

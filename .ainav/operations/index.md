@@ -46,6 +46,12 @@ Manual operations, policies, CSI, and driver management.
 | `deploy_csi.go` | CSI deployment coordination |
 | `operations.go` | Shared operation types |
 
+## Container Sizing
+
+See [drivers-dist-sizing.md](drivers-dist-sizing.md) for how `spec.resources`,
+`driverDistPayload.distResources` and `additionalMemory` reach the pod, and what
+overriding them costs.
+
 ## Policies vs Manual Operations
 
 - **WekaPolicy**: Recurring/scheduled operations

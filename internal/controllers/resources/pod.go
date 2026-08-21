@@ -1115,12 +1115,23 @@ func AlignMemoryToHugepageBoundary(memoryMiB, numCores int) int {
 func GetHugePagesDetails(container *weka.WekaContainer, ff *domain.FeatureFlags) HugePagesDetails {
 	var hugePagesStr, hugePagesK8sSuffix, wekaMemoryString string
 
+	// spec.resources hugepages-2Mi stands in for spec.hugepages, so a container with no hugepages
+	// sizing of its own (drivers-dist) can still request them. Only on a 2Mi-paged container: it
+	// names one specific resource, so against a 1Gi container it is a DIFFERENT resource and
+	// applyResourcesOverride adds it alongside rather than replacing this one.
+	hugepagesMiB := container.Spec.Hugepages
+	if container.Spec.HugepagesSize != "1Gi" {
+		if named, ok := container.Spec.NamedHugepages2MiMiB(); ok {
+			hugepagesMiB = named
+		}
+	}
+
 	if container.Spec.HugepagesSize == "1Gi" {
 		hugePagesK8sSuffix = container.Spec.HugepagesSize
-		hugePagesStr = fmt.Sprintf("%dGi", container.Spec.Hugepages/1000)
-		wekaMemoryString = fmt.Sprintf("%dGiB", container.Spec.Hugepages/1000)
+		hugePagesStr = fmt.Sprintf("%dGi", hugepagesMiB/1000)
+		wekaMemoryString = fmt.Sprintf("%dGiB", hugepagesMiB/1000)
 	} else {
-		hugePagesStr = fmt.Sprintf("%dMi", container.Spec.Hugepages)
+		hugePagesStr = fmt.Sprintf("%dMi", hugepagesMiB)
 		hugePagesK8sSuffix = "2Mi"
 		offset := GetHugePagesOffset(container)
 
@@ -1132,7 +1143,7 @@ func GetHugePagesDetails(container *weka.WekaContainer, ff *domain.FeatureFlags)
 			// with SsdProxyIncludesDpdkMemory: ssdproxy accounts for DPDK through weka,
 			// subtract only the hugepages offset buffer
 		}
-		memoryMiB := AlignMemoryToHugepageBoundary(container.Spec.Hugepages-offset, container.Spec.NumCores)
+		memoryMiB := AlignMemoryToHugepageBoundary(hugepagesMiB-offset, container.Spec.NumCores)
 		wekaMemoryString = fmt.Sprintf("%dMiB", memoryMiB)
 	}
 
@@ -1143,7 +1154,7 @@ func GetHugePagesDetails(container *weka.WekaContainer, ff *domain.FeatureFlags)
 		HugePagesK8sSuffix:    hugePagesK8sSuffix,
 		WekaMemoryString:      wekaMemoryString,
 		HugePagesResourceName: hugePagesName,
-		HugePagesMb:           container.Spec.Hugepages,
+		HugePagesMb:           hugepagesMiB,
 	}
 }
 
@@ -1275,6 +1286,12 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 		memRequest = "3000M"
 		cpuRequestStr = "500m"
 		cpuLimitStr = "2000m"
+		if f.container.Spec.AdditionalMemory != 0 {
+			// 3000M is decimal megabytes; AdditionalMemory is MiB everywhere else in this file
+			total := resource.MustParse("3000M")
+			total.Add(*resource.NewQuantity(int64(f.container.Spec.AdditionalMemory)*1024*1024, resource.BinarySI))
+			memRequest = total.String()
+		}
 	}
 	if f.container.IsDriversBuilder() {
 		cpuLimitStr = "16000m"
@@ -1302,7 +1319,11 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 			memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
 		} else {
 			memRequest = resources.Requests.Memory.String()
-			memLimit = resources.Limits.Memory.String()
+			// A zero Quantity renders as "0", not "", so taking it unconditionally would defeat
+			// the `memLimit == ""` fallback below and pin the limit at 0 against a real request.
+			if !resources.Limits.Memory.IsZero() {
+				memLimit = resources.Limits.Memory.String()
+			}
 		}
 	}
 
@@ -1535,7 +1556,41 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 		}
 	}
 
+	applyResourcesOverride(&pod.Spec.Containers[0].Resources, f.container.Spec.Resources)
+
 	return nil
+}
+
+// applyResourcesOverride lets a spec.resources entry win over the mode-based sizing; entries
+// left at zero stay with the calculation.
+//
+// Request and limit are written as a PAIR. Naming only one side would leave it against the
+// computed other side, which can invert them — e.g. requests.memory=8Gi against the drivers
+// baseline limit of 3000M — and kubelet rejects such a pod outright.
+//
+// hugepages-2Mi is written under its own literal name. On a 2Mi container that is the same key
+// hgDetails already produced, so this just restates it; on a 1Gi container the two are different
+// resources and the pod ends up requesting both, which is what naming a specific resource means.
+func applyResourcesOverride(target *corev1.ResourceRequirements, override *weka.PodResourcesSpec) {
+	if override == nil {
+		return
+	}
+	apply := func(name corev1.ResourceName, request, limit resource.Quantity) {
+		if request.IsZero() && limit.IsZero() {
+			return
+		}
+		if request.IsZero() {
+			request = limit
+		}
+		if limit.IsZero() {
+			limit = request
+		}
+		target.Requests[name] = request
+		target.Limits[name] = limit
+	}
+	apply(corev1.ResourceCPU, override.Requests.Cpu, override.Limits.Cpu)
+	apply(corev1.ResourceMemory, override.Requests.Memory, override.Limits.Memory)
+	apply(corev1.ResourceName(corev1.ResourceHugePagesPrefix+"2Mi"), override.Requests.Hugepages2Mi, override.Limits.Hugepages2Mi)
 }
 
 // NumaClaimNameForContainer returns the name of the namespace-scoped DRA ResourceClaim object

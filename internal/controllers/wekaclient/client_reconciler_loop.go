@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -645,6 +646,11 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
+	if podResourcesDigest(container.Spec.Resources) != newClientSpec.ResourcesDigest {
+		container.Spec.Resources = newClientSpec.Resources.DeepCopy()
+		changed = true
+	}
+
 	if container.Spec.UpgradePolicyType != newClientSpec.UpgradePolicy.Type {
 		container.Spec.UpgradePolicyType = newClientSpec.UpgradePolicy.Type
 		if container.Spec.Overrides == nil {
@@ -1223,6 +1229,38 @@ type UpdatableClientSpec struct {
 	Network                 weka.Network
 	DropAffinityConstraints bool
 	DpdkBaseMemoryMb        int
+	Resources               *weka.PodResourcesSpec
+	// ResourcesDigest carries Resources as text. HashStruct gob-encodes this struct and
+	// resource.Quantity keeps its value in unexported fields, so without a textual form a
+	// changed quantity leaves the spec hash identical and the update never fires.
+	ResourcesDigest string
+}
+
+// podResourcesDigest renders a resources spec as text for hashing and comparison. Unset and
+// all-zero collapse to the same digest, so a container created with no resources does not
+// diff forever against a client carrying an empty struct.
+func podResourcesDigest(r *weka.PodResourcesSpec) string {
+	if r == nil {
+		return ""
+	}
+	if r.Requests.Cpu.IsZero() && r.Requests.Memory.IsZero() && r.Requests.Hugepages2Mi.IsZero() &&
+		r.Limits.Cpu.IsZero() && r.Limits.Memory.IsZero() && r.Limits.Hugepages2Mi.IsZero() {
+		return ""
+	}
+	return strings.Join([]string{
+		r.Requests.Cpu.String(), r.Requests.Memory.String(), r.Requests.Hugepages2Mi.String(),
+		r.Limits.Cpu.String(), r.Limits.Memory.String(), r.Limits.Hugepages2Mi.String(),
+	}, "/")
+}
+
+// normalizePodResources drops an all-zero spec to nil so "resources: {}" is indistinguishable
+// from unset — both mean "use the computed sizing". Without this the two forms gob-encode
+// differently and the spec hash would churn on every reconcile.
+func normalizePodResources(r *weka.PodResourcesSpec) *weka.PodResourcesSpec {
+	if podResourcesDigest(r) == "" {
+		return nil
+	}
+	return r
 }
 
 func NewUpdatableClientSpec(wekaClient *weka.WekaClient) *UpdatableClientSpec {
@@ -1260,6 +1298,8 @@ func NewUpdatableClientSpec(wekaClient *weka.WekaClient) *UpdatableClientSpec {
 		Network:                 spec.Network,
 		DropAffinityConstraints: spec.GetOverrides().DropAffinityConstraints,
 		DpdkBaseMemoryMb:        spec.GetOverrides().DpdkBaseMemoryMb,
+		Resources:               normalizePodResources(spec.Resources),
+		ResourcesDigest:         podResourcesDigest(spec.Resources),
 	}
 }
 

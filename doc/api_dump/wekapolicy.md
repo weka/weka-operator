@@ -19,8 +19,10 @@
 - [PCIDevices](#pcidevices)
 - [SignOptions](#signoptions)
 - [DriveTypeOverrides](#drivetypeoverrides)
+- [PodResourcesSpec](#podresourcesspec)
 - [ObjectReference](#objectreference)
 - [DriveTypeOverrideRule](#drivetypeoverriderule)
+- [PodResources](#podresources)
 
 ---
 
@@ -138,6 +140,7 @@
 | builderImageOverride | string | BuilderImageOverride is an optional image that you can specify for the builder |
 | builderPreRunScript | *string | BuilderPreRunScript is an optional script to run on builder containers after kernel validation. |
 | distNodeSelector | map[string]string | DistNodeSelector is the node selector for the drivers distribution (dist) container.<br>If not specified, the dist container will be scheduled on any available node. |
+| distResources | *PodResourcesSpec | DistResources overrides the pod resources of the drivers distribution (dist) container.<br>Fields left empty keep the built-in sizing. |
 
 ---
 
@@ -202,6 +205,15 @@
 
 ---
 
+## PodResourcesSpec
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| requests | PodResources |  |
+| limits | PodResources |  |
+
+---
+
 ## ObjectReference
 
 | JSON Field | Type | Description |
@@ -218,6 +230,16 @@
 | model | string | Model matches the device model exactly, case-insensitively, ignoring surrounding<br>whitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1<br>Empty means "do not match on model". |
 | capacityGiB | int | CapacityGiB matches the drive capacity in GiB exactly, as reported in the<br>weka.io/weka-shared-drives annotation. 0 means "do not match on capacity". |
 | type | string | Type is the drive type to report for matching drives. |
+
+---
+
+## PodResources
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| cpu | resource.Quantity |  |
+| memory | resource.Quantity |  |
+| hugepages-2Mi | resource.Quantity | Hugepages2Mi is requested verbatim as the pod's hugepages-2Mi resource. 1Gi pages are<br>not settable through this field. |
 
 ---
 
