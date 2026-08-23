@@ -151,6 +151,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			DpdkBaseMemoryMb:      dpdkBaseMemoryMb,
 			Overrides: &wekav1alpha1.WekaContainerSpecOverrides{
 				MachineIdentifierNodeRef: cluster.Spec.GetOverrides().MachineIdentifierNodeRef,
+				NoReserveSpace:           cluster.Spec.GetOverrides().NoReserveSpace,
 			},
 		},
 	}

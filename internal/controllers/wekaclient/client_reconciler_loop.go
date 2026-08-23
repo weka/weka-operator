@@ -548,6 +548,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 				ForceDrain:               wekaClient.Spec.GetOverrides().ForceDrain,
 				SkipActiveMountsCheck:    wekaClient.Spec.GetOverrides().SkipActiveMountsCheck,
 				UmountOnHost:             wekaClient.Spec.GetOverrides().UmountOnHost,
+				NoReserveSpace:           wekaClient.Spec.GetOverrides().NoReserveSpace,
 			},
 			AutoRemoveTimeout:     wekaClient.Spec.AutoRemoveTimeout,
 			Resources:             wekaClient.Spec.Resources,

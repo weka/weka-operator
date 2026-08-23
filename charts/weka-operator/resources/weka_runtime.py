@@ -80,6 +80,7 @@ NET_GATEWAY = os.environ.get("NET_GATEWAY", None)
 IS_IPV6 = os.environ.get("IS_IPV6", "false") == "true"
 MANAGEMENT_IPS = []  # to be populated at later stage
 UDP_MODE = os.environ.get("UDP_MODE", "false") == "true"
+NO_RESERVE_SPACE = os.environ.get("NO_RESERVE_SPACE", "false") == "true"
 DUMPER_CONFIG_MODE = os.environ.get("DUMPER_CONFIG_MODE", "auto")
 EXCLUDED_DRIVE_PATHS = []  # List of device paths to exclude from signing
 
@@ -3196,6 +3197,18 @@ async def configure_agent(agent_handle_drivers=False):
     if MODE in ['envoy', 's3']:
         expand_condition_mounts = ",envoy-data"
 
+    # weka images do not always ship a [mounts] section, so create it before setting the key
+    no_reserve_space_cmd = ""
+    if NO_RESERVE_SPACE:
+        no_reserve_space_cmd = dedent("""
+        grep -q "^\\[mounts\\]" /etc/wekaio/service.conf || printf '\\n[mounts]\\n' >> /etc/wekaio/service.conf
+        if grep -qE "^[[:space:]]*allocate_reserved_space[[:space:]]*=" /etc/wekaio/service.conf; then
+            sed -i -E "s/^[[:space:]]*allocate_reserved_space[[:space:]]*=.*/allocate_reserved_space=false/g" /etc/wekaio/service.conf
+        else
+            sed -i "/^\\[mounts\\]/a allocate_reserved_space=false" /etc/wekaio/service.conf
+        fi
+        """)
+
     drivers_handling_cmd = f"""
     # Check if the last line contains the pattern
     CONFFILE="/etc/wekaio/service.conf"
@@ -3222,6 +3235,7 @@ async def configure_agent(agent_handle_drivers=False):
 
     cmd = dedent(f"""
         {drivers_handling_cmd}
+        {no_reserve_space_cmd}
         sed -i 's/cgroups_mode=auto/cgroups_mode=none/g' /etc/wekaio/service.conf || true
         sed -i 's/override_core_pattern=true/override_core_pattern=false/g' /etc/wekaio/service.conf || true
         sed -i "s/port=14100/port={AGENT_PORT}/g" /etc/wekaio/service.conf || true

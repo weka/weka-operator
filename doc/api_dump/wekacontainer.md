@@ -226,6 +226,7 @@
 | umountOnHost | bool | unsafe operation, runs nsenter in root namespace to umount all wekafs mounts visible on host |
 | debugSleepOnTerminate | int | DebugSleepOnTerminate specifies the number of seconds to sleep on container abnormal exit for debugging purposes |
 | migrateOutFromPvc | bool | MigrateOutFromPvc specifies that the container should be migrated out from PVC into local storage, this will be done prior to starting pod |
+| noReserveSpace | bool | configures the weka agent with [mounts] allocate_reserved_space=false. set once, at container<br>creation, from the noReserveSpace override of the owning WekaCluster/WekaClient |
 
 ---
 

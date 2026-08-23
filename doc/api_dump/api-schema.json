@@ -3850,6 +3850,13 @@
           "description": "how long to wait, once IO processes are reported up, before considering the container's applied\nimage settled. nil/0 (default): don't wait.",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "NoReserveSpace",
+          "jsonName": "noReserveSpace",
+          "type": "bool",
+          "description": "configures the weka agent of this client's containers with [mounts] allocate_reserved_space=false.\napplied only when a container is created; toggling it later does not reconfigure existing containers",
+          "optional": true
         }
       ],
       "usedBy": [
@@ -4498,6 +4505,13 @@
           "description": "how long to wait, once IO processes are reported up, before considering the container's applied\nimage settled. nil/0 (default): don't wait.",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "NoReserveSpace",
+          "jsonName": "noReserveSpace",
+          "type": "bool",
+          "description": "configures the weka agent of this cluster's containers with [mounts] allocate_reserved_space=false.\napplied only when a container is created; toggling it later does not reconfigure existing containers",
+          "optional": true
         }
       ],
       "usedBy": [
@@ -5528,6 +5542,13 @@
           "jsonName": "migrateOutFromPvc",
           "type": "bool",
           "description": "MigrateOutFromPvc specifies that the container should be migrated out from PVC into local storage, this will be done prior to starting pod",
+          "optional": true
+        },
+        {
+          "name": "NoReserveSpace",
+          "jsonName": "noReserveSpace",
+          "type": "bool",
+          "description": "configures the weka agent with [mounts] allocate_reserved_space=false. set once, at container\ncreation, from the noReserveSpace override of the owning WekaCluster/WekaClient",
           "optional": true
         }
       ],

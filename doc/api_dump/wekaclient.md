@@ -180,6 +180,7 @@
 | wekaContainerName | string | override name used in weka local setup for the container<br>this can be used for integration with external client on the host |
 | dpdkBaseMemoryMb | int |  |
 | waitSinceIoProcessesUpTimeout | *metav1.Duration | how long to wait, once IO processes are reported up, before considering the container's applied<br>image settled. nil/0 (default): don't wait. |
+| noReserveSpace | bool | configures the weka agent of this client's containers with [mounts] allocate_reserved_space=false.<br>applied only when a container is created; toggling it later does not reconfigure existing containers |
 
 ---
 

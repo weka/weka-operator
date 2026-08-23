@@ -348,6 +348,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							Value: udpMode,
 						},
 						{
+							Name:  "NO_RESERVE_SPACE",
+							Value: strconv.FormatBool(f.container.Spec.GetOverrides().NoReserveSpace),
+						},
+						{
 							Name:  "WEKA_PORT",
 							Value: wekaPort,
 						},

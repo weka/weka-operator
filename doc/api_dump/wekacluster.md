@@ -355,6 +355,7 @@
 | dpdkBaseMemoryMb | DpdkBaseMemoryMbOverride |  |
 | machineIdentifierNodeRef | string | used to override machine identifier node reference for backend containers (drive, compute, etc.) |
 | waitSinceIoProcessesUpTimeout | *metav1.Duration | how long to wait, once IO processes are reported up, before considering the container's applied<br>image settled. nil/0 (default): don't wait. |
+| noReserveSpace | bool | configures the weka agent of this cluster's containers with [mounts] allocate_reserved_space=false.<br>applied only when a container is created; toggling it later does not reconfigure existing containers |
 
 ---
 
