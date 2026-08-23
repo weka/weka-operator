@@ -798,6 +798,11 @@ spec:
                     description: used to override machine identifier node reference
                       for backend containers (drive, compute, etc.)
                     type: string
+                  noReserveSpace:
+                    description: |-
+                      configures the weka agent of this cluster's containers with [mounts] allocate_reserved_space=false.
+                      applied only when a container is created; toggling it later does not reconfigure existing containers
+                    type: boolean
                   paused:
                     description: |-
                       Pause the cluster - all containers will be stopped forcefully.

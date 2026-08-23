@@ -83,6 +83,9 @@ type WekaClientSpecOverrides struct {
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
 	// +optional
 	WaitSinceIoProcessesUpTimeout *metav1.Duration `json:"waitSinceIoProcessesUpTimeout,omitempty"`
+	// configures the weka agent of this client's containers with [mounts] allocate_reserved_space=false.
+	// applied only when a container is created; toggling it later does not reconfigure existing containers
+	NoReserveSpace bool `json:"noReserveSpace,omitempty"`
 }
 
 type UpgradePolicy struct {

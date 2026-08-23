@@ -185,6 +185,9 @@ type WekaContainerSpecOverrides struct {
 	DebugSleepOnTerminate int `json:"debugSleepOnTerminate,omitempty"`
 	// MigrateOutFromPvc specifies that the container should be migrated out from PVC into local storage, this will be done prior to starting pod
 	MigrateOutFromPvc bool `json:"migrateOutFromPvc,omitempty"`
+	// configures the weka agent with [mounts] allocate_reserved_space=false. set once, at container
+	// creation, from the noReserveSpace override of the owning WekaCluster/WekaClient
+	NoReserveSpace bool `json:"noReserveSpace,omitempty"`
 }
 
 type Instructions struct {

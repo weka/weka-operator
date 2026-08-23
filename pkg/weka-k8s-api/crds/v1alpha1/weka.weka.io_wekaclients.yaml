@@ -383,6 +383,11 @@ spec:
                     description: used to override machine identifier node reference
                       for client containers
                     type: string
+                  noReserveSpace:
+                    description: |-
+                      configures the weka agent of this client's containers with [mounts] allocate_reserved_space=false.
+                      applied only when a container is created; toggling it later does not reconfigure existing containers
+                    type: boolean
                   skipActiveMountsCheck:
                     description: option to skip active mounts check before deleting
                       client containers
