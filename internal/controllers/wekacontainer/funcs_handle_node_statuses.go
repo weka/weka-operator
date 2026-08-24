@@ -163,10 +163,18 @@ func (r *containerReconcilerLoop) deleteIfNodeSelectorMismatch(ctx context.Conte
 	// check re-runs on every reconcile, so restoring the label simply resumes normal service. Once the
 	// mounts are gone we fall through and the existing deletion path runs unchanged.
 	//
-	// ForceDrain is the deliberate exception: the drain machinery lives in waitForMountsOrDrain, which
-	// exists only in the deleting and destroying flows, so holding here would silently stop that
-	// override from ever taking effect. Someone who set it has already declared the mounts expendable
-	// and wants retirement to complete on its own, so let the transition through.
+	// ForceDrain is the deliberate exception. The drain machinery lives in waitForMountsOrDrain, which
+	// exists only in the deleting and destroying flows, and it cannot simply be lifted into the active
+	// flow -- ensurePod runs later in the same flow and would race to recreate the pod invokeDrain just
+	// stopped. Holding here would therefore silently neuter the override, so the transition is allowed
+	// through instead.
+	//
+	// This is the least-bad option rather than a clean one, on two counts. ForceDrain is inherited from
+	// the parent WekaClient onto every one of its containers, so an operator who set it for ordinary
+	// teardown has also opted every node under that client out of the reversibility above: a mistaken
+	// selector edit there is still irreversible. And ForceDrain alone stops the client without
+	// unmounting on the host -- that is UmountOnHost, a separate override -- so a stale mount can still
+	// wedge waitForMountsOrDrain after the object has been deleted.
 	if r.container.IsClientContainer() && !r.container.Spec.GetOverrides().ForceDrain {
 		activeMounts, err := r.GetActiveMounts(ctx)
 
@@ -193,6 +201,9 @@ func (r *containerReconcilerLoop) deleteIfNodeSelectorMismatch(ctx context.Conte
 			logger.Info("Node selector mismatch, holding container because active mounts are unset",
 				"container", r.container.Name,
 				"node", r.node.Name)
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeSelectorMismatchDrainPending", //nolint:errcheck // error return value intentionally not checked
+				fmt.Sprintf("Node selector mismatch on node %s, but the active mount count is unset; not retiring container", r.node.Name),
+				time.Minute)
 			return nil
 
 		case *activeMounts > 0:
