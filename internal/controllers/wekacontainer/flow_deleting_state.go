@@ -50,6 +50,20 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				lifecycle.BoolValue(config.Config.Csi.Enabled),
 			},
 		},
+		// Re-assert the csi-node claim on the way out too, not just while serving. A container that
+		// reached this flow without one -- because the active-flow step was swallowed by
+		// ContinueOnError, or because it was already retiring when this operator version started --
+		// would otherwise have its csi-node pod descheduled and could never drain. Idempotent, and
+		// finalizeContainer releases it at the end of this same flow.
+		&lifecycle.SimpleStep{
+			Name: "ManageCsiNodeRetainLabel",
+			Run:  r.ManageCsiNodeRetainLabel,
+			Predicates: lifecycle.Predicates{
+				r.WekaContainerManagesCsi,
+				r.NodeIsSet,
+			},
+			ContinueOnError: true,
+		},
 		// if cluster marked container state as deleting, update status and put deletion timestamp
 		&lifecycle.SimpleStep{
 			Run: r.handleStateDeleting,
