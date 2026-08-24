@@ -518,13 +518,19 @@ func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) erro
 			}
 		}
 		err := fmt.Errorf("%d mounts are still active", *mounts)
-		// Spell out what unblocks this. The wait itself is normal and can last indefinitely, so the event
-		// is the only place a user learns that the hold is on their workload rather than on the operator.
-		eventMsg := fmt.Sprintf("waiting for %d active weka mount(s) on node %s to be released; move or delete pods using weka PVCs on this node", *mounts, r.node.Name)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", eventMsg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", activeMountsHoldMessage(r.node.Name, *mounts), time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 		return lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
 	}
+}
+
+// activeMountsHoldMessage explains what unblocks a container that is waiting on mounts. Shared by the
+// two places that wait -- waitForMountsOrDrain here, and the pre-transition hold in
+// deleteIfNodeSelectorMismatch -- so the wording cannot drift apart. Both waits are normal and can
+// last indefinitely, so the event is the only place a user learns the hold is on their workload
+// rather than on the operator.
+func activeMountsHoldMessage(nodeName string, mounts int) string {
+	return fmt.Sprintf("waiting for %d active weka mount(s) on node %s to be released; move or delete pods using weka PVCs on this node", mounts, nodeName)
 }
 
 func (r *containerReconcilerLoop) invokeDrain(ctx context.Context) error {

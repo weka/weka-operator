@@ -162,28 +162,48 @@ func (r *containerReconcilerLoop) deleteIfNodeSelectorMismatch(ctx context.Conte
 	// bring the container back. Holding it here instead keeps it in the active flow, where this very
 	// check re-runs on every reconcile, so restoring the label simply resumes normal service. Once the
 	// mounts are gone we fall through and the existing deletion path runs unchanged.
-	if r.container.IsClientContainer() {
+	//
+	// ForceDrain is the deliberate exception: the drain machinery lives in waitForMountsOrDrain, which
+	// exists only in the deleting and destroying flows, so holding here would silently stop that
+	// override from ever taking effect. Someone who set it has already declared the mounts expendable
+	// and wants retirement to complete on its own, so let the transition through.
+	if r.container.IsClientContainer() && !r.container.Spec.GetOverrides().ForceDrain {
 		activeMounts, err := r.GetActiveMounts(ctx)
-		if err != nil {
-			// Not knowing is not the same as knowing there are none: a transient node-agent failure must
-			// never be read as "safe to retire".
-			return errors.Wrap(err, "failed to check active mounts before node selector mismatch cleanup")
-		}
-		if activeMounts != nil && *activeMounts > 0 {
-			// Return nil rather than a wait error: the remaining active-flow steps must keep running while
-			// we hold. ensurePod is one of them, and if the client pod were lost mid-hold with nothing to
-			// recreate it, the mounts could never drain and we would have replaced one deadlock with
-			// another. The status column is deliberately left to reconcileWekaLocalStatus — asserting
-			// Draining from the active flow would flap, since IsStatusOverwritableByLocal does not protect
-			// it. The event plus the existing "Mounts" printer column carry the signal.
-			msg := fmt.Sprintf("Node selector mismatch on node %s, waiting for %d active mounts before retiring container; move or delete pods using weka PVCs on this node", r.node.Name, *activeMounts)
-			_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeSelectorMismatchDrainPending", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
 
+		// Every path below holds without erroring. The step has no ContinueOnError, so returning an
+		// error here would defer every remaining active-flow step -- ensurePod among them -- and a client
+		// pod lost mid-hold with nothing to recreate it could never drain its mounts. That would trade
+		// this deadlock for another one, reachable from a merely transient node-agent failure.
+		switch {
+		case err != nil:
+			// Not knowing is not the same as knowing there are none: never read a node-agent failure as
+			// "safe to retire".
+			logger.Info("Node selector mismatch, holding container because active mounts are unknown",
+				"container", r.container.Name,
+				"node", r.node.Name,
+				"error", err.Error())
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeSelectorMismatchDrainPending", //nolint:errcheck // error return value intentionally not checked
+				fmt.Sprintf("Node selector mismatch on node %s, but active mounts could not be determined (%v); not retiring container", r.node.Name, err),
+				time.Minute)
+			return nil
+
+		case activeMounts == nil:
+			// Defensive: fetchActiveMounts does not return (nil, nil) today. Hold rather than retire, for
+			// the same reason as above -- waitForMountsOrDrain treats an unset count as fatal.
+			logger.Info("Node selector mismatch, holding container because active mounts are unset",
+				"container", r.container.Name,
+				"node", r.node.Name)
+			return nil
+
+		case *activeMounts > 0:
+			// The status column is deliberately left to reconcileWekaLocalStatus: asserting Draining from
+			// the active flow would flap, since IsStatusOverwritableByLocal does not protect it.
 			logger.Info("Node selector mismatch, holding container while mounts are still active",
 				"container", r.container.Name,
 				"node", r.node.Name,
 				"activeMounts", *activeMounts)
-
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeSelectorMismatchDrainPending", //nolint:errcheck // error return value intentionally not checked
+				activeMountsHoldMessage(r.node.Name, *activeMounts), time.Minute)
 			return nil
 		}
 	}
