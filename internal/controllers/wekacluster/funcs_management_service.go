@@ -23,9 +23,9 @@ func (r *wekaClusterReconcilerLoop) EnsureManagementService(ctx context.Context)
 // selectActiveContainersForManagement selects up to 10 active containers for the management service
 // Only Drive and Compute containers with the cluster's base port are selected
 //
-// Sorted by name because r.containers' cache-List order is not stable between reconciles, and the
-// rendered config is hashed onto the proxy pod template (see EnvoyConfigHashAnnotation): a varying
-// order would roll the proxy with no real change.
+// Sorted by name, both on input and on the result: r.containers' cache-List order is not stable
+// between reconciles, and the result feeds eds.yaml. A varying order for an unchanged set would
+// rewrite the ConfigMap and make Envoy reload endpoints it already has.
 func (r *wekaClusterReconcilerLoop) selectActiveContainersForManagement() []*weka.WekaContainer {
 	activeContainers := make([]*weka.WekaContainer, 0, MaxManagementServiceEndpoints)
 
@@ -120,6 +120,13 @@ func (r *wekaClusterReconcilerLoop) selectActiveContainersForManagement() []*wek
 			}
 		}
 	}
+
+	// The two passes above emit Running containers before the rest, so a container changing state
+	// while staying operational would move within the slice. Re-sort so the same set always renders
+	// identical eds.yaml bytes and no reload is triggered for an unchanged membership.
+	slices.SortFunc(activeContainers, func(a, b *weka.WekaContainer) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 
 	return activeContainers
 }

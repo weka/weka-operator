@@ -6,10 +6,26 @@
 
 ## Config & rollout
 
-Config is rendered once per reconcile and its hash goes on the pod template
-(`EnvoyConfigHashAnnotation`), so a config change rolls the pods — Envoy never reloads. Rendering
-**fails** rather than emitting an endpoint-less cluster, which Envoy would accept while resetting
-every connection.
+Rendered config is split in two, both in one ConfigMap (mounted at `/etc/envoy`, one volume, no
+second mount):
+
+- `envoy.yaml` (bootstrap) — everything except endpoint IPs. `weka_backend` (const
+  `wekaBackendClusterName`) is `type: EDS` with `eds_cluster_config.path_config_source` pointing at
+  `eds.yaml` plus a `watched_directory` on `/etc/envoy`, so Envoy reloads it live.
+- `eds.yaml` — a filesystem `DiscoveryResponse` (`ClusterLoadAssignment` for `weka_backend`) holding
+  `lb_endpoints`. `version_info` is `util.GetHash` of the endpoint list — informational to Envoy,
+  useful for diffing.
+
+Only the bootstrap's hash goes on the pod template (`EnvoyConfigHashAnnotation`): Envoy never
+reloads that file, so only a bootstrap change (ports, health-check tuning) rolls the pods. Pure
+endpoint churn only rewrites `eds.yaml`, applied live. `generateEnvoyConfig` renders both;
+`ensureManagementConfigMap` writes both keys. `selectActiveContainersForManagement` sorts its result
+by name as a final step so reordering the same set doesn't touch `eds.yaml`'s bytes.
+
+Rendering **fails** rather than emitting an endpoint-less cluster (Envoy would accept it while
+resetting every connection). A bad `eds.yaml` write is otherwise silent — Envoy's watcher rejects it
+and keeps the previous endpoints — so render/write errors here must propagate and log, never be
+swallowed.
 
 Tunables come from `MANAGEMENT_PROXY_*` env, gathered into `managementProxySettings`. Defaults live
 in `internal/config/env.go`, not the chart: `manager.yaml` omits each var when unset so there is one
@@ -33,9 +49,10 @@ scheduler. Fixing it needs a per-cluster admin port plus scoped anti-affinity, o
 Drive/compute containers on the cluster's base port that pass `discovery.IsContainerOperational`,
 Running ones first, capped at `MaxManagementServiceEndpoints`.
 
-Candidates are iterated in name order, not `r.containers`' cache-List order: since the config hash
-now rolls the pods, an order that varies between reconciles would re-render the config and roll the
-proxy with no real change.
+Candidates are iterated in name order, not `r.containers`' cache-List order, and the result is
+re-sorted by name before returning. The two-pass selection emits Running containers first, so a
+container changing state while staying operational would otherwise move within the slice: same set,
+different `eds.yaml` bytes, a ConfigMap write and an Envoy reload that changes no membership.
 
 Known gap: `IsContainerOperational` also rejects the transient statuses (`PodNotRunning`,
 `Starting`) and a non-READY `InternalStatus`, so a restart/upgrade flap does change the endpoint set

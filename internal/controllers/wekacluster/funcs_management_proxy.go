@@ -29,8 +29,9 @@ const (
 	ManagementConfigMapName = "management-proxy-config"
 	// EnvoyContainersAnnotation is informational; updates are decided by the rendered config.
 	EnvoyContainersAnnotation = "weka.io/proxy-containers"
-	// EnvoyConfigHashAnnotation hashes the rendered config onto the pod template. Envoy never
-	// reloads its config, so this is what rolls the pods when the ConfigMap changes.
+	// EnvoyConfigHashAnnotation hashes the rendered bootstrap onto the pod template. Envoy never
+	// reloads the bootstrap, so this is what rolls the pods when it changes. Endpoints live in
+	// eds.yaml, which Envoy watches and reloads live, and are deliberately not covered here.
 	EnvoyConfigHashAnnotation = "weka.io/proxy-config-hash"
 
 	// managementProxyAdminPort is Envoy's admin port: unauthenticated, exposes /quitquitquit.
@@ -49,6 +50,10 @@ const (
 	// Deployment's immutable Spec.Selector, so renaming the deployment must not change them.
 	managementProxyAppLabel       = "weka-management-proxy"
 	managementProxyComponentLabel = "management-proxy"
+
+	// wekaBackendClusterName must match between the bootstrap's eds_cluster_config.service_name and
+	// eds.yaml's cluster_name, or Envoy rejects the EDS update and keeps serving stale endpoints.
+	wekaBackendClusterName = "weka_backend"
 )
 
 // managementProxySettings holds the chart's managementProxy values, resolved once per reconcile so
@@ -118,21 +123,22 @@ func (r *wekaClusterReconcilerLoop) EnsureManagementProxy(ctx context.Context) e
 
 	// Rendered once so the ConfigMap and the Deployment's hash can't disagree. Rendered
 	// unconditionally: a settings-only change leaves the backend container set untouched, so
-	// pre-checking that set would never write it out.
-	envoyConfig, err := r.generateEnvoyConfig(activeContainers, settings)
+	// pre-checking that set would never write it out. bootstrapConfig carries no endpoint IPs, so its
+	// hash (and thus the pod template) is unaffected by edsConfig changing on its own.
+	bootstrapConfig, edsConfig, err := r.generateEnvoyConfig(activeContainers, settings)
 	if err != nil {
 		logger.Error(err, "Failed to render management proxy Envoy config")
 		return err
 	}
 
-	err = r.ensureManagementConfigMap(ctx, configMapName, namespace, activeContainers, envoyConfig)
+	err = r.ensureManagementConfigMap(ctx, configMapName, namespace, activeContainers, bootstrapConfig, edsConfig)
 	if err != nil {
 		logger.Error(err, "Failed to create or update management proxy ConfigMap")
 		return err
 	}
 
 	// Ensure the Deployment
-	err = r.ensureManagementProxyDeployment(ctx, proxyName, configMapName, namespace, envoyConfig, settings)
+	err = r.ensureManagementProxyDeployment(ctx, proxyName, configMapName, namespace, bootstrapConfig, settings)
 	if err != nil {
 		logger.Error(err, "Failed to create or update management proxy Deployment")
 		return err
@@ -157,9 +163,10 @@ func (r *wekaClusterReconcilerLoop) EnsureManagementProxy(ctx context.Context) e
 	return nil
 }
 
-// ensureManagementConfigMap creates or updates the Envoy ConfigMap. envoyConfig is rendered by the
-// caller so the Deployment hashes the same bytes.
-func (r *wekaClusterReconcilerLoop) ensureManagementConfigMap(ctx context.Context, configMapName, namespace string, activeContainers []*weka.WekaContainer, envoyConfig string) error {
+// ensureManagementConfigMap creates or updates the Envoy ConfigMap. bootstrapConfig and edsConfig are
+// rendered by the caller so the Deployment hashes the same bootstrap bytes. edsConfig is watched live
+// by Envoy's filesystem EDS, so writing it never needs to roll the pods.
+func (r *wekaClusterReconcilerLoop) ensureManagementConfigMap(ctx context.Context, configMapName, namespace string, activeContainers []*weka.WekaContainer, bootstrapConfig, edsConfig string) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      configMapName,
@@ -171,7 +178,8 @@ func (r *wekaClusterReconcilerLoop) ensureManagementConfigMap(ctx context.Contex
 		if cm.Data == nil {
 			cm.Data = make(map[string]string)
 		}
-		cm.Data["envoy.yaml"] = envoyConfig
+		cm.Data["envoy.yaml"] = bootstrapConfig
+		cm.Data["eds.yaml"] = edsConfig
 
 		// Set annotations with container names
 		if cm.Annotations == nil {
@@ -215,8 +223,16 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyPortAllocated(ctx conte
 	return r.getClient().Status().Update(ctx, r.cluster)
 }
 
-// envoyConfigTemplateData is the substitution set for envoyConfigTemplate.
-type envoyConfigTemplateData struct {
+// envoyBootstrapTemplateData is the substitution set for envoyBootstrapTemplate. It carries no
+// endpoint IPs: those live in eds.yaml, watched live by Envoy's filesystem EDS, so a change to the
+// backend set never touches this template's rendered bytes or the hash derived from them.
+type envoyBootstrapTemplateData struct {
+	ClusterName string
+	// Envoy's own identity in admin and stats output, distinct from ClusterName, which names the
+	// upstream. Only required to be non-empty: no xDS peer consumes it.
+	NodeID      string
+	NodeCluster string
+
 	ProxyPort             int
 	HealthyPanicThreshold int32
 	AdminAddress          string
@@ -226,7 +242,6 @@ type envoyConfigTemplateData struct {
 	// Duration literals ("10s").
 	HealthCheckInterval string
 	HealthCheckTimeout  string
-	Endpoints           []envoyEndpoint
 }
 
 // envoyEndpoint is one entry in lb_endpoints. Address is quoted by the template so an IPv6 literal
@@ -236,9 +251,22 @@ type envoyEndpoint struct {
 	Port    int
 }
 
-// envoyConfigTemplate is the bootstrap config. A template rather than fmt.Sprintf: named fields
-// keep an argument-order slip out of a YAML blob.
-var envoyConfigTemplate = template.Must(template.New("envoy.yaml").Parse(`static_resources:
+// envoyEDSTemplateData is the substitution set for envoyEDSTemplate.
+type envoyEDSTemplateData struct {
+	ClusterName string
+	VersionInfo string
+	Endpoints   []envoyEndpoint
+}
+
+// envoyBootstrapTemplate is the static bootstrap config. weka_backend is declared as an EDS cluster
+// resolved from eds.yaml on disk, so Envoy picks up endpoint changes without a config reload. A
+// template rather than fmt.Sprintf: named fields keep an argument-order slip out of a YAML blob.
+var envoyBootstrapTemplate = template.Must(template.New("envoy.yaml").Parse(`# Any xDS config source, filesystem EDS included, requires node id and cluster; Envoy refuses to
+# start without them. A purely static bootstrap does not, which is why this is only needed here.
+node:
+  id: {{ .NodeID }}
+  cluster: {{ .NodeCluster }}
+static_resources:
   listeners:
   - name: listener_0
     address:
@@ -253,29 +281,34 @@ var envoyConfigTemplate = template.Must(template.New("envoy.yaml").Parse(`static
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
           stat_prefix: weka_management
-          cluster: weka_backend
+          cluster: {{ .ClusterName }}
 
   clusters:
-  - name: weka_backend
+  - name: {{ .ClusterName }}
     connect_timeout: 5s
-    type: STATIC
+    type: EDS
+    eds_cluster_config:
+      service_name: {{ .ClusterName }}
+      eds_config:
+        resource_api_version: V3
+        path_config_source:
+          path: /etc/envoy/eds.yaml
+          watched_directory:
+            path: /etc/envoy
     lb_policy: ROUND_ROBIN
     common_lb_config:
       # Always emitted: omitting it would mean Envoy's default 50, not the configured 0.
       healthy_panic_threshold:
         value: {{ .HealthyPanicThreshold }}
-    load_assignment:
-      cluster_name: weka_backend
-      endpoints:
-      - lb_endpoints:
-{{- range .Endpoints }}
-        - endpoint:
-            address:
-              socket_address:
-                address: "{{ .Address }}"
-                port_value: {{ .Port }}
-{{- end }}
-    # Health checks using HTTPS on /api/v2/healthcheck
+    # Health checks using HTTPS on /api/v2/healthcheck.
+    #
+    # These, not eds.yaml, decide when a backend stops receiving traffic. ignore_health_on_host_removal
+    # is left at its default false, so dropping a host from eds.yaml only marks it
+    # pending_dynamic_removal: it keeps serving until a health check fails it (~20s once the backend is
+    # really gone). eds.yaml is therefore authoritative for adding endpoints and health-gated for
+    # removing them. That is deliberate -- selection still ejects containers for transient statuses
+    # (see IsContainerOperational), and evicting a healthy backend on every such flap would reset live
+    # connections for no reason. Setting the flag true is only safe once selection tracks durable facts.
     health_checks:
     - timeout: {{ .HealthCheckTimeout }}
       interval: {{ .HealthCheckInterval }}
@@ -304,8 +337,25 @@ admin:
 {{- end }}
 `))
 
-// generateEnvoyConfig renders the Envoy configuration YAML for the given backend containers.
-func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka.WekaContainer, settings managementProxySettings) (string, error) {
+// envoyEDSTemplate renders a filesystem-delivered DiscoveryResponse: Envoy watches its containing
+// directory and reloads it live, so endpoint churn never rolls the proxy pods.
+var envoyEDSTemplate = template.Must(template.New("eds.yaml").Parse(`version_info: "{{ .VersionInfo }}"
+resources:
+- "@type": type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment
+  cluster_name: {{ .ClusterName }}
+  endpoints:
+  - lb_endpoints:
+{{- range .Endpoints }}
+    - endpoint:
+        address:
+          socket_address:
+            address: "{{ .Address }}"
+            port_value: {{ .Port }}
+{{- end }}
+`))
+
+// generateEnvoyConfig renders the Envoy bootstrap and EDS YAML for the given backend containers.
+func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka.WekaContainer, settings managementProxySettings) (bootstrap, eds string, err error) {
 	clusterBasePort := r.cluster.Status.Ports.BasePort
 	managementProxyPort := r.cluster.Status.Ports.ManagementProxyPort
 
@@ -316,8 +366,9 @@ func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka
 		if len(managementIPs) == 0 {
 			continue
 		}
-		// Parsed, not just checked for emptiness: an address Envoy rejects still changes the config
-		// hash and would roll ready replicas into CrashLoopBackOff. Skip it, same as a missing IP.
+		// Parsed, not just checked for emptiness: a malformed address would still change eds.yaml and
+		// Envoy would reject the whole update, silently keeping the previous endpoint set. Skip it,
+		// same as a missing IP.
 		ip := managementIPs[0]
 		if net.ParseIP(ip) == nil {
 			continue
@@ -326,15 +377,17 @@ func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka
 	}
 
 	// Envoy accepts an empty lb_endpoints, binds, then resets every connection -- and the TCP
-	// readiness probe passes anyway, so the changed hash would roll working replicas into that
-	// state. Refuse instead and leave the last good config in place. Reachable despite
-	// IsContainerOperational's management-IP check, which is len()-only and passes on the [""] an
-	// empty management_ips file yields.
+	// readiness probe passes anyway. Refuse instead and leave the last good config in place.
+	// Reachable despite IsContainerOperational's management-IP check, which is len()-only and passes
+	// on the [""] an empty management_ips file yields.
 	if len(endpoints) == 0 {
-		return "", fmt.Errorf("none of the %d selected backend containers has a usable management IP; refusing to render an Envoy config with no endpoints", len(activeContainers))
+		return "", "", fmt.Errorf("none of the %d selected backend containers has a usable management IP; refusing to render an Envoy config with no endpoints", len(activeContainers))
 	}
 
-	data := envoyConfigTemplateData{
+	bootstrapData := envoyBootstrapTemplateData{
+		ClusterName:           wekaBackendClusterName,
+		NodeID:                r.getManagementProxyName(),
+		NodeCluster:           ManagementProxyName,
 		ProxyPort:             managementProxyPort,
 		HealthyPanicThreshold: settings.HealthyPanicThreshold,
 		AdminAddress:          settings.AdminBindAddress,
@@ -342,15 +395,34 @@ func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka
 		AdminIPv4Compat:       settings.adminIsIPv6Wildcard,
 		HealthCheckInterval:   envoyHealthCheckInterval.String(),
 		HealthCheckTimeout:    envoyHealthCheckTimeout.String(),
-		Endpoints:             endpoints,
 	}
 
-	var rendered strings.Builder
-	if err := envoyConfigTemplate.Execute(&rendered, data); err != nil {
-		return "", fmt.Errorf("failed to render envoy config: %w", err)
+	var bootstrapRendered strings.Builder
+	if err := envoyBootstrapTemplate.Execute(&bootstrapRendered, bootstrapData); err != nil {
+		return "", "", fmt.Errorf("failed to render envoy bootstrap config: %w", err)
 	}
 
-	return rendered.String(), nil
+	// version_info only needs to change when the endpoint set does; endpoints are already in a
+	// stable order (selectActiveContainersForManagement sorts by name), so hashing their rendered
+	// form is enough without a second normalization pass.
+	endpointsKey := make([]string, 0, len(endpoints))
+	for _, ep := range endpoints {
+		endpointsKey = append(endpointsKey, fmt.Sprintf("%s:%d", ep.Address, ep.Port))
+	}
+	versionInfo := util.GetHash(strings.Join(endpointsKey, ","), 8)
+
+	edsData := envoyEDSTemplateData{
+		ClusterName: wekaBackendClusterName,
+		VersionInfo: versionInfo,
+		Endpoints:   endpoints,
+	}
+
+	var edsRendered strings.Builder
+	if err := envoyEDSTemplate.Execute(&edsRendered, edsData); err != nil {
+		return "", "", fmt.Errorf("failed to render envoy eds config: %w", err)
+	}
+
+	return bootstrapRendered.String(), edsRendered.String(), nil
 }
 
 // adminProbeHost reports the host kubelet should dial to reach Envoy's admin endpoint, and whether
@@ -457,9 +529,10 @@ func (s managementProxySettings) updateStrategy() appsv1.DeploymentStrategy {
 	}
 }
 
-// ensureManagementProxyDeployment creates or updates the Envoy Deployment. envoyConfig is hashed
-// onto the pod template so a config change rolls the pods (see EnvoyConfigHashAnnotation).
-func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.Context, deploymentName, configMapName, namespace, envoyConfig string, settings managementProxySettings) error {
+// ensureManagementProxyDeployment creates or updates the Envoy Deployment. bootstrapConfig (which
+// carries no endpoint IPs) is hashed onto the pod template so only a bootstrap change rolls the pods
+// (see EnvoyConfigHashAnnotation) -- endpoint-only changes reach Envoy live via eds.yaml instead.
+func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.Context, deploymentName, configMapName, namespace, bootstrapConfig string, settings managementProxySettings) error {
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      deploymentName,
@@ -488,7 +561,7 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: podLabels,
 					Annotations: map[string]string{
-						EnvoyConfigHashAnnotation: util.GetHash(envoyConfig, 8),
+						EnvoyConfigHashAnnotation: util.GetHash(bootstrapConfig, 8),
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -508,6 +581,10 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 									Protocol:      corev1.ProtocolTCP,
 								},
 							},
+							// Mounts the whole directory, never a single key via subPath: kubelet
+							// publishes updates by swapping a ..data symlink, which a subPath mount
+							// resolves past and never sees. Endpoint changes no longer roll the pods,
+							// so a subPath here would freeze endpoints at boot-time values silently.
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "config",
