@@ -154,6 +154,40 @@ func (r *containerReconcilerLoop) deleteIfNodeSelectorMismatch(ctx context.Conte
 		return nil
 	}
 
+	// A client container with active mounts must not enter the Deleting flow yet.
+	//
+	// That flow self-deletes the container object up front (handleStateDeleting) and only then waits for
+	// mounts to drain — and a deleted object cannot be revived. Transitioning now would therefore make
+	// retirement irreversible: if the label is restored while mounts are still outstanding, nothing can
+	// bring the container back. Holding it here instead keeps it in the active flow, where this very
+	// check re-runs on every reconcile, so restoring the label simply resumes normal service. Once the
+	// mounts are gone we fall through and the existing deletion path runs unchanged.
+	if r.container.IsClientContainer() {
+		activeMounts, err := r.GetActiveMounts(ctx)
+		if err != nil {
+			// Not knowing is not the same as knowing there are none: a transient node-agent failure must
+			// never be read as "safe to retire".
+			return errors.Wrap(err, "failed to check active mounts before node selector mismatch cleanup")
+		}
+		if activeMounts != nil && *activeMounts > 0 {
+			// Return nil rather than a wait error: the remaining active-flow steps must keep running while
+			// we hold. ensurePod is one of them, and if the client pod were lost mid-hold with nothing to
+			// recreate it, the mounts could never drain and we would have replaced one deadlock with
+			// another. The status column is deliberately left to reconcileWekaLocalStatus — asserting
+			// Draining from the active flow would flap, since IsStatusOverwritableByLocal does not protect
+			// it. The event plus the existing "Mounts" printer column carry the signal.
+			msg := fmt.Sprintf("Node selector mismatch on node %s, waiting for %d active mounts before retiring container; move or delete pods using weka PVCs on this node", r.node.Name, *activeMounts)
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeSelectorMismatchDrainPending", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+
+			logger.Info("Node selector mismatch, holding container while mounts are still active",
+				"container", r.container.Name,
+				"node", r.node.Name,
+				"activeMounts", *activeMounts)
+
+			return nil
+		}
+	}
+
 	logger.Info("Container node selector doesn't match node, marking for deletion",
 		"container", r.container.Name,
 		"node", r.node.Name,
