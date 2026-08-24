@@ -333,11 +333,6 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 					Labels: map[string]string{
 						"app":       name,
 						"component": name,
-						// Identifies csi-node pods the same way every other weka pod is identified. The
-						// DaemonSet object already carried this label but its pods did not, so anything
-						// selecting csi-node pods by mode silently matched nothing. Additive only: the
-						// DaemonSet's Selector.MatchLabels is immutable and stays {app, component}.
-						"weka.io/mode": string(CSINode),
 					},
 					Annotations: map[string]string{
 						"prometheus.io/scrape":  "true",
