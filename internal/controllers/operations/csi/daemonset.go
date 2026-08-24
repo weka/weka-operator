@@ -123,8 +123,7 @@ func GetCSINodeDaemonSetNameForClient(csiGroupName, clientName, clientNamespace 
 // Two terms, which Kubernetes ORs together: the client's own node selector, and CsiNodeRetainLabel.
 // The retain term is what keeps the plugin on a node whose client-selector label was just removed but
 // which may still hold weka mounts. Without it the DaemonSet controller deschedules the only thing
-// able to serve NodeUnpublishVolume, and the client container can then never finish draining — see
-// doc/dev/client-nodeselector-mismatch-csi-node-deadlock-findings.md.
+// able to serve NodeUnpublishVolume, and the client container can then never finish draining.
 //
 // An empty selector keeps its existing "run everywhere" meaning by rendering no affinity at all: a
 // nodeSelectorTerm with no matchExpressions is not valid, and nothing ever deschedules the plugin in

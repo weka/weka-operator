@@ -2,6 +2,7 @@ package wekaclient
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -166,12 +167,12 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				},
 			},
 			&lifecycle.SimpleStep{Run: loop.EnsureClientsWekaContainers},
+			// Deliberately not gated on Csi.Enabled: the claims may have been made while CSI was
+			// enabled and CSI disabled afterwards, and the per-container release in finalizeContainer
+			// is gated the same way -- so gating here too would leak them permanently.
 			&lifecycle.SimpleStep{
-				Name: "CleanupOrphanedCsiNodeRetainLabels",
-				Run:  loop.CleanupOrphanedCsiNodeRetainLabels,
-				Predicates: lifecycle.Predicates{
-					lifecycle.BoolValue(config.Config.Csi.Enabled),
-				},
+				Name:            "CleanupOrphanedCsiNodeRetainLabels",
+				Run:             loop.CleanupOrphanedCsiNodeRetainLabels,
 				ContinueOnError: true,
 				Throttling: &throttling.ThrottlingSettings{
 					Interval: time.Minute,
@@ -345,6 +346,15 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 	// as success, so this is a no-op when nothing is present.
 	if undeployErr := c.UndeployCsiNodeDaemonSetForClient(ctx); undeployErr != nil {
 		return errors.Wrap(undeployErr, "failed to undeploy per-client CSI node daemonset")
+	}
+
+	// Release any csi-node retain claims still standing. Normally each container releases its own in
+	// finalizeContainer, and the reconcile-loop sweep catches stragglers -- but that step is
+	// unreachable here, because HandleDeletion is FinishOnSuccess and ends the flow before it. Without
+	// this, a container that never finalized (force-deleted, finalizer stripped by hand) would leave
+	// its claim on the node forever, with no owner left to clean it up.
+	if retainErr := c.CleanupOrphanedCsiNodeRetainLabels(ctx); retainErr != nil {
+		return errors.Wrap(retainErr, "failed to release csi-node retain labels")
 	}
 
 	// Undeploy shared CSI components only if this client manages them
@@ -1567,6 +1577,11 @@ func (c *clientReconcilerLoop) CleanupOrphanedCsiNodeRetainLabels(ctx context.Co
 		return errors.Wrap(err, "failed to list nodes with csi-node retain label")
 	}
 
+	// While the WekaClient itself is being deleted nothing is "still wanted", so the guard below must
+	// not apply -- otherwise every node that still matches the selector would keep its claim forever,
+	// which is the leak this sweep is called from finalizeClient to prevent.
+	clientRetiring := c.wekaClient.IsMarkedForDeletion()
+
 	claimed := make(map[string]struct{}, len(c.containers))
 	for _, container := range c.containers {
 		if nodeName := string(container.Spec.NodeAffinity); nodeName != "" {
@@ -1574,13 +1589,18 @@ func (c *clientReconcilerLoop) CleanupOrphanedCsiNodeRetainLabels(ctx context.Co
 		}
 	}
 
+	// Nodes are independent, so one that will not patch (conflict, transient API error) must not
+	// abandon the rest of the sweep -- especially as this step is throttled to once a minute.
+	var errs []error
 	for i := range nodes.Items {
 		node := &nodes.Items[i]
 		if _, stillServing := claimed[node.Name]; stillServing {
 			continue
 		}
-		if _, stillWanted := c.toleratedNodes[node.Name]; stillWanted {
-			continue
+		if !clientRetiring {
+			if _, stillWanted := c.toleratedNodes[node.Name]; stillWanted {
+				continue
+			}
 		}
 
 		logger.Info("Releasing orphaned csi-node retain label", "node", node.Name, "label", retainLabel)
@@ -1591,8 +1611,12 @@ func (c *clientReconcilerLoop) CleanupOrphanedCsiNodeRetainLabels(ctx context.Co
 			if apierrors.IsNotFound(err) {
 				continue
 			}
-			return errors.Wrapf(err, "failed to release orphaned csi-node retain label from node %s", node.Name)
+			errs = append(errs, errors.Wrapf(err, "node %s", node.Name))
 		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Wrap(stderrors.Join(errs...), "failed to release orphaned csi-node retain labels")
 	}
 
 	return nil
