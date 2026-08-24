@@ -87,6 +87,19 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.deleteIfNoNode,
 		},
+		// Before any mismatch check below can hold or retire this container: claim the node for the
+		// csi-node plugin. Asserting it here, ahead of the checks, means the claim is already in place
+		// whenever a user removes the client-selector label — the DaemonSet controller reacts to that
+		// within milliseconds, far quicker than we could respond to it.
+		&lifecycle.SimpleStep{
+			Name: "ManageCsiNodeRetainLabel",
+			Run:  r.ManageCsiNodeRetainLabel,
+			Predicates: lifecycle.Predicates{
+				r.WekaContainerManagesCsi,
+				r.NodeIsSet,
+			},
+			ContinueOnError: true,
+		},
 		&lifecycle.SimpleStep{
 			Run: r.deleteIfTolerationsMismatch,
 			Predicates: lifecycle.Predicates{

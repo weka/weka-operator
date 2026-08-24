@@ -167,6 +167,17 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 			},
 			&lifecycle.SimpleStep{Run: loop.EnsureClientsWekaContainers},
 			&lifecycle.SimpleStep{
+				Name: "CleanupOrphanedCsiNodeRetainLabels",
+				Run:  loop.CleanupOrphanedCsiNodeRetainLabels,
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.Csi.Enabled),
+				},
+				ContinueOnError: true,
+				Throttling: &throttling.ThrottlingSettings{
+					Interval: time.Minute,
+				},
+			},
+			&lifecycle.SimpleStep{
 				State:              &lifecycle.State{Name: condition.CondCsiDeployed},
 				SkipStepStateCheck: true,
 				Run:                loop.DeployCsiPlugin,
@@ -1532,6 +1543,59 @@ func (c *clientReconcilerLoop) isOwnedByDifferentWekaClient(ctx context.Context,
 	logger.Debug("CSI controller deployment is not owned by different WekaClient")
 
 	return false, nil
+}
+
+// CleanupOrphanedCsiNodeRetainLabels releases retain labels left behind on nodes this client no
+// longer has a container on.
+//
+// Normally a container releases its own label in finalizeContainer, after its mounts have drained. A
+// container that never finalizes — force-deleted, finalizer stripped by hand, restored from a backup —
+// would otherwise leave the node pinned into this client's csi-node DaemonSet indefinitely.
+//
+// The label key is per-client, so this listing cannot see (or strip) another client's claims. It runs
+// after EnsureClientsWekaContainers so that a node which has just re-gained the client selector, and is
+// about to receive a container, is not mistaken for an orphan; nodes currently wanted are skipped for
+// the same reason.
+func (c *clientReconcilerLoop) CleanupOrphanedCsiNodeRetainLabels(ctx context.Context) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "CleanupOrphanedCsiNodeRetainLabels")
+	defer logger.End()
+
+	retainLabel := csi.GetCsiNodeRetainLabel(c.wekaClient.Namespace, c.wekaClient.Name)
+
+	nodes := &v1.NodeList{}
+	if err := c.List(ctx, nodes, client.HasLabels{retainLabel}); err != nil {
+		return errors.Wrap(err, "failed to list nodes with csi-node retain label")
+	}
+
+	claimed := make(map[string]struct{}, len(c.containers))
+	for _, container := range c.containers {
+		if nodeName := string(container.Spec.NodeAffinity); nodeName != "" {
+			claimed[nodeName] = struct{}{}
+		}
+	}
+
+	for i := range nodes.Items {
+		node := &nodes.Items[i]
+		if _, stillServing := claimed[node.Name]; stillServing {
+			continue
+		}
+		if _, stillWanted := c.toleratedNodes[node.Name]; stillWanted {
+			continue
+		}
+
+		logger.Info("Releasing orphaned csi-node retain label", "node", node.Name, "label", retainLabel)
+
+		base := node.DeepCopy()
+		delete(node.Labels, retainLabel)
+		if err := c.Patch(ctx, node, client.MergeFrom(base)); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return errors.Wrapf(err, "failed to release orphaned csi-node retain label from node %s", node.Name)
+		}
+	}
+
+	return nil
 }
 
 func (c *clientReconcilerLoop) DeployCsiNodeDaemonSetForClient(ctx context.Context) error {

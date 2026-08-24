@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -39,7 +40,14 @@ type CsiNodeHashableSpec struct {
 	SelinuxSupport            string
 	KubeletPath               string
 	HostNetwork               bool
+	PlacementScheme           string
 }
+
+// csiNodePlacementScheme identifies how csi-node placement is expressed in the rendered pod spec.
+// It is part of the hashable spec so that upgrading from an operator that expressed placement
+// differently rolls existing DaemonSets exactly once, even when nothing else about the client
+// changed.
+const csiNodePlacementScheme = "node-affinity-with-retain-v1"
 
 // GetCsiNodeDaemonSetHash generates a hash for the CSI Node DaemonSet
 // that includes only the fields that are relevant for updates
@@ -88,6 +96,7 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, c
 		SelinuxSupport:            config.Config.Csi.SelinuxSupport,
 		KubeletPath:               config.Config.Csi.KubeletPath,
 		HostNetwork:               config.Config.Csi.HostNetwork,
+		PlacementScheme:           csiNodePlacementScheme,
 	}
 
 	return util2.HashStruct(spec)
@@ -107,6 +116,57 @@ func GetCSINodeDaemonSetNameForClient(csiGroupName, clientName, clientNamespace 
 	// Ensure name doesn't end with a hyphen
 	base = strings.TrimRight(base, "-")
 	return base
+}
+
+// buildCsiNodeAffinity renders csi-node placement as node affinity.
+//
+// Two terms, which Kubernetes ORs together: the client's own node selector, and CsiNodeRetainLabel.
+// The retain term is what keeps the plugin on a node whose client-selector label was just removed but
+// which may still hold weka mounts. Without it the DaemonSet controller deschedules the only thing
+// able to serve NodeUnpublishVolume, and the client container can then never finish draining — see
+// doc/dev/client-nodeselector-mismatch-csi-node-deadlock-findings.md.
+//
+// An empty selector keeps its existing "run everywhere" meaning by rendering no affinity at all: a
+// nodeSelectorTerm with no matchExpressions is not valid, and nothing ever deschedules the plugin in
+// that configuration, so a retain term would be pointless.
+func buildCsiNodeAffinity(nodeSelector map[string]string, retainLabel string) *corev1.Affinity {
+	if len(nodeSelector) == 0 {
+		return nil
+	}
+
+	// Sorted deliberately: this is rendered into a spec that gets hashed to decide whether to roll the
+	// DaemonSet, and Go map iteration order is random.
+	keys := make([]string, 0, len(nodeSelector))
+	for key := range nodeSelector {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	selectorExpressions := make([]corev1.NodeSelectorRequirement, 0, len(keys))
+	for _, key := range keys {
+		selectorExpressions = append(selectorExpressions, corev1.NodeSelectorRequirement{
+			Key:      key,
+			Operator: corev1.NodeSelectorOpIn,
+			Values:   []string{nodeSelector[key]},
+		})
+	}
+
+	return &corev1.Affinity{
+		NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{MatchExpressions: selectorExpressions},
+					{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{
+							Key:      retainLabel,
+							Operator: corev1.NodeSelectorOpIn,
+							Values:   []string{CsiNodeRetainLabelValue},
+						},
+					}},
+				},
+			},
+		},
+	}
 }
 
 func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient, clientName, clientNamespace string, nodes []corev1.Node) (*appsv1.DaemonSet, error) {
@@ -274,6 +334,11 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 					Labels: map[string]string{
 						"app":       name,
 						"component": name,
+						// Identifies csi-node pods the same way every other weka pod is identified. The
+						// DaemonSet object already carried this label but its pods did not, so anything
+						// selecting csi-node pods by mode silently matched nothing. Additive only: the
+						// DaemonSet's Selector.MatchLabels is immutable and stays {app, component}.
+						"weka.io/mode": string(CSINode),
 					},
 					Annotations: map[string]string{
 						"prometheus.io/scrape":  "true",
@@ -289,7 +354,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 				},
 				Spec: corev1.PodSpec{
 					SecurityContext:    resources.GetSecurityProfile(),
-					NodeSelector:       nodeSelector,
+					Affinity:           buildCsiNodeAffinity(nodeSelector, GetCsiNodeRetainLabel(clientNamespace, clientName)),
 					HostNetwork:        config.Config.Csi.HostNetwork,
 					ServiceAccountName: "csi-wekafs-node-sa",
 					PriorityClassName:  config.Config.PriorityClasses.Targeted,

@@ -79,7 +79,19 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 			return err
 		}
 	}
-	// CSI node DaemonSet is now managed by WekaClient, not by individual containers
+
+	// Release the csi-node retain marker. The csi-node DaemonSet is owned by the WekaClient, but its
+	// placement also matches csi.GetCsiNodeRetainLabel, which we hold for as long as this container is
+	// serving the node. We reach this point only after waitForMountsOrDrain has passed, so releasing it
+	// here is what preserves "drain -> mounts released -> only then csi-node may go away" — the ordering
+	// this call site used to guarantee via CleanupCsiNodeServerPod before csi-node became a DaemonSet.
+	if r.wekaClient != nil && r.node != nil && r.WekaContainerManagesCsi() {
+		err = r.UnsetCsiNodeRetainLabel(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -506,7 +518,10 @@ func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) erro
 			}
 		}
 		err := fmt.Errorf("%d mounts are still active", *mounts)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
+		// Spell out what unblocks this. The wait itself is normal and can last indefinitely, so the event
+		// is the only place a user learns that the hold is on their workload rather than on the operator.
+		eventMsg := fmt.Sprintf("waiting for %d active weka mount(s) on node %s to be released; move or delete pods using weka PVCs on this node", *mounts, r.node.Name)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", eventMsg, time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 		return lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
 	}
