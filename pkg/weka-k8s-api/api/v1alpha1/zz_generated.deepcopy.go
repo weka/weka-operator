@@ -2405,6 +2405,11 @@ func (in *WekaClusterSpecOverrides) DeepCopyInto(out *WekaClusterSpecOverrides) 
 		*out = new(bool)
 		**out = **in
 	}
+	if in.SkipDefaultFilesystemCreation != nil {
+		in, out := &in.SkipDefaultFilesystemCreation, &out.SkipDefaultFilesystemCreation
+		*out = new(bool)
+		**out = **in
+	}
 	out.DpdkBaseMemoryMb = in.DpdkBaseMemoryMb
 	if in.WaitSinceIoProcessesUpTimeout != nil {
 		in, out := &in.WaitSinceIoProcessesUpTimeout, &out.WaitSinceIoProcessesUpTimeout

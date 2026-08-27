@@ -10,6 +10,7 @@ const (
 	CondClusterCsiSecretsCreated     = "ClusterCsiSecretsCreated"
 	WekaHomeConfigured               = "WekaHomeConfigured"
 	CondClusterCsiSecretsApplied     = "ClusterCsiSecretsApplied"
+	CondConfigFsCreated              = "CondConfigFsCreated"
 	CondDefaultFsCreated             = "CondDefaultFsCreated"
 	CondS3ClusterCreated             = "CondS3ClusterCreated" // not pre-set on purpose, as optional
 	ConfNfsConfigured                = "NfsConfigured"

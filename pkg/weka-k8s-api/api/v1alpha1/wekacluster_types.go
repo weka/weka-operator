@@ -979,6 +979,10 @@ type WekaClusterSpecOverrides struct {
 	// true: pause all containers.
 	// false: actively unpause containers that are in paused state.
 	Paused *bool `json:"paused,omitempty"`
+	// SkipDefaultFilesystemCreation disables creation of the `default` filesystem.
+	// The `default` filesystem group and `.config_fs` are still created.
+	// +optional
+	SkipDefaultFilesystemCreation *bool `json:"skipDefaultFilesystemCreation,omitempty"`
 	// Cancel deletion of the cluster if it is in graceful destroy period, a disaster recovery mechanism
 	CancelDeletion   bool                     `json:"cancelDeletion,omitempty"`
 	DpdkBaseMemoryMb DpdkBaseMemoryMbOverride `json:"dpdkBaseMemoryMb,omitempty"`

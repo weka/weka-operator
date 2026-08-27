@@ -822,6 +822,11 @@ spec:
                     description: script to run post cluster create (i.e before starting
                       io)
                     type: string
+                  skipDefaultFilesystemCreation:
+                    description: |-
+                      SkipDefaultFilesystemCreation disables creation of the `default` filesystem.
+                      The `default` filesystem group and `.config_fs` are still created.
+                    type: boolean
                   upgradeAllAtOnce:
                     description: unsafe operation, should not be used unless instructed
                       explicitly by weka personnel
