@@ -18,6 +18,7 @@ var (
 		&clusterDataservicesFeCores{},
 		&clusterCapacityProtection{},
 		&clusterCapacityChunkFeasibility{},
+		&clusterSkipDefaultFs{},
 	}
 	WekaClient = []Validator{
 		&clientTargetClusterExists{},

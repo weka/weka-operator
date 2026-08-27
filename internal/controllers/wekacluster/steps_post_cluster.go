@@ -108,6 +108,16 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 				lifecycle.IsNotFunc(loop.cluster.IsExpand),
 			},
 			State: &lifecycle.State{
+				Name: condition.CondConfigFsCreated,
+			},
+			Run: loop.EnsureConfigFS,
+		},
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				lifecycle.IsNotFunc(loop.cluster.IsExpand),
+				loop.ShouldCreateDefaultFs,
+			},
+			State: &lifecycle.State{
 				Name: condition.CondDefaultFsCreated,
 			},
 			Run: loop.EnsureDefaultFS,
@@ -339,6 +349,64 @@ func (r *wekaClusterReconcilerLoop) IsInternalEncryptionEnabled() bool {
 	return false
 }
 
+// ShouldCreateDefaultFs reports whether the operator manages the `default`
+// filesystem, per spec.overrides.skipDefaultFilesystemCreation. The `default`
+// filesystem group and `.config_fs` are unaffected.
+func (r *wekaClusterReconcilerLoop) ShouldCreateDefaultFs() bool {
+	skip := r.cluster.Spec.GetOverrides().SkipDefaultFilesystemCreation
+	return skip == nil || !*skip
+}
+
+// EnsureConfigFS creates the `default` filesystem group and `.config_fs`, which
+// NFS, S3, SMB-W and dataservice all require. Runs regardless of
+// spec.overrides.skipDefaultFilesystemCreation; the group is a prerequisite for `.config_fs`.
+func (r *wekaClusterReconcilerLoop) EnsureConfigFS(ctx context.Context) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	container := discovery.SelectActiveContainer(r.containers)
+	if container == nil {
+		return errors.New("No active container found")
+	}
+
+	timeout := time.Second * 30
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
+
+	err := wekaService.CreateFilesystemGroup(ctx, "default")
+	if err != nil {
+		var fsGroupExists *services.FilesystemGroupExists
+		if !errors.As(err, &fsGroupExists) {
+			logger.Error(err, "DID NOT detect FS as already exists")
+			return err
+		}
+	}
+
+	// This defaults are not meant to be configurable, as instead weka should not require them.
+	// Until then, user configuration post cluster create
+	// .config_fs sizes are fixed - unlike the default fs they do not scale with cluster capacity.
+	var thinProvisionedLimitsConfigFS int64 = 100 * 1024 * 1024 * 1024
+	var configFsSize int64 = 10 * 1024 * 1024 * 1024
+
+	err = wekaService.CreateFilesystem(ctx, ".config_fs", "default", services.FSParams{
+		TotalCapacity:             strconv.FormatInt(thinProvisionedLimitsConfigFS, 10),
+		ThickProvisioningCapacity: strconv.FormatInt(configFsSize, 10),
+		ThinProvisioningEnabled:   true,
+		IsEncrypted:               r.ShouldEncryptFs(),
+		NoKmsEncryption:           r.IsInternalEncryptionEnabled(),
+	})
+	if err != nil {
+		var fsExists *services.FilesystemExists
+		if !errors.As(err, &fsExists) {
+			return err
+		}
+	}
+
+	logger.SetStatus(codes.Ok, ".config_fs ensured")
+
+	return nil
+}
+
+// EnsureDefaultFS creates the `default` filesystem. Requires the `default`
+// filesystem group, created by EnsureConfigFS.
 func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
@@ -354,50 +422,22 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 		return err
 	}
 
-	err = wekaService.CreateFilesystemGroup(ctx, "default")
-	if err != nil {
-		var fsGroupExists *services.FilesystemGroupExists
-		if !errors.As(err, &fsGroupExists) {
-			logger.Error(err, "DID NOT detect FS as already exists")
-			return err
-		}
-	}
-
 	// This defaults are not meant to be configurable, as instead weka should not require them.
 	// Until then, user configuration post cluster create
 
-	var thinProvisionedLimitsConfigFS int64 = 100 * 1024 * 1024 * 1024 // half a total capacity allocated for thin provisioning
-	thinProvisionedLimitsDefault := status.Capacity.TotalBytes / 10    // half a total capacity allocated for thin provisioning
+	thinProvisionedLimitsDefault := status.Capacity.TotalBytes / 10 // half a total capacity allocated for thin provisioning
 	fsReservedCapacity := status.Capacity.TotalBytes / 100
-	var configFsSize int64 = 10 * 1024 * 1024 * 1024
 	var defaultFsSize int64 = 1 * 1024 * 1024 * 1024
 
 	if defaultFsSize > thinProvisionedLimitsDefault {
 		thinProvisionedLimitsDefault = defaultFsSize
 	}
 
-	isEncrypted := r.ShouldEncryptFs()
-
-	err = wekaService.CreateFilesystem(ctx, ".config_fs", "default", services.FSParams{
-		TotalCapacity:             strconv.FormatInt(thinProvisionedLimitsConfigFS, 10),
-		ThickProvisioningCapacity: strconv.FormatInt(configFsSize, 10),
-		ThinProvisioningEnabled:   true,
-		IsEncrypted:               isEncrypted,
-		NoKmsEncryption:           r.IsInternalEncryptionEnabled(),
-	})
-
-	if err != nil {
-		var fsExists *services.FilesystemExists
-		if !errors.As(err, &fsExists) {
-			return err
-		}
-	}
-
 	err = wekaService.CreateFilesystem(ctx, "default", "default", services.FSParams{
 		TotalCapacity:             strconv.FormatInt(thinProvisionedLimitsDefault, 10),
 		ThickProvisioningCapacity: strconv.FormatInt(fsReservedCapacity, 10),
 		ThinProvisioningEnabled:   true,
-		IsEncrypted:               isEncrypted,
+		IsEncrypted:               r.ShouldEncryptFs(),
 		NoKmsEncryption:           r.IsInternalEncryptionEnabled(),
 	})
 	if err != nil {

@@ -213,6 +213,10 @@ func (r *wekaClusterReconcilerLoop) calculateTelemetryHash(ctx context.Context, 
 		parts = append(parts, part)
 	}
 
+	// The flag gates enableAuditDefaultFs, so it must affect the hash - otherwise
+	// clearing it leaves audit disabled on the default filesystem forever.
+	parts = append(parts, fmt.Sprintf("skipDefaultFs=%t", !r.ShouldCreateDefaultFs()))
+
 	// Sort to ensure consistent hash regardless of order
 	sort.Strings(parts)
 
@@ -321,10 +325,14 @@ func (r *wekaClusterReconcilerLoop) EnsureTelemetry(ctx context.Context) error {
 		return err
 	}
 
-	if err := r.enableAuditDefaultFs(ctx, executor); err != nil {
-		logger.SetError(err, "Failed to enable audit on default filesystem")
-		r.setTelemetryConditionError(ctx, logger, err)
-		return err
+	if r.ShouldCreateDefaultFs() {
+		if err := r.enableAuditDefaultFs(ctx, executor); err != nil {
+			logger.SetError(err, "Failed to enable audit on default filesystem")
+			r.setTelemetryConditionError(ctx, logger, err)
+			return err
+		}
+	} else {
+		logger.Info("Skipping audit on default filesystem, it is not operator-managed")
 	}
 
 	// Step 3: Build set of desired export names (with operator prefix)

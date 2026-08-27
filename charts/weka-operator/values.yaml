@@ -714,6 +714,13 @@ admissionPolicies:
   #   # value produces a degenerate or unbootable cluster.
   #   cluster_capacity_protection:          default  # strict: error  | relaxed: error
   #
+  #   # When spec.overrides.skipDefaultFilesystemCreation is set, the operator
+  #   # stops managing features that hardcode the `default` filesystem: any
+  #   # configured telemetry export (filesystem-level audit is skipped; cluster-
+  #   # level audit still runs), and operator-created CSI storage classes. One
+  #   # violation is reported per unmet dependency.
+  #   cluster_skip_default_fs:              default  # strict: warn   | relaxed: warn
+  #
   #   # WekaClient.spec.targetCluster must reference an existing
   #   # WekaCluster.
   #   client_target_cluster_exists:         default  # strict: error  | relaxed: warn

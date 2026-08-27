@@ -4477,6 +4477,14 @@
           "pointer": true
         },
         {
+          "name": "SkipDefaultFilesystemCreation",
+          "jsonName": "skipDefaultFilesystemCreation",
+          "type": "bool",
+          "description": "SkipDefaultFilesystemCreation disables creation of the `default` filesystem.\nThe `default` filesystem group and `.config_fs` are still created.",
+          "optional": true,
+          "pointer": true
+        },
+        {
           "name": "CancelDeletion",
           "jsonName": "cancelDeletion",
           "type": "bool",

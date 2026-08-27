@@ -17,6 +17,7 @@ var (
 		"cluster_dataservices_fe_cores":       {Strict: Error, Relaxed: Error},
 		"cluster_capacity_protection":         {Strict: Error, Relaxed: Error},
 		"cluster_capacity_chunk_feasibility":  {Strict: Error, Relaxed: Error},
+		"cluster_skip_default_fs":             {Strict: Warn, Relaxed: Warn},
 	}
 
 	wekaClientDefaults = map[string]PolicyDefaults{

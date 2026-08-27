@@ -351,6 +351,7 @@
 | upgradePausePreCompute | bool | Prevent from moving into compute phase |
 | podTerminationDeactivationTimeout | *metav1.Duration | Timeout duration for deactivating pods that are terminating longer than this duration.<br>When nil (default), the default timeout of 5 minutes is used.<br>When set to 0, deactivation of terminating pods is disabled.<br>Otherwise, the specified duration is used. |
 | paused | *bool | Pause the cluster - all containers will be stopped forcefully.<br>nil (not set): no propagation, allows direct container-level state manipulation.<br>true: pause all containers.<br>false: actively unpause containers that are in paused state. |
+| skipDefaultFilesystemCreation | *bool | SkipDefaultFilesystemCreation disables creation of the `default` filesystem.<br>The `default` filesystem group and `.config_fs` are still created. |
 | cancelDeletion | bool | Cancel deletion of the cluster if it is in graceful destroy period, a disaster recovery mechanism |
 | dpdkBaseMemoryMb | DpdkBaseMemoryMbOverride |  |
 | machineIdentifierNodeRef | string | used to override machine identifier node reference for backend containers (drive, compute, etc.) |
