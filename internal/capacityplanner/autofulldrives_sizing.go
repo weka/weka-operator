@@ -68,12 +68,6 @@ func autoSizeNode(
 		}
 	}
 
-	// Nothing may lower the derived core count — not node headroom, not compute pressure. Trading cores away
-	// to fit is the mirror of the drive-dropping bug this mode exists to remove: both silently under-deliver.
-	cores := FullDriveCores(taken, cons)
-	if desired.DriveCores > 0 {
-		cores = desired.DriveCores
-	}
 	if desired.DriveCores > taken {
 		return autoNodePlan{}, &InfeasibilityReport{
 			Reason: fmt.Sprintf(
@@ -86,5 +80,11 @@ func autoSizeNode(
 		}
 	}
 
+	// Nothing may lower the derived core count — not node headroom, not compute pressure. Trading cores away
+	// to fit is the mirror of the drive-dropping bug this mode exists to remove: both silently under-deliver.
+	cores := FullDriveCores(taken, cons)
+	if desired.DriveCores > 0 {
+		cores = desired.DriveCores
+	}
 	return autoNodePlan{node: name, drives: drives[:taken], cores: cores}, nil
 }
