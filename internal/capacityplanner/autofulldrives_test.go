@@ -3572,3 +3572,114 @@ func TestPlanAutoFullDrives_InfeasibleDriveFit_ReportsWouldBeCoreDemand(t *testi
 		t.Errorf("DriveSizing.Reason = %q, want it to contain %q", plan.DriveSizing.Reason, wantSubstr)
 	}
 }
+
+// --- in-place compute growth (autoCommitComputeGrowth / autoRederiveKeptHugepages) ---
+
+// No free compute node at all, so new containers cannot cover the deficit and the whole shortfall must be
+// absorbed by growing the one existing compute container in place.
+func TestPlanAutoFullDrives_ComputeGrowth_NoFreeNode_GrowsInPlace(t *testing.T) {
+	cons := testCons()
+	big := 1 << 28
+	inv := []NodeCapacity{
+		{NodeName: "n1", FDValue: "n1", DriveCapacitiesGiB: uniformDrives(3, 5000), TlcGiB: 15000,
+			AllocatableCPU: 200, AvailableHugepagesMiB: big, AvailableMemoryMiB: big},
+	}
+	// n1 already hosts the only compute container, so placeable is empty: growth is the sole lever.
+	existingCompute := []ExistingComputeContainer{{Name: "ec-n1", Node: "n1", NumCores: 1, HugepagesMiB: 4000}}
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{}, nil, existingCompute, inv, computeNodeSet("n1"), cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	// 3 drives -> 3 drive cores -> 6 required compute cores at the 2:1 full-drives ratio.
+	if plan.RequiredComputeCores != 6 {
+		t.Fatalf("RequiredComputeCores = %d, want 6", plan.RequiredComputeCores)
+	}
+	if plan.ComputeContainers != 1 {
+		t.Errorf("ComputeContainers = %d, want 1 — no free node exists, so nothing new may be placed",
+			plan.ComputeContainers)
+	}
+	if len(plan.ComputeLayout) != 1 || plan.ComputeLayout[0].Node != "n1" {
+		t.Fatalf("ComputeLayout = %+v, want the single existing container on n1", plan.ComputeLayout)
+	}
+	if got := plan.ComputeLayout[0].NumCores; got != 6 {
+		t.Errorf("grown compute cores = %d, want 6 (1 existing + 5 grown in place)", got)
+	}
+	if got := plan.ComputeLayout[0].HugepagesMiB; got < 4000 {
+		t.Errorf("grown compute hugepages = %d, want >= the 4000 it already reserves", got)
+	}
+}
+
+// A free compute node exists but is too small to absorb the whole shortfall, so the plan must use it for
+// what it can take and top up the remainder by growing in place — the least growth that lets the rest fit.
+func TestPlanAutoFullDrives_ComputeGrowth_LeastGrowthTopsUpNewContainer(t *testing.T) {
+	cons := testCons()
+	big := 1 << 28
+	inv := []NodeCapacity{
+		{NodeName: "n1", FDValue: "n1", DriveCapacitiesGiB: uniformDrives(4, 5000), TlcGiB: 20000,
+			AllocatableCPU: 200, AvailableHugepagesMiB: big, AvailableMemoryMiB: big},
+		// Free compute node, capped at 2 data cores by CPU so it cannot carry the whole deficit alone.
+		{NodeName: "c1", FDValue: "c1", AllocatableCPU: 3, AvailableHugepagesMiB: big, AvailableMemoryMiB: big},
+	}
+	existingCompute := []ExistingComputeContainer{{Name: "ec-n1", Node: "n1", NumCores: 1, HugepagesMiB: 4000}}
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{}, nil, existingCompute, inv, computeNodeSet("n1", "c1"), cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	// 4 drives -> 4 drive cores -> 8 required compute cores; 1 is already kept, so the deficit is 7.
+	if plan.RequiredComputeCores != 8 {
+		t.Fatalf("RequiredComputeCores = %d, want 8", plan.RequiredComputeCores)
+	}
+	if plan.ComputeContainers != 2 {
+		t.Fatalf("ComputeContainers = %d, want 2 (the kept one plus the free node), layout %+v",
+			plan.ComputeContainers, plan.ComputeLayout)
+	}
+	byNode := map[string]ComputeContainerSpec{}
+	for _, l := range plan.ComputeLayout {
+		byNode[l.Node] = l
+	}
+	total := byNode["n1"].NumCores + byNode["c1"].NumCores
+	if total < plan.RequiredComputeCores {
+		t.Errorf("total compute cores = %d (n1=%d, c1=%d), want >= the required %d",
+			total, byNode["n1"].NumCores, byNode["c1"].NumCores, plan.RequiredComputeCores)
+	}
+	// The free node must carry as much as it can, so in-place growth stays minimal: c1 is CPU-capped at 2.
+	if got := byNode["c1"].NumCores; got == 0 {
+		t.Errorf("free compute node c1 got no cores; growth should top up only what it cannot carry")
+	}
+	if got := byNode["n1"].NumCores; got < 1 {
+		t.Errorf("kept container shrank to %d cores, want >= its existing 1", got)
+	}
+}
+
+// The capacity-based hugepages term is divided by the compute container count, so adding a container lowers
+// the figure the planner computes for one that already exists. Only a rise may be written: the pod's limit is
+// immutable and the planner charges hugepages from the spec, so a fall must be a no-op, not a credit.
+func TestPlanAutoFullDrives_ComputeGrowth_KeptHugepagesNeverLowered(t *testing.T) {
+	cons := testCons()
+	cons.ComputeHugepagesTlcRatio = 1024
+	big := 1 << 28
+	inv := []NodeCapacity{
+		{NodeName: "n1", FDValue: "n1", DriveCapacitiesGiB: uniformDrives(4, 5000), TlcGiB: 20000,
+			AllocatableCPU: 200, AvailableHugepagesMiB: big, AvailableMemoryMiB: big},
+		{NodeName: "c1", FDValue: "c1", AllocatableCPU: 200, AvailableHugepagesMiB: big, AvailableMemoryMiB: big},
+	}
+	// Reserves far more than any figure this plan can compute for it, so the re-derivation can only fall.
+	const inflated = 500000
+	existingCompute := []ExistingComputeContainer{{Name: "ec-n1", Node: "n1", NumCores: 1, HugepagesMiB: inflated}}
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{}, nil, existingCompute, inv, computeNodeSet("n1", "c1"), cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	for _, l := range plan.ComputeLayout {
+		if l.Node == "n1" && l.HugepagesMiB < inflated {
+			t.Errorf("kept container's hugepages = %d, want >= the %d it already reserves — a computed fall must never be written",
+				l.HugepagesMiB, inflated)
+		}
+	}
+}

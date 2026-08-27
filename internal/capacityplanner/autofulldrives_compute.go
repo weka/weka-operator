@@ -35,6 +35,15 @@ type autoComputeEntry struct {
 	growHeadroom int
 }
 
+// computeProbe is one candidate growTake's outcome: the layout the derivation settled on for the target
+// that growTake leaves, or growthAlone when the growth covers the whole deficit and there is nothing to
+// derive. Zero value with growthAlone false is the "no new containers" case.
+type computeProbe struct {
+	count, cores int
+	warnings     []string
+	growthAlone  bool
+}
+
 func autoComputeSpecs(kept []autoComputeEntry) []ComputeContainerSpec {
 	out := make([]ComputeContainerSpec, 0, len(kept))
 	for _, e := range kept {
@@ -51,9 +60,10 @@ func planComputeAutoFullDrives(in *autoComputeInput, plan *CapacityPlan) {
 		return
 	}
 
-	// Set before anything reads them, so the deficit and every infeasibility reason reason about one number.
+	// RequiredComputeCores is the caller's to set: PlanAutoFullDrives writes it before the feasibility gate,
+	// so an infeasible plan still reports the demand its claimed drives imply. Everything below reads that
+	// one number.
 	plan.TotalQlcDriveCores = 0 // full drives is TLC-only by construction
-	plan.RequiredComputeCores = RequiredComputeCores(plan.TotalTlcDriveCores, 0, true, in.cons)
 
 	// Nothing to size against. A plan with drive containers but zero drive cores is internally inconsistent —
 	// fail loudly rather than sizing compute against a phantom zero.
@@ -126,66 +136,98 @@ func planComputeAutoFullDrives(in *autoComputeInput, plan *CapacityPlan) {
 		return ComputeContainerHugepagesMiB(in.totalTlcGiB, 0, len(kept)+count, cores, in.cons)
 	}
 
-	// Prefer new containers, top up with in-place growth. Feasibility is monotone in growTake — more growth
-	// means a smaller target for the derivation — so the first success is the least growth and the most new
-	// containers. unaidedReason is the growTake==0 attempt's own explanation (usually the binding resource,
-	// often compute hugepages) for why new containers alone do not fit, and leads the infeasibility below.
-	unaidedReason := ""
-	for growTake := 0; growTake <= growTotal; growTake++ {
-		newTarget := deficit - growTake
-		if newTarget <= 0 && growTake > 0 {
-			// Growth alone closes it; no derivation, which would resurrect the zero-target phantom above.
-			// No new containers follow, so the final count is len(kept).
-			autoCommitComputeGrowth(kept, growTake, len(kept), in)
-			if !autoRederiveKeptHugepages(kept, len(kept), in, plan) {
-				return
-			}
-			finishComputePlan(plan, autoComputeSpecs(kept), 0)
-			return
+	// Prefer new containers, top up with in-place growth: the least growth that lets the rest fit on free
+	// nodes. probe reports whether a given growTake is coverable, deriving the layout for the target it
+	// leaves; it has no side effects, so it is safe to call for candidates that are never committed.
+	probe := func(growTake int) (computeProbe, string) {
+		// Growth alone closes it, so there is nothing to derive — and deriving against a zero target would
+		// resurrect the phantom-container case guarded above. growTake==0 is excluded: a zero deficit there
+		// still owes the derivation its floor containers.
+		if deficit-growTake <= 0 && growTake > 0 {
+			return computeProbe{growthAlone: true}, ""
 		}
-
 		// specCount is hard 0: a pinned computeContainers means the cluster is not in this mode at all.
 		count, cores, infeasible, warnings := deriveComputeLayout(
-			0, in.desired.ComputeCores, newTarget,
+			0, in.desired.ComputeCores, deficit-growTake,
 			floor, in.cons.MaxCoresPerContainer, coreHeadroom, nodeHugepagesMiB, hugepagesFor,
 		)
-		if infeasible != "" {
-			if growTake == 0 {
-				unaidedReason = infeasible
-			}
-			continue // try covering more of the deficit by growing what already exists
-		}
+		return computeProbe{count: count, cores: cores, warnings: warnings}, infeasible
+	}
 
-		// `count` new containers follow, so the final steady-state total is len(kept)+count.
-		autoCommitComputeGrowth(kept, growTake, len(kept)+count, in)
-		if !autoRederiveKeptHugepages(kept, len(kept)+count, in, plan) {
+	// unaidedReason is the growTake==0 attempt's own explanation (usually the binding resource, often compute
+	// hugepages) for why new containers alone do not fit, and leads the infeasibility below.
+	best, unaidedReason := probe(0)
+	growTake := 0
+	if unaidedReason != "" {
+		// The search space is [1, hi]: hi is where growth alone would close the deficit, or all the growth
+		// there is, whichever comes first. Either way the least feasible growTake wins — it is the one that
+		// disturbs the fewest running containers and places the most new ones.
+		found := false
+		hi := min(deficit, growTotal)
+		if in.desired.ComputeCores == 0 {
+			// Auto-derived cores: coverability is monotone in growTake. For any candidate container count the
+			// derivation tries, a smaller target means fewer cores per container and therefore strictly less
+			// hugepages at the same count — so a growTake that covers the deficit implies every larger one
+			// does. That licenses a binary search, which matters because growTotal reaches
+			// len(kept)*MaxCoresPerContainer and every probe re-derives the whole layout.
+			for lo := 1; lo <= hi; {
+				mid := lo + (hi-lo)/2
+				if p, infeasible := probe(mid); infeasible == "" {
+					best, growTake, found = p, mid, true
+					hi = mid - 1 // a smaller growTake may also cover it — keep the least
+				} else {
+					lo = mid + 1
+				}
+			}
+		} else {
+			// A pinned computeCores breaks that monotonicity: the container count is ceil(target/cores), so
+			// more growth means FEWER new containers, and the capacity-based hugepages term — divided by the
+			// container count — rises as it shrinks. Coverability can therefore hold on an interval and fail
+			// above it, which a binary search would walk away from. Scan.
+			for g := 1; g <= hi; g++ {
+				if p, infeasible := probe(g); infeasible == "" {
+					best, growTake, found = p, g, true
+					break
+				}
+			}
+		}
+		if !found {
+			// Both levers exhausted.
+			reason := "compute: " + unaidedReason
+			if growTotal > 0 {
+				reason += fmt.Sprintf(
+					"; growing the %d existing compute container(s) in place offers only %d more core(s), "+
+						"which does not close the %d-core shortfall", len(kept), growTotal, deficit)
+			}
+			setInfeasible(plan, &InfeasibilityReport{
+				Reason: reason,
+				Pool:   "compute",
+				Fixes:  fixesAutoFullDrivesCompute(in.cons),
+			})
 			return
 		}
-		// Every compute advisory accumulates here and leaves as one Warning: they share the single reason
-		// AutoFullDrivesComputeLayout, whose throttle key ignores the message, so a second Warning under that
-		// reason is silently dropped for the whole window instead of reported. autoPlaceNewCompute's surplus
-		// advisory is the only contributor today: deriveComputeLayout never populates its warnings return.
-		advisories := append([]string(nil), warnings...)
-		autoPlaceNewCompute(in, plan, kept, placeable, coreHeadroom, count, cores, newTarget, &advisories)
-		if len(advisories) > 0 {
-			plan.Warnings = append(plan.Warnings,
-				fleetWarning(WarningKindComputeLayout, "auto full drives: %s", strings.Join(advisories, "; ")))
-		}
-		return
 	}
 
-	// Both levers exhausted.
-	reason := "compute: " + unaidedReason
-	if growTotal > 0 {
-		reason += fmt.Sprintf(
-			"; growing the %d existing compute container(s) in place offers only %d more core(s), "+
-				"which does not close the %d-core shortfall", len(kept), growTotal, deficit)
+	// `best.count` new containers follow, so the final steady-state total is len(kept)+best.count.
+	totalCount := len(kept) + best.count
+	autoCommitComputeGrowth(kept, growTake, totalCount, in)
+	if !autoRederiveKeptHugepages(kept, totalCount, in, plan) {
+		return
 	}
-	setInfeasible(plan, &InfeasibilityReport{
-		Reason: reason,
-		Pool:   "compute",
-		Fixes:  fixesAutoFullDrivesCompute(in.cons),
-	})
+	if best.growthAlone {
+		finishComputePlan(plan, autoComputeSpecs(kept), 0)
+		return
+	}
+	// Every compute advisory accumulates here and leaves as one Warning: they share the single reason
+	// AutoFullDrivesComputeLayout, whose throttle key ignores the message, so a second Warning under that
+	// reason is silently dropped for the whole window instead of reported. autoPlaceNewCompute's surplus
+	// advisory is the only contributor today: deriveComputeLayout never populates its warnings return.
+	advisories := append([]string(nil), best.warnings...)
+	autoPlaceNewCompute(in, plan, kept, placeable, coreHeadroom, best.count, best.cores, deficit-growTake, &advisories)
+	if len(advisories) > 0 {
+		plan.Warnings = append(plan.Warnings,
+			fleetWarning(WarningKindComputeLayout, "auto full drives: %s", strings.Join(advisories, "; ")))
+	}
 }
 
 // autoKeptCompute collects the existing compute containers this plan carries forward, at their current size,
@@ -293,7 +335,11 @@ func autoCommitComputeGrowth(kept []autoComputeEntry, need, totalCount int, in *
 		need -= take
 
 		newCores := e.spec.NumCores + take
-		newHP := ComputeContainerHugepagesMiB(in.totalTlcGiB, 0, max(totalCount, 1), newCores, in.cons)
+		// Never below what the container already reserves: the pod's hugepages limit is immutable, and this
+		// plan's headroom accounting charges hugepages from the spec — a lower figure would credit back
+		// capacity the pod has not released, and the apply layer would refuse to write it anyway.
+		newHP := max(ComputeContainerHugepagesMiB(in.totalTlcGiB, 0, max(totalCount, 1), newCores, in.cons),
+			e.spec.HugepagesMiB)
 
 		nc := in.remaining[e.spec.Node]
 		nc.AllocatableCPU = max(nc.AllocatableCPU-physicalCPUCost(&nc, take, in.cons, false), 0)
@@ -312,7 +358,11 @@ func autoCommitComputeGrowth(kept []autoComputeEntry, need, totalCount int, in *
 func autoRederiveKeptHugepages(kept []autoComputeEntry, totalCount int, in *autoComputeInput, plan *CapacityPlan) bool {
 	for i := range kept {
 		e := &kept[i]
-		newHP := ComputeContainerHugepagesMiB(in.totalTlcGiB, 0, max(totalCount, 1), e.spec.NumCores, in.cons)
+		// Clamped for the same reason as autoCommitComputeGrowth: the computed figure falls when the
+		// container count rises, but only a rise is ever written, so a fall is a no-op here rather than a
+		// headroom credit.
+		newHP := max(ComputeContainerHugepagesMiB(in.totalTlcGiB, 0, max(totalCount, 1), e.spec.NumCores, in.cons),
+			e.spec.HugepagesMiB)
 		delta := newHP - e.spec.HugepagesMiB
 		if delta == 0 {
 			continue

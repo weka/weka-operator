@@ -213,10 +213,10 @@ func (clusterAutoFullDrivesComputeHugepages) Validate(ctx context.Context, c cli
 // cannot call those functions from outside the capacityplanner package; reimplementing the
 // conversion here would duplicate CPU accounting this file does not own and risk drifting from it.
 // clusterCoresPerContainerLimit already rejects computeCores above the global maxCoresPerContainer
-// cap in every mode, and clusterCoresAvailable checks a pin against raw per-node CPU for other
-// roles — but its containers>0 guard never fires for AFD-mode compute (computeContainers is always 0
-// there), so the real per-node core fit specifically is left to the planner at reconcile time
-// (AutoFullDrivesInfeasible) rather than caught here.
+// cap in every mode, and clusterCoresAvailable compares a pinned computeCores against raw per-node
+// allocatable CPU in every mode including this one, an unset computeContainers notwithstanding. What
+// is left to the planner at reconcile time (AutoFullDrivesInfeasible) is only the HT /
+// FullPcpusOnly-aware physicalCPUToDataCores conversion this validator cannot reach.
 func validateAutoFullDrivesPinnedComputeCores(
 	config *weka.WekaClusterTemplate,
 	claim autoFullDrivesClaim,

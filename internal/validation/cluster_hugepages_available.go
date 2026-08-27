@@ -14,11 +14,19 @@ import (
 const mib = int64(1) << 20
 
 // clusterHugepagesAvailable warns per-role on capacity and single-fit
-// failures, mirroring clusterCoresAvailable but for hugepages-2Mi.
+// failures, mirroring clusterCoresAvailable but for hugepages-2Mi — including its advisory nature:
+// the single-fit check compares against the weakest matched node while the planners pick nodes by
+// fit, so it reports that a node cannot host one container, never that none can.
 //
 // Unit gap: *Hugepages fields are MiB (pod.go formats them "%dMi"); Allocatable[hugepages-2Mi] is
 // bytes — multiply MiB × mib to compare. Skipped when *Hugepages is 0 (operator-derived from drive
 // capacity). Role mapping isn't 1:1 with cores: s3/nfs/smbw use the *Frontend* fields.
+//
+// Only the aggregate check needs a container count. The single-fit one compares one container against
+// the weakest matched node, which is answerable from the pin alone — and must be for the countDerived
+// roles, since a cluster acting as a daemonset leaves driveContainers/computeContainers unset by
+// definition. An unset count on a frontend role instead means the role deploys nothing, so neither
+// check applies and the role is skipped whole.
 type clusterHugepagesAvailable struct{}
 
 func (clusterHugepagesAvailable) ID() string {
@@ -37,7 +45,10 @@ func (clusterHugepagesAvailable) Validate(ctx context.Context, c client.Client, 
 
 	var errs field.ErrorList
 	for _, ch := range rolesForTemplate(cluster.Spec.Dynamic) {
-		if ch.hugepages <= 0 || ch.containers <= 0 {
+		if ch.hugepages <= 0 {
+			continue
+		}
+		if ch.containers <= 0 && !ch.countDerived {
 			continue
 		}
 		selector := cluster.GetNodeSelectorForRole(ch.role)
@@ -65,14 +76,15 @@ func (clusterHugepagesAvailable) Validate(ctx context.Context, c client.Client, 
 		}
 
 		perContainerBytes := int64(ch.hugepages) * mib
-		totalRequestedBytes := perContainerBytes * int64(ch.containers)
 
 		if perContainerBytes > minNodeAllocBytes {
 			detail := fmt.Sprintf(
 				"spec.dynamicTemplate.%s (%d MiB) exceeds the smallest matched node's "+
-					"allocatable hugepages-2Mi (%d MiB) for role %q. No matched "+
-					"node can host even one %s container; pods will stay Pending. "+
-					"Reduce %s or configure more hugepages on the nodes.",
+					"allocatable hugepages-2Mi (%d MiB) for role %q. At least one matched "+
+					"node cannot host even one %s container: the planners that pick nodes "+
+					"by fit skip it, and everywhere else the plan is reported infeasible "+
+					"or the pod stays Pending. Reduce %s or configure more hugepages on "+
+					"the nodes.",
 				ch.hugepagesField, ch.hugepages, minNodeAllocBytes/mib, ch.role,
 				ch.role, ch.hugepagesField,
 			)
@@ -82,7 +94,11 @@ func (clusterHugepagesAvailable) Validate(ctx context.Context, c client.Client, 
 			))
 		}
 
-		if totalRequestedBytes > totalAllocBytes {
+		// An unset count is the operator's to derive, so there is no fleet total to check against.
+		if ch.containers <= 0 {
+			continue
+		}
+		if totalRequestedBytes := perContainerBytes * int64(ch.containers); totalRequestedBytes > totalAllocBytes {
 			detail := fmt.Sprintf(
 				"spec.dynamicTemplate.%s × %s (%d × %d = %d MiB) exceeds "+
 					"total allocatable hugepages-2Mi across %d matched node(s) "+

@@ -284,12 +284,15 @@ func buildDriveSizingRationale(
 	// sorted by node, so its first entry need not be the one whose core count is being reported — a
 	// heterogeneous layout would otherwise pair one container's cores with another's hugepages and read as
 	// an arithmetic error. Falls back to the largest figure when no entry matches.
+	largestHugepagesMiB, matched := 0, false
 	for _, c := range plan.ComputeLayout {
-		if c.NumCores == r.ComputeCoresPerContainer {
-			r.ComputeHugepagesMiB = c.HugepagesMiB
-			break
+		largestHugepagesMiB = max(largestHugepagesMiB, c.HugepagesMiB)
+		if !matched && c.NumCores == r.ComputeCoresPerContainer {
+			r.ComputeHugepagesMiB, matched = c.HugepagesMiB, true
 		}
-		r.ComputeHugepagesMiB = max(r.ComputeHugepagesMiB, c.HugepagesMiB)
+	}
+	if !matched {
+		r.ComputeHugepagesMiB = largestHugepagesMiB
 	}
 
 	sizing := fmt.Sprintf("one core per drive (at most %d per container)", cons.MaxCoresPerContainer)

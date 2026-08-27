@@ -209,14 +209,7 @@ func (c Collector) nodeInventoryFromLists(ctx context.Context, cluster *weka.Wek
 	// Nodes hosting THIS cluster's drive container being deleted: excluded from existingDrives, so its
 	// TLC/QLC capacity re-enters the fresh-candidate pool — but while its pod lives, cores/hugepages/memory
 	// stay charged via chargeForeignPods. Flagged so the planner deprioritizes fresh placement.
-	deletingDriveNodes := map[string]bool{}
-	for _, cont := range ownContainers {
-		if cont.Spec.Mode == weka.WekaContainerModeDrive && cont.IsMarkedForDeletion() {
-			if n := string(cont.GetNodeAffinity()); n != "" {
-				deletingDriveNodes[n] = true
-			}
-		}
-	}
+	deletingDriveNodes := NodesWithDeletingDriveContainer(ownContainers)
 
 	// Drive candidates: nodes with usable shared-drive capacity, carrying TLC/QLC headroom and an FD key.
 	fdByNode := map[string]string{}
@@ -309,22 +302,15 @@ func (c Collector) FullDrivesInventory(ctx context.Context, cluster *weka.WekaCl
 	allocatedDrives := allocatedNodeDrives(containers)
 	tolerations := resources.GetWekaPodTolerationsForCluster(cluster)
 
-	deletingDriveNodes := map[string]bool{}
-	for _, cont := range ownContainers {
-		if cont.Spec.Mode == weka.WekaContainerModeDrive && cont.IsMarkedForDeletion() {
-			if n := string(cont.GetNodeAffinity()); n != "" {
-				deletingDriveNodes[n] = true
-			}
-		}
-	}
+	deletingDriveNodes := NodesWithDeletingDriveContainer(ownContainers)
 
 	// ownDriveSerials is, per node, the serials allocated to THIS cluster's own drive container that still
-	// holds them, using the same DriveContainerHoldsDrives predicate as ExistingDrives (see that function
+	// holds them, using the same IsDeletingDriveContainer predicate as ExistingDrives (see that function
 	// for the invariant). A container that no longer holds its drives keeps them charged via
 	// allocatedDrives, so they are neither offered as free nor double-counted as a growth base.
 	ownDriveSerials := map[string]map[string]bool{}
 	for _, cont := range ownContainers {
-		if cont.Spec.Mode != weka.WekaContainerModeDrive || !DriveContainerHoldsDrives(cont) {
+		if cont.Spec.Mode != weka.WekaContainerModeDrive || IsDeletingDriveContainer(cont) {
 			continue
 		}
 		if cont.Status.Allocations == nil {
@@ -521,11 +507,30 @@ func (c Collector) ExploreNodes(ctx context.Context, selector map[string]string,
 	return out, nil
 }
 
-// DriveContainerHoldsDrives reports whether a drive container still holds its allocated drives.
-// ExistingDrives and ownDriveSerials must both use it: if they disagree, a node's drives are
-// invisible to both planner paths and the plan silently under-sizes compute.
-func DriveContainerHoldsDrives(c *weka.WekaContainer) bool {
-	return !c.IsMarkedForDeletion()
+// IsDeletingDriveContainer reports whether c is a drive container on its way out. Such a container still
+// physically holds its allocated drives — they stay out of the free pool via allocatedNodeDrives and out of
+// the own pool via ownDriveSerials — but can neither be grown nor planned against.
+//
+// Every path that decides whether a drive container still holds its drives must ask through here:
+// ExistingDrives, ownDriveSerials and summarizeDriveContainers each skip on it, and if they disagreed a
+// node's drives would be invisible to both planner paths and the plan would silently under-size compute.
+func IsDeletingDriveContainer(c *weka.WekaContainer) bool {
+	return c.Spec.Mode == weka.WekaContainerModeDrive && c.IsMarkedForDeletion()
+}
+
+// NodesWithDeletingDriveContainer is the set of nodes hosting one — the source of each node's
+// NodeCapacity.HasDeletingDriveContainer. A container with no node resolves to nowhere and is skipped.
+func NodesWithDeletingDriveContainer(ownContainers []*weka.WekaContainer) map[string]bool {
+	out := map[string]bool{}
+	for _, cont := range ownContainers {
+		if !IsDeletingDriveContainer(cont) {
+			continue
+		}
+		if n := string(cont.GetNodeAffinity()); n != "" {
+			out[n] = true
+		}
+	}
+	return out
 }
 
 // ExistingDrives builds the planner's view of this cluster's healthy drive containers.
@@ -536,7 +541,7 @@ func ExistingDrives(ctx context.Context, cluster *weka.WekaCluster, ownContainer
 		if c.Spec.Mode != weka.WekaContainerModeDrive {
 			continue
 		}
-		if !DriveContainerHoldsDrives(c) {
+		if IsDeletingDriveContainer(c) {
 			continue
 		}
 		node := string(c.GetNodeAffinity())
@@ -899,14 +904,7 @@ func buildNodeTopos(nodes []corev1.Node) map[string]capacityplanner.NodeCPUTopol
 // map, and cluster-wide container list instead of re-fetching them, so Collect can reuse the single
 // listing pass it shares with nodeInventoryFromLists.
 func (c Collector) nodeDetailsFromLists(ctx context.Context, cluster *weka.WekaCluster, ownContainers []*weka.WekaContainer, cons *capacityplanner.CapacityConstraints, inv []capacityplanner.NodeCapacity, fdByNode map[string]string, driveNodes, computeNodeList []corev1.Node, topos map[string]capacityplanner.NodeCPUTopology, allContainers []weka.WekaContainer) ([]NodeDetail, error) {
-	deletingDriveNodes := map[string]bool{}
-	for _, cont := range ownContainers {
-		if cont.Spec.Mode == weka.WekaContainerModeDrive && cont.IsMarkedForDeletion() {
-			if n := string(cont.GetNodeAffinity()); n != "" {
-				deletingDriveNodes[n] = true
-			}
-		}
-	}
+	deletingDriveNodes := NodesWithDeletingDriveContainer(ownContainers)
 
 	// Index the planner inventory by node for free-headroom + FD lookup.
 	invByNode := make(map[string]capacityplanner.NodeCapacity, len(inv))

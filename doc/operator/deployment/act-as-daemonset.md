@@ -188,6 +188,10 @@ node takes exactly that many of its **largest** drives:
   did not ask for are left unused. Because you asked for it explicitly, this is reported as a
   **Normal** `AutoFullDrivesDrivesStranded` event on the `WekaCluster` — one aggregated message naming
   each affected node as *used of signed* — not as a Warning.
+- **On a node whose drives are not all the same size, the reported capacity can overstate.** The pin
+  names the node's largest drives, but a container already holding smaller ones keeps them, so the
+  `X of Y GiB TLC` figure in `AutoFullDrivesPlanned` — and the claimed capacity the compute-hugepages
+  term derives from — can read high. Drive counts, cores and the container spec are unaffected.
 - `numDrives` is also the lever for reducing **claimed capacity**, which is what the compute-hugepages
   ceiling scales with. See
   [Compute hugepages are the practical ceiling](#compute-hugepages-are-the-practical-ceiling).
@@ -257,9 +261,13 @@ creation, so a container with no pod yet still occupies its share of the node's 
 > `spec.dynamicTemplate` replaces the derived figure on the container outright, but the planner still
 > decides node fit against the figure it *computed*. Pin one above a node's allocatable hugepages and
 > the plan is declared feasible, the container is created and pinned to that node, and its pod then
-> never schedules — nothing warns you at apply time. These are escape hatches for a sizing you have
-> worked out yourself; in this mode the derived values are the supported path, and if you use the
-> overrides, check them against `weka-capacity explore-nodes` first.
+> never schedules. Admission warns on the clearest symptom — a pin the **weakest** matched node could
+> not host — via `cluster_hugepages_available`, a **warning** in both modes. It is an advisory, not a
+> verdict, in both directions: the planner picks nodes by fit, so a fleet with one small node can warn
+> and still plan cleanly, while a pin that fits every node but not the ones the planner picks passes
+> silently. These are escape hatches for a sizing you have worked out yourself; in this mode the
+> derived values are the supported path, and if you use the overrides, check them against
+> `weka-capacity explore-nodes` first.
 
 ### Compute sizing
 
@@ -305,6 +313,11 @@ demands are found in this order:
 The two combine: the operator uses the least in-place growth that lets the rest fit on free nodes, so a
 free node too small to absorb the whole shortfall is still used for as much as it can take. Only if both
 levers together cannot cover it is the plan infeasible.
+
+Only compute containers on nodes the **compute-role selector matches** count toward the cluster's
+compute total. One running outside it is not credited, so the operator provisions those cores afresh
+instead — keep `roleNodeSelector.compute` wide enough to cover every node your compute containers
+actually run on.
 
 Growing compute raises a container's cores and hugepages, so the same
 [pod-restart caveat](#pod-restart-caveat) as drive growth applies: the operator updates the spec and
@@ -526,8 +539,11 @@ Remedies:
 > removing a node from it is a legitimate, supported response.
 
 The one exception is transient: a node still hosting a this-cluster drive container that is being
-deleted is **skipped** for this reconcile, with a Normal `AutoFullDrivesPlacementDeferred` event. It
-clears itself.
+deleted is **skipped** for this reconcile. It clears itself. The Normal
+`AutoFullDrivesPlacementDeferred` event accompanies the skip only when the node has signed drives
+beyond the ones that container holds; when it holds them all, that one node is skipped silently. If
+*every* node is in that state there is nothing left to plan, and the whole pass defers under that same
+event rather than reporting the fleet as unsigned.
 
 ## Changing sizing mode on a live cluster
 
@@ -570,18 +586,6 @@ sized for `numDrives` drives becomes one sized for `min(node drives, 19)` cores 
 recreation is owed** on every container whose cores changed. See the
 [Pod-restart caveat](#pod-restart-caveat); the containers keep running correctly at their old size
 until then.
-
-Two limits of the adoption are worth knowing before you switch:
-
-- **Adoption keys on the pod's node, not on the spec.** Count-based containers carry no node pin, so
-  the planner learns their node from the running pod. A drive container whose pod has **never** been
-  scheduled is invisible: its node reads as free and gets a fresh node-pinned container, and the
-  never-scheduled one is garbage-collected later (see
-  [the `Pending` drive-container entry](#troubleshooting)). Let the cluster be fully scheduled before
-  switching.
-- **One container per node is adopted.** If a node hosts two or more count-based drive containers,
-  one of them is grown to the node's full drive set and the others are left exactly as they are —
-  forever, because this mode only ever grows.
 
 The switch **is** checked against the daemonset admission gates. Every policy runs on any update that
 changes the spec, evaluated against the new spec, so `cluster_auto_full_drives_min_nodes`,
@@ -819,7 +823,7 @@ If your deployment needs QLC capacity, use a drive-sharing mode — `clusterCapa
 
 ## What admission checks
 
-Five policies apply to this mode. All of them run both when you create a cluster **and** on any update
+Seven policies apply to this mode. All of them run both when you create a cluster **and** on any update
 that changes its spec, evaluated against the new spec — `cluster_sizing_mode_flip` is simply the only
 one that also needs the old spec, which is why it can catch a transition at all. Severities are
 `{strict, relaxed}`; the mode is set per policy in the operator's Helm values.
@@ -831,6 +835,8 @@ one that also needs the old spec, which is why it can catch a transition at all.
 | `cluster_auto_full_drives_compute_hugepages` | Error / Warn | create + update | No compute layout fits: not enough hugepages for the claimed capacity ([the ceiling](#compute-hugepages-are-the-practical-ceiling)), more cores required than the compute-eligible nodes can hold ([cores, not memory](#when-cores-not-memory-are-what-binds)), or a pinned `computeCores` that fits neither |
 | `cluster_auto_full_drives_pin_exceeds_node_drives` | Error / Warn | create + update | `driveCores` above a node's effective drive count, or `numDrives` above its signed count |
 | `cluster_cores_per_container_limit` | Error / Warn | create + update | A pinned `driveCores`/`computeCores` above [19](#per-container-core-limit) |
+| `cluster_cores_available` | Warn / Warn | create + update | A pinned `driveCores`/`computeCores` larger than the smallest matched node's allocatable CPU |
+| `cluster_hugepages_available` | Warn / Warn | create + update | A pinned `driveHugepages`/`computeHugepages` larger than the smallest matched node's allocatable hugepages-2Mi — see [the override caveat](#hugepages-budget) |
 | `cluster_sizing_mode_flip` | Error / Error | **update** | A change that flips the derived sizing mode while drive containers exist, other than the two supported switches; see [above](#changing-sizing-mode-on-a-live-cluster) |
 
 Only `min_nodes` and the CEL rule are guarantees. The rest project from node state that can still be
@@ -863,12 +869,12 @@ without matching message text, and the causes that are not problems are Normal r
 | `AutoFullDrivesGrowthDetected` | Normal | Cluster | 1 min | Growth was **applied** to ≥1 existing drive container — `numDrives`/cores actually written to the spec. It names each container, its node, and its new drives/cores, and says when a pod recreation is owed. It does not report growth the planner proposed but did not commit. |
 | `AutoFullDrivesGrowthDeferred` | Warning | Cluster | 15 min | Growth was planned but **none** of it could be applied because an update failed. The operator retries on the next reconcile, but a later plan may no longer offer the same growth (node headroom changes as pods schedule). |
 | `AutoFullDrivesDrivesStranded` | Normal | Cluster | 3 min | A pinned `numDrives` leaves signed drives unused. One aggregated message covering the whole fleet, listing each node as *used of signed*. **Expected** whenever the pin is in force — it is Normal precisely because you asked for it. Raise or drop `numDrives` to use them. |
-| `AutoFullDrivesPlacementDeferred` | Normal | Cluster | 3 min | One aggregated message covering every node where placement is waiting this pass, for either cause: a node still hosts a this-cluster drive container that is being deleted, or an existing container's growth is deferred because its pod is not yet scheduled. Clears itself as pods bind. |
+| `AutoFullDrivesPlacementDeferred` | Normal | Cluster | 3 min | Placement is waiting this pass. Usually one aggregated message covering every node affected, for either of two per-node causes: a node still hosts a this-cluster drive container that is being deleted, or an existing container's growth is deferred because its pod is not yet scheduled. It also carries the fleet-wide case, where *every* signed drive is still held by containers being deleted so planning cannot start at all — there the drives are signed, merely not released yet. Clears itself. |
 | `AutoFullDrivesNodeIneligible` | Normal | Cluster | 3 min | A node matching the drive-role selector is cordoned, `NotReady`, or carries an untolerated taint, so it gets no **new** container. Normal rather than Warning because on its own it costs nothing — the plan proceeds on the remaining nodes, and if the loss actually matters the plan goes infeasible and `AutoFullDrivesInfeasible` says so. All ineligible nodes arrive in one message, each with its own reason (e.g. `cordoned`) — so a node cordoned after the last event is reported within one window rather than waiting out a long one. Anything already running there keeps running and still grows. See [Troubleshooting](#troubleshooting). |
 | `AutoFullDrivesComputeLayout` | Warning | Cluster | 15 min | Every compute-sizing advisory from the shared compute layout step, joined into one message per pass. |
 | `AutoFullDrivesWarning` | Warning | Cluster | 15 min | Fallback only: a planner warning whose cause has no dedicated reason yet. |
 | `AutoFullDrivesInfeasible` | Warning | Cluster | 1 min | The plan can't proceed and **nothing is created**. Causes: a node that cannot fit a container sized for all its drives (named, with the binding dimension and needed-vs-available), `driveCores` pinned above a node's drive count, `numDrives` pinned above a node's signed count, or not enough compute capacity for the ratio. The message names the binding reason and suggested fixes. |
-| `AutoFullDrivesNoSignedDrives` | Normal | Cluster | 1 min | No node matching the drive-role selector has a signed, non-blocked full drive yet. Planning is deferred; sign drives and the operator picks them up on its own. |
+| `AutoFullDrivesNoSignedDrives` | Normal | Cluster | 1 min | No node matching the drive-role selector has a signed, non-blocked full drive yet. Planning is deferred; sign drives and the operator picks them up on its own. Drives held by a container being deleted are *not* this case — see `AutoFullDrivesPlacementDeferred`. |
 | `UnschedulableDriveContainer` | Warning | **Container** | none | A node-pinned drive container **whose pod never bound** was deleted, so its capacity can be re-placed, after the scheduler had been reporting `PodScheduled=False`/`Reason=Unschedulable` for longer than the GC timeout. The message carries the scheduler's own explanation. A pod still `Pending` for another reason (e.g. a slow DKMS build) is left alone. See [Troubleshooting](#troubleshooting). |
 | `UnschedulableComputeContainer` | Warning | **Container** | none | The same, for a compute container. See [Troubleshooting](#troubleshooting). |
 | `CapacityGrowthApplied` | Warning | **Container** | none | Growth committed to this container; a pod recreation is owed either way — see [Pod-restart caveat](#pod-restart-caveat). The message distinguishes a cores bump (new sizing does not apply until the restart) from a drives-only growth (capacity is already served, but the pod's hugepages limit has not caught up). |
