@@ -288,6 +288,13 @@ metrics:
     requestsTimeouts:
       register: 3s
       getContainerInfo: 10s
+  # Scrape pod cpu/memory from the Kubernetes metrics.k8s.io API and report it on reconcile
+  # spans. Requires metrics-server to be installed in the cluster, set to false if it is not,
+  # to avoid a per-container "Error getting pod metrics" warning. Only the cpu/memory
+  # attributes are affected: reconcile spans still carry the weka-native process and drive
+  # counters, and metrics.containers.* is independent.
+  podMetrics:
+    enabled: true
 
 localDataStorageClass: ""
 localDataPvc: ""

@@ -238,6 +238,8 @@ spec:
               value: "{{ .Values.metrics.containers.requestsTimeouts.register }}"
             - name: METRICS_CONTAINERS_REQUEST_TIMEOUT_GET_CONTAINER_INFO
               value: "{{ .Values.metrics.containers.requestsTimeouts.getContainerInfo }}"
+            - name: METRICS_POD_METRICS_ENABLED
+              value: "{{ .Values.metrics.podMetrics.enabled }}"
             - name: LOCAL_DATA_PVC
               value: "{{ .Values.localDataPvc }}"
             - name: DNS_POLICY_K8S_NETWORK

@@ -397,6 +397,11 @@ type Metrics struct {
 		PollingRate      time.Duration
 		RequestsTimeouts NodeAgentRequestsTimeouts
 	}
+	// PodMetrics scrapes pod cpu/memory from the metrics.k8s.io API and reports it on
+	// reconcile spans. Requires metrics-server, turn off on clusters that don't run it.
+	PodMetrics struct {
+		Enabled bool
+	}
 	NodeAgentSecretName string
 }
 
@@ -587,6 +592,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Metrics.Containers.PollingRate = getDurationEnvOrDefault("METRICS_CONTAINERS_POLLING_RATE", time.Second*60)
 	Config.Metrics.Containers.RequestsTimeouts.Register = getDurationEnvOrDefault("METRICS_CONTAINERS_REQUEST_TIMEOUT_REGISTER", time.Second*3)
 	Config.Metrics.Containers.RequestsTimeouts.GetContainerInfo = getDurationEnvOrDefault("METRICS_CONTAINERS_REQUEST_TIMEOUT_GET_CONTAINER_INFO", time.Second*10)
+	Config.Metrics.PodMetrics.Enabled = getBoolEnvOrDefault("METRICS_POD_METRICS_ENABLED", true)
 	Config.Metrics.NodeAgentSecretName = env.GetString("METRICS_NODE_AGENT_TOKEN", "weka-node-agent-secret")
 	Config.LocalDataPvc = env.GetString("LOCAL_DATA_PVC", "")
 	Config.DNSPolicy.K8sNetwork = env.GetString("DNS_POLICY_K8S_NETWORK", "")

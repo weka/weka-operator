@@ -285,28 +285,29 @@ func (r *containerReconcilerLoop) ReportOtelMetrics(ctx context.Context) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "MetricsData", "pod_name", r.container.Name, "namespace", r.container.Namespace, "mode", r.container.Spec.Mode)
 	defer logger.End()
 
-	if r.MetricsService == nil {
-		logger.Warn("Metrics service is not set")
-		return nil
-	}
 	if r.pod == nil {
 		return errors.New("on pod is set")
 	}
 
-	metrics, err := r.MetricsService.GetPodMetrics(ctx, r.pod)
-	if err != nil {
-		logger.Warn("Error getting pod metrics", "error", err)
-		return nil // we ignore error, as this is not mandatory functionality
+	// Only the pod cpu/memory attributes come from metrics.k8s.io. The counters below
+	// are sourced from the node-agent, so they are reported regardless of metrics-server.
+	if config.Config.Metrics.PodMetrics.Enabled {
+		if r.MetricsService == nil {
+			logger.Warn("Metrics service is not set")
+		} else if metrics, err := r.MetricsService.GetPodMetrics(ctx, r.pod); err != nil {
+			// not mandatory functionality, keep reporting the rest
+			logger.Warn("Error getting pod metrics", "error", err)
+		} else {
+			logger.SetAttributes(
+				attribute.Float64("cpu_usage", metrics.CpuUsage),
+				attribute.Int64("memory_usage", metrics.MemoryUsage),
+				attribute.Float64("cpu_request", metrics.CpuRequest),
+				attribute.Int64("memory_request", metrics.MemoryRequest),
+				attribute.Float64("cpu_limit", metrics.CpuLimit),
+				attribute.Int64("memory_limit", metrics.MemoryLimit),
+			)
+		}
 	}
-
-	logger.SetAttributes(
-		attribute.Float64("cpu_usage", metrics.CpuUsage),
-		attribute.Int64("memory_usage", metrics.MemoryUsage),
-		attribute.Float64("cpu_request", metrics.CpuRequest),
-		attribute.Int64("memory_request", metrics.MemoryRequest),
-		attribute.Float64("cpu_limit", metrics.CpuLimit),
-		attribute.Int64("memory_limit", metrics.MemoryLimit),
-	)
 
 	if r.container.Status.Stats == nil {
 		return nil

@@ -13,6 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -21,12 +22,16 @@ import (
 func NewContainerReconcileLoop(r *ContainerController, restClient rest.Interface) *containerReconcilerLoop {
 	//TODO: We creating new client on every loop, we should reuse from reconciler, i.e pass it by reference
 	mgr := r.Manager
-	config := mgr.GetConfig()
+	restCfg := mgr.GetConfig()
 	kClient := mgr.GetClient()
-	execService := exec.NewExecService(restClient, config)
-	metricsService, err := kubernetes.NewKubeMetricsServiceFromManager(mgr)
-	if err != nil {
-		mgr.GetLogger().Error(err, "Failed to create metrics service")
+	execService := exec.NewExecService(restClient, restCfg)
+	var metricsService kubernetes.KubeMetricsService
+	if config.Config.Metrics.PodMetrics.Enabled {
+		var err error
+		metricsService, err = kubernetes.NewKubeMetricsServiceFromManager(mgr)
+		if err != nil {
+			mgr.GetLogger().Error(err, "Failed to create metrics service")
+		}
 	}
 	return &containerReconcilerLoop{
 		Client:         kClient,
