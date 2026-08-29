@@ -8,13 +8,22 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sTypes "k8s.io/apimachinery/pkg/types"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services"
+	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
+)
+
+const (
+	nodeRemovedKey                     = "NodeRemoved"
+	nodeRemovalGracePeriod             = 24 * time.Hour   // non-cloud: node may return slowly
+	nodeRemovalGracePeriodManagedCloud = 30 * time.Minute // managed cloud (aws/oci); aligns w/ managedNodesPodTerminationTimeout
 )
 
 func (r *containerReconcilerLoop) HandleNodeNotReady(ctx context.Context) error {
@@ -75,25 +84,139 @@ func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
 		return nil
 	}
 
-	if container.IsBackend() && !config.Config.CleanupRemovedNodes {
+	affinity := r.container.GetNodeAffinity()
+	if affinity == "" {
 		return nil
 	}
 
-	affinity := r.container.GetNodeAffinity()
-	if affinity != "" {
-		_, err := r.KubeService.GetNode(ctx, k8sTypes.NodeName(affinity))
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				deleteError := r.Delete(ctx, r.container)
-				if deleteError != nil {
-					return deleteError
-				}
-				return lifecycle.NewWaitError(errors.New("Node is not found, deleting container"))
+	node, err := r.KubeService.GetNode(ctx, k8sTypes.NodeName(affinity))
+	nodePresent := err == nil
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	// For non-backend containers the toggle never applied: keep immediate cleanup.
+	mode := config.Config.CleanupRemovedNodes
+	if container.IsBackend() {
+		switch mode {
+		case config.CleanupRemovedNodesOff:
+			return nil
+		case config.CleanupRemovedNodesAuto:
+			onCloud, err := r.removedNodeOnSupportedCloud(ctx, node)
+			if err != nil {
+				return err
 			}
+			gracePeriod := nodeRemovalGracePeriod
+			if onCloud {
+				gracePeriod = nodeRemovalGracePeriodManagedCloud
+			}
+			return r.handleBackendNodeRemovalGrace(ctx, nodePresent, gracePeriod)
+		}
+		// CleanupRemovedNodesOn falls through to immediate delete below.
+	}
+
+	if nodePresent {
+		return nil
+	}
+	deleteError := r.Delete(ctx, r.container)
+	if deleteError != nil {
+		return deleteError
+	}
+	return lifecycle.NewWaitError(errors.New("Node is not found, deleting container"))
+}
+
+// removedNodeOnSupportedCloud reports whether the container's affinity node is on a supported cloud
+// provider (aws/oci). When the node is still present its ProviderID is checked directly. Once the node
+// object is gone its ProviderID is no longer available, so the provider is inferred from any other live
+// node in the cluster: a Weka cluster's nodes are homogeneous (all on the same cloud), so any surviving
+// node answers the question without needing the removed node's own ProviderID persisted anywhere.
+func (r *containerReconcilerLoop) removedNodeOnSupportedCloud(ctx context.Context, node *v1.Node) (bool, error) {
+	if node != nil {
+		return discovery.IsSupportedCloudProvider(node.Spec.ProviderID), nil
+	}
+
+	nodes, err := r.KubeService.GetNodes(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to list nodes to determine cloud provider: %w", err)
+	}
+	for i := range nodes {
+		if discovery.IsSupportedCloudProvider(nodes[i].Spec.ProviderID) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// handleBackendNodeRemovalGrace implements CleanupRemovedNodesAuto for backend containers:
+// when the affinity node is gone, hold the container in Stale status for nodeRemovalGracePeriod
+// before deleting it. If the node returns before the grace period elapses, the stamp is cleared.
+func (r *containerReconcilerLoop) handleBackendNodeRemovalGrace(ctx context.Context, nodePresent bool, gracePeriod time.Duration) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "handleBackendNodeRemovalGrace")
+	defer logger.End()
+
+	if r.container.Status.Timestamps == nil {
+		r.container.Status.Timestamps = make(map[string]metav1.Time)
+	}
+
+	if nodePresent {
+		// Node came back — clear any grace stamp and let the normal flow recover the status.
+		if _, ok := r.container.Status.Timestamps[nodeRemovedKey]; ok {
+			delete(r.container.Status.Timestamps, nodeRemovedKey)
+			if err := r.Status().Update(ctx, r.container); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Node is gone.
+	// The backend pod on a removed node has no live process and holds no drives; reap it immediately
+	// (strip the do-not-force-delete finalizer + delete) so it is not stuck in Terminating for the whole
+	// Stale window. The container itself stays Stale — only the dead pod object is removed.
+	if r.pod != nil && (r.pod.Status.Phase == v1.PodSucceeded || r.pod.Status.Phase == v1.PodFailed) {
+		if err := r.deletePod(ctx, r.pod); err != nil {
+			return err
 		}
 	}
 
-	return nil
+	stamp, ok := r.container.Status.Timestamps[nodeRemovedKey]
+	if !ok {
+		r.container.Status.Timestamps[nodeRemovedKey] = metav1.Time{Time: time.Now()}
+		r.container.Status.Status = weka.Stale
+		// New timestamp is a data change, so persist unconditionally; a single status-subresource
+		// update carries both the Stale status and the stamp.
+		if err := r.Status().Update(ctx, r.container); err != nil {
+			return err
+		}
+		return lifecycle.NewWaitErrorWithDuration(
+			errors.New("backend node removed, marking container Stale and waiting before removal"),
+			time.Second*15,
+		)
+	}
+
+	if time.Since(stamp.Time) < gracePeriod {
+		if err := r.updateContainerStatusIfNotEquals(ctx, weka.Stale); err != nil {
+			return err
+		}
+		logger.Info("backend node removed, within grace period, waiting before removal",
+			"waited", time.Since(stamp.Time).String(),
+		)
+		return lifecycle.NewWaitErrorWithDuration(
+			errors.New("backend node removed, within grace period"),
+			time.Second*30,
+		)
+	}
+
+	// Grace elapsed and node still gone — remove the container.
+	_ = r.RecordEvent( //nolint:errcheck // error return value intentionally not checked
+		v1.EventTypeNormal,
+		"BackendNodeRemovedGraceElapsed",
+		"backend node removed for longer than the grace period, deleting container",
+	)
+	if err := r.Delete(ctx, r.container); err != nil {
+		return err
+	}
+	return lifecycle.NewWaitError(errors.New("backend node removed past grace period, deleting container"))
 }
 
 // deleteIfTolerationsMismatch checks if container tolerates node taints.
