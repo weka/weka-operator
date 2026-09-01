@@ -14,15 +14,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// clusterDriversDistServiceExists verifies that
-// spec.driversDistService — when set to an in-cluster Kubernetes Service
-// URL — points to a Service that actually exists. Hostnames are
-// classified as in-cluster when they either contain a `svc` segment
-// (e.g. `name.ns.svc(.cluster.local)`) or are a single label
-// (`weka-driver`, treated as a Service in the WekaCluster's namespace).
-// Empty values (operator auto-resolves via WekaPolicy) and other hosts
-// (multi-segment names without a `svc` segment) are skipped silently.
-// Malformed URLs always fail.
+// clusterDriversDistServiceExists verifies that spec.driversDistService, when set to an in-cluster
+// Service URL, points to a Service that actually exists. A hostname is in-cluster if it has a `svc`
+// segment (`name.ns.svc(.cluster.local)`) or is a single label (e.g. `weka-driver`, the WekaCluster's
+// namespace). Empty values (auto-resolved via WekaPolicy) and other hosts are skipped silently;
+// malformed URLs always fail.
 type clusterDriversDistServiceExists struct{}
 
 func (clusterDriversDistServiceExists) ID() string {

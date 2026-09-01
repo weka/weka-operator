@@ -687,14 +687,69 @@ admissionPolicies:
   #   # as 1 (operator's reconcile-time default).
   #   cluster_drive_compute_core_ratio:     default  # strict: warn   | relaxed: warn
   #
-  #   # driveContainers × numDrives must not exceed the signed
-  #   # (non-blocked) drives across matched drive-role nodes.
+  #   # Hard floor: total compute cores must be at least total drive cores (1:1), or the plan is
+  #   # infeasible — raise computeContainers/computeCores or lower the drive side.
+  #   cluster_compute_drive_cores_floor:    default  # strict: error  | relaxed: warn
+  #
+  #   # A pinned driveCores/computeCores must not exceed capacityPlannerConstraints.maxCoresPerContainer (silent
+  #   # when 0). A policy, not a schema max, so a cluster already pinned above it isn't blocked from
+  #   # the very edit that would fix it.
+  #   cluster_cores_per_container_limit:    default  # strict: error  | relaxed: warn
+  #
+  #   # numDrives+driveCapacity only: the per-drive capacity needs more drive cores than numDrives
+  #   # allows (weka requires >=1 physical drive per drive core, and numDrives caps driveCores).
+  #   # Reduces to driveCapacity > clusterCapacity.tlcCapacityPerCoreGiB, so raising numDrives never
+  #   # helps — it scales the capacity and the core requirement together. Lower driveCapacity, or
+  #   # switch to containerCapacity/clusterCapacity so cores are derived from the total instead.
+  #   cluster_num_drives_below_required_cores: default  # strict: error  | relaxed: warn
+  #
+  #   # An explicit driveCores below what the configured drive capacity (containerCapacity, or
+  #   # numDrives+driveCapacity) requires — surfaced at admission instead of failing later as
+  #   # DriveCapacityResourceShortfall on add-drive. Raising driveCores fixes it, which is why this
+  #   # stays a warning. Silent in auto-full-drives mode: {numDrives: 4, driveCores: 3} is blessed
+  #   # there (all four drives claimed, run on three cores), not a shortfall.
+  #   cluster_drive_cores_below_capacity:   default  # strict: warn   | relaxed: warn
+  #
+  #   # driveContainers × numDrives must not exceed the signed (non-blocked) FULL drives across
+  #   # matched drive-role nodes. Full-drives clusters only — drive-sharing's numDrives counts
+  #   # capacity-carved virtual drives instead (see cluster_capacity_*).
   #   cluster_signed_drives:                default  # strict: error  | relaxed: warn
+  #
+  #   # Auto-full-drives ("acts as a daemonset", i.e. no container-count or capacity field set): a
+  #   # pinned numDrives above a node's signed full drive count, or a pinned driveCores above it when
+  #   # numDrives is unpinned (1 core per physical drive). Either makes the whole plan infeasible —
+  #   # nothing is created anywhere. A driveCores pin BELOW the drive count is fine and not reported:
+  #   # every drive is still claimed, just run on fewer cores.
+  #   cluster_auto_full_drives_pin_exceeds_node_drives: default  # strict: error | relaxed: warn
+  #
+  #   # Auto-full-drives claims every signed drive, so compute hugepages (which scale with total
+  #   # capacity) can exceed what any compute-eligible node has. Rejects at apply time instead of
+  #   # after a failed formation, naming the shortfall and the compute-node count that would suffice.
+  #   cluster_auto_full_drives_compute_hugepages: default  # strict: error | relaxed: warn
+  #
+  #   # Auto-full-drives places one container per eligible node, so a role nodeSelector matching fewer
+  #   # nodes than the form-cluster floor (FORM_CLUSTER_MIN_{DRIVE,COMPUTE}_CONTAINERS, 5 by default)
+  #   # can never form a cluster. The drive side is otherwise a silent hang on MinContainersNotReady;
+  #   # the compute side surfaces as AutoFullDrivesInfeasible only after a failed formation.
+  #   cluster_auto_full_drives_min_nodes:   default  # strict: error | relaxed: warn
+  #
+  #   # No matched drive-role node carries the drive annotation this cluster's mode consumes
+  #   # (weka-shared-drives for drive-sharing, weka-full-drives otherwise) — covers unsigned and
+  #   # signed-in-the-other-mode alike, so the drive checks above are skipped. Advisory only:
+  #   # applying before signing is a valid order of operations.
+  #   cluster_drives_unsigned_advisory:     default  # strict: warn   | relaxed: warn
   #
   #   # For each role, container count must not exceed the number of
   #   # nodes matching that role's selector — a role hosts at most
   #   # one container per node.
   #   cluster_selected_nodes_count:         default  # strict: error  | relaxed: warn
+  #
+  #   # A pinned driveContainers/computeContainers below the minimum weka needs to form a cluster at
+  #   # all (FORM_CLUSTER_MIN_{DRIVE,COMPUTE}_CONTAINERS, 5 by default, 3 with ALLOW_SINGLE_PARITY).
+  #   # Error in both modes: below the minimum, FormCluster refuses to proceed and the cluster loops on
+  #   # MinContainersNotReady forever with its containers healthy but idle. Only explicit pins are
+  #   # checked (auto-full-drives leaves both counts at 0 — see cluster_auto_full_drives_min_nodes).
+  #   cluster_min_containers:               default  # strict: error  | relaxed: error
   #
   #   # When driversDistService is an in-cluster Service URL, that
   #   # Service must exist. External URLs (e.g. drivers.weka.io)
@@ -734,6 +789,20 @@ admissionPolicies:
   #   # value produces a degenerate or unbootable cluster.
   #   cluster_capacity_protection:          default  # strict: error  | relaxed: error
   #
+  #   # clusterCapacity only: its structural lower bound — the protection scheme's failure-domain floor
+  #   # (stripeWidth+redundancyLevel+hotSpare) — sits below FORM_CLUSTER_MIN_DRIVE_CONTAINERS. The
+  #   # drive-container count is derived from a capacity target, not a spec field, so nothing pinned
+  #   # reaches cluster_min_containers while weka itself refuses to form and loops on
+  #   # MinContainersNotReady. Warn-only: the floor is a bound, and the planner may still choose more.
+  #   cluster_capacity_min_drive_containers: default  # strict: warn   | relaxed: warn
+  #
+  #   # Greenfield clusterCapacity only: the target + driveTypesRatio cannot spread an active pool
+  #   # across at least numFDmin failure domains of at least clusterCapacity.minChunkSizeGiB (384 GiB)
+  #   # each — per pool, clusterCapacity × poolPart/(tlc+qlc) >= 384 × stripeWidth. TLC and QLC are
+  #   # checked independently. Does not fire once TLC-bearing drive containers exist (an in-place
+  #   # migration or an established cluster already clears the floor, and the planner only grows).
+  #   cluster_capacity_chunk_feasibility:   default  # strict: error  | relaxed: error
+  #
   #   # When spec.overrides.skipDefaultFilesystemCreation is set, the operator
   #   # stops managing features that hardcode the `default` filesystem: any
   #   # configured telemetry export (filesystem-level audit is skipped; cluster-
@@ -750,6 +819,14 @@ admissionPolicies:
   #   # active workloads. Applies on Update only; also blocks unsetting an
   #   # explicit value back to 0 (operator-derived).
   #   cluster_cores_decrease:               default  # strict: error  | relaxed: error
+  #
+  #   # An update that changes the cluster's DERIVED sizing mode (auto-full-drives vs explicit
+  #   # container counts vs capacity) while drive containers already exist is denied — the two sizing
+  #   # regimes would plan the same drives differently, and nothing ever removes the surplus. Two
+  #   # switches ARE supported and stay allowed: explicit container counts -> auto-full-drives (the
+  #   # running containers are adopted and grown in place), and containerCapacity/driveCapacity ->
+  #   # clusterCapacity (the in-place migration). Revert anything else to keep the current mode.
+  #   cluster_sizing_mode_flip:             default  # strict: error  | relaxed: error
   #
   #   # Decreasing spec.numCores (or spec.dataServicesConfig.dataServicesFeCores)
   #   # on a WekaContainer is denied for the same reason. spec.extraCores is not

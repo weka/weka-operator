@@ -13,10 +13,20 @@ var (
 		&clusterCoresAvailable{},
 		&clusterHugepagesAvailable{},
 		&clusterSignedDrives{},
+		&clusterDrivesUnsignedAdvisory{},
 		&clusterNetworkEthdevice{},
 		&clusterDriveComputeCoreRatio{},
+		&clusterComputeDriveCoresFloor{},
+		&clusterDriveCoresBelowCapacity{},
+		&clusterNumDrivesBelowRequiredCores{},
+		&clusterAutoFullDrivesPinExceedsNodeDrives{},
+		&clusterAutoFullDrivesComputeHugepages{},
+		&clusterAutoFullDrivesMinNodes{},
+		&clusterCoresPerContainerLimit{},
+		&clusterMinContainers{},
 		&clusterDataservicesFeCores{},
 		&clusterCapacityProtection{},
+		&clusterCapacityMinDriveContainers{},
 		&clusterCapacityChunkFeasibility{},
 		&clusterSkipDefaultFs{},
 	}
@@ -27,6 +37,7 @@ var (
 	// Update-only registries: validators that require both old and new objects.
 	WekaClusterUpdate = []UpdateValidator{
 		&clusterCoresDecrease{},
+		&clusterSizingModeFlip{},
 	}
 	WekaContainerUpdate = []UpdateValidator{
 		&containerCoresDecrease{},

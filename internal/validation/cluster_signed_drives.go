@@ -5,19 +5,19 @@ import (
 	"fmt"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/consts"
-	"github.com/weka/weka-operator/internal/controllers/allocator"
 )
 
-// clusterSignedDrives rejects WekaClusters where driveContainers × numDrives
-// exceeds the count of signed, non-blocked drives across matched drive-role
-// nodes. Bootstrap-skipped when no node has either weka-full-drives or
-// weka-shared-drives annotation set (sign-drives hasn't run yet).
+// clusterSignedDrives rejects full-drives clusters where driveContainers × numDrives exceeds signed,
+// non-blocked full drives across matched drive-role nodes (bootstrap-skipped until any node carries
+// weka-full-drives). Only exclusive full drives count — shared drives are carved by capacity instead.
+// Out of scope by construction: auto-full-drives mode (no fixed container count — drives are claimed
+// per node; clusterAutoFullDrivesPinExceedsNodeDrives owns its pins) and drive sharing (numDrives
+// counts virtual drives — a category error to compare; cluster_capacity_* owns feasibility there).
 type clusterSignedDrives struct{}
 
 func (clusterSignedDrives) ID() string {
@@ -29,7 +29,12 @@ func (clusterSignedDrives) Validate(ctx context.Context, c client.Client, obj ru
 	if !ok {
 		return nil
 	}
+	// A nil template is auto-full-drives mode, which the next check drops anyway; the explicit guard
+	// keeps the field reads below obviously safe.
 	if cluster.Spec.Dynamic == nil {
+		return nil
+	}
+	if cluster.Spec.Dynamic.UsesAutoFullDrives() || cluster.IsDriveSharing() {
 		return nil
 	}
 
@@ -41,23 +46,19 @@ func (clusterSignedDrives) Validate(ctx context.Context, c client.Client, obj ru
 
 	fldPath := field.NewPath("spec", "dynamicTemplate").Child("numDrives")
 
-	selector := cluster.GetNodeSelectorForRole("drive")
-	var nodes corev1.NodeList
-	if err := c.List(ctx, &nodes, client.MatchingLabels(selector)); err != nil {
-		return field.ErrorList{
-			field.InternalError(fldPath, fmt.Errorf("listing drive-role nodes: %w", err)),
-		}
+	nodes, errs := listDriveRoleNodes(ctx, c, cluster, fldPath)
+	if errs != nil {
+		return errs
 	}
-	if len(nodes.Items) == 0 {
+	if len(nodes) == 0 {
 		return nil
 	}
 
+	// Only the full-drives annotation gates the bootstrap skip — a drive-sharing-signed node is not
+	// signed for this cluster. clusterDrivesUnsignedAdvisory covers both mismatch states.
 	anyAnnotated := false
-	for i := range nodes.Items {
-		n := &nodes.Items[i]
-		_, full := n.Annotations[consts.AnnotationWekaFullDrives]
-		_, shared := n.Annotations[consts.AnnotationSharedDrives]
-		if full || shared {
+	for i := range nodes {
+		if _, full := nodes[i].Annotations[consts.AnnotationWekaFullDrives]; full {
 			anyAnnotated = true
 			break
 		}
@@ -66,17 +67,13 @@ func (clusterSignedDrives) Validate(ctx context.Context, c client.Client, obj ru
 		return nil
 	}
 
-	getter := allocator.NewK8sNodeInfoGetter(c)
+	infos, errs := driveRoleNodeInfos(nodes, fldPath)
+	if errs != nil {
+		return errs
+	}
 	var available int
-	for i := range nodes.Items {
-		name := nodes.Items[i].Name
-		info, err := getter(ctx, weka.NodeName(name))
-		if err != nil {
-			return field.ErrorList{
-				field.InternalError(fldPath, fmt.Errorf("reading drive info for node %q: %w", name, err)),
-			}
-		}
-		available += len(info.AvailableDrives) + len(info.SharedDrives)
+	for _, ni := range infos {
+		available += len(ni.Info.AvailableDrives)
 	}
 
 	requested := driveContainers * numDrives
@@ -86,10 +83,10 @@ func (clusterSignedDrives) Validate(ctx context.Context, c client.Client, obj ru
 
 	detail := fmt.Sprintf(
 		"spec.dynamicTemplate.driveContainers × numDrives (%d × %d = %d) exceeds the "+
-			"total signed and non-blocked drives across %d matched drive node(s) (%d). "+
+			"total signed and non-blocked full drives across %d matched drive node(s) (%d). "+
 			"Some drive containers will not be able to claim a drive. Reduce numDrives, "+
 			"reduce driveContainers, sign more drives, or label more nodes.",
-		driveContainers, numDrives, requested, len(nodes.Items), available,
+		driveContainers, numDrives, requested, len(nodes), available,
 	)
 	return field.ErrorList{
 		field.Invalid(fldPath, numDrives, detail),
