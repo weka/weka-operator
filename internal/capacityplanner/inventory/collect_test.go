@@ -312,21 +312,14 @@ func allocatedDriveContainer(name, node string, serials []string) weka.WekaConta
 // newFullDrivesTestClient builds a fake controller-runtime client seeded with the given nodes and containers.
 func newFullDrivesTestClient(t *testing.T, nodes []*corev1.Node, containers []*weka.WekaContainer) client.Client {
 	t.Helper()
-	scheme := runtime.NewScheme()
-	if err := corev1.AddToScheme(scheme); err != nil {
-		t.Fatalf("register corev1 scheme: %v", err)
-	}
-	if err := weka.AddToScheme(scheme); err != nil {
-		t.Fatalf("register weka scheme: %v", err)
-	}
-	builder := fake.NewClientBuilder().WithScheme(scheme)
+	objs := make([]client.Object, 0, len(nodes)+len(containers))
 	for _, n := range nodes {
-		builder = builder.WithObjects(n)
+		objs = append(objs, n)
 	}
 	for _, c := range containers {
-		builder = builder.WithObjects(c)
+		objs = append(objs, c)
 	}
-	return builder.Build()
+	return newInventoryTestClient(t, objs...)
 }
 
 // TestFullDrivesInventory_OwnVsFreeDrives verifies FullDrivesInventory splits signed full drives into
@@ -626,9 +619,9 @@ func TestChargeForeignPods_SkipsUnscheduledAndTerminalPods(t *testing.T) {
 	if err := collector.chargeForeignPods(context.Background(), &res, map[podKey]bool{}); err != nil {
 		t.Fatalf("chargeForeignPods: %v", err)
 	}
-	if res.cores["n1"] != 0 || res.hugepages["n1"] != 0 || res.memory["n1"] != 0 {
-		t.Errorf("n1 = (cores %d, hugepages %d, memory %d), want all zero: Succeeded/Failed pods are terminal and the unscheduled pod has no NodeName to bucket under",
-			res.cores["n1"], res.hugepages["n1"], res.memory["n1"])
+	if len(res.cores) != 0 || len(res.hugepages) != 0 || len(res.memory) != 0 {
+		t.Errorf("no pod may be charged to any node: Succeeded/Failed pods are terminal and the unscheduled pod has no NodeName to bucket under, got cores=%v hugepages=%v memory=%v",
+			res.cores, res.hugepages, res.memory)
 	}
 }
 
@@ -1050,6 +1043,121 @@ func TestFullDrivesInventory_ForeignPodReducesHeadroom(t *testing.T) {
 	}
 	if want := 65536 - 40000; n1cap.AvailableHugepagesMiB != want {
 		t.Errorf("n1 AvailableHugepagesMiB = %d, want %d (foreign pod's 40000MiB hugepages must be subtracted)", n1cap.AvailableHugepagesMiB, want)
+	}
+	if want := 64 - 4; n1cap.AllocatableCPU != want {
+		t.Errorf("n1 AllocatableCPU = %d, want %d (foreign pod's 4 cores must be subtracted)", n1cap.AllocatableCPU, want)
+	}
+	if want := 524288 - 100000; n1cap.AvailableMemoryMiB != want {
+		t.Errorf("n1 AvailableMemoryMiB = %d, want %d (foreign pod's 100000MiB memory must be subtracted)", n1cap.AvailableMemoryMiB, want)
+	}
+}
+
+// computeOnlyNode builds a Ready node with CPU/memory/hugepages allocatable but no drive annotation, so it
+// can only ever be a compute candidate.
+func computeOnlyNode(name string, labels map[string]string) *corev1.Node {
+	return &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
+		Status: corev1.NodeStatus{
+			Conditions: readyNodeStatus().Conditions,
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:                   resource.MustParse("32"),
+				corev1.ResourceMemory:                resource.MustParse("256Gi"),
+				corev1.ResourceName("hugepages-2Mi"): resource.MustParse("32Gi"),
+			},
+		},
+	}
+}
+
+// TestInventory_SkipsFDSkippedNodes covers the failure-domain filter: a node matching the role selector
+// but carrying no FD label belongs to no failure domain, so it must not reach the inventory at all — while
+// a sibling node that does resolve an FD key still has its foreign pod charged.
+func TestInventory_SkipsFDSkippedNodes(t *testing.T) {
+	const rack = "topology.kubernetes.io/rack"
+	sel := map[string]string{"role": "drive"}
+	n1 := sharedDrivesNode(t, "n1", []domain.SharedDriveInfo{{Serial: "s1", CapacityGiB: 20 * tib, Type: "TLC"}})
+	n1.Labels = map[string]string{"role": "drive", rack: "rack-1"}
+	n2 := sharedDrivesNode(t, "n2", []domain.SharedDriveInfo{{Serial: "s2", CapacityGiB: 20 * tib, Type: "TLC"}})
+	n2.Labels = map[string]string{"role": "drive"} // no FD label: resolveInventoryFDValue skips it
+	onN1 := testPod("on-n1", "default", "n1", corev1.PodRunning, 4, 40000, 100000)
+	onN2 := testPod("on-n2", "default", "n2", corev1.PodRunning, 8, 80000, 200000)
+
+	fakeClient := newInventoryTestClient(t, n1, n2, onN1, onN2)
+	cluster := &weka.WekaCluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-me"}}
+	cluster.Spec.NodeSelector = sel
+	cluster.Spec.FailureDomain = &weka.FailureDomain{Label: strPtr(rack)}
+	collector := NewCollector(fakeClient)
+
+	_, inv, _, err := collector.NodeInventory(context.Background(), cluster, nil, testCons())
+	if err != nil {
+		t.Fatalf("NodeInventory: %v", err)
+	}
+
+	if _, ok := invByName(inv)["n2"]; ok {
+		t.Errorf("FD-skipped node n2 must not appear in the inventory")
+	}
+	if want := 64 - 4; invByName(inv)["n1"].AllocatableCPU != want {
+		t.Errorf("n1 AllocatableCPU = %d, want %d", invByName(inv)["n1"].AllocatableCPU, want)
+	}
+}
+
+// TestInventory_ExcludesNodesOutsideSelectors: a node matching neither role selector never enters the
+// inventory, and the foreign pod sitting on it never reduces any candidate node's headroom.
+func TestInventory_ExcludesNodesOutsideSelectors(t *testing.T) {
+	labels := map[string]string{"role": "drive"}
+	n1 := sharedDrivesNode(t, "n1", []domain.SharedDriveInfo{{Serial: "s1", CapacityGiB: 20 * tib, Type: "TLC"}})
+	n1.Labels = labels
+	outside := computeOnlyNode("outside", map[string]string{"role": "other"})
+	onCandidate := testPod("on-candidate", "default", "n1", corev1.PodRunning, 4, 40000, 100000)
+	onOutside := testPod("on-outside", "default", "outside", corev1.PodRunning, 8, 80000, 200000)
+
+	fakeClient := newInventoryTestClient(t, n1, outside, onCandidate, onOutside)
+	cluster := &weka.WekaCluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-me"}}
+	cluster.Spec.NodeSelector = labels
+	collector := NewCollector(fakeClient)
+
+	_, inv, _, err := collector.NodeInventory(context.Background(), cluster, nil, testCons())
+	if err != nil {
+		t.Fatalf("NodeInventory: %v", err)
+	}
+
+	n1cap, ok := invByName(inv)["n1"]
+	if !ok {
+		t.Fatalf("n1 missing from inventory")
+	}
+	if want := 64 - 4; n1cap.AllocatableCPU != want {
+		t.Errorf("n1 AllocatableCPU = %d, want %d (only the on-candidate pod's 4 cores should be charged)", n1cap.AllocatableCPU, want)
+	}
+	if _, ok := invByName(inv)["outside"]; ok {
+		t.Errorf("node outside the drive/compute selectors must not appear in the inventory")
+	}
+}
+
+// TestChargeForeignPods_ComputeOnlyNodeCharged verifies the union case in listRoleNodesAndTopos: when the
+// drive and compute selectors differ, a compute-only node (matched only by the compute selector) still
+// gets its foreign pods charged, not just the drive-selector nodes.
+func TestChargeForeignPods_ComputeOnlyNodeCharged(t *testing.T) {
+	driveSel := map[string]string{"role": "drive"}
+	computeSel := map[string]string{"role": "compute"}
+	n1 := sharedDrivesNode(t, "n1", []domain.SharedDriveInfo{{Serial: "s1", CapacityGiB: 20 * tib, Type: "TLC"}})
+	n1.Labels = driveSel
+	n2 := computeOnlyNode("n2", computeSel)
+	foreign := testPod("foreign", "default", "n2", corev1.PodRunning, 6, 0, 0)
+
+	fakeClient := newInventoryTestClient(t, n1, n2, foreign)
+	cluster := &weka.WekaCluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-me"}}
+	cluster.Spec.RoleNodeSelector = weka.RoleNodeSelector{Drive: &driveSel, Compute: &computeSel}
+	collector := NewCollector(fakeClient)
+
+	_, inv, _, err := collector.NodeInventory(context.Background(), cluster, nil, testCons())
+	if err != nil {
+		t.Fatalf("NodeInventory: %v", err)
+	}
+	n2cap, ok := invByName(inv)["n2"]
+	if !ok {
+		t.Fatalf("n2 (compute-only) missing from inventory")
+	}
+	if want := 32 - 6; n2cap.AllocatableCPU != want {
+		t.Errorf("n2 AllocatableCPU = %d, want %d (compute-only node's foreign pod must still be charged)", n2cap.AllocatableCPU, want)
 	}
 }
 
