@@ -96,8 +96,13 @@ Constraint override flags (each optional; unset ⇒ keep the scraped/base value)
 ## `explore-nodes`
 
 Shows the per-node capacity/resource landscape, independent of any cluster. Every free figure is **net**
-of the footprint of every WekaContainer on the node (all clusters, all modes), so it reflects the real
-remaining headroom the planner would see.
+of the footprint of every WekaContainer on the node (all clusters, all modes), so `used + free` always
+reconciles to the node's allocatable.
+
+It deliberately does **not** subtract non-Weka pods, because it is narrating what Weka holds rather than
+making a placement decision. `plan` does charge them. So on a node running foreign workloads,
+`explore-nodes` will report more free headroom than `plan` believes it has — use `plan` for feasibility
+questions and `explore-nodes` to see where Weka's own capacity went.
 
 ```
 weka-capacity explore-nodes [--selector k=v[,k=v...]] [--fd-label <label>]
@@ -110,9 +115,27 @@ weka-capacity explore-nodes [--selector k=v[,k=v...]] [--fd-label <label>]
 | `--fd-label` | *(AUTO)* | Failure-domain label key (label-based FD mode); default AUTO ⇒ one FD per host. |
 | `--detail` | | Show the WekaContainers consuming this single node. |
 
-**Table columns:** `NODE`, `FD`, `TLC(free/phys)`, `QLC(free/phys)`, `CPU(free/alloc)`,
-`HP2Mi(free/alloc)`, `MEM MiB(free/alloc)`, `WC` (# containers on the node), `DEL` (hosts a
-deleting drive container?), plus a `TOTAL` row.
+**Table columns:** `NODE`, `FD`, `MODE` (the drive-capacity model the node is signed under — `shared`,
+`full`, or `-` for unsigned), `DRIVES(free/phys)`, `FREE SIZES` (the free full drives, grouped by
+capacity), `TLC(free/phys)`, `QLC(free/phys)`, `CPU(free/alloc)`, `HP2Mi(free/alloc)`,
+`MEM MiB(free/alloc)`, `WC` (# containers on the node), `BLOCKED` (# drives excluded by the
+`weka.io/blocked-drives` annotation), `DEL` (hosts a deleting drive container?), `INELIGIBLE`, plus a
+`TOTAL` row.
+
+`INELIGIBLE` is why the node cannot receive a **new** container — `cordoned`, `not ready`,
+`untolerated taint`, or `-` when it can. Nodes are listed either way: hiding one would defeat the point
+of asking why it is not being used. Two things it does not mean:
+
+- **It never bars an existing container.** A container already on the node keeps running, keeps its
+  drives and resources charged, and can still grow in place.
+- **Taints are judged cluster-agnostically.** `explore-nodes` has no cluster to read
+  `spec.tolerations`/`spec.rawTolerations` from, so it compares against the tolerations every Weka pod
+  carries. A node whose taint a particular cluster *does* tolerate still shows `untolerated taint` here
+  while that cluster places on it happily. `plan --cluster <name>` uses the real tolerations.
+
+A node showing `MODE -` with `0B` capacity while its `weka.io/weka-full-drives` annotation is populated
+means an annotation failed to parse — `weka.io/blocked-drives` is read first, so a malformed value there
+zeroes every drive field for the node. Re-sign the node rather than debugging the planner.
 
 The **CPU** column is **physical CPUs**, not weka data cores. Each container's charge is the CPU its pod
 actually requests: under `cpuPolicy: auto` (the default) a container reserves `numCores*2 + 1` on a
@@ -122,7 +145,9 @@ CPUs on an HT node, matching `kubectl`'s pod request — the same figure the `pl
 
 `--detail <node>` lists each consuming WekaContainer with its cluster, role, TLC/QLC, physical CPU
 (`CORES`) and hugepages charge, and flags any drive container with a **nil `driveTypesRatio`**
-(attributed 100% to TLC) — a common source of skew between the reported and realized capacity split.
+(attributed 100% to TLC) — a common source of skew between the reported and realized capacity split. It
+also breaks the node's drives into free and claimed with their individual capacities, and prints an
+`INELIGIBLE: <reason>` line when the node cannot take a new container.
 
 ## `plan`
 
@@ -147,19 +172,28 @@ value, with `--new-cluster` they **define** the synthetic spec from scratch — 
 
 | Flag | Overrides / defines |
 |---|---|
-| `--cluster-capacity` | `dynamicTemplate.clusterCapacity` (e.g. `11022TiB`) — **required** with `--new-cluster` |
+| `--cluster-capacity` | `dynamicTemplate.clusterCapacity` (e.g. `11022TiB`) — **required** with `--new-cluster`, unless `--auto-full-drives` is given |
 | `--drive-types-ratio` | `driveTypesRatio`, as `tlc:qlc` (e.g. `1:90`) |
 | `--stripe-width`, `--redundancy`, `--hot-spare` | `stripeWidth` / `redundancyLevel` / `hotSpare` |
-| `--drive-containers`, `--drive-cores` | explicit drive sizing |
+| `--drive-containers`, `--drive-cores` | explicit drive sizing. Outside a capacity mode `--drive-containers` must be set together with `--compute-containers`, mirroring the CRD's both-or-neither rule |
 | `--compute-containers`, `--compute-cores` | explicit compute sizing |
+| `--num-drives` | `dynamicTemplate.numDrives`. In the daemonset mode this is a **per-node** override: every eligible node takes exactly this many of its **largest** signed full drives instead of all of them |
 
 `--new-cluster`-specific flags:
 
 | Flag | Default | Meaning |
 |---|---|---|
 | `--new-cluster` | *(off)* | Boolean flag (takes no value). Plan for a hypothetical, not-yet-created cluster synthesized from flags; shown as `new-cluster` in the output. Mutually exclusive with `--cluster`. |
+| `--auto-full-drives` | *(off)* | Boolean flag. Build a hypothetical **daemonset** cluster (one pinned drive container per eligible node, taking all its full drives) instead of a `clusterCapacity` one. There is no spec field for this mode — it is what an empty `dynamicTemplate` means — so a live `--cluster`'s mode is always derived from its own spec and this flag does not apply there. |
 | `--node-selector` | *(all nodes)* | Node label selector (`k=v[,k=v...]`) for `--new-cluster`; which nodes the hypothetical cluster could land on. Optional — empty ⇒ all nodes. |
 | `--fd-label` | *(AUTO)* | Failure-domain label key for `--new-cluster` (label-based FD mode); default AUTO ⇒ one FD per host. |
+
+There is **no `--role-node-selector`**, so a cluster that splits the drive and compute roles across
+different labels cannot be dry-run; plan it with a single selector or validate it by applying.
+
+`plan --cluster <name>` only works on a **planner-managed** cluster — one sized by `clusterCapacity` or
+acting as a daemonset. A cluster sized by explicit `computeContainers` + `driveContainers` has nothing
+for the planner to decide, and `plan` says so and points you at `explore-nodes`.
 
 **Output sections:**
 
@@ -195,6 +229,34 @@ value, with `--new-cluster` they **define** the synthetic spec from scratch — 
 
 **Exit code:** non-zero when the plan is infeasible, so `plan` is usable as a CI / pre-flight gate.
 (The output is still written first.)
+
+### Output for the daemonset mode
+
+A daemonset cluster is sized per node rather than from a capacity target, so `plan` prints a different
+shape — headed `CLUSTER <name> (daemonset / auto full drives)`. `TARGET` and `RAW CAPACITY` are absent
+(there is no target), and in their place:
+
+- **DRIVE SIZING** — the fleet totals: `drives: <taken>/<available>`, `TLC: <taken>/<available>`, the
+  resulting `drive cores`, the `compute cores required` by the ratio, and the compute shape
+  (`N container(s), C cores/container, H MiB hugepages`). Then a one-line `rationale` spelling the
+  derivation out in words, including any pin in force and, on an infeasible plan, the binding reason.
+
+  The **denominator counts every signed drive the selector matches**, including drives on nodes that
+  cannot take a container. So `42/48` means six drives exist that this plan will not claim — check the
+  `NODES` table for why.
+- **NODES** — one row per matched node: `NODE  FD  DRIVES(used/avail)  TLC  CORES  STATE  NOTE`. `STATE`
+  is `create` (a new container), `grow` (an existing one expanding), or `not-planned`. A `not-planned`
+  row is **not** in itself a sign of failure — a node that is cordoned, `NotReady` or carrying an
+  untolerated taint is skipped on a perfectly feasible plan — so read the `NOTE`, which names the reason.
+- **COMPUTE** — the compute containers, in the same `create` / `grow` sub-groups as the capacity mode.
+- **WARNINGS** — the planner's advisories, one line each, in the same wording the operator emits as
+  events on the `WekaCluster`.
+
+An infeasible daemonset plan adds the usual **INFEASIBLE** section with its numbered **FIXES**, and the
+`NODES`/`COMPUTE` placements shown are diagnostic only — nothing is created, not even the drive
+containers that would have fitted.
+
+See [Act As Daemonset](../deployment/act-as-daemonset.md) for what the mode does with these numbers.
 
 ### Infeasibility fix tips
 
