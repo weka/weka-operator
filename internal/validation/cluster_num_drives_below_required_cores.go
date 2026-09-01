@@ -14,20 +14,14 @@ import (
 )
 
 // clusterNumDrivesBelowRequiredCores rejects a numDrives+driveCapacity template whose configured
-// capacity needs more drive cores than numDrives allows. In this mode each drive core needs at least
-// one virtual drive, so CEL (wekacluster_types.go) caps driveCores at numDrives — meaning a per-drive
-// driveCapacity above the per-core TLC capacity is unreachable at EVERY legal driveCores, not just at
-// the one the operator picks.
+// capacity needs more drive cores than numDrives allows. Each drive core needs at least one virtual
+// drive here, so CEL caps driveCores at numDrives — a per-drive driveCapacity above the per-core TLC
+// capacity is therefore unreachable at EVERY legal driveCores, not just the one the operator picks.
+// getDriveCores clamps to numDrives instead of failing, so drive adds are deferred with
+// DriveCapacityResourceShortfall forever.
 //
-// Nothing else catches it. getDriveCores clamps the derived count to numDrives, so the container is
-// built with too few cores for the capacity it is told to hold and drive adds are deferred with
-// DriveCapacityResourceShortfall forever; clusterDriveCoresBelowCapacity only fires on an explicit
-// driveCores and compares against that same clamped figure, so it stays silent here.
-//
-// The check reduces exactly to driveCapacity <= TlcCapacityPerCoreGiB (required = ceil(numDrives ×
-// driveCapacity / perCore) is <= numDrives iff driveCapacity <= perCore), which is why raising
-// numDrives is NOT offered as a remedy: it scales capacity and requirement together and never closes
-// the gap.
+// The check reduces exactly to driveCapacity <= TlcCapacityPerCoreGiB, which is why raising numDrives is
+// not offered as a remedy: it scales capacity and requirement together and never closes the gap.
 type clusterNumDrivesBelowRequiredCores struct{}
 
 func (clusterNumDrivesBelowRequiredCores) ID() string {
@@ -68,9 +62,9 @@ func (clusterNumDrivesBelowRequiredCores) Validate(_ context.Context, _ client.C
 			"core in this mode, so the capacity is unreachable at every legal driveCores and drive adds "+
 			"would be deferred with DriveCapacityResourceShortfall indefinitely. Raising numDrives does "+
 			"not help: it raises total capacity by the same factor. Lower driveCapacity to at most %d "+
-			"GiB (the per-core TLC capacity), switch to spec.dynamicTemplate.containerCapacity so the "+
-			"operator sizes cores from the total instead of per drive, or raise the "+
-			"CLUSTER_CAPACITY_TLC_CAPACITY_PER_CORE_GIB Helm value (currently %d).",
+			"GiB (the per-core TLC capacity), raise the clusterCapacity.tlcCapacityPerCoreGiB Helm value "+
+			"(currently %d), or switch to spec.dynamicTemplate.containerCapacity so the operator sizes "+
+			"cores from the total instead of per drive.",
 		config.DriveCapacity, config.NumDrives, config.DriveCapacity*config.NumDrives,
 		required, config.NumDrives, perCoreGiB, perCoreGiB,
 	)
