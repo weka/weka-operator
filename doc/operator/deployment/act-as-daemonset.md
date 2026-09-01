@@ -845,24 +845,27 @@ Every reason below lands on the **`WekaCluster`** except `UnschedulableDriveCont
 **`WekaContainer`** — so `kubectl describe wekacluster <name>` alone will not show them. Check
 `kubectl describe wekacontainer <name>` when you need per-container detail.
 
-Events are throttled per reason: a repeat within the window is dropped rather than re-posted. The
-advisories that describe a **converged** state use a long window, because a permanently
-compute-limited cluster is healthy and re-posting a Warning every minute forever trips alerting.
+Events are throttled per reason, on the reason alone — the message is not part of the key. A repeat
+within the window is dropped rather than re-posted. The advisories that describe a **converged** state
+use a 15-minute window, because a permanently compute-limited cluster is healthy and re-posting a
+Warning every minute forever trips alerting. The three fleet-wide aggregates — `DrivesStranded`,
+`PlacementDeferred`, `NodeIneligible` — instead use 3 minutes: each names every affected node in one
+message, and because the key ignores that message, the window also bounds how long a node that joins
+the set *after* the last event stays unreported.
 
 Planner warnings are split into **one reason per cause**, so
 `kubectl get events --field-selector reason=AutoFullDrivesInfeasible` isolates the actionable ones
 without matching message text, and the causes that are not problems are Normal rather than Warning.
-Per-node reasons throttle per **node** rather than per message.
 
 | Reason | Type | Object | Throttle | When it fires |
 |--------|------|--------|----------|---------------|
 | `AutoFullDrivesPlanned` | Normal | Cluster | 1 min | A feasible plan that creates ≥1 drive container. Steady-state reconciles stay silent. The message summarizes the create leg. |
 | `AutoFullDrivesGrowthDetected` | Normal | Cluster | 1 min | Growth was **applied** to ≥1 existing drive container — `numDrives`/cores actually written to the spec. It names each container, its node, and its new drives/cores, and says when a pod recreation is owed. It does not report growth the planner proposed but did not commit. |
 | `AutoFullDrivesGrowthDeferred` | Warning | Cluster | 15 min | Growth was planned but **none** of it could be applied because an update failed. The operator retries on the next reconcile, but a later plan may no longer offer the same growth (node headroom changes as pods schedule). |
-| `AutoFullDrivesDrivesStranded` | Normal | Cluster | 15 min | A pinned `numDrives` leaves signed drives unused. One aggregated message covering the whole fleet, listing each node as *used of signed*. **Expected** whenever the pin is in force — it is Normal precisely because you asked for it. Raise or drop `numDrives` to use them. |
-| `AutoFullDrivesPlacementDeferred` | Normal | Cluster | 15 min, **per node** | A node still hosts a this-cluster drive container that is being deleted, so placement waits; or an existing container's growth is deferred because its pod is not yet scheduled. Clears itself on a later reconcile. |
-| `AutoFullDrivesNodeIneligible` | Normal | Cluster | 15 min, **per node** | A node matching the drive-role selector is cordoned, `NotReady`, or carries an untolerated taint, so it gets no **new** container. Normal rather than Warning because on its own it costs nothing — the plan proceeds on the remaining nodes, and if the loss actually matters the plan goes infeasible and `AutoFullDrivesInfeasible` says so. Rate-limited per node, since a node left cordoned for maintenance would otherwise post forever. Anything already running there keeps running and still grows. See [Troubleshooting](#troubleshooting). |
-| `AutoFullDrivesComputeLayout` | Warning | Cluster | 15 min | A compute-sizing advisory from the shared compute layout step. |
+| `AutoFullDrivesDrivesStranded` | Normal | Cluster | 3 min | A pinned `numDrives` leaves signed drives unused. One aggregated message covering the whole fleet, listing each node as *used of signed*. **Expected** whenever the pin is in force — it is Normal precisely because you asked for it. Raise or drop `numDrives` to use them. |
+| `AutoFullDrivesPlacementDeferred` | Normal | Cluster | 3 min | One aggregated message covering every node where placement is waiting this pass, for either cause: a node still hosts a this-cluster drive container that is being deleted, or an existing container's growth is deferred because its pod is not yet scheduled. Clears itself as pods bind. |
+| `AutoFullDrivesNodeIneligible` | Normal | Cluster | 3 min | A node matching the drive-role selector is cordoned, `NotReady`, or carries an untolerated taint, so it gets no **new** container. Normal rather than Warning because on its own it costs nothing — the plan proceeds on the remaining nodes, and if the loss actually matters the plan goes infeasible and `AutoFullDrivesInfeasible` says so. All ineligible nodes arrive in one message, each with its own reason (e.g. `cordoned`) — so a node cordoned after the last event is reported within one window rather than waiting out a long one. Anything already running there keeps running and still grows. See [Troubleshooting](#troubleshooting). |
+| `AutoFullDrivesComputeLayout` | Warning | Cluster | 15 min | Every compute-sizing advisory from the shared compute layout step, joined into one message per pass. |
 | `AutoFullDrivesWarning` | Warning | Cluster | 15 min | Fallback only: a planner warning whose cause has no dedicated reason yet. |
 | `AutoFullDrivesInfeasible` | Warning | Cluster | 1 min | The plan can't proceed and **nothing is created**. Causes: a node that cannot fit a container sized for all its drives (named, with the binding dimension and needed-vs-available), `driveCores` pinned above a node's drive count, `numDrives` pinned above a node's signed count, or not enough compute capacity for the ratio. The message names the binding reason and suggested fixes. |
 | `AutoFullDrivesNoSignedDrives` | Normal | Cluster | 1 min | No node matching the drive-role selector has a signed, non-blocked full drive yet. Planning is deferred; sign drives and the operator picks them up on its own. |
@@ -971,20 +974,21 @@ it has but never gets. Look for a Warning `UnschedulableComputeContainer` event 
 
 **A node is cordoned, `NotReady`, or carries a taint the Weka pods don't tolerate.**
 No new container is placed on that node while the condition lasts, and a Normal
-`AutoFullDrivesNodeIneligible` event on the `WekaCluster` names the node and the reason. Nothing is
-taken away either: a container already there keeps running, its drives and resources still count as
-used, and it can still grow in place — cordoning does not evict, so a node briefly down for maintenance
-is not treated as lost capacity. Its unclaimed drives still count toward the fleet total the plan
-reports, so a summary reading *"40 of 48 drive(s) would be claimed"* is telling you eight drives are out
-of reach, not that they vanished.
+`AutoFullDrivesNodeIneligible` event on the `WekaCluster` names every ineligible node together with
+its own reason. Nothing is taken away either: a container already there keeps running, its drives
+and resources still count as used, and it can still grow in place — cordoning does not evict, so a
+node briefly down for maintenance is not treated as lost capacity. Its unclaimed drives still count
+toward the fleet total the plan reports, so a summary reading *"40 of 48 drive(s) would be
+claimed"* is telling you eight drives are out of reach, not that they vanished.
 
 This is a **skip, not an infeasibility** — the plan proceeds on the remaining nodes. It only becomes
 fatal indirectly, when so many nodes are ineligible that what is left cannot satisfy the form-cluster
 minimum or the compute ratio. When that happens the binding message describes the shortfall on the
 nodes that *remain* (it will say the compute ratio cannot be met across *N* nodes, not that a node was
 cordoned), so read the per-node rejection breakdown — which lists an excluded node as
-`ineligible (cordoned)` — and the `AutoFullDrivesNodeIneligible` events alongside it. A plan that went
-infeasible right after a maintenance cordon is usually short exactly that node.
+`ineligible (cordoned)`; the `AutoFullDrivesNodeIneligible` advisory itself is suppressed on an
+infeasible plan. A plan that went infeasible right after a maintenance cordon is usually short exactly
+that node.
 
 Run `weka-capacity explore-nodes` and read the `INELIGIBLE` column for the reason — `cordoned`,
 `not ready`, or `untolerated taint`. Clear the condition (uncordon the node, remove the taint, get it

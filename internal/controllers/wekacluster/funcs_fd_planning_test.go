@@ -937,40 +937,31 @@ func TestPlannerEventSpecsCoverEveryReason(t *testing.T) {
 
 	// The rows the docs are explicit about, and where a drift would be silent in production.
 	for _, tc := range []struct {
-		reason      string
-		wantType    string
-		wantLong    bool // 15-minute converged-state window rather than the 1-minute default
-		wantPerNode bool
+		reason       string
+		wantType     string
+		wantInterval time.Duration
 	}{
-		{reasonAutoFullDrivesInfeasible, corev1.EventTypeWarning, false, false},
-		{reasonAutoFullDrivesPlanned, corev1.EventTypeNormal, false, false},
-		{reasonAutoFullDrivesGrowthDetected, corev1.EventTypeNormal, false, false},
-		{reasonAutoFullDrivesGrowthDeferred, corev1.EventTypeWarning, true, false},
-		// Expected under an explicit numDrives pin, so Normal and rate-limited as a converged state.
-		{reasonAutoFullDrivesDrivesStranded, corev1.EventTypeNormal, true, false},
-		// Per node: one constrained node must not starve the others' events.
-		{reasonAutoFullDrivesPlacementDeferred, corev1.EventTypeNormal, true, true},
-		// An administrative state (cordon/taint/NotReady), not a planner failure: Normal, per node, and
-		// rate-limited — a node left cordoned for maintenance must not post a Warning every minute.
-		{reasonAutoFullDrivesNodeIneligible, corev1.EventTypeNormal, true, true},
-		{reasonAutoFullDrivesComputeLayout, corev1.EventTypeWarning, true, false},
-		{reasonClusterCapacityHeterogeneousGrowth, corev1.EventTypeWarning, false, false},
-		{reasonClusterCapacityPlanned, corev1.EventTypeNormal, false, false},
+		{reasonAutoFullDrivesInfeasible, corev1.EventTypeWarning, time.Minute},
+		{reasonAutoFullDrivesPlanned, corev1.EventTypeNormal, time.Minute},
+		{reasonAutoFullDrivesGrowthDetected, corev1.EventTypeNormal, time.Minute},
+		{reasonAutoFullDrivesGrowthDeferred, corev1.EventTypeWarning, plannerConvergedEventInterval},
+		// The three fleet-wide aggregates. Each names the affected node set in a message the throttle key
+		// ignores, so their window bounds how long a node that joins the set after the last event stays
+		// unreported — it must stay well under the converged-state one.
+		{reasonAutoFullDrivesDrivesStranded, corev1.EventTypeNormal, plannerAggregateEventInterval},
+		{reasonAutoFullDrivesPlacementDeferred, corev1.EventTypeNormal, plannerAggregateEventInterval},
+		{reasonAutoFullDrivesNodeIneligible, corev1.EventTypeNormal, plannerAggregateEventInterval},
+		{reasonAutoFullDrivesComputeLayout, corev1.EventTypeWarning, plannerConvergedEventInterval},
+		{reasonClusterCapacityHeterogeneousGrowth, corev1.EventTypeWarning, time.Minute},
+		{reasonClusterCapacityPlanned, corev1.EventTypeNormal, time.Minute},
 	} {
 		t.Run(tc.reason, func(t *testing.T) {
 			spec := plannerEventSpecs[tc.reason]
 			if spec.eventType != tc.wantType {
 				t.Errorf("eventType = %q, want %q", spec.eventType, tc.wantType)
 			}
-			wantInterval := time.Minute
-			if tc.wantLong {
-				wantInterval = plannerConvergedEventInterval
-			}
-			if spec.interval != wantInterval {
-				t.Errorf("interval = %v, want %v", spec.interval, wantInterval)
-			}
-			if got := spec.key == keyPerNode; got != tc.wantPerNode {
-				t.Errorf("keyPerNode = %v, want %v", got, tc.wantPerNode)
+			if spec.interval != tc.wantInterval {
+				t.Errorf("interval = %v, want %v", spec.interval, tc.wantInterval)
 			}
 		})
 	}
@@ -1118,35 +1109,77 @@ func TestAutoFullDrivesWarningReasonAndSeverity(t *testing.T) {
 	}
 }
 
-// TestAutoFullDrivesWarningsThrottlePerSubject: N constrained nodes must each get their own event, and a message
-// whose numbers drift between reconciles must not spawn a second event for a subject already reported (lab:
-// two event objects for one condition, "held 6 node(s)" then "held 5 node(s)").
-func TestAutoFullDrivesWarningsThrottlePerSubject(t *testing.T) {
-	loop := newAutoFullDrivesGrowthLoop(t, nil)
+// TestPlanAutoFullDrivesAggregatesPlacementDeferredIntoOneEvent is the lab regression: forming a cluster
+// where several existing drive containers' pods have not bound yet must not fan out into one
+// AutoFullDrivesPlacementDeferred event per node (lab: 10+ near-identical events on a 14-node cluster,
+// differing only in the node name). One pass with N deferred nodes must produce exactly one event naming
+// all of them.
+func TestPlanAutoFullDrivesAggregatesPlacementDeferredIntoOneEvent(t *testing.T) {
+	withoutFormClusterComputeFloor(t)
 
-	emit := func(subject, message string) {
-		if err := loop.RecordEventThrottledPerSubject(corev1.EventTypeWarning, "AutoFullDrivesComputeLayout",
-			subject, message, time.Minute); err != nil {
-			t.Fatalf("RecordEventThrottledPerSubject: %v", err)
+	const bigFree = 1 << 28
+	nodeNames := []string{"h1-2-a", "h1-3-d", "h4-5-d"}
+	var containers []*weka.WekaContainer
+	var nodeInv []capacityplanner.NodeCapacity
+	fdByNode := map[string]string{}
+	eligible := map[string]bool{}
+	for _, name := range nodeNames {
+		c := &weka.WekaContainer{}
+		c.Name = "drive-" + name
+		c.Spec.Mode = weka.WekaContainerModeDrive
+		c.Spec.NodeAffinity = weka.NodeName(name)
+		// Status.NodeAffinity left unset: the pod has not bound yet, which is what makes the container
+		// Unscheduled and its node deferred.
+		c.Spec.NumDrives = 1
+		c.Spec.DriveCapacity = 1000
+		c.Spec.NumCores = 1
+		containers = append(containers, c)
+
+		nodeInv = append(nodeInv, capacityplanner.NodeCapacity{
+			NodeName:              name,
+			FDValue:               "fd-" + name,
+			OwnDriveCapacitiesGiB: []int{1000},
+			AllocatableCPU:        10,
+			AvailableHugepagesMiB: bigFree,
+			AvailableMemoryMiB:    bigFree,
+		})
+		fdByNode[name] = "fd-" + name
+		eligible[name] = true
+	}
+	// Ample compute-only nodes so the deferred containers' frozen core demand always fits, keeping the
+	// assertion below from going vacuous on an infeasible plan.
+	for _, name := range []string{"compute-1", "compute-2"} {
+		nodeInv = append(nodeInv, capacityplanner.NodeCapacity{
+			NodeName: name, FDValue: "fd-" + name,
+			AllocatableCPU: 64, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+		})
+		fdByNode[name] = "fd-" + name
+		eligible[name] = true
+	}
+
+	r, _ := newAutoFullDrivesLoop(containers, func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
+		return fdByNode, nodeInv, eligible, nil
+	})
+	rec := record.NewFakeRecorder(16)
+	r.Recorder = rec
+
+	plan, err := r.planAutoFullDrives(t.Context())
+	if err != nil {
+		t.Fatalf("planAutoFullDrives() unexpected error: %v", err)
+	}
+	if plan.Infeasible != "" {
+		t.Fatalf("fixture went infeasible (%q) -- the event assertion below would be vacuous", plan.Infeasible)
+	}
+
+	got := eventsMatching(drainEvents(rec), "AutoFullDrivesPlacementDeferred")
+	if len(got) != 1 {
+		t.Fatalf("got %d AutoFullDrivesPlacementDeferred event(s), want exactly 1 covering all %d nodes: %v",
+			len(got), len(nodeNames), got)
+	}
+	for _, name := range nodeNames {
+		if !strings.Contains(got[0], name) {
+			t.Errorf("event does not name deferred node %q: %s", name, got[0])
 		}
-	}
-	emit("node-a", "node node-a cannot host its drives (node has 822 MiB free)")
-	emit("node-b", "node node-b cannot host its drives (node has 640 MiB free)")
-	// Same subject, drifting figure in the text: must be throttled, since node-a is already reported.
-	emit("node-a", "node node-a cannot host its drives (node has 118 MiB free)")
-
-	got := eventsMatching(drainLoopEvents(t, loop), "AutoFullDrivesComputeLayout")
-	if len(got) != 2 {
-		t.Fatalf("got %d event(s), want exactly 2 — one per subject, and the re-report of node-a with a "+
-			"changed number must be throttled: %v", len(got), got)
-	}
-	var sawA, sawB bool
-	for _, ev := range got {
-		sawA = sawA || strings.Contains(ev, "node-a")
-		sawB = sawB || strings.Contains(ev, "node-b")
-	}
-	if !sawA || !sawB {
-		t.Errorf("want one event per constrained node (node-a and node-b), got: %v", got)
 	}
 }
 
