@@ -31,7 +31,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.26.0"
+          go-version-file: go.mod
 
       - name: Generate crd-ref-docs config
         run: |

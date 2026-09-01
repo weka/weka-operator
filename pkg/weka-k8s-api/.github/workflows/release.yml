@@ -31,7 +31,7 @@ jobs:
       
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.21.3"
+          go-version-file: go.mod
 
       - name: Validate CRDs are up to date
         run: |
