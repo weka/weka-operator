@@ -454,6 +454,8 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 	if err != nil {
 		logger.Error(err, "Failed to allocate additional drives for container", "container", container.Name)
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "AllocateContainerDrivesError", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
+		// This step has ContinueOnError: true (flow_active_state.go): an unmet numDrives is a wait state, not
+		// a reconcile failure — the container keeps serving the drives it already has until more free up.
 		return err
 	}
 

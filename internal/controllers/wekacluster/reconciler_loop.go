@@ -14,7 +14,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/weka/weka-operator/internal/controllers/allocator"
+	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/exec"
 )
@@ -62,10 +62,13 @@ type wekaClusterReconcilerLoop struct {
 	Throttler       throttling.Throttler
 	// internal field used to store data in-memory between steps
 	readyContainers *ReadyForClusterizationContainers
-	// buildNodeInventoryFn overrides the node-inventory builder for tests (nil => use the real method).
-	// It exists only so a test can assert the expensive node-inventory rebuild is skipped on the
-	// steady-state fast path; production always leaves it nil.
-	buildNodeInventoryFn func(ctx context.Context) (map[string]string, []allocator.NodeCapacity, map[string]bool, error)
+	// buildNodeInventoryFn overrides the node-inventory builder for tests (nil => use the real method);
+	// lets a test assert the inventory rebuild is skipped on the steady-state fast path.
+	buildNodeInventoryFn func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error)
+	// buildFullDrivesInventoryFn is the same test seam for planAutoFullDrives, kept separate from
+	// buildNodeInventoryFn because it reads the full-drives (exclusive) population, not the
+	// shared TLC/QLC drives the other seam reads — never fold the two together.
+	buildFullDrivesInventoryFn func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error)
 }
 
 // GetAllSteps combines all reconciliation steps into a single ordered list
@@ -171,6 +174,21 @@ func (r *wekaClusterReconcilerLoop) RecordEvent(eventtype, reason, message strin
 
 func (r *wekaClusterReconcilerLoop) RecordEventThrottled(eventtype, reason, message string, interval time.Duration) error {
 	if !r.Throttler.ShouldRun(eventtype+reason, &throttling.ThrottlingSettings{
+		Interval:                    interval,
+		DisableRandomPreSetInterval: true,
+	}) {
+		return nil
+	}
+
+	return r.RecordEvent(eventtype, reason, message)
+}
+
+// RecordEventThrottledPerSubject throttles on eventtype+reason+subject — the node/container the event is
+// about — instead of the message text. Use for a reason whose messages embed changing numbers (e.g. free
+// hugepages, node counts): per-message throttling would key on that changing prose and never dedupe.
+// Empty subject collapses to RecordEventThrottled's per-reason behavior.
+func (r *wekaClusterReconcilerLoop) RecordEventThrottledPerSubject(eventtype, reason, subject, message string, interval time.Duration) error {
+	if !r.Throttler.ShouldRun(eventtype+reason+subject, &throttling.ThrottlingSettings{
 		Interval:                    interval,
 		DisableRandomPreSetInterval: true,
 	}) {

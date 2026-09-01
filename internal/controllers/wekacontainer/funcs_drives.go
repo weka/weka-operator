@@ -18,6 +18,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
@@ -75,7 +76,12 @@ func (r *containerReconcilerLoop) checkDriveResourceFeasibility(ctx context.Cont
 	}
 
 	cons := allocator.CapacityConstraintsFromConfig()
-	reqHpMiB, reqMemMiB := allocator.RequiredDriveResources(tlcGiB, qlcGiB, cons)
+	// DriveDpdkPerCoreMiB comes from this container's own spec, what its pod (resources/pod.go) was built
+	// from, since the cluster's current override may have drifted from that by now.
+	cons.DriveDpdkPerCoreMiB = container.Spec.DpdkBaseMemoryMb
+	// Spec.NumDrives is the pod's drive term (nonzero only under numDrives+driveCapacity, 200 MiB/drive);
+	// RequiredDriveResources must read it, not Status.Allocations.VirtualDrives, to match the pod's request.
+	reqHpMiB, reqMemMiB := capacityplanner.RequiredDriveResources(tlcGiB, qlcGiB, container.Spec.NumDrives, cons)
 
 	availHpMiB := podHugepagesRequestMiB(c)
 	availMemMiB := int(c.Resources.Requests.Memory().Value() / (1 << 20))

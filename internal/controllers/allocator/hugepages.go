@@ -12,54 +12,68 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/capacityplanner"
 	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
 )
 
+// ErrDriveAllocationPending marks a capacity figure that cannot be derived yet because no drive container
+// has allocated the drive count being asked about — the state every raise of numDrives passes through
+// before containers pick up the new count. Callers must defer and retry, not fail: retrying lets the
+// capacity resolve once drives are allocated, while failing would deadlock the raise itself.
+var ErrDriveAllocationPending = errors.New("drive allocation pending")
+
+// CalculateDriveHugepages and CalculateDriveHugepagesOffset are the template-shaped entry points to the
+// one drive-hugepages formula (capacityplanner.DriveContainerHugepages{,Offset}MiB); DPDK is added by the
+// caller. Planner-managed modes skip this path — their per-container drive counts can't fit a cluster-wide
+// ClusterTemplate — and use DriveHugepagesFromPlan instead.
 func CalculateDriveHugepages(template ClusterTemplate) int { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
-	if template.NumDrives > 0 {
-		return 1400*template.Cores.Drive + 200*template.NumDrives
-	}
-	return 1600 * template.Cores.Drive
+	return capacityplanner.DriveContainerHugepagesMiB(template.Cores.Drive, template.NumDrives, noDpdkConstraints)
 }
 
 func CalculateDriveHugepagesOffset(template ClusterTemplate) int { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
-	if template.NumDrives > 0 {
-		return 200 * template.NumDrives
-	}
-	return 200 * template.Cores.Drive
+	return capacityplanner.DriveContainerHugepagesOffsetMiB(template.Cores.Drive, template.NumDrives, noDpdkConstraints)
 }
 
-// Compute hugepages (capacity-based)
+// noDpdkConstraints carries only the coefficients the drive-hugepages formula reads, with the per-core DPDK
+// term zeroed: GetContainerHugepages adds DPDK itself, after these, so including it here would double-count.
+var noDpdkConstraints = &capacityplanner.CapacityConstraints{HugepagesPerCoreMiB: capacityplanner.HugepagesPerCoreMiB}
+
+// ErrPlannerManagedComputeHugepages is returned when GetContainerHugepages is called for a cluster whose
+// compute sizing is planner-managed (auto full drives). Callers must treat it as fatal rather than as an
+// ordinary transient sizing failure — see calculateDynamicComputeHugepages for why.
+var ErrPlannerManagedComputeHugepages = errors.New("auto full drives compute hugepages come from the planner's " +
+	"ComputeLayout via ComputeHugepagesFromPlan; GetContainerHugepages must not be used for planner-managed compute")
+
 func calculateDynamicComputeHugepages(ctx context.Context, k8sClient client.Client, template ClusterTemplate, cluster *weka.WekaCluster, containers []*weka.WekaContainer) (hp int, err error) { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	var totalRawCapacityGiB int
 
 	switch {
 	case cluster.Spec.Dynamic != nil && cluster.Spec.Dynamic.UsesClusterCapacity():
-		// clusterCapacity mode: drive containers are heterogeneous (per-FD TLC/QLC
-		// capacities assigned by the planner), so there is no uniform ContainerCapacity
-		// or NumDrives to extrapolate from. The total raw capacity is known directly
-		// from the cluster-capacity target — the same value the FD planner uses.
+		// Heterogeneous drive containers have no uniform ContainerCapacity/NumDrives to extrapolate
+		// from, so raw capacity comes directly from the cluster-capacity target the FD planner uses.
 		clusterCapGiB, ccErr := cluster.Spec.Dynamic.GetClusterCapacityGiB()
 		if ccErr != nil {
 			return 0, fmt.Errorf("clusterCapacity compute hugepages: %w", ccErr)
 		}
-		// Resolve effective protection (spec value, else Helm default) so the raw-capacity estimate
-		// matches what the FD planner and webhook use; raw spec 0/0/0 would divide by zero here.
+		// Effective protection matches what the FD planner/webhook use; raw spec 0/0/0 would divide by zero.
 		sw, rl, hs := globalconfig.Config.DriveSharing.EffectiveProtection(
 			cluster.Spec.StripeWidth, cluster.Spec.RedundancyLevel, cluster.Spec.HotSpare,
 		)
-		totalRawCapacityGiB = RawCapacityGiB(clusterCapGiB, sw, rl, hs)
+		totalRawCapacityGiB = capacityplanner.RawCapacityGiB(clusterCapGiB, sw, rl, hs)
+	case cluster.Spec.Dynamic.UsesAutoFullDrives():
+		// Auto full drives sizes compute from the planner's own per-container figure
+		// (ComputeHugepagesFromPlan over plan.ComputeLayout); nothing should reach this path. Kept rather
+		// than removed so a stray caller fails loudly instead of falling into a template-based case and
+		// under-counting a heterogeneous fleet.
+		return 0, ErrPlannerManagedComputeHugepages
 	case template.ContainerCapacity > 0:
-		// Drive-sharing mode - full capacity per drive container is known
 		totalRawCapacityGiB = template.ContainerCapacity * template.Containers.Drive
 	case template.NumDrives > 0 && template.DriveCapacity > 0:
-		// Drive-sharing mode with explicit drive count and capacity
 		totalRawCapacityGiB = template.NumDrives * template.DriveCapacity * template.Containers.Drive
 	case template.Containers.Drive > 0:
-		// Full-drives mode: unified path for both new and ready clusters.
-		// Capacity is derived from the most recently created drive container's allocation
-		// looked up in the weka-full-drives node annotation.
+		// Full-drives mode: capacity is derived from the most recently created drive container's
+		// allocation, looked up in the weka-full-drives node annotation.
 		totalRawCapacityGiB, err = ComputeCapacityFromMostRecentDriveContainerAllocation(
 			ctx, k8sClient, containers, template.Containers.Drive, template.NumDrives,
 		)
@@ -75,8 +89,7 @@ func calculateDynamicComputeHugepages(ctx context.Context, k8sClient client.Clie
 			ctx, totalRawCapacityGiB, template.Containers.Compute, template.Cores.Compute, template.DriveTypesRatio,
 		)
 	} else {
-		// Fallback minimum when capacity is unknown
-		hp = 3000 * template.Cores.Compute
+		hp = 3000 * template.Cores.Compute // fallback minimum when capacity is unknown
 	}
 
 	return
@@ -99,13 +112,11 @@ func ComputeCapacityFromMostRecentDriveContainerAllocation(
 		return 0, fmt.Errorf("numDrives must be > 0 for full-drives mode hugepages calculation, got %d", numDrives)
 	}
 
-	// Collect drive containers that have exactly numDrives allocated
 	var candidates []*weka.WekaContainer
 	for _, c := range containers {
 		if !c.IsDriveContainer() {
 			continue
 		}
-		// full-drives mode assumes numDrives > 0
 		if c.Status.Allocations == nil || len(c.Status.Allocations.Drives) != numDrives {
 			continue
 		}
@@ -113,13 +124,11 @@ func ComputeCapacityFromMostRecentDriveContainerAllocation(
 	}
 
 	if len(candidates) == 0 {
-		return 0, fmt.Errorf("no drive containers with %d allocated drives found yet", numDrives)
+		return 0, fmt.Errorf("%w: no drive containers with %d allocated drives found yet", ErrDriveAllocationPending, numDrives)
 	}
 
-	// Sort by creation timestamp descending — most recently created first.
-	// Name is a secondary key to break ties deterministically (all containers
-	// created in the same second would otherwise produce a non-deterministic
-	// reference container and cause a perpetual spec-hash flip-flop).
+	// Sort by creation timestamp descending, name as a tiebreaker — otherwise containers created in
+	// the same second could pick a non-deterministic reference and cause a perpetual spec-hash flip-flop.
 	slices.SortFunc(candidates, func(a, b *weka.WekaContainer) int {
 		if ts := cmp.Compare(
 			b.CreationTimestamp.UnixNano(),
@@ -130,38 +139,17 @@ func ComputeCapacityFromMostRecentDriveContainerAllocation(
 		return cmp.Compare(a.Name, b.Name)
 	})
 
-	// Use the most recently created candidate as the reference
 	ref := candidates[0]
 
-	// Fetch the node's weka-full-drives annotation (one GET)
 	nodeName := ref.Status.NodeAffinity
 	if nodeName == "" {
 		return 0, fmt.Errorf("reference drive container %s has no node affinity in status", ref.Name)
 	}
-	node := &v1.Node{}
-	if err := k8sClient.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
-		return 0, fmt.Errorf("failed to get node %s for drive capacity lookup: %w", nodeName, err)
-	}
-
-	// Read available (non-blocked) full drives via the canonical allocator reader so blocked
-	// drives are excluded from the capacity lookup. Behavior-neutral today (blocked drives are
-	// never allocated, so the sum below never references them), kept for a structural invariant.
-	info, err := ParseAllocatorNodeInfo(node)
+	capacityBySerial, err := nodeDriveCapacityBySerial(ctx, k8sClient, nodeName)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse allocator node info for node %s: %w", nodeName, err)
-	}
-	entries := info.AvailableDrives
-	if len(entries) == 0 {
-		return 0, fmt.Errorf("node %s has no available (non-blocked) full drives with capacity", nodeName)
+		return 0, err
 	}
 
-	// Build serial → capacity_gib lookup (blocked drives excluded)
-	capacityBySerial := make(map[string]int, len(entries))
-	for _, e := range entries {
-		capacityBySerial[e.Serial] = e.CapacityGiB
-	}
-
-	// Sum capacity for the reference container's allocated drives
 	perContainerGiB := 0
 	for _, serial := range ref.Status.Allocations.Drives {
 		capGiB, ok := capacityBySerial[serial]
@@ -174,11 +162,34 @@ func ComputeCapacityFromMostRecentDriveContainerAllocation(
 		perContainerGiB += capGiB
 	}
 
-	// Extrapolate to all drive containers.
-	// Assumes homogeneous drive capacity across containers — a valid assumption for Weka
-	// clusters where all nodes must have identical drive configurations.
+	// Extrapolated to all drive containers, assuming homogeneous drive capacity across them (valid for
+	// Weka clusters, where all nodes must have identical drive configurations).
 	totalGiB := perContainerGiB * numDriveContainers
 	return totalGiB, nil
+}
+
+// nodeDriveCapacityBySerial fetches nodeName (one GET) and returns a serial -> capacity_gib lookup built
+// from its weka-full-drives annotation via the canonical allocator reader, so blocked drives are excluded.
+func nodeDriveCapacityBySerial(ctx context.Context, k8sClient client.Client, nodeName weka.NodeName) (map[string]int, error) {
+	node := &v1.Node{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
+		return nil, fmt.Errorf("failed to get node %s for drive capacity lookup: %w", nodeName, err)
+	}
+
+	info, err := ParseAllocatorNodeInfo(node)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse allocator node info for node %s: %w", nodeName, err)
+	}
+	entries := info.AvailableDrives
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("node %s has no available (non-blocked) full drives with capacity", nodeName)
+	}
+
+	capacityBySerial := make(map[string]int, len(entries))
+	for _, e := range entries {
+		capacityBySerial[e.Serial] = e.CapacityGiB
+	}
+	return capacityBySerial, nil
 }
 
 // ComputeCapacityBasedHugepages calculates compute hugepages using TLC/QLC-aware capacity ratios.
@@ -216,13 +227,11 @@ func ComputeCapacityBasedHugepages(ctx context.Context, totalRawCapacityGiB, com
 	minHugepages := 3000 * computeCores
 	hugepages := max(capacityBased+perCoreComponent, minHugepages)
 
-	// Must be divisible by 2, ceiling up to nearest even number if not
-	if hugepages%2 != 0 {
+	if hugepages%2 != 0 { // must be divisible by 2
 		hugepages++
 	}
 
-	// Apply max cap if configured (must be even — validated at Helm level)
-	maxMiB := globalconfig.Config.ComputeMaxHugepagesMiB
+	maxMiB := globalconfig.Config.ComputeMaxHugepagesMiB // must be even — validated at Helm level
 	if maxMiB > 0 && hugepages > maxMiB {
 		hugepages = maxMiB
 	}

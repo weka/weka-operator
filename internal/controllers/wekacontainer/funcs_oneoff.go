@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -372,7 +373,17 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		return r.Status().Update(ctx, r.container)
 	}
 
-	for _, drive := range opResult.Drives {
+	// QLC drives are unsupported in full-drives mode; already-annotated QLC serials are left alone
+	// rather than removed, since a cluster may already be using one.
+	discoveredDrives, qlcSerials := filterOutQLCDrives(opResult.Drives)
+	if len(qlcSerials) > 0 {
+		logger.Info("Skipping QLC drives in full-drives mode", "serials", qlcSerials)
+		_ = r.RecordEvent(v1.EventTypeWarning, "QLCDrivesSkipped", //nolint:errcheck // event recording is best-effort
+			fmt.Sprintf("%d QLC drive(s) excluded from full-drives mode (unsupported): %s",
+				len(qlcSerials), strings.Join(qlcSerials, ", ")))
+	}
+
+	for _, drive := range discoveredDrives {
 		if drive.SerialId == "" { // skip drives without serial id if it was not set for whatever reason
 			continue
 		}
@@ -395,6 +406,9 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	for _, entry := range seenDrives {
 		updatedDrivesList = append(updatedDrivesList, entry)
 	}
+	// seenDrives is a map, so iteration order is random; sort so the annotation itself is deterministic
+	// rather than depending on map iteration.
+	updatedDrivesList = domain.SortDriveEntriesDesc(updatedDrivesList)
 	newDrivesStr, err := json.Marshal(updatedDrivesList)
 	if err != nil {
 		err = fmt.Errorf("error marshalling updated drives list: %w", err)
@@ -663,6 +677,22 @@ func warnOverriddenDriveTypes(logger *instrumentation.SpanLogger, beforeTypes ma
 		logger.Warn("Drive type overridden; virtual drives already allocated from this drive keep their recorded type until their containers are reallocated",
 			"serial", drive.Serial, "physicalUUID", drive.PhysicalUUID, "previousType", priorType, "newType", drive.Type)
 	}
+}
+
+// filterOutQLCDrives splits a discovery result into the drives usable in full-drives mode and the
+// serials of the QLC drives dropped from it. Full-drives mode has no QLC accounting: every consumer
+// (capacityplanner.PlanAutoFullDrives, inventory.sumFullDriveCapacity) treats a full-drives entry as
+// TLC, so a QLC drive there gets the wrong capacity-per-core and hugepages ratio. Unknown Type is kept.
+func filterOutQLCDrives(drives []domain.DriveInfo) (kept []domain.DriveInfo, qlcSerials []string) {
+	kept = make([]domain.DriveInfo, 0, len(drives))
+	for _, drive := range drives {
+		if drive.Type == "QLC" {
+			qlcSerials = append(qlcSerials, drive.SerialId)
+			continue
+		}
+		kept = append(kept, drive)
+	}
+	return kept, qlcSerials
 }
 
 // appendMissingDrivesToBlocked extends blockedDrives with any annotatedSerial

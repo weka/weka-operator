@@ -185,9 +185,13 @@ func (a *ContainerResourceAllocator) getAvailableDrivesFromStatus(ctx context.Co
 	allDrives := nodeInfo.AvailableDrives
 	logger.Debug("Found drives on node", "total", len(allDrives))
 
+	// Sort largest-first so callers that take a prefix (numDrives pin) get the node's largest N drives,
+	// matching what the planner computed and reported.
+	sortedDrives := domain.SortDriveEntriesDesc(allDrives)
+
 	// Filter out allocated drives (keyed by serial)
 	availableDrives := []string{}
-	for _, drive := range allDrives {
+	for _, drive := range sortedDrives {
 		if !allocatedDrives[drive.Serial] {
 			availableDrives = append(availableDrives, drive.Serial)
 		}

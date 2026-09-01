@@ -17,7 +17,7 @@ import (
 )
 
 // TestGetDriveCores_DerivesFromCapacity verifies the static template path sizes drive cores from
-// per-container capacity (matching the per-add feasibility gate's recomputeCores model) instead of
+// per-container capacity (matching the per-add feasibility gate's RequiredDriveCores model) instead of
 // defaulting to 1 — the fix for DriveCapacityResourceShortfall on a freshly formed drive-sharing cluster.
 func TestGetDriveCores_DerivesFromCapacity(t *testing.T) {
 	// Set the per-core capacity caps deterministically (LoadCapacityEnv isn't called in unit tests).
@@ -53,10 +53,10 @@ func TestGetDriveCores_DerivesFromCapacity(t *testing.T) {
 			expected:          1,
 		},
 		{
-			name:              "explicit driveCores below requirement is raised",
+			name:              "explicit driveCores below requirement is honored",
 			containerCapacity: 6000,
 			driveCores:        1,
-			expected:          2,
+			expected:          1,
 		},
 		{
 			name:              "explicit driveCores above requirement is preserved",
@@ -83,6 +83,246 @@ func TestGetDriveCores_DerivesFromCapacity(t *testing.T) {
 				t.Errorf("drive cores = %d, want %d", got, tt.expected)
 			}
 		})
+	}
+}
+
+// TestGetDriveCores_DerivesFromNumDrivesCapacity verifies the numDrives+driveCapacity (legacy
+// TLC-only) mode also derives drive cores from capacity, capped at numDrives per the CEL rule
+// numDrives >= driveCores.
+func TestGetDriveCores_DerivesFromNumDrivesCapacity(t *testing.T) {
+	// Set the per-core capacity caps deterministically (LoadCapacityEnv isn't called in unit tests).
+	prevTlc := globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB
+	prevQlc := globalconfig.Config.ClusterCapacity.QlcCapacityPerCoreGiB
+	globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = 5 * 1024  // 5120 GiB/core
+	globalconfig.Config.ClusterCapacity.QlcCapacityPerCoreGiB = 50 * 1024 // 51200 GiB/core
+	t.Cleanup(func() {
+		globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = prevTlc
+		globalconfig.Config.ClusterCapacity.QlcCapacityPerCoreGiB = prevQlc
+	})
+
+	tests := []struct {
+		name              string
+		containerCapacity int
+		numDrives         int
+		driveCapacity     int
+		driveCores        int
+		expected          int
+	}{
+		{
+			name:          "4 drives * 2000 GiB needs 2 cores",
+			numDrives:     4,
+			driveCapacity: 2000, // 8000 GiB, ceil(8000/5120)=2
+			expected:      2,
+		},
+		{
+			name:          "1 drive * 2000 GiB fits in 1 core",
+			numDrives:     1,
+			driveCapacity: 2000, // 2000 GiB, ceil(2000/5120)=1
+			expected:      1,
+		},
+		{
+			name:          "derived requirement capped at numDrives",
+			numDrives:     2,
+			driveCapacity: 20000, // 40000 GiB, ceil(40000/5120)=8, capped at numDrives=2
+			expected:      2,
+		},
+		{
+			name:          "explicit driveCores above requirement is preserved",
+			numDrives:     4,
+			driveCapacity: 1000, // 4000 GiB, needs 1 core
+			driveCores:    3,
+			expected:      3,
+		},
+		{
+			name:          "pure full-drives mode (no driveCapacity) keeps default",
+			numDrives:     4,
+			driveCapacity: 0,
+			expected:      1,
+		},
+		{
+			name:          "no numDrives with driveCapacity set keeps default",
+			numDrives:     0,
+			driveCapacity: 2000,
+			expected:      1,
+		},
+		{
+			name:              "containerCapacity branch still used when numDrives is 0",
+			containerCapacity: 6000, // ceil(6000/5120)=2
+			numDrives:         0,
+			expected:          2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &weka.WekaClusterTemplate{
+				ContainerCapacity: tt.containerCapacity,
+				NumDrives:         tt.numDrives,
+				DriveCapacity:     tt.driveCapacity,
+				DriveCores:        tt.driveCores,
+			}
+			if got := GetWekaContainerCores(config).Drive; got != tt.expected {
+				t.Errorf("drive cores = %d, want %d", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestDerivedDriveCores verifies DerivedDriveCores in isolation: it must ignore any explicit
+// config.DriveCores (getDriveCores handles the override short-circuit) and report ok=false when
+// the template has no capacity basis to derive from.
+func TestDerivedDriveCores(t *testing.T) {
+	prevTlc := globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB
+	prevQlc := globalconfig.Config.ClusterCapacity.QlcCapacityPerCoreGiB
+	globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = 5 * 1024  // 5120 GiB/core
+	globalconfig.Config.ClusterCapacity.QlcCapacityPerCoreGiB = 50 * 1024 // 51200 GiB/core
+	t.Cleanup(func() {
+		globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = prevTlc
+		globalconfig.Config.ClusterCapacity.QlcCapacityPerCoreGiB = prevQlc
+	})
+
+	tests := []struct {
+		name          string
+		config        *weka.WekaClusterTemplate
+		expectedOk    bool
+		expectedCores int
+	}{
+		{
+			name:       "nil config not derivable",
+			config:     nil,
+			expectedOk: false,
+		},
+		{
+			name: "containerCapacity mode derives, ignoring explicit driveCores",
+			config: &weka.WekaClusterTemplate{
+				ContainerCapacity: 6000, // ceil(6000/5120)=2
+				DriveCores:        1,    // explicit value must be ignored by this function
+			},
+			expectedOk:    true,
+			expectedCores: 2,
+		},
+		{
+			name: "numDrives+driveCapacity mode derives, ignoring explicit driveCores",
+			config: &weka.WekaClusterTemplate{
+				NumDrives:     4,
+				DriveCapacity: 2000, // 8000 GiB, ceil(8000/5120)=2
+				DriveCores:    1,    // explicit value must be ignored by this function
+			},
+			expectedOk:    true,
+			expectedCores: 2,
+		},
+		{
+			name: "pure full-drives mode (no driveCapacity) not derivable",
+			config: &weka.WekaClusterTemplate{
+				NumDrives: 4,
+			},
+			expectedOk: false,
+		},
+		{
+			name:       "empty config not derivable",
+			config:     &weka.WekaClusterTemplate{},
+			expectedOk: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cores, ok := DerivedDriveCores(tt.config)
+			if ok != tt.expectedOk {
+				t.Fatalf("ok = %v, want %v", ok, tt.expectedOk)
+			}
+			if ok && cores != tt.expectedCores {
+				t.Errorf("cores = %d, want %d", cores, tt.expectedCores)
+			}
+		})
+	}
+}
+
+// TestRequiredDriveCoresForTemplate_UnclampedVsDerived pins the one place the two functions differ:
+// numDrives+driveCapacity, where DerivedDriveCores caps at numDrives so getDriveCores only ever sees an
+// assignable count, while RequiredDriveCoresForTemplate reports the true requirement so admission can
+// tell a reachable capacity from an unreachable one.
+func TestRequiredDriveCoresForTemplate_UnclampedVsDerived(t *testing.T) {
+	prevTlc := globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB
+	globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = 5 * 1024 // 5120 GiB/core
+	t.Cleanup(func() { globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = prevTlc })
+
+	// 4 drives × 8000 GiB = 32000 GiB, ceil(32000/5120) = 7 cores — but only 4 drives exist to carry
+	// them, so the derived (assignable) value stops at 4.
+	config := &weka.WekaClusterTemplate{NumDrives: 4, DriveCapacity: 8000}
+
+	required, ok := RequiredDriveCoresForTemplate(config)
+	if !ok || required != 7 {
+		t.Errorf("RequiredDriveCoresForTemplate = (%d, %v), want (7, true)", required, ok)
+	}
+	derived, ok := DerivedDriveCores(config)
+	if !ok || derived != 4 {
+		t.Errorf("DerivedDriveCores = (%d, %v), want (4, true)", derived, ok)
+	}
+
+	// containerCapacity has no drive count to cap against, so the two must agree exactly.
+	shared := &weka.WekaClusterTemplate{ContainerCapacity: 30000} // ceil(30000/5120) = 6
+	required, _ = RequiredDriveCoresForTemplate(shared)
+	derived, _ = DerivedDriveCores(shared)
+	if required != 6 || derived != 6 {
+		t.Errorf("containerCapacity: required = %d, derived = %d, want 6 and 6", required, derived)
+	}
+}
+
+// TestGetWekaContainerNumbers_FormClusterFloorDefaults pins the form-cluster floor default (5/5) that
+// GetWekaContainerNumbers falls back to for an empty config. This floor must keep firing regardless of
+// planner mode (see the doc comment on GetWekaContainerNumbers and IsPlannerManaged) — funcs_clusterization.go
+// and funcs_upgrade.go depend on it staying non-zero.
+func TestGetWekaContainerNumbers_FormClusterFloorDefaults(t *testing.T) {
+	got := GetWekaContainerNumbers(&weka.WekaClusterTemplate{})
+	want := IntPerWekaRole{Compute: 5, Drive: 5}
+	if got.Compute != want.Compute || got.Drive != want.Drive {
+		t.Errorf("GetWekaContainerNumbers(empty config) = %+v, want Compute=%d Drive=%d", got, want.Compute, want.Drive)
+	}
+}
+
+// The numDrives pin must carry through the template unmodified: planner-managed containers size hugepages
+// from their own per-node (cores, drives) via DriveHugepagesFromPlan, not from this cluster-wide template.
+func TestGetWekaClusterTemplate_AutoFullDrives_PropagatesNumDrives(t *testing.T) {
+	config := &weka.WekaClusterTemplate{
+		NumDrives:  4,
+		DriveCores: 2,
+		// ComputeContainers/DriveContainers/ContainerCapacity/DriveCapacity all unset → auto full drives.
+	}
+	if !config.UsesAutoFullDrives() {
+		t.Fatal("test precondition failed: config expected to be auto-full-drives mode")
+	}
+
+	template := GetWekaClusterTemplate(config)
+	if template.NumDrives != 4 {
+		t.Errorf("ClusterTemplate.NumDrives = %d, want 4 (the pin is carried through, not zeroed)", template.NumDrives)
+	}
+	if template.Cores.Drive != 2 {
+		t.Errorf("ClusterTemplate.Cores.Drive = %d, want 2 (explicit driveCores must still be honored)", template.Cores.Drive)
+	}
+
+	// Both axes are charged: 1400 per core plus 200 per drive, matching what the pod requests.
+	if got, want := CalculateDriveHugepages(template), 1400*2+200*4; got != want {
+		t.Errorf("CalculateDriveHugepages = %d, want %d (1400/core + 200/drive)", got, want)
+	}
+
+	// DriveHugepagesFromPlan returns a complete total (weka + DPDK); CalculateDriveHugepages returns the
+	// pre-DPDK figure GetContainerHugepages later adds DPDK to. Once DPDK is accounted for they must agree.
+	// DPDK defaults to 64 MiB/core here (no overrides set).
+	cluster := &weka.WekaCluster{Spec: weka.WekaClusterSpec{Dynamic: config}}
+
+	// 2 cores * (1400 drive + 64 dpdk) + 4 drives * 200 = 3728.
+	if got, want := DriveHugepagesFromPlan(cluster, 2, 4).Hugepages, 3728; got != want {
+		t.Errorf("DriveHugepagesFromPlan(2,4).Hugepages = %d, want %d (CalculateDriveHugepages + DPDK per core)", got, want)
+	}
+	// 2 cores * 64 dpdk + 4 drives * 200 = 928.
+	if got, want := DriveHugepagesFromPlan(cluster, 2, 4).HugepagesOffset, 928; got != want {
+		t.Errorf("DriveHugepagesFromPlan(2,4).HugepagesOffset = %d, want %d", got, want)
+	}
+	// A per-node drive count the cluster-wide template cannot express: 9 drives on 2 cores.
+	// 2 cores * (1400 drive + 64 dpdk) + 9 drives * 200 = 4728.
+	if got, want := DriveHugepagesFromPlan(cluster, 2, 9).Hugepages, 4728; got != want {
+		t.Errorf("DriveHugepagesFromPlan(2,9).Hugepages = %d, want %d", got, want)
 	}
 }
 
@@ -243,13 +483,16 @@ func TestGetContainerHugepages_EnrichesFromNodeDrives(t *testing.T) {
 			Dynamic: &weka.WekaClusterTemplate{
 				ComputeCores: 1,
 				NumDrives:    2, // 2 drives per container → sn1+sn2 = 7000 GiB per container
-				// No ContainerCapacity/DriveCapacity → full-drives mode
+				// No ContainerCapacity/DriveCapacity → full-drives mode. ComputeContainers/DriveContainers set
+				// explicitly (both-or-neither) make this count-based full-drives, not auto full drives, so
+				// this exercises the single-reference-container extrapolation path.
+				ComputeContainers: 6,
+				DriveContainers:   6,
 			},
 		},
 	}
 
-	// Provide a mock drive container with 2 drives allocated, pointing to node1.
-	// ComputeCapacityFromMostRecentDriveContainerAllocation will look up node1's annotation.
+	// Mock drive container with 2 drives allocated on node1, for ComputeCapacityFromMostRecentDriveContainerAllocation to look up.
 	mockDriveContainer := &weka.WekaContainer{
 		Spec: weka.WekaContainerSpec{
 			Mode: weka.WekaContainerModeDrive,

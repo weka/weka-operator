@@ -438,8 +438,14 @@ spec:
               value: "{{ .Values.nfs.notifyPort }}"
             - name: SMBW_SHM_SIZE
               value: "{{ .Values.smbw.shmSize }}"
-            - name: CLUSTER_CAPACITY_MAX_COMPUTE_CORES_PER_NODE
-              value: "{{ .Values.clusterCapacity.maxComputeCoresPerNode }}"
+            - name: CAPACITY_MAX_CORES_PER_CONTAINER
+              value: "{{ .Values.capacityPlannerConstraints.maxCoresPerContainer }}"
+            - name: CAPACITY_COMPUTE_TO_TLC_DRIVE_CORE_RATIO
+              value: "{{ .Values.capacityPlannerConstraints.driveSharing.computeToTlcDriveCoreRatio }}"
+            - name: CAPACITY_COMPUTE_TO_QLC_DRIVE_CORE_RATIO
+              value: "{{ .Values.capacityPlannerConstraints.driveSharing.computeToQlcDriveCoreRatio }}"
+            - name: CAPACITY_FULL_DRIVES_COMPUTE_TO_DRIVE_CORE_RATIO
+              value: "{{ .Values.capacityPlannerConstraints.fullDrives.computeToDriveCoreRatio }}"
             - name: CLUSTER_CAPACITY_TLC_CAPACITY_PER_CORE_GIB
               value: "{{ .Values.clusterCapacity.tlcCapacityPerCoreGiB }}"
             - name: CLUSTER_CAPACITY_QLC_CAPACITY_PER_CORE_GIB

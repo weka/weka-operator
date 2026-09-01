@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -51,11 +52,11 @@ type DriveRawInfo struct {
 }
 
 type DriveNodeResults struct {
-	Err         error                    `json:"err"`
-	Drives      []domain.DriveInfo       `json:"drives"`
-	RawDrives   []DriveRawInfo           `json:"raw_drives"`
-	ProxyDrives []domain.SharedDriveInfo `json:"proxy_drives,omitempty"` // Signed drives for proxy mode
-	KernelViewComplete bool `json:"kernel_view_complete"` // every NVMe PCI slot is bound to the kernel "nvme" driver
+	Err                error                    `json:"err"`
+	Drives             []domain.DriveInfo       `json:"drives"`
+	RawDrives          []DriveRawInfo           `json:"raw_drives"`
+	ProxyDrives        []domain.SharedDriveInfo `json:"proxy_drives,omitempty"` // Signed drives for proxy mode
+	KernelViewComplete bool                     `json:"kernel_view_complete"`   // every NVMe PCI slot is bound to the kernel "nvme" driver
 }
 
 type DiscoverDrivesResult struct {
@@ -66,12 +67,14 @@ type DiscoverDrivesResult struct {
 func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaOwnerDetails, ownerStatus string, successCallback lifecycle.StepFunc, force bool) *DiscoverDrivesOperation { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	kclient := mgr.GetClient()
 	return &DiscoverDrivesOperation{
-		mgr:             mgr,
-		client:          kclient,
-		kubeService:     kubernetes.NewKubeService(kclient),
-		scheme:          mgr.GetScheme(),
-		payload:         payload,
-		image:           ownerDetails.Image,
+		mgr:         mgr,
+		client:      kclient,
+		kubeService: kubernetes.NewKubeService(kclient),
+		scheme:      mgr.GetScheme(),
+		payload:     payload,
+		// Pinned to config.Config.SignDrivesImage: weka-sign-drive (TLC/QLC classification) exists only
+		// there, not in ownerDetails.Image (e.g. cluster.ToOwnerObject()'s weka-in-container image).
+		image:           config.Config.SignDrivesImage,
 		pullSecret:      ownerDetails.ImagePullSecret,
 		serviceAccount:  ownerDetails.ServiceAccountName,
 		ownerRef:        ownerRef,
@@ -112,6 +115,10 @@ func (o *DiscoverDrivesOperation) GetContainers(ctx context.Context) error {
 }
 
 func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
+	if o.image == "" {
+		return fmt.Errorf("SIGN_DRIVES_IMAGE is not configured, cannot run discover-drives")
+	}
+
 	instructions := &v1alpha1.Instructions{
 		Type: v1alpha1.InstructionTypeDiscoverDrives,
 	}
@@ -136,8 +143,7 @@ func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 		}
 		node := &matchingNodes[i]
 
-		// Skip nodes that already have the new full-drives annotation — those are up-to-date.
-		// Legacy-only annotation (weka-drives without weka-full-drives) still needs discovery.
+		// Up-to-date nodes already carry the full-drives annotation; legacy-only nodes still need discovery.
 		if !o.force {
 			if node.Annotations[consts.AnnotationWekaFullDrives] != "" {
 				continue
@@ -157,14 +163,16 @@ func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 				Labels:    labels,
 			},
 			Spec: v1alpha1.WekaContainerSpec{
-				Mode:               v1alpha1.WekaContainerModeAdhocOp,
-				Port:               v1alpha1.StaticPortAdhocyWCOperations,
-				AgentPort:          v1alpha1.StaticPortAdhocyWCOperationsAgent,
-				NodeAffinity:       v1alpha1.NodeName(node.Name),
-				Image:              o.image,
-				ImagePullSecret:    o.pullSecret,
-				Instructions:       instructions,
-				Tolerations:        o.tolerations,
+				Mode:            v1alpha1.WekaContainerModeAdhocOp,
+				Port:            v1alpha1.StaticPortAdhocyWCOperations,
+				AgentPort:       v1alpha1.StaticPortAdhocyWCOperationsAgent,
+				NodeAffinity:    v1alpha1.NodeName(node.Name),
+				Image:           o.image,
+				ImagePullSecret: o.pullSecret,
+				Instructions:    instructions,
+				Tolerations:     o.tolerations,
+				// find_disks() enters the host mount/PID namespace (nsenter --target 1) to run lsblk
+				HostPID:            true,
 				ServiceAccountName: o.serviceAccount,
 			},
 		}
