@@ -307,8 +307,9 @@ demands are found in this order:
 1. **A new compute container on a node that has none yet**, if any compute-eligible node is free.
    This is preferred because it disturbs nothing already running.
 2. **Growing an existing compute container in place**, for whatever new containers cannot carry. Each
-   container can grow up to `capacityPlannerConstraints.maxCoresPerContainer` and only as far as its
-   node's own spare CPU, hugepages and memory allow.
+   container can grow up to `capacityPlannerConstraints.maxCoresPerContainer` — or up to a pinned
+   `computeCores`, whichever is lower — and only as far as its node's own spare CPU, hugepages and
+   memory allow.
 
 The two combine: the operator uses the least in-place growth that lets the rest fit on free nodes, so a
 free node too small to absorb the whole shortfall is still used for as much as it can take. Only if both
@@ -518,10 +519,19 @@ than absorbing a subset.
 The infeasibility report names the offending nodes — not just the first — with the binding dimension
 (physical CPU, hugepages, or memory) and the needed-versus-available figures for each, so one
 `kubectl describe wekacluster` tells you the story. The message spells out up to ten nodes and then
-appends `(+N more)`; the structured report behind it always carries every one.
+appends `(+N more)`; the structured report behind it always carries every one. On the **growth** path
+specifically, the message adds a clause explaining that the missing headroom may be held by this
+cluster's own compute container on that node — since compute reservations only ever rise, a compute
+container placed earlier can end up holding room a later drive-container growth needs. See
+[Relaxing a pin in stages can strand capacity](#relaxing-a-pin-in-stages-can-strand-capacity).
 
 Remedies:
 
+- **Delete the co-located compute container**, when the report names it as the cause of a growth
+  failure — the operator re-places it once the drive container has grown into the freed headroom. If
+  weka refuses the deactivation because active compute would drop too low, add compute capacity
+  elsewhere first. Only applies to a growth blocked this way, not to a fresh create. See
+  [Relaxing a pin in stages can strand capacity](#relaxing-a-pin-in-stages-can-strand-capacity).
 - **Free resources on the node** — evict or resize whatever else is holding its CPU, hugepages or
   memory.
 - **Pin `driveCores` lower.** This is usually the right answer: drives are decoupled from cores, so
@@ -660,6 +670,46 @@ count, cores, or the number of containers, no matter what changes on the cluster
   current `numDrives`/cores; removal is handled by the normal container-deactivation flows, not by
   this mode's sizing logic.
 
+### Relaxing a pin in stages can strand capacity
+
+**Relax `driveCores` and `numDrives` together, in one patch.** Relaxing them in separate patches can
+strand a node permanently: a compute container is sized against what its co-located drive container
+needs **right now**, and compute cores and hugepages only ever rise (see
+[Compute sizing](#compute-sizing)) — so one placed or grown while the drive container is still pinned
+small takes headroom that never comes back, and the drive container's later growth then fails
+`AutoFullDrivesInfeasible` for good, even though every reconcile along the way was locally correct.
+Dropping both pins at once leaves no intermediate reconcile: the drive walk charges the container's
+fully-grown footprint against the node before compute is ever sized against the remainder.
+
+For example, on a node with 60,000 MiB of hugepages and 6 signed drives: a drive container pinned at
+`numDrives: 4, driveCores: 2` (4 drives / 2 cores / 3,728 MiB) shares the node with no compute container
+yet. Dropping only the `driveCores` pin grows it to 4/4/6,656 MiB and, in the same reconcile, sizes a
+*new* compute container against that 4-drive state — as large as the remaining headroom allows (17
+cores / 52,088 MiB, leaving 1,256 MiB free). Dropping the `numDrives` pin next asks the drive container
+to grow again, to the node's full 6 signed drives — which needs 9,984 MiB — but only 1,256 MiB is free,
+and nothing ever shrinks to make room. The plan is `AutoFullDrivesInfeasible` from then on.
+
+**Recovery:** delete the `WekaContainer` for this cluster's compute container on the affected node —
+one node at a time — and let the operator re-place it. The drive walk runs before compute sizing
+within a single reconcile, so with the compute container gone the drive container grows first and the
+replacement is sized against what is left over.
+
+Weka gates the deactivation on how much **active** compute the cluster keeps: if removing this
+container would leave too few compute processes for the buckets already allocated, weka refuses it and
+the `WekaContainer` sits in `Deleting` while the operator retries. Whether it refuses depends on the
+bucket count fixed when the cluster started IO, so it varies between otherwise identical clusters. When
+it does refuse, add compute capacity elsewhere first, then retry:
+
+- **a new compute container on a spare compute-eligible node** — widen `roleNodeSelector.compute` to a
+  node that has none. A new container gets a new pod, so its cores are active as soon as it joins.
+- **or grow an existing compute container and recreate its pod.** Growth alone is not enough: raising
+  cores changes the spec but not the running pod, so the extra cores are not active until the pod is
+  recreated (see [Pod-restart caveat](#pod-restart-caveat)).
+
+The node whose drive growth is blocked is **deferred**, not failed, while its compute container is
+being deleted — so the rest of the fleet keeps growing and compute keeps being planned meanwhile,
+which is what makes the added capacity available at all.
+
 ### Pod-restart caveat
 
 Raising an existing container's core count changes the `WekaContainer` **spec**, but it does **not**
@@ -750,7 +800,10 @@ surplus drives stranded on purpose, reported as a Normal event.
 
 This applies to the modes where `numDrives` sizes the containers directly — explicit container counts,
 and `numDrives` + `driveCapacity` — not to the daemonset mode, where `numDrives` is a pin the planner
-owns and a change is carried by [Expand-only reconciliation](#expand-only-reconciliation) instead.
+owns and a change is carried by [Expand-only reconciliation](#expand-only-reconciliation) instead. In
+the daemonset mode, relaxing that pin in stages — rather than in the same patch as `driveCores` — can
+carry only partially, and permanently so; see
+[Relaxing a pin in stages can strand capacity](#relaxing-a-pin-in-stages-can-strand-capacity).
 
 Raising `numDrives` propagates to the drive containers that already exist. Their drive count, cores
 and hugepages are rewritten together, and the change is **increase-only**: lowering `numDrives` leaves
@@ -851,17 +904,24 @@ Every reason below lands on the **`WekaCluster`** except `UnschedulableDriveCont
 **`WekaContainer`** — so `kubectl describe wekacluster <name>` alone will not show them. Check
 `kubectl describe wekacontainer <name>` when you need per-container detail.
 
-Events are throttled per reason, on the reason alone — the message is not part of the key. A repeat
-within the window is dropped rather than re-posted. The advisories that describe a **converged** state
-use a 15-minute window, because a permanently compute-limited cluster is healthy and re-posting a
-Warning every minute forever trips alerting. The three fleet-wide aggregates — `DrivesStranded`,
-`PlacementDeferred`, `NodeIneligible` — instead use 3 minutes: each names every affected node in one
-message, and because the key ignores that message, the window also bounds how long a node that joins
-the set *after* the last event stays unreported.
+Each planner warning has a **kind**, which selects its reason, and within a reason a bounded
+**cause**, which says which of that reason's conditions this particular event describes. Events are
+throttled on reason plus cause — not on the full message, which for the fleet-wide aggregates below
+varies with the affected node set and is deliberately not part of the key. A repeat of the same
+reason *and* cause within the window is dropped; a *different* cause under the same reason is posted
+at once, since it is a different key. The advisories that describe a **converged** state use a
+15-minute window, because a permanently compute-limited cluster is healthy and re-posting a Warning
+every minute forever trips alerting. The three fleet-wide aggregates — `DrivesStranded`,
+`PlacementDeferred`, `NodeIneligible` — instead use 3 minutes: each names every node hit by one
+cause in one message. The node set is not part of the key, so a node joining or leaving that set
+under a cause that already fired still waits out the window before it is named — deliberately:
+keying on the set too would make a node flapping `Ready`/`NotReady` re-fire the event on every flip,
+which is the worst moment for extra event volume. That is added latency, not lost information —
+whenever the event does fire, it names the complete current set.
 
-Planner warnings are split into **one reason per cause**, so
+Planner warnings are split into **one reason per kind**, so
 `kubectl get events --field-selector reason=AutoFullDrivesInfeasible` isolates the actionable ones
-without matching message text, and the causes that are not problems are Normal rather than Warning.
+without matching message text, and the kinds that are not problems are Normal rather than Warning.
 
 | Reason | Type | Object | Throttle | When it fires |
 |--------|------|--------|----------|---------------|
@@ -869,11 +929,11 @@ without matching message text, and the causes that are not problems are Normal r
 | `AutoFullDrivesGrowthDetected` | Normal | Cluster | 1 min | Growth was **applied** to ≥1 existing drive container — `numDrives`/cores actually written to the spec. It names each container, its node, and its new drives/cores, and says when a pod recreation is owed. It does not report growth the planner proposed but did not commit. |
 | `AutoFullDrivesGrowthDeferred` | Warning | Cluster | 15 min | Growth was planned but **none** of it could be applied because an update failed. The operator retries on the next reconcile, but a later plan may no longer offer the same growth (node headroom changes as pods schedule). |
 | `AutoFullDrivesDrivesStranded` | Normal | Cluster | 3 min | A pinned `numDrives` leaves signed drives unused. One aggregated message covering the whole fleet, listing each node as *used of signed*. **Expected** whenever the pin is in force — it is Normal precisely because you asked for it. Raise or drop `numDrives` to use them. |
-| `AutoFullDrivesPlacementDeferred` | Normal | Cluster | 3 min | Placement is waiting this pass. Usually one aggregated message covering every node affected, for either of two per-node causes: a node still hosts a this-cluster drive container that is being deleted, or an existing container's growth is deferred because its pod is not yet scheduled. It also carries the fleet-wide case, where *every* signed drive is still held by containers being deleted so planning cannot start at all — there the drives are signed, merely not released yet. Clears itself. |
-| `AutoFullDrivesNodeIneligible` | Normal | Cluster | 3 min | A node matching the drive-role selector is cordoned, `NotReady`, or carries an untolerated taint, so it gets no **new** container. Normal rather than Warning because on its own it costs nothing — the plan proceeds on the remaining nodes, and if the loss actually matters the plan goes infeasible and `AutoFullDrivesInfeasible` says so. All ineligible nodes arrive in one message, each with its own reason (e.g. `cordoned`) — so a node cordoned after the last event is reported within one window rather than waiting out a long one. Anything already running there keeps running and still grows. See [Troubleshooting](#troubleshooting). |
+| `AutoFullDrivesPlacementDeferred` | Normal | Cluster | 3 min | Placement is waiting this pass, for one of four causes, each its own message and its own throttle key so one cause firing never silences another: an existing container's growth is deferred because its pod is not yet scheduled; a node still hosts a this-cluster drive container that is being deleted; a node hosts a this-cluster compute container that is being deleted and holds what the pending placement needs — a create as readily as a growth, and the message names the binding dimension (cores, hugepages or memory) only when every node hit by this cause is short of the same one; or, fleet-wide, *every* signed drive is still held by containers being deleted so planning cannot start at all — there the drives are signed, merely not released yet. A pass can therefore emit up to three of these events for the per-node causes, each naming every node hit by that one cause, plus the fleet-wide one as a fourth. Clears itself. |
+| `AutoFullDrivesNodeIneligible` | Normal | Cluster | 3 min | A node matching the drive-role selector is cordoned, `NotReady`, or carries an untolerated taint, so it gets no **new** container. Normal rather than Warning because on its own it costs nothing — the plan proceeds on the remaining nodes, and if the loss actually matters the plan goes infeasible and `AutoFullDrivesInfeasible` says so. All currently-ineligible nodes arrive in one message, each still carrying its own reason inline (e.g. `cordoned`), but the throttle cause is the *set* of distinct reasons present this pass — so a node going `NotReady` changes the cause and is reported at once even while a separately cordoned node's event is still inside its own window, instead of one reason masking the other. Anything already running there keeps running and still grows. See [Troubleshooting](#troubleshooting). |
 | `AutoFullDrivesComputeLayout` | Warning | Cluster | 15 min | Every compute-sizing advisory from the shared compute layout step, joined into one message per pass. |
-| `AutoFullDrivesWarning` | Warning | Cluster | 15 min | Fallback only: a planner warning whose cause has no dedicated reason yet. |
-| `AutoFullDrivesInfeasible` | Warning | Cluster | 1 min | The plan can't proceed and **nothing is created**. Causes: a node that cannot fit a container sized for all its drives (named, with the binding dimension and needed-vs-available), `driveCores` pinned above a node's drive count, `numDrives` pinned above a node's signed count, or not enough compute capacity for the ratio. The message names the binding reason and suggested fixes. |
+| `AutoFullDrivesWarning` | Warning | Cluster | 15 min | Fallback only: a planner warning whose kind has no dedicated reason yet. |
+| `AutoFullDrivesInfeasible` | Warning | Cluster | 1 min | The plan can't proceed and **nothing is created**. Triggers: a node that cannot fit a container sized for all its drives (named, with the binding dimension and needed-vs-available), `driveCores` pinned above a node's drive count, `numDrives` pinned above a node's signed count, not enough compute capacity for the ratio, or a growth blocked by headroom a co-located compute container holds (see [Relaxing a pin in stages can strand capacity](#relaxing-a-pin-in-stages-can-strand-capacity)). The message names the binding reason and, for a growth blocked this way, the remedy. The full remedy catalog travels in the structured report rather than the event — `weka-capacity plan` renders it. |
 | `AutoFullDrivesNoSignedDrives` | Normal | Cluster | 1 min | No node matching the drive-role selector has a signed, non-blocked full drive yet. Planning is deferred; sign drives and the operator picks them up on its own. Drives held by a container being deleted are *not* this case — see `AutoFullDrivesPlacementDeferred`. |
 | `UnschedulableDriveContainer` | Warning | **Container** | none | A node-pinned drive container **whose pod never bound** was deleted, so its capacity can be re-placed, after the scheduler had been reporting `PodScheduled=False`/`Reason=Unschedulable` for longer than the GC timeout. The message carries the scheduler's own explanation. A pod still `Pending` for another reason (e.g. a slow DKMS build) is left alone. See [Troubleshooting](#troubleshooting). |
 | `UnschedulableComputeContainer` | Warning | **Container** | none | The same, for a compute container. See [Troubleshooting](#troubleshooting). |
@@ -933,11 +993,13 @@ fails earlier, on the CRD's [both-or-neither rule](#the-both-or-neither-rule), w
 message. See [Changing sizing mode on a live cluster](#changing-sizing-mode-on-a-live-cluster).
 
 **`AutoFullDrivesInfeasible` fires and nothing is created.**
-The message names the binding cause. The four to expect: a node that cannot fit a container sized for
+The message names the binding cause. The five to expect: a node that cannot fit a container sized for
 all of its drives ([details and remedies](#when-a-node-cannot-fit-its-drives)); `driveCores` pinned
 above a node's drive count; `numDrives` pinned above a node's signed count
-([details](#numdrives-as-a-per-node-override)); or not enough compute capacity for the
-[ratio](#compute-sizing). Remember that **one** bad node is enough to block the whole cluster.
+([details](#numdrives-as-a-per-node-override)); not enough compute capacity for the
+[ratio](#compute-sizing); or a drive-container growth blocked by headroom a co-located compute
+container holds ([details](#relaxing-a-pin-in-stages-can-strand-capacity)). Remember that **one** bad
+node is enough to block the whole cluster.
 
 **A newly added node isn't getting a drive container.**
 Confirm the node matches the drive-role `nodeSelector` and has signed full drives. Reconciliation is

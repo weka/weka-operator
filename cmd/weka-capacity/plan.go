@@ -695,6 +695,11 @@ func autoFullDrivesNodeRows(nodeInv []capacityplanner.NodeCapacity, existing []c
 				row.Note = note(capacityplanner.WarningKindTransient, "drive container being deleted")
 			case existingByNode[n.NodeName].Unscheduled:
 				row.Note = note(capacityplanner.WarningKindTransient, "pod has not been scheduled yet")
+			// Not gated on nodeStateNotPlanned: this defers a growth as well as a create, and a grown-but-
+			// deferred node still renders its existing (smaller) container rather than "not planned". Ordered
+			// after Unscheduled to match the walk, which resolves that skip first.
+			case n.HasDeletingComputeContainer:
+				row.Note = note(capacityplanner.WarningKindTransient, "compute container being deleted")
 			case row.State != nodeStateNotPlanned && hasFleetWarning(plan.Warnings, capacityplanner.WarningKindDrivesStranded):
 				row.Note = "drives held back by the numDrives pin — see WARNINGS"
 			}

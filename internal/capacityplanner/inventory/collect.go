@@ -210,6 +210,10 @@ func (c Collector) nodeInventoryFromLists(ctx context.Context, cluster *weka.Wek
 	// TLC/QLC capacity re-enters the fresh-candidate pool — but while its pod lives, cores/hugepages/memory
 	// stay charged via chargeForeignPods. Flagged so the planner deprioritizes fresh placement.
 	deletingDriveNodes := NodesWithDeletingDriveContainer(ownContainers)
+	// Nodes hosting THIS cluster's compute container being deleted: its pod still holds hugepages/CPU/memory
+	// (charged via chargeForeignPods), so a drive container on the same node can fail a fit it would pass
+	// once the deletion lands. Flagged so the auto-full-drives walk defers rather than fails the plan.
+	deletingComputeNodes := NodesWithDeletingComputeContainer(ownContainers)
 
 	// Drive candidates: nodes with usable shared-drive capacity, carrying TLC/QLC headroom and an FD key.
 	fdByNode := map[string]string{}
@@ -241,17 +245,18 @@ func (c Collector) nodeInventoryFromLists(ctx context.Context, cluster *weka.Wek
 		cpu, hugepagesMiB, memoryMiB := nodeHeadroom(node, consumed)
 		topo := topos[node.Name]
 		driveInv = append(driveInv, capacityplanner.NodeCapacity{
-			NodeName:                  node.Name,
-			FDValue:                   fdValue,
-			TlcGiB:                    tlcGiB,
-			QlcGiB:                    qlcGiB,
-			AllocatableCPU:            cpu,
-			AvailableHugepagesMiB:     hugepagesMiB,
-			AvailableMemoryMiB:        memoryMiB,
-			IsHt:                      topo.IsHt,
-			FullPcpusOnly:             topo.FullPcpusOnly,
-			HasDeletingDriveContainer: deletingDriveNodes[node.Name],
-			IneligibleReason:          resources.NodeIneligibleReason(node, tolerations),
+			NodeName:                    node.Name,
+			FDValue:                     fdValue,
+			TlcGiB:                      tlcGiB,
+			QlcGiB:                      qlcGiB,
+			AllocatableCPU:              cpu,
+			AvailableHugepagesMiB:       hugepagesMiB,
+			AvailableMemoryMiB:          memoryMiB,
+			IsHt:                        topo.IsHt,
+			FullPcpusOnly:               topo.FullPcpusOnly,
+			HasDeletingDriveContainer:   deletingDriveNodes[node.Name],
+			HasDeletingComputeContainer: deletingComputeNodes[node.Name],
+			IneligibleReason:            resources.NodeIneligibleReason(node, tolerations),
 		})
 	}
 
@@ -303,6 +308,7 @@ func (c Collector) FullDrivesInventory(ctx context.Context, cluster *weka.WekaCl
 	tolerations := resources.GetWekaPodTolerationsForCluster(cluster)
 
 	deletingDriveNodes := NodesWithDeletingDriveContainer(ownContainers)
+	deletingComputeNodes := NodesWithDeletingComputeContainer(ownContainers)
 
 	// ownDriveSerials is, per node, the serials allocated to THIS cluster's own drive container that still
 	// holds them, using the same IsDeletingDriveContainer predicate as ExistingDrives (see that function
@@ -368,19 +374,20 @@ func (c Collector) FullDrivesInventory(ctx context.Context, cluster *weka.WekaCl
 		cpu, hugepagesMiB, memoryMiB := nodeHeadroom(node, consumed)
 		topo := topos[node.Name]
 		driveInv = append(driveInv, capacityplanner.NodeCapacity{
-			NodeName:                  node.Name,
-			FDValue:                   fdValue,
-			TlcGiB:                    tlcGiB,
-			QlcGiB:                    0,
-			DriveCapacitiesGiB:        driveCapacitiesGiB,
-			OwnDriveCapacitiesGiB:     fullDriveCapacities(ownDrives),
-			AllocatableCPU:            cpu,
-			AvailableHugepagesMiB:     hugepagesMiB,
-			AvailableMemoryMiB:        memoryMiB,
-			IsHt:                      topo.IsHt,
-			FullPcpusOnly:             topo.FullPcpusOnly,
-			HasDeletingDriveContainer: deletingDriveNodes[node.Name],
-			IneligibleReason:          resources.NodeIneligibleReason(node, tolerations),
+			NodeName:                    node.Name,
+			FDValue:                     fdValue,
+			TlcGiB:                      tlcGiB,
+			QlcGiB:                      0,
+			DriveCapacitiesGiB:          driveCapacitiesGiB,
+			OwnDriveCapacitiesGiB:       fullDriveCapacities(ownDrives),
+			AllocatableCPU:              cpu,
+			AvailableHugepagesMiB:       hugepagesMiB,
+			AvailableMemoryMiB:          memoryMiB,
+			IsHt:                        topo.IsHt,
+			FullPcpusOnly:               topo.FullPcpusOnly,
+			HasDeletingDriveContainer:   deletingDriveNodes[node.Name],
+			HasDeletingComputeContainer: deletingComputeNodes[node.Name],
+			IneligibleReason:            resources.NodeIneligibleReason(node, tolerations),
 		})
 	}
 
@@ -524,6 +531,28 @@ func NodesWithDeletingDriveContainer(ownContainers []*weka.WekaContainer) map[st
 	out := map[string]bool{}
 	for _, cont := range ownContainers {
 		if !IsDeletingDriveContainer(cont) {
+			continue
+		}
+		if n := string(cont.GetNodeAffinity()); n != "" {
+			out[n] = true
+		}
+	}
+	return out
+}
+
+// IsDeletingComputeContainer reports whether c is a compute container on its way out. Such a container's
+// pod still physically holds its hugepages/CPU/memory until the pod is actually gone, so a node hosting one
+// can fail a drive-growth fit that would pass once the deletion lands.
+func IsDeletingComputeContainer(c *weka.WekaContainer) bool {
+	return c.Spec.Mode == weka.WekaContainerModeCompute && c.IsMarkedForDeletion()
+}
+
+// NodesWithDeletingComputeContainer is the set of nodes hosting one — the source of each node's
+// NodeCapacity.HasDeletingComputeContainer. A container with no node resolves to nowhere and is skipped.
+func NodesWithDeletingComputeContainer(ownContainers []*weka.WekaContainer) map[string]bool {
+	out := map[string]bool{}
+	for _, cont := range ownContainers {
+		if !IsDeletingComputeContainer(cont) {
 			continue
 		}
 		if n := string(cont.GetNodeAffinity()); n != "" {

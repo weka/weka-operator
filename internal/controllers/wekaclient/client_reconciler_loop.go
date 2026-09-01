@@ -82,6 +82,10 @@ type clientReconcilerLoop struct {
 func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) lifecycle.StepsEngine {
 	loop := NewClientReconcileLoop(r)
 	loop.wekaClient = wekaClient
+	// Partitioned once here so the engine's Throttler and loop.RecordEventThrottled's ShouldRun/SetNow calls
+	// share one partition; NewClientReconcileLoop cannot do this itself since it runs before wekaClient (and
+	// so its UID) is known.
+	loop.ThrottlingMap = r.ThrottlingMap.WithPartition("client/" + string(loop.wekaClient.GetUID()))
 
 	k8sObject := &lifecycle.K8sObject{
 		Client:     loop.Client,
@@ -91,7 +95,7 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 
 	return lifecycle.StepsEngine{
 		StateKeeper: k8sObject,
-		Throttler:   r.ThrottlingMap.WithPartition(string("client/" + loop.wekaClient.GetUID())),
+		Throttler:   loop.ThrottlingMap,
 		Steps: []lifecycle.Step{
 			&lifecycle.SimpleStep{Run: loop.getCurrentContainers},
 			&lifecycle.SimpleStep{Run: loop.setApplicableNodes},

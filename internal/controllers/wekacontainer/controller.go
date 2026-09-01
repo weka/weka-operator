@@ -50,7 +50,7 @@ type ContainerController struct {
 	ExecService   exec.ExecService
 	Manager       ctrl.Manager
 	RestClient    rest.Interface
-	ThrottlingMap throttling.Throttler // TODO: Implement GC, so it will be cleaned up(maybe stored in different place as well) when containers are no more. Low priority as we dont expect lots of rotation
+	ThrottlingMap throttling.Throttler
 }
 
 // +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete

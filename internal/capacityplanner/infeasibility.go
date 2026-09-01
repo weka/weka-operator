@@ -50,6 +50,10 @@ type InfeasibilityReport struct {
 // "(+N more)" tail; RejectedNodes always carries every offender.
 const autoFullDrivesMaxNamedNodes = 10
 
+// fixesAutoFullDrivesMaxNamedNodes caps the node names spelled out in the fix catalog's remediation tips —
+// shorter than autoFullDrivesMaxNamedNodes because a fix tip is read, not just skimmed.
+const fixesAutoFullDrivesMaxNamedNodes = 5
+
 // autoNodeFitInfeasible turns the auto-full-drives walk's collected fit failures into the plan-wide
 // infeasibility. There is no partial-fit outcome in that mode — drives are never dropped to make a container
 // fit — so one node short of resources blocks the whole cluster, and the fixes say how to exclude it if that
@@ -58,11 +62,18 @@ func autoNodeFitInfeasible(failures []autoFitFailure) *InfeasibilityReport {
 	names := make([]string, 0, len(failures))
 	details := make([]string, 0, len(failures))
 	rejected := make([]NodeRejection, 0, len(failures))
+	growthNodes := make([]string, 0, len(failures))
 	bindings := map[string]int{}
 	for i := range failures {
 		f := &failures[i]
 		names = append(names, f.node)
 		bindings[f.fit.binding]++
+		// Growth alone does not make the hazard: the remedy is "delete the compute container on this node", so
+		// the node must actually host one of ours. Without this the clause fires on any growth failure, naming a
+		// container that does not exist.
+		if f.kind == fitKindGrowth && f.ownCompute {
+			growthNodes = append(growthNodes, f.node)
+		}
 		if len(details) < autoFullDrivesMaxNamedNodes {
 			details = append(details, fmt.Sprintf(
 				"%s (%s: %d drive(s) at %d core(s) needs %d %s, %d free)",
@@ -90,16 +101,31 @@ func autoNodeFitInfeasible(failures []autoFitFailure) *InfeasibilityReport {
 		}
 	}
 
+	reason := fmt.Sprintf(
+		"auto full drives: %d node(s) cannot host a drive container sized for their own signed full drives — "+
+			"drives are never dropped to make a container fit, so the whole plan is infeasible and nothing is "+
+			"created: %s",
+		len(failures), list)
+	if len(growthNodes) > 0 {
+		// A growth failure (as opposed to create) means the container already exists and must grow into headroom
+		// that is no longer free. Compute reservations only ever rise, so a compute container this cluster placed
+		// while the drive container was smaller can be holding exactly that room — "may be", not a claim, since
+		// the planner cannot see what actually consumes it. Kept to one sentence: this lands in a Kubernetes
+		// event, and the full remedy catalog travels in Fixes for the CLI to render.
+		growthList := listNodesCapped(growthNodes, autoFullDrivesMaxNamedNodes)
+		reason += fmt.Sprintf(
+			" — this growth may be blocked by this cluster's own compute container on %s, whose reservation only "+
+				"ever rises; deleting it lets the next reconcile grow the drive container first. If weka refuses "+
+				"that deactivation because active compute would drop too low, add compute capacity elsewhere "+
+				"first.", growthList)
+	}
+
 	return &InfeasibilityReport{
-		Reason: fmt.Sprintf(
-			"auto full drives: %d node(s) cannot host a drive container sized for their own signed full drives — "+
-				"drives are never dropped to make a container fit, so the whole plan is infeasible and nothing is "+
-				"created: %s",
-			len(failures), list),
+		Reason:        reason,
 		Pool:          "drive",
 		Binding:       binding,
 		RejectedNodes: rejected,
-		Fixes:         fixesAutoFullDrivesNodeFit(names),
+		Fixes:         fixesAutoFullDrivesNodeFit(names, growthNodes),
 	}
 }
 
@@ -254,25 +280,36 @@ func fixesDriveCoresAboveDriveCount(numDrives int) []string {
 
 // fixesAutoFullDrivesNodeFit: one or more nodes cannot host a drive container sized for their own signed
 // full drives, which in auto-full-drives mode fails the whole plan (drives are never dropped to fit).
-// The first tip leads: lowering driveCores keeps every drive and only reduces the cores they run on, so
-// it costs no capacity at all.
-func fixesAutoFullDrivesNodeFit(nodes []string) []string {
-	named := nodes
-	suffix := ""
-	if len(named) > 5 {
-		named, suffix = named[:5], fmt.Sprintf(" (+%d more)", len(nodes)-5)
+// growthNodes names the subset (possibly all, possibly none) whose failure is a growth rather than a create:
+// when non-empty, a lead tip names the cross-reconcile hazard — a compute container this cluster placed while
+// the drive container was still small can be holding the room it now needs — since deleting that container is
+// the direct fix and cheaper to try than the general remedies that follow. With no growth nodes, the catalog
+// is exactly today's: pinning driveCores lower leads, since it keeps every drive and costs no capacity at all.
+func fixesAutoFullDrivesNodeFit(nodes, growthNodes []string) []string {
+	list := listNodesCapped(nodes, fixesAutoFullDrivesMaxNamedNodes)
+
+	fixes := make([]string, 0, 5)
+	if len(growthNodes) > 0 {
+		glist := listNodesCapped(growthNodes, fixesAutoFullDrivesMaxNamedNodes)
+		fixes = append(fixes, fmt.Sprintf(
+			"delete this cluster's compute container on %s and let the operator re-place it — compute cores "+
+				"and hugepages only ever rise, so a container placed while the drive container was smaller keeps "+
+				"the room the growth now needs; the next reconcile grows the drive container first and sizes the "+
+				"replacement against what is left. Do one node at a time. If weka refuses the deactivation "+
+				"because active compute would drop too low, add capacity elsewhere first — a new container on a "+
+				"spare compute-eligible node, or grow an existing one and recreate its pod so the extra cores "+
+				"actually become active — then retry.", glist))
 	}
-	list := strings.Join(named, ", ") + suffix
-	return []string{
-		"pin dynamicTemplate.driveCores lower — drives are decoupled from cores, so a lower pin keeps every " +
+	return append(fixes,
+		"pin dynamicTemplate.driveCores lower — drives are decoupled from cores, so a lower pin keeps every "+
 			"drive on every node and simply runs them on fewer cores",
 		fmt.Sprintf("or free physical CPU / hugepages / memory on %s (evict other pods, raise the node's "+
 			"hugepages reservation)", list),
 		fmt.Sprintf("or take those nodes out of the drive role — narrow spec.roleNodeSelector.drive so it no "+
 			"longer matches %s, or unsign their drives — so the plan is not required to place a container there", list),
-		"or switch to a drive-sharing mode (containerCapacity or clusterCapacity), which sizes containers from " +
+		"or switch to a drive-sharing mode (containerCapacity or clusterCapacity), which sizes containers from "+
 			"a capacity target instead of each node's full drive set",
-	}
+	)
 }
 
 // fixesAutoFullDrivesCompute: compute cannot be sized/placed in auto-full-drives mode. Every drive is

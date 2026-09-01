@@ -190,7 +190,7 @@ func (r *wekaClusterReconcilerLoop) planAutoFullDrives(ctx context.Context) (*ca
 		// nor own — so a fleet whose every drive is held by one reads exactly like an unsigned fleet here.
 		// Distinguish the two, or the operator is told to sign drives that are already signed.
 		if name, deleting := firstDeletingDriveContainer(r.containers); deleting {
-			r.emitPlannerEvent(reasonAutoFullDrivesPlacementDeferred,
+			r.emitPlannerEventWithCause(reasonAutoFullDrivesPlacementDeferred, causeAutoFullDrivesAllDrivesHeldByDeletion,
 				fmt.Sprintf("deferring auto full drives planning: every signed full drive is still held by a drive container being deleted (%s); the drives are signed, just not released yet, and planning resumes on its own once they are", name))
 			logger.Debug("deferring auto full drives planning while a drive container is being deleted", "container", name)
 			return nil, lifecycle.NewWaitErrorWithDuration(
@@ -240,7 +240,7 @@ func (r *wekaClusterReconcilerLoop) planAutoFullDrives(ctx context.Context) (*ca
 	// One reason per cause: each Warning here is already an aggregate naming every node it affects, so one
 	// event per warning is one event per condition, not per node.
 	for _, w := range plan.Warnings {
-		r.emitPlannerEvent(autoFullDrivesWarningReason(w.Kind), w.Message)
+		r.emitPlannerEventWithCause(autoFullDrivesWarningReason(w.Kind), string(w.Cause), w.Message)
 	}
 	// Gated on Create only: plan.Grow is applied separately by applyPlannerDriveGrowth, whose caller emits
 	// own cluster-level AutoFullDrivesGrowthDetected and per-container CapacityGrowthApplied events.
