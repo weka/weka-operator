@@ -16,6 +16,12 @@ type roleSpec struct {
 	cores      int
 	hugepages  int // MiB per container
 	containers int
+
+	// countDerived marks a role whose container count the operator supplies when the spec leaves it
+	// unset: Drive and Compute get a floor from allocator.GetWekaContainerNumbers, and a cluster acting
+	// as a daemonset leaves both unset by definition. For the frontend roles an unset count is literal —
+	// the role deploys nothing — so a per-container check on them has nothing to check.
+	countDerived bool
 }
 
 // rolesForTemplate pairs every container role with the template's values for it, so the six-role
@@ -27,16 +33,16 @@ func rolesForTemplate(d *weka.WekaClusterTemplate) []roleSpec {
 	}
 	return []roleSpec{
 		{weka.WekaContainerModeDrive, "driveCores", "driveHugepages", "driveContainers",
-			d.DriveCores, d.DriveHugepages, d.DriveContainers},
+			d.DriveCores, d.DriveHugepages, d.DriveContainers, true},
 		{weka.WekaContainerModeCompute, "computeCores", "computeHugepages", "computeContainers",
-			d.ComputeCores, d.ComputeHugepages, d.ComputeContainers},
+			d.ComputeCores, d.ComputeHugepages, d.ComputeContainers, true},
 		{weka.WekaContainerModeS3, "s3Cores", "s3FrontendHugepages", "s3Containers",
-			d.S3Cores, d.S3FrontendHugepages, d.S3Containers},
+			d.S3Cores, d.S3FrontendHugepages, d.S3Containers, false},
 		{weka.WekaContainerModeNfs, "nfsCores", "nfsFrontendHugepages", "nfsContainers",
-			d.NfsCores, d.NfsFrontendHugepages, d.NfsContainers},
+			d.NfsCores, d.NfsFrontendHugepages, d.NfsContainers, false},
 		{weka.WekaContainerModeSmbw, "smbwCores", "smbwFrontendHugepages", "smbwContainers",
-			d.SmbwCores, d.SmbwFrontendHugepages, d.SmbwContainers},
+			d.SmbwCores, d.SmbwFrontendHugepages, d.SmbwContainers, false},
 		{weka.WekaContainerModeDataServices, "dataServicesCores", "dataServicesHugepages", "dataServicesContainers",
-			d.DataServicesCores, d.DataServicesHugepages, d.DataServicesContainers},
+			d.DataServicesCores, d.DataServicesHugepages, d.DataServicesContainers, false},
 	}
 }

@@ -127,7 +127,7 @@ func TestGetCsiNodeDaemonSetHash_ChangesWithSelector(t *testing.T) {
 	}
 }
 
-// Pod NodeSelector and nodeAffinity are ANDed. Leaving NodeSelector populated would make the retain
+// Pod NodeSelector and nodeAffinity are AND-ed. Leaving NodeSelector populated would make the retain
 // term dead code and reproduce the deadlock exactly, so assert placement lives only in affinity.
 func TestNewCsiNodeDaemonSet_PlacementOnlyInAffinity(t *testing.T) {
 	config.Config.Csi.WekafsImage = "test-csi-image"

@@ -186,6 +186,16 @@ func (r *wekaClusterReconcilerLoop) planAutoFullDrives(ctx context.Context) (*ca
 		}
 	}
 	if !hasSignedDrives {
+		// A drive container on its way out still holds its drives, which the inventory reports as neither free
+		// nor own — so a fleet whose every drive is held by one reads exactly like an unsigned fleet here.
+		// Distinguish the two, or the operator is told to sign drives that are already signed.
+		if name, deleting := firstDeletingDriveContainer(r.containers); deleting {
+			r.emitPlannerEvent(reasonAutoFullDrivesPlacementDeferred,
+				fmt.Sprintf("deferring auto full drives planning: every signed full drive is still held by a drive container being deleted (%s); the drives are signed, just not released yet, and planning resumes on its own once they are", name))
+			logger.Debug("deferring auto full drives planning while a drive container is being deleted", "container", name)
+			return nil, lifecycle.NewWaitErrorWithDuration(
+				fmt.Errorf("auto full drives: every signed full drive is still held by deleting drive container %s", name), time.Minute)
+		}
 		r.emitPlannerEvent(reasonAutoFullDrivesNoSignedDrives,
 			"deferring auto full drives planning: no node matching the drive-role selector has any signed, non-blocked full drive yet; sign drives (weka.io/weka-full-drives) and the operator will pick them up on its own")
 		logger.Debug("deferring auto full drives planning: no node has signed full drives yet", "candidateNodes", len(nodeInv))
@@ -435,6 +445,29 @@ func firstUnscheduledDriveContainer(containers []*weka.WekaContainer) (string, b
 	return "", false
 }
 
+// firstDeletingDriveContainer returns the name of the first of this cluster's drive containers that is on
+// its way out while still holding drives on a known node, or ok=false if none. Shares inventory's predicate,
+// so it cannot disagree with the inventory about which containers still hold their drives.
+//
+// The node and drive requirements are what make the caller's claim — that the fleet's drives are signed and
+// merely unreleased — true rather than merely plausible: a deleting container holding nothing, or pinned
+// nowhere, cannot be why the inventory reads as unsigned.
+func firstDeletingDriveContainer(containers []*weka.WekaContainer) (string, bool) {
+	for _, c := range containers {
+		if !inventory.IsDeletingDriveContainer(c) {
+			continue
+		}
+		if c.GetNodeAffinity() == "" {
+			continue
+		}
+		if c.Status.Allocations == nil || len(c.Status.Allocations.Drives) == 0 {
+			continue
+		}
+		return c.Name, true
+	}
+	return "", false
+}
+
 // noopCapacityPlan builds a no-op CapacityPlan carrying this cluster's current compute sizing (from its
 // existing healthy containers), mirroring steadyStatePlan's no-op so a deferral never disturbs compute downstream.
 func (r *wekaClusterReconcilerLoop) noopCapacityPlan(ctx context.Context, cons *capacityplanner.CapacityConstraints) *capacityplanner.CapacityPlan {
@@ -465,8 +498,8 @@ func summarizeDriveContainers(ctx context.Context, containers []*weka.WekaContai
 			continue
 		}
 		// Mirrors inventory.ExistingDrives, not utils.IsUnhealthy — the same rule expressed once so the
-		// two functions cannot drift apart. See DriveContainerHoldsDrives.
-		if !inventory.DriveContainerHoldsDrives(c) {
+		// two functions cannot drift apart. See inventory.IsDeletingDriveContainer.
+		if inventory.IsDeletingDriveContainer(c) {
 			continue
 		}
 		tlcGiB, qlcGiB := inventory.DriveContainerCapacities(c)

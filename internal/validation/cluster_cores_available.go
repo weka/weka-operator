@@ -14,7 +14,20 @@ import (
 // clusterCoresAvailable checks per-role, against matched nodes' Allocatable[cpu] (the kubelet view,
 // which doesn't reflect Weka's isolcpus pinning): total requested cores must fit total allocatable
 // (no bin-packing across roles attempted), and the smallest node must fit at least one container.
+//
+// Both are advisories, which is why this policy is Warn in every mode. The single-fit one compares
+// against the weakest matched node, but the planners choose nodes by fit — topNMin sizes a layout
+// against the best n nodes, and autoPlaceNewCompute/orderFitNodesByFreshFD drop non-fitting
+// candidates outright — so a fleet with one undersized node can still plan cleanly. The node set is a
+// plain label selector too, with no drive-signing or eligibility filtering, so it can include nodes
+// the planner would never place on. Hence the message says a node cannot host one, never that none can.
 // Skipped when *Cores is 0 (operator-derived) or no nodes match (clusterSelectedNodesCount covers that).
+//
+// Only the aggregate check needs a container count. The single-fit one compares one container against
+// the weakest matched node, which is answerable from the pin alone — and must be for the countDerived
+// roles, since a cluster acting as a daemonset leaves driveContainers/computeContainers unset by
+// definition. An unset count on a frontend role instead means the role deploys nothing, so neither
+// check applies and the role is skipped whole.
 type clusterCoresAvailable struct{}
 
 func (clusterCoresAvailable) ID() string {
@@ -31,7 +44,10 @@ func (clusterCoresAvailable) Validate(ctx context.Context, c client.Client, obj 
 	}
 	var errs field.ErrorList
 	for _, ch := range rolesForTemplate(cluster.Spec.Dynamic) {
-		if ch.cores <= 0 || ch.containers <= 0 {
+		if ch.cores <= 0 {
+			continue
+		}
+		if ch.containers <= 0 && !ch.countDerived {
 			continue
 		}
 		selector := cluster.GetNodeSelectorForRole(ch.role)
@@ -59,14 +75,14 @@ func (clusterCoresAvailable) Validate(ctx context.Context, c client.Client, obj 
 		}
 
 		perContainerMilli := int64(ch.cores) * 1000
-		totalRequestedMilli := perContainerMilli * int64(ch.containers)
 
 		if perContainerMilli > minNodeAllocMilli {
 			detail := fmt.Sprintf(
 				"spec.dynamicTemplate.%s (%d cores) exceeds the smallest matched node's "+
-					"allocatable CPU (%dm) for role %q. No matched node can host "+
-					"even one %s container; pods will stay Pending. Reduce %s or "+
-					"use larger nodes.",
+					"allocatable CPU (%dm) for role %q. At least one matched node cannot "+
+					"host even one %s container: the planners that pick nodes by fit skip "+
+					"it, and everywhere else the plan is reported infeasible or the pod "+
+					"stays Pending. Reduce %s or use larger nodes.",
 				ch.coresField, ch.cores, minNodeAllocMilli, ch.role, ch.role, ch.coresField,
 			)
 			errs = append(errs, field.Invalid(
@@ -75,7 +91,11 @@ func (clusterCoresAvailable) Validate(ctx context.Context, c client.Client, obj 
 			))
 		}
 
-		if totalRequestedMilli > totalAllocMilli {
+		// An unset count is the operator's to derive, so there is no fleet total to check against.
+		if ch.containers <= 0 {
+			continue
+		}
+		if totalRequestedMilli := perContainerMilli * int64(ch.containers); totalRequestedMilli > totalAllocMilli {
 			detail := fmt.Sprintf(
 				"spec.dynamicTemplate.%s × %s (%d × %d = %d cores) exceeds "+
 					"total allocatable CPU across %d matched node(s) (%dm) for "+

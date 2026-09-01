@@ -715,6 +715,90 @@ func TestPlanAutoFullDrivesDefersWithoutSignedDrives(t *testing.T) {
 	}
 }
 
+// A fleet whose every signed drive is still held by a drive container being deleted reports no free and no
+// own drives, exactly like a fleet that was never signed — but the remedy is opposite (wait, not sign), so
+// the two must not share an event.
+func TestPlanAutoFullDrivesDefersOnDeletingContainerNotUnsigned(t *testing.T) {
+	prevTlc := globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB
+	globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = 10 * tib
+	t.Cleanup(func() { globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = prevTlc })
+
+	// The node's drives are all allocated to this container, so the inventory reports neither free nor own.
+	// The allocations are load-bearing: a deleting container holding nothing is not why a fleet reads unsigned.
+	now := metav1.Now()
+	deleting := &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{Name: "drive-going-away", DeletionTimestamp: &now, Finalizers: []string{"x"}},
+		Spec:       weka.WekaContainerSpec{Mode: weka.WekaContainerModeDrive, NodeAffinity: "drive-role-node"},
+		Status:     weka.WekaContainerStatus{Allocations: &weka.ContainerAllocations{Drives: []string{"serial-a"}}},
+	}
+	driveRoleNoDrives := autoFullDrivesNode("drive-role-node", "fd-a", nil)
+
+	rec := record.NewFakeRecorder(8)
+	r, _ := newAutoFullDrivesLoop([]*weka.WekaContainer{deleting}, func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
+		return map[string]string{}, []capacityplanner.NodeCapacity{driveRoleNoDrives}, map[string]bool{}, nil
+	})
+	r.Recorder = rec
+
+	plan, err := r.planAutoFullDrives(t.Context())
+	if err == nil {
+		t.Fatalf("want planAutoFullDrives to defer, got plan %+v", plan)
+	}
+	if !strings.Contains(err.Error(), "deleting drive container") {
+		t.Errorf("want the deleting-container error, got: %v", err)
+	}
+	// Drained rather than peeked: the guarantee is that nothing ALSO tells the operator to sign drives that
+	// are already signed, which a single-event read cannot see (one FakeRecorder message carries one reason).
+	close(rec.Events)
+	var reasons []string
+	for ev := range rec.Events {
+		reasons = append(reasons, ev)
+		if strings.Contains(ev, "AutoFullDrivesNoSignedDrives") {
+			t.Errorf("must not tell the operator to sign drives that are already signed: %q", ev)
+		}
+	}
+	if len(reasons) != 1 || !strings.Contains(reasons[0], "AutoFullDrivesPlacementDeferred") {
+		t.Errorf("want exactly one AutoFullDrivesPlacementDeferred event, got %q", reasons)
+	}
+}
+
+// The deferral above claims the fleet's drives ARE signed, merely unreleased. A deleting container that holds
+// no drives cannot be why the inventory reads unsigned, so it must not claim that — the fleet really is
+// unsigned and the operator needs to be told to sign drives.
+func TestPlanAutoFullDrivesDeletingContainerWithoutDrivesReportsUnsigned(t *testing.T) {
+	prevTlc := globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB
+	globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = 10 * tib
+	t.Cleanup(func() { globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = prevTlc })
+
+	now := metav1.Now()
+	deleting := &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{Name: "drive-going-away", DeletionTimestamp: &now, Finalizers: []string{"x"}},
+		Spec:       weka.WekaContainerSpec{Mode: weka.WekaContainerModeDrive, NodeAffinity: "drive-role-node"},
+	}
+	driveRoleNoDrives := autoFullDrivesNode("drive-role-node", "fd-a", nil)
+
+	rec := record.NewFakeRecorder(8)
+	r, _ := newAutoFullDrivesLoop([]*weka.WekaContainer{deleting}, func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
+		return map[string]string{}, []capacityplanner.NodeCapacity{driveRoleNoDrives}, map[string]bool{}, nil
+	})
+	r.Recorder = rec
+
+	plan, err := r.planAutoFullDrives(t.Context())
+	if err == nil {
+		t.Fatalf("want planAutoFullDrives to defer, got plan %+v", plan)
+	}
+	if !strings.Contains(err.Error(), "no node has signed full drives") {
+		t.Errorf("want the no-signed-drives error, got: %v", err)
+	}
+	close(rec.Events)
+	var reasons []string
+	for ev := range rec.Events {
+		reasons = append(reasons, ev)
+	}
+	if len(reasons) != 1 || !strings.Contains(reasons[0], "AutoFullDrivesNoSignedDrives") {
+		t.Errorf("want exactly one AutoFullDrivesNoSignedDrives event, got %q", reasons)
+	}
+}
+
 // fakeManagerNilClient is the minimal ctrl.Manager fake buildAutoFullDrivesDriveContainers needs: its GetClient()
 // result is only dereferenced by GetContainerHugepages for role=="compute", never "drive", so nil is safe here.
 type fakeManagerNilClient struct {
