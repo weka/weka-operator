@@ -7,9 +7,11 @@ module github.com/weka/weka-operator
 //   - .dagger/src/containers/builders.py (_go_builder_container version=)
 //   - .tool-versions (golang <version>)
 // GitHub Actions needs no change: every setup-go step reads go-version-file: go.mod.
+// The nested modules under pkg/ do the same, so they need no change here either; their own
+// go directive must stay <= this one, since a replace'd module is built by this toolchain.
 // To catch any pin not listed above:
 //   grep -rn 'golang:[0-9]\|golang [0-9]\|^go 1\.\|alpine"' --exclude-dir=.git .
-go 1.26.6
+go 1.27.0
 
 require (
 	github.com/ant0ine/go-json-rest v3.3.2+incompatible
@@ -121,7 +123,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
