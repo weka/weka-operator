@@ -31,6 +31,7 @@ func TestDeriveComputeLayout(t *testing.T) {
 		hugepagesFor         func(count, cores int) int
 		wantCount, wantCores int
 		wantInfeasibleSub    string // substring in infeasible ("" => feasible)
+		wantBinding          string // expected binding when wantInfeasibleSub != ""; "" => not checked
 		wantWarnSub          string // substring in a warning ("" => no warning)
 	}{
 		{
@@ -58,7 +59,7 @@ func TestDeriveComputeLayout(t *testing.T) {
 		{
 			name:     "both unset: need more containers than compute nodes -> infeasible",
 			totalTlc: 200, floor: 5, maxPerNode: cap, nodeHeadroom: rep(10, 16),
-			wantInfeasibleSub: "only 10 compute nodes",
+			wantInfeasibleSub: "only 10 compute nodes", wantBinding: bindingCores,
 		},
 		{
 			name:     "both unset: a node has zero compute headroom -> infeasible",
@@ -80,7 +81,7 @@ func TestDeriveComputeLayout(t *testing.T) {
 		{
 			name:      "cores set above headroom: fail fast (no clamp)",
 			specCores: 32, totalTlc: 160, floor: 5, maxPerNode: cap, nodeHeadroom: rep(14, 26),
-			wantInfeasibleSub: "exceeds the per-node compute core headroom (19)",
+			wantInfeasibleSub: "exceeds the per-node compute core headroom (19)", wantBinding: bindingCores,
 		},
 		{
 			name:      "cores set: real headroom below cap -> fail fast",
@@ -125,7 +126,7 @@ func TestDeriveComputeLayout(t *testing.T) {
 			totalTlc: 60, floor: 5, maxPerNode: cap, nodeHeadroom: rep(6, 16),
 			nodeHugepagesMiB:  rep(6, 100),
 			hugepagesFor:      func(count, cores int) int { return 3000 * cores },
-			wantInfeasibleSub: "hugepages insufficient for",
+			wantInfeasibleSub: "hugepages insufficient for", wantBinding: bindingHugepages,
 		},
 		{
 			// computeContainers=6 core-fits (cores=10 via ceil(60/6), cap 16) but needs 30000 MiB
@@ -135,7 +136,7 @@ func TestDeriveComputeLayout(t *testing.T) {
 			specCount: 6, totalTlc: 60, floor: 5, maxPerNode: cap, nodeHeadroom: rep(6, 16),
 			nodeHugepagesMiB:  rep(6, 100),
 			hugepagesFor:      func(count, cores int) int { return 3000 * cores },
-			wantInfeasibleSub: "needs 30000 MiB hugepages per container",
+			wantInfeasibleSub: "needs 30000 MiB hugepages per container", wantBinding: bindingHugepages,
 		},
 		{
 			// Same defect, pinned via specCores=10 instead — covers the other explicit branch
@@ -144,13 +145,13 @@ func TestDeriveComputeLayout(t *testing.T) {
 			specCores: 10, totalTlc: 60, floor: 5, maxPerNode: cap, nodeHeadroom: rep(6, 16),
 			nodeHugepagesMiB:  rep(6, 100),
 			hugepagesFor:      func(count, cores int) int { return 3000 * cores },
-			wantInfeasibleSub: "needs 30000 MiB hugepages per container",
+			wantInfeasibleSub: "needs 30000 MiB hugepages per container", wantBinding: bindingHugepages,
 		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			count, cores, infeasible, warnings := deriveComputeLayout(
+			count, cores, infeasible, binding, warnings := deriveComputeLayout(
 				c.specCount, c.specCores, c.totalTlc, c.floor, c.maxPerNode, c.nodeHeadroom,
 				c.nodeHugepagesMiB, c.hugepagesFor)
 
@@ -158,6 +159,9 @@ func TestDeriveComputeLayout(t *testing.T) {
 			if c.wantInfeasibleSub != "" {
 				if !strings.Contains(infeasible, c.wantInfeasibleSub) {
 					t.Fatalf("expected infeasible containing %q, got infeasible=%q (count=%d cores=%d)", c.wantInfeasibleSub, infeasible, count, cores)
+				}
+				if c.wantBinding != "" && binding != c.wantBinding {
+					t.Errorf("binding = %q, want %q", binding, c.wantBinding)
 				}
 				return
 			}
@@ -193,14 +197,14 @@ func TestDeriveComputeLayout_AgreesWithAutoFullDrivesHugepagesValidator(t *testi
 
 	// 5 compute-eligible nodes: ceil(96/5)=20 exceeds the cap of 19 at the only count the sweep can try
 	// (floor==nodeCount==5), so no count fits and the plan is infeasible.
-	_, _, infeasible, _ := deriveComputeLayout(0, 0, requiredComputeCores, floor, maxCoresPerContainer, rep(5, bigHeadroom), nil, nil)
+	_, _, infeasible, _, _ := deriveComputeLayout(0, 0, requiredComputeCores, floor, maxCoresPerContainer, rep(5, bigHeadroom), nil, nil)
 	if infeasible == "" {
 		t.Fatalf("expected infeasible with 5 nodes (cap binds at every reachable count), got feasible")
 	}
 
 	// A sixth node lowers the requirement to ceil(96/6)=16, under the cap, so n=6 fits exactly as the
 	// validator's control case expects.
-	count, cores, infeasible, _ := deriveComputeLayout(0, 0, requiredComputeCores, floor, maxCoresPerContainer, rep(6, bigHeadroom), nil, nil)
+	count, cores, infeasible, _, _ := deriveComputeLayout(0, 0, requiredComputeCores, floor, maxCoresPerContainer, rep(6, bigHeadroom), nil, nil)
 	if infeasible != "" {
 		t.Fatalf("expected feasible with 6 nodes, got infeasible: %q", infeasible)
 	}
@@ -212,14 +216,14 @@ func TestDeriveComputeLayout_AgreesWithAutoFullDrivesHugepagesValidator(t *testi
 	// max(floor, ceil(required/cores)) — mirrored by validateAutoFullDrivesPinnedComputeCores's own formula.
 	// 18 pinned cores need ceil(96/18)=6 containers; 5 compute-eligible nodes cannot host 6 one-per-node.
 	const pinnedCores = 18
-	_, _, infeasible, _ = deriveComputeLayout(0, pinnedCores, requiredComputeCores, floor, maxCoresPerContainer, rep(5, bigHeadroom), nil, nil)
+	_, _, infeasible, _, _ = deriveComputeLayout(0, pinnedCores, requiredComputeCores, floor, maxCoresPerContainer, rep(5, bigHeadroom), nil, nil)
 	if infeasible == "" {
 		t.Fatalf("expected infeasible with computeCores=%d pinned and only 5 compute nodes (needs 6), got feasible", pinnedCores)
 	}
 
 	// A sixth node supplies the 6th container the pin needs, so it fits at exactly the pinned cores —
 	// deriveComputeLayout must never re-derive cores away from the pin.
-	count, cores, infeasible, _ = deriveComputeLayout(0, pinnedCores, requiredComputeCores, floor, maxCoresPerContainer, rep(6, bigHeadroom), nil, nil)
+	count, cores, infeasible, _, _ = deriveComputeLayout(0, pinnedCores, requiredComputeCores, floor, maxCoresPerContainer, rep(6, bigHeadroom), nil, nil)
 	if infeasible != "" {
 		t.Fatalf("expected feasible with computeCores=%d pinned and 6 compute nodes, got infeasible: %q", pinnedCores, infeasible)
 	}
@@ -548,7 +552,7 @@ func Test_ComputeLayoutWouldGrow_HugepagesCannotFlipSkipGate(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			count0, _, infeasible0, _ := deriveComputeLayout(
+			count0, _, infeasible0, _, _ := deriveComputeLayout(
 				0, 0, c.totalTlc, c.floor, c.maxPerNode, c.nodeHeadroom, nil, nil)
 			if infeasible0 != "" {
 				t.Fatalf("blind (hugepages-unaware) derivation unexpectedly infeasible: %s", infeasible0)
@@ -559,7 +563,7 @@ func Test_ComputeLayoutWouldGrow_HugepagesCannotFlipSkipGate(t *testing.T) {
 			nodeHugepagesMiB := rep(len(c.nodeHeadroom), 1)
 			hugepagesFor := func(count, cores int) int { return 1_000_000 * cores }
 
-			count1, _, infeasible1, _ := deriveComputeLayout(
+			count1, _, infeasible1, _, _ := deriveComputeLayout(
 				0, 0, c.totalTlc, c.floor, c.maxPerNode, c.nodeHeadroom, nodeHugepagesMiB, hugepagesFor)
 
 			if infeasible1 == "" && count1 < count0 {

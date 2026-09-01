@@ -23,6 +23,11 @@ type NodeCapacity struct {
 	// HasDeletingDriveContainer: node still runs a this-cluster drive container pending deletion —
 	// excluded from existingDrives but still charged; deprioritizes but doesn't exclude fresh placement.
 	HasDeletingDriveContainer bool
+	// HasDeletingComputeContainer: node runs a this-cluster compute container pending deletion. Its pod still
+	// holds hugepages, so a drive growth on this node can fail a fit it would pass once the deletion lands —
+	// deferred rather than infeasible, since weka may need more active compute elsewhere before it will
+	// deactivate that container.
+	HasDeletingComputeContainer bool
 	// DriveCapacitiesGiB: per-drive GiB of each FREE full drive, net of own auto-full-drives allocation
 	// (OwnDriveCapacitiesGiB). Populated only by inventory.FullDrivesInventory; nil for shared-drives nodes.
 	DriveCapacitiesGiB []int

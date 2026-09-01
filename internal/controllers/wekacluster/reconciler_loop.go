@@ -172,8 +172,17 @@ func (r *wekaClusterReconcilerLoop) RecordEvent(eventtype, reason, message strin
 	return nil
 }
 
+// RecordEventThrottled throttles on eventtype+reason alone, for callers with no cause to distinguish.
 func (r *wekaClusterReconcilerLoop) RecordEventThrottled(eventtype, reason, message string, interval time.Duration) error {
-	if !r.Throttler.ShouldRun(eventtype+reason, &throttling.ThrottlingSettings{
+	return r.RecordEventThrottledKeyed(eventtype, reason, "", message, interval)
+}
+
+// RecordEventThrottledKeyed throttles on eventtype+reason+cause, so two events sharing a reason but
+// describing different causes get independent windows: one cannot silently suppress the other. cause may be
+// empty, which reproduces the plain eventtype+reason key.
+func (r *wekaClusterReconcilerLoop) RecordEventThrottledKeyed(eventtype, reason, cause, message string, interval time.Duration) error {
+	key := eventtype + "|" + reason + "|" + cause
+	if !r.Throttler.ShouldRun(key, &throttling.ThrottlingSettings{
 		Interval:                    interval,
 		DisableRandomPreSetInterval: true,
 	}) {

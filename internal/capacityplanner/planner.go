@@ -174,10 +174,30 @@ const (
 	WarningKindNodeIneligible WarningKind = "NodeIneligible"
 )
 
+// WarningCause further subdivides a WarningKind so the controller's per-reason event throttle can key on
+// more than the reason alone: two Warnings of the same Kind but different Cause get independent throttle
+// windows, so one cannot silently suppress the other. Empty is legal — a Kind with exactly one cause today
+// (DrivesStranded, ComputeLayout) carries "", which reproduces the old reason-only key for it.
+type WarningCause string
+
+const (
+	// NodeIneligible has no constants here: it aggregates every ineligible node into one Warning, and its
+	// Cause is the sorted, "+"-joined set of the distinct resources.NodeIneligibleReason values actually
+	// present, used verbatim. A reason added there therefore becomes its own cause with no change here, and
+	// a node going NotReady is never masked by one already cordoned.
+	//
+	// CausePlacementUnscheduled / CausePlacementDriveDeleting / CausePlacementComputeDeleting are the three
+	// PlacementDeferred causes, each rendered as its own Warning instead of merged into one.
+	CausePlacementUnscheduled     WarningCause = "unscheduled-pod"
+	CausePlacementDriveDeleting   WarningCause = "drive-container-deleting"
+	CausePlacementComputeDeleting WarningCause = "compute-container-deleting"
+)
+
 // Warning is one classified planner advisory. Every auto-full-drives warning is fleet-wide: a condition
 // that can hit several nodes in one pass is reported once, naming every affected node in Message.
 type Warning struct {
 	Kind    WarningKind
+	Cause   WarningCause
 	Message string
 }
 
@@ -196,7 +216,13 @@ func WarningMessages(warnings []Warning) []string {
 
 // fleetWarning builds a classified warning (throttled per reason, not per node).
 func fleetWarning(kind WarningKind, format string, args ...any) Warning {
-	return Warning{Kind: kind, Message: fmt.Sprintf(format, args...)}
+	return fleetWarningWithCause(kind, "", format, args...)
+}
+
+// fleetWarningWithCause is fleetWarning plus a Cause, for a Kind whose Warnings need their own throttle key
+// per cause rather than sharing the one key the bare Kind/reason gives them.
+func fleetWarningWithCause(kind WarningKind, cause WarningCause, format string, args ...any) Warning {
+	return Warning{Kind: kind, Cause: cause, Message: fmt.Sprintf(format, args...)}
 }
 
 // CapacityPlan is the planner output.
@@ -716,16 +742,17 @@ func planCompute(
 	hugepagesFor := func(count, cores int) int {
 		return ComputeContainerHugepagesMiB(desired.TlcRawGiB, desired.QlcRawGiB, count, cores, cons)
 	}
-	count, cores, infeasible, warnings := deriveComputeLayout(
+	count, cores, infeasible, binding, warnings := deriveComputeLayout(
 		desired.ComputeContainers, desired.ComputeCores, plan.RequiredComputeCores,
 		floor, cons.MaxCoresPerContainer, coreHeadroom, nodeHugepagesMiB, hugepagesFor,
 	)
-	// Classified at the call site: deriveComputeLayout returns bare strings and is shared with PlanAutoFullDrives.
 	for _, w := range warnings {
 		plan.Warnings = append(plan.Warnings, Warning{Kind: WarningKindComputeLayout, Message: w})
 	}
 	if infeasible != "" {
-		setInfeasible(plan, &InfeasibilityReport{Reason: "compute: " + infeasible, Pool: "compute", Fixes: fixesCompute()})
+		// ShortfallGiB stays 0: the deficit here is in cores or MiB-hugepages, never GiB, and converting
+		// either into GiB would invent a number this report never measured.
+		setInfeasible(plan, &InfeasibilityReport{Reason: "compute: " + infeasible, Pool: "compute", Binding: binding, Fixes: fixesCompute()})
 		return
 	}
 

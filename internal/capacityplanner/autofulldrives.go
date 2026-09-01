@@ -17,6 +17,9 @@ type autoNode struct {
 	nc NodeCapacity
 	// existing is this cluster's drive container on the node, or nil when there is none yet.
 	existing *ExistingContainer
+	// ownCompute is whether this cluster also runs a compute container here. Only the growth-hazard
+	// diagnostic needs it: its remedy names a container to delete, so it may not be offered otherwise.
+	ownCompute bool
 	// free is the node's unallocated drives; all is own+free — both descending, which is what makes a
 	// numDrives pin take the largest drives.
 	free []int
@@ -25,20 +28,29 @@ type autoNode struct {
 
 // autoFullDrivesNodes indexes the inventory into name-sorted autoNodes, so Create/Grow/Warnings ordering is
 // deterministic and a fleet always plans the same way twice.
-func autoFullDrivesNodes(existingDrives []ExistingContainer, inventory []NodeCapacity) []autoNode {
+func autoFullDrivesNodes(
+	existingDrives []ExistingContainer, existingCompute []ExistingComputeContainer, inventory []NodeCapacity,
+) []autoNode {
 	byNode := make(map[string]*ExistingContainer, len(existingDrives))
 	for i := range existingDrives {
 		if existingDrives[i].Node != "" {
 			byNode[existingDrives[i].Node] = &existingDrives[i]
 		}
 	}
+	computeByNode := make(map[string]bool, len(existingCompute))
+	for _, ec := range existingCompute {
+		if ec.Node != "" {
+			computeByNode[ec.Node] = true
+		}
+	}
 	nodes := make([]autoNode, 0, len(inventory))
 	for i := range inventory {
 		nc := inventory[i]
 		nodes = append(nodes, autoNode{
-			nc:       nc,
-			existing: byNode[nc.NodeName],
-			free:     SortDriveCapacitiesDesc(nc.DriveCapacitiesGiB),
+			nc:         nc,
+			existing:   byNode[nc.NodeName],
+			ownCompute: computeByNode[nc.NodeName],
+			free:       SortDriveCapacitiesDesc(nc.DriveCapacitiesGiB),
 			all: SortDriveCapacitiesDesc(
 				append(append([]int(nil), nc.OwnDriveCapacitiesGiB...), nc.DriveCapacitiesGiB...)),
 		})
@@ -59,7 +71,7 @@ func PlanAutoFullDrives(
 	computeNodes map[string]bool,
 	cons *CapacityConstraints,
 ) CapacityPlan {
-	nodes := autoFullDrivesNodes(existingDrives, inventory)
+	nodes := autoFullDrivesNodes(existingDrives, existingCompute, inventory)
 	plan, totals, remaining := planAutoFullDrivesDrives(desired, nodes, cons)
 
 	// Set above the feasibility gate so an infeasible plan can still report the core demand its claimed drives
@@ -109,10 +121,13 @@ func planAutoFullDrivesDrives(
 	// same condition (a cordoned node, an unscheduled pod) commonly hits several nodes in one pass.
 	var stranded []strandedNode
 	var failures []autoFitFailure
-	var ineligible []string  // "h1-2-a (cordoned)"
-	var ineligibleDrives int // free signed drives on those nodes, for formatIneligibleWarning's total
-	var deferred []string    // nodes whose existing container's pod is unscheduled
-	var deleting []string    // nodes with HasDeletingDriveContainer
+	var ineligible []string                     // "h1-2-a (cordoned)"
+	var ineligibleDrives int                    // free signed drives on those nodes, for formatIneligibleWarning's total
+	ineligibleReasons := map[string]bool{}      // distinct IneligibleReason values seen, for the NodeIneligible Cause
+	var deferred []string                       // nodes whose existing container's pod is unscheduled
+	var deleting []string                       // nodes with HasDeletingDriveContainer
+	var computeBlocked []string                 // nodes whose fit failed because HasDeletingComputeContainer holds what it needs
+	computeBlockedBindings := map[string]bool{} // distinct fit.binding values among them, for the warning's wording
 
 	// Called on both exits. The infeasibility check below returns from inside the walk, and a condition
 	// already collected is still true of the plan that return carries — the CLI's per-node NOTE column points
@@ -122,10 +137,24 @@ func planAutoFullDrivesDrives(
 			plan.Warnings = append(plan.Warnings, formatStrandedWarning(stranded, desired.NumDrives))
 		}
 		if len(ineligible) > 0 {
-			plan.Warnings = append(plan.Warnings, formatIneligibleWarning(ineligible, ineligibleDrives))
+			reasons := make([]string, 0, len(ineligibleReasons))
+			for r := range ineligibleReasons {
+				reasons = append(reasons, r)
+			}
+			sort.Strings(reasons)
+			plan.Warnings = append(plan.Warnings, formatIneligibleWarning(ineligible, ineligibleDrives, reasons))
 		}
-		if len(deferred) > 0 || len(deleting) > 0 {
-			plan.Warnings = append(plan.Warnings, formatPlacementDeferredWarning(deferred, deleting))
+		if len(deferred) > 0 || len(deleting) > 0 || len(computeBlocked) > 0 {
+			// Name the blocked dimension only when every node agrees on it, the same rule autoNodeFitInfeasible
+			// uses for Binding — one node's cause must not stand for the rest.
+			binding := ""
+			if len(computeBlockedBindings) == 1 {
+				for b := range computeBlockedBindings {
+					binding = b
+				}
+			}
+			plan.Warnings = append(plan.Warnings,
+				formatPlacementDeferredWarning(deferred, deleting, computeBlocked, binding)...)
 		}
 	}
 
@@ -155,6 +184,7 @@ func planAutoFullDrivesDrives(
 				totals.tlcGiBAvailable += sumInts(drives)
 				ineligible = append(ineligible, fmt.Sprintf("%s (%s)", name, n.nc.IneligibleReason))
 				ineligibleDrives += len(drives)
+				ineligibleReasons[n.nc.IneligibleReason] = true
 				continue
 			}
 			// The one per-node skip that is a skip rather than an infeasibility: it clears itself, so failing
@@ -186,17 +216,49 @@ func planAutoFullDrivesDrives(
 		to := autoFootprint{cores: max(cur.cores, np.cores), drives: max(cur.drives, np.numDrives())}
 		newTlcGiB := max(curTlcGiB, np.tlcGiB())
 
-		// An unscheduled container's cores charge at their frozen value here, matching that its Grow entry
-		// never gets written below — the ratcheted `to.cores` is what growth would apply, not what is
-		// actually taken while the pod sits unscheduled.
+		unscheduled := n.existing != nil && n.existing.Unscheduled
+
+		// The fit runs before the totals because what this node charges depends on whether the walk will skip
+		// it below, and only the fit can tell. Never for an unscheduled node: that one is skipped either way,
+		// and fitting it could only manufacture an infeasibility.
+		var fit autoFitResult
+		if !unscheduled {
+			fit = autoNodeFit(&n.nc, cur, to, cons)
+		}
+		// !unscheduled because that node never ran a fit: its zero-valued result reads as a failure, which
+		// would pull it into the compute-blocked charging convention instead of the unscheduled one.
+		blockedByDeletingCompute := !unscheduled && !fit.ok && n.nc.HasDeletingComputeContainer
+
+		// A node that either skip below leaves alone charges the cores it is actually running: its Grow entry
+		// never gets written, so the ratcheted `to.cores` is what growth would apply, not what is taken.
+		// Charging the target sizes compute against cores that do not exist, which can flip the plan
+		// infeasible — and an infeasible plan applies nothing, including the growth the other nodes earned.
 		chargedCores := to.cores
-		if n.existing != nil && n.existing.Unscheduled {
+		if unscheduled || blockedByDeletingCompute {
 			chargedCores = cur.cores
 		}
 
-		totals.drivesTaken += to.drives
+		// Drives and TLC freeze for a compute-blocked node only; an unscheduled one keeps charging its planned
+		// figure (TestPlanAutoFullDrives_UnscheduledDriveContainer_ComputeCountsPlannedNotFrozenCapacity pins
+		// that). The difference is causal, not cosmetic: tlcGiBTaken sizes compute hugepages, so charging
+		// capacity this pass will not create raises compute demand on the very node whose growth compute is
+		// already blocking. An unscheduled pod is only waiting on the scheduler, and pre-sizing compute for the
+		// drives it will bring costs nothing.
+		chargedDrives, chargedTlcGiB := to.drives, newTlcGiB
+		if blockedByDeletingCompute {
+			// cur.drives is the count the container holds, but ExistingContainer.TlcGiB is structurally 0 on an
+			// auto-full-drives container — the mode is defined by driveCapacity and containerCapacity both being
+			// unset, which is all DriveContainerCapacities reads. Its capacity comes from the node's own-drive
+			// split instead, the same fallback the CLI's NODES table uses, and is 0 on the create path.
+			chargedDrives, chargedTlcGiB = cur.drives, 0
+			if n.existing != nil {
+				chargedTlcGiB = sumInts(n.nc.OwnDriveCapacitiesGiB)
+			}
+		}
+
+		totals.drivesTaken += chargedDrives
 		totals.drivesAvailable += len(drives)
-		totals.tlcGiBTaken += newTlcGiB
+		totals.tlcGiBTaken += chargedTlcGiB
 		totals.tlcGiBAvailable += sumInts(drives)
 		totals.driveCoresTaken += chargedCores
 
@@ -208,21 +270,30 @@ func planAutoFullDrivesDrives(
 		}
 
 		// An unscheduled pod holds no node resources to grow into, and raising its spec would only make it
-		// harder to schedule. Skipped after the totals so the fleet accounting still reflects its drives, and
-		// before the fit so it cannot manufacture an infeasibility.
-		if n.existing != nil && n.existing.Unscheduled {
+		// harder to schedule. Skipped after the totals so the fleet accounting still reflects its drives.
+		if unscheduled {
 			deferred = append(deferred, name)
 			continue
 		}
 
-		fit := autoNodeFit(&n.nc, cur, to, cons)
 		if !fit.ok {
-			kind := "create"
+			// A deleting compute container on this node still holds the hugepages the fit needs, but that
+			// clears itself once the deletion lands — and failing the plan here is exactly what would stop
+			// compute from ever being re-planned, which is the capacity weka needs before it will let the
+			// deactivation through (see PlanAutoFullDrives's infeasibility gate). Deferred, not infeasible,
+			// same as the deleting-drive-container skip above.
+			if blockedByDeletingCompute {
+				computeBlocked = append(computeBlocked, name)
+				computeBlockedBindings[fit.binding] = true
+				continue
+			}
+			kind := fitKindCreate
 			if n.existing != nil {
-				kind = "growth"
+				kind = fitKindGrowth
 			}
 			failures = append(failures, autoFitFailure{
 				node: name, kind: kind, numDrives: to.drives, toCores: to.cores, fit: fit,
+				ownCompute: n.ownCompute,
 			})
 			continue
 		}
