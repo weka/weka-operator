@@ -31,10 +31,7 @@ allocator/          # Resource allocation (ports, IPs, drives)
   allocator.go      # Main allocation logic
   templates.go      # Container templates
   ranges.go         # IP/port range management
-  capacityplanner_shim.go # re-exports the PURE planner (moved to internal/capacityplanner, OP-346):
-                        #   type aliases + PlanCapacity/RawCapacityGiB/RequiredDriveResources/... wrappers
-                        #   + no-arg MinProtectionFloor (reads globalconfig, delegates to the pure helper)
-  cluster_capacity.go   # operator adapter ONLY: CapacityConstraintsFromConfig (globalconfig → constraints)
+  cluster_capacity.go   # CapacityConstraintsFromConfig, MinProtectionFloor → internal/capacityplanner
   cluster_capacity_assignment.go  # k8s-coupled ResolveNodeFDValue (RatioFromCaps/DriveType* moved to
                         #   internal/capacityplanner/ratio.go)
   # The pure algorithm now lives in internal/capacityplanner/{planner,constraints,ratio,infeasibility}.go

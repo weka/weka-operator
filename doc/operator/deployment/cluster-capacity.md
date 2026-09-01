@@ -112,9 +112,14 @@ reconcile. They are referenced throughout the algorithm and examples.
 Fixed caps and floors:
 
 - **10% usable reserve.** On top of the protection inflation, `rawCapacity` divides by `0.9`, keeping
-  ~10% of raw as reserve so the usable target is ~90% of raw (matches `RawCapacityGiB` in the allocator).
+  ~10% of raw as reserve so the usable target is ~90% of raw.
 - **Per-core capacity caps** (defaults): TLC ≈ 5 TiB/core, QLC ≈ 50 TiB/core. A container's cores =
   `ceil(tlc / tlcPerCore) + ceil(qlc / qlcPerCore)`, at least 1.
+- **Per-container core cap: 19** (`capacityPlannerConstraints.maxCoresPerContainer`). A weka container holds at
+  most 19 cores. A per-container capacity that would need more makes the pool **infeasible** — raise
+  `driveContainers` (smaller per-container shares) or lower `clusterCapacity`. The same cap bounds
+  compute containers, and a pinned `driveCores`/`computeCores` above it is rejected at admission by the
+  `cluster_cores_per_container_limit` policy (Error strict / Warn relaxed).
 - **MinChunk = 384 GiB.** No new drive container (and no per-FD share) is created below this floor.
 - **Mixed containers are emergent.** A node selected by both the TLC and QLC passes carries a
   single container with both drive types ("mixed"); a node selected by one pass stays pure. The
@@ -195,8 +200,11 @@ planClusterCapacity():                         # stateless — recomputed from s
     planPool(QLC, qlcRaw, inventory)           # one may grow while the other is a no-op
     mergeColocatedPoolsIntoMixedContainers()   # a node picked by both passes → one mixed container
 
-    totalTlcDriveCores = sum(cores of planned TLC drive containers)
-    planCompute(totalTlcDriveCores, inventory) # compute:drive 1:1, sized on POST-drive headroom
+    totalTlcDriveCores = sum(TLC cores of planned drive containers)
+    totalQlcDriveCores = sum(QLC cores of planned drive containers)
+    requiredComputeCores = max(totalTlcDriveCores + totalQlcDriveCores,          # hard 1:1 floor
+                               ceil(tlcRatio*totalTlcDriveCores + qlcRatio*totalQlcDriveCores))
+    planCompute(requiredComputeCores, inventory)  # sized on POST-drive headroom
 
     if plan.infeasible:
         emit ClusterCapacityInfeasible; requeue          # create / grow NOTHING
@@ -296,47 +304,105 @@ per core that `GetContainerHugepages` requests keeps the fit-gate aligned with t
 
 ### Compute sizing
 
-Compute is sized **after drive placement**, from `totalTlcDriveCores`, to honor a compute:drive
-**1:1 core ratio**, bounded by the **real post-drive per-node core/hugepage headroom**. Compute
+Compute is sized **after drive placement**, from `requiredComputeCores`, bounded by the **real
+post-drive per-node core/hugepage headroom**.
+
+`requiredComputeCores` is a **configurable ratio over the drive cores with a hard 1:1 floor**:
+
+```
+requiredComputeCores = max(
+    totalTlcDriveCores + totalQlcDriveCores,                                  # hard floor: never < 1:1
+    ceil(computeToTlcDriveCoreRatio × totalTlcDriveCores
+       + computeToQlcDriveCoreRatio × totalQlcDriveCores)                     # the configured ratio
+)
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `capacityPlannerConstraints.driveSharing.computeToTlcDriveCoreRatio` | `1.0` | Compute cores wanted per TLC drive core |
+| `capacityPlannerConstraints.driveSharing.computeToQlcDriveCoreRatio` | `0.0` | Compute cores wanted per QLC drive core |
+
+At the defaults the ratio term equals `totalTlcDriveCores` for a TLC-only cluster. The **floor counts
+QLC drive cores too**, so a mixed TLC/QLC cluster requires at least
+one compute core per drive core of *either* type — raising a ratio above 1.0 asks for more, but no
+setting can ever take the plan below 1:1. Full-drives mode uses the same function with its own ratio
+(default **2.0**); see [Act As Daemonset](act-as-daemonset.md#compute-sizing).
+
+Compute
 carries its **own** role node selector (`roleNodeSelector.compute`, falling back to the cluster
 `nodeSelector`; empty matches all nodes), so the compute pool may differ from the drive nodes and
 may include **diskless** nodes. On a node shared by both roles, compute draws from the
 cores/hugepages left **after** drives; a diskless compute node contributes its full headroom. Each
 new compute container is **node-pinned** (best-fit on post-drive headroom) so it never lands where
-it cannot host both drives and compute. A compute core/hugepage change applies per
+it cannot host both drives and compute — which also means a pinned node that later can't schedule it
+is handled by the same stuck-node GC as the daemonset mode's compute leg (see
+[`UnschedulableComputeContainer`](#events)). A compute core/hugepage
+change applies per
 [§Rules](#rules-that-apply-everywhere) (deferred until you manually terminate the pod).
 
+Each compute container's **hugepages** reservation is capacity-based, not a fixed per-core amount —
+`hugepagesFor(count, cores)` below:
+
+1. `capacityBased = (tlcRawGiB×1024/hugepagesTlcRatio + qlcRawGiB×1024/hugepagesQlcRatio) / count` MiB
+   — the cluster's raw TLC/QLC capacity, converted to a hugepages budget and shared evenly across the
+   `count` compute containers (defaults `hugepagesTlcRatio = 1000`, `hugepagesQlcRatio = 6000`).
+2. `hp = max(capacityBased + 1700×cores, 3000×cores)` — a 3000 MiB/core floor, or `capacityBased` plus
+   1700 MiB/core once capacity dominates.
+3. Round `hp` up to even.
+4. Cap at `computeMaxHugepagesMiB` (default `360000` MiB) if set.
+5. `hp += computeDpdkPerCoreMiB × cores` (default 64 MiB/core, per-role override via
+   `spec.overrides.dpdkBaseMemoryMb.compute`).
+
+Because `capacityBased` divides by `count`, `hugepagesFor` **strictly decreases per container as
+`count` grows** — the reason the auto scan below only ever needs to search upward.
+
 ```
-planCompute(totalTlcDriveCores, inventory):           # t = totalTlcDriveCores
+planCompute(requiredComputeCores, inventory):         # t = requiredComputeCores (ratio + 1:1 floor)
     nodes        = compute-selector nodes with post-drive, post-existing-compute headroom
-    coreHeadroom = [coresFree(n) for n in nodes]
+    coreHeadroom = [coresFree(n) for n in nodes]                    # cores dimension
+    hugepagesMiB = [hugepagesFree(n) for n in nodes]                # MiB dimension; a node already
+                                                                     # hosting existing compute is exempt
+                                                                     # here (unbounded) — its current
+                                                                     # charge is handled by grow/freeze
+                                                                     # in step (2), not by this scan
     floor        = minFdNum
 
-    # ---- (1) Derive the UNIFORM (count, cores) target — IDENTICAL for greenfield and grow ----
-    hmin            = min(coreHeadroom)                # smallest node binds: cores is uniform and
-                                                       # spreads one-per-node, so it must fit anywhere
-    perContainerCap = min(maxComputeCoresPerNode, hmin)   # cap 0 == policy disabled; hmin still binds
+    hugepagesFor(count, cores)   # capacity share (÷ count) + a per-core term — STRICTLY DECREASES as
+                                 # count grows, so a larger n never needs more hugepages/container
 
+    # ---- (1) Derive the (count, cores) target — IDENTICAL for greenfield and grow ----
     if computeContainers set and computeCores set:     # honored as-is
         count, cores = computeContainers, computeCores
+        perContainerCap = topNMin(coreHeadroom, count, maxCoresPerContainer)  # best `count` nodes, jointly
         infeasible if cores > perContainerCap or count*cores < t or count > len(nodes)
+        infeasible if fewer than `count` nodes have >= cores AND >= hugepagesFor(count, cores) MiB
     elif computeCores set:
-        cores = computeCores;  infeasible if cores > perContainerCap
+        cores = computeCores
         count = max(floor, ceil(t / cores));  infeasible if count > len(nodes)
+        perContainerCap = topNMin(coreHeadroom, count, maxCoresPerContainer)
+        infeasible if cores > perContainerCap
+        infeasible if fewer than `count` nodes have >= cores AND >= hugepagesFor(count, cores) MiB
     elif computeContainers set:
         count = computeContainers;  infeasible if count > len(nodes)
         cores = max(1, ceil(t / count))
-    else:                                              # both auto → MINIMIZE the container count
-        count = max(floor, ceil(t / perContainerCap));  infeasible if count > len(nodes)
-        cores = max(1, ceil(t / count))
+    else:                                # both auto → fewest containers that actually FIT (cores AND hugepages)
+        for n in floor..len(nodes):                             # scan n UPWARD only — never down
+            c  = max(1, ceil(t / n))
+            if topNMin(coreHeadroom, n, maxCoresPerContainer) < c: continue   # cores don't fit at this n
+            if nodesFitting(coreHeadroom, hugepagesMiB, c, hugepagesFor(n, c), maxCoresPerContainer) < n:
+                continue                                                       # hugepages don't fit at this n
+            count, cores = n, c;  break
+        infeasible if no n up to len(nodes) satisfies both dimensions
 
     # ---- (2) Apply target — grow in place first, freeze where the node is full, then fill ----
     for ec in existingCompute pinned to a node:
-        if node has headroom for (cores - ec.cores):  growInPlace(ec -> cores)   # deferred per §Rules
-        else:                                         freeze(ec at ec.cores)     # no disruption
+        coresDelta, hpDelta = cores - ec.cores, hugepagesFor(count, cores) - ec.hugepagesMiB
+        if node has headroom for coresDelta cores AND hpDelta MiB:  growInPlace(ec -> cores)  # deferred, §Rules
+        else:                                                       freeze(ec at ec.cores)    # no disruption
 
     shortfall   = count*cores - sum(cores existing computes now supply)
-    fitNodes    = free nodes with headroom >= cores, ordered for FD SPREAD (fresh FDs first)
+    fitNodes    = free nodes with headroom >= cores AND >= hugepagesFor(count, cores) MiB,
+                  ordered for FD SPREAD (fresh FDs first)
     nNew        = ceil(shortfall / cores)
     if nNew > len(fitNodes):                  plan.infeasible = "not enough free compute nodes"
     while distinctFDs(covered ∪ fitNodes[:nNew]) < minFdNum and nNew < len(fitNodes): nNew += 1
@@ -346,17 +412,35 @@ planCompute(totalTlcDriveCores, inventory):           # t = totalTlcDriveCores
 
 | `computeContainers` | `computeCores` | Resulting count | Cores/container |
 |---|---|---|---|
-| unset | unset | `max(floor, ceil(t / perContainerCap))` — **minimized** | `max(1, ceil(t / count))` |
-| unset | set | `max(floor, ceil(t / cores))` | `cores`; **infeasible** if `cores > perContainerCap` |
+| unset | unset | smallest `n` (scanned upward from `floor`) where the best `n` nodes jointly fit `ceil(t/n)` cores **and** `n` nodes hold `hugepagesFor(n, ceil(t/n))` — **fewest containers that actually fit** | `max(1, ceil(t / count))` |
+| unset | set | `max(floor, ceil(t / cores))` | `cores`; **infeasible** if `cores > perContainerCap`, or fewer than `count` nodes hold `hugepagesFor(count, cores)` MiB |
 | set | unset | honored (**infeasible** if `> compute-node count`) | `max(1, ceil(t / count))` |
-| set | set | honored | `computeCores`; **infeasible** if `count×cores < t` or exceeds per-node headroom |
+| set | set | honored | `computeCores`; **infeasible** if `count×cores < t`, exceeds per-node core headroom, or fewer than `count` nodes hold `hugepagesFor(count, cores)` MiB |
 
 - **`floor = minFdNum`** (one above Weka's `stripeWidth + redundancyLevel` minimum) leaves headroom
   to delete/recreate a single compute pod without dropping below Weka's minimum.
 - **Why minimize the count.** Sizing each container as wide as headroom allows yields a few wide
-  containers instead of many single-core ones. Example: target **200 TiB**, 3/2/1, TLC-only across
-  **14 large nodes** ⇒ `t = 84`; with `maxComputeCoresPerNode = 16` ⇒ **6 × 14 cores**, not 84
-  single-core containers.
+  containers instead of many single-core ones — the fewest containers that actually fit **both**
+  the core and hugepages dimensions, not just cores.
+
+  Worked example. Target **200 TiB usable**, 3/2/1, TLC-only, across **14 candidate nodes of 60 TiB
+  each**. The node size matters and must be stated: `t` is the sum of each drive container's
+  *individually rounded* core count, so the same capacity target yields a different `t` depending on how
+  many containers it is split across.
+  - Raw target for 200 TiB usable at 3/2/1 = `204800 × (3+2+1)/3 / 0.9` ≈ **455111 GiB** (444.4 TiB) — note
+    the `hotSpare` term is in the numerator and there is a further `/0.9` usable reserve.
+  - The planner places **8 drive containers of 56889 GiB**, each `ceil(56889 / 5120)` = **12 cores** ⇒
+    `t` = **96** (TLC-only, so `requiredComputeCores` = `max(96, 1.0 × 96)` = 96). (The aggregate floor
+    is `ceil(455111 / 5120)` = 89; per-container rounding lifts it.)
+  - Compute then scans upward for the fewest containers that fit. With `floor = minFdNum = 6` the scan
+    starts at `n = 6`, giving `ceil(96/6)` = **16 cores** — within `maxCoresPerContainer = 19` ⇒
+    **6 × 16**, not 96 single-core containers — provided each of those 6 nodes also has `hugepagesFor(6, 16)` free. If it did not, the
+    scan would continue to a larger `n` (more, smaller containers, and a smaller per-container
+    `hugepagesFor` share) rather than fail outright.
+
+  Change the node size and `t` moves with the container split — e.g. 14 containers of 32508 GiB each
+  would give `ceil(32508/5120)` = 7 cores ⇒ `t` = 98. Quote `t` only alongside the node layout it came
+  from; `weka-capacity plan --new-cluster` prints the actual figures for a given fleet.
 - **FD diversity (label mode).** The layout must span **≥ `minFdNum` distinct FDs**, not just
   nodes; the planner orders free nodes fresh-FD-first and extends the count until the span is met,
   failing fast if it cannot.
@@ -752,34 +836,45 @@ must keep **both** pools ≥ minFdNum (e.g. 12 at ratio 1:2 ⇒ TLC 4 / QLC 8 �
 
 **M — Diskless / separate compute node pool.**
 
-*Input:* drives on 6 nodes reach rawTLC 180 ⇒ 6 × 30 TiB × 6 cores = `totalTlcDriveCores` 36.
-`roleNodeSelector.compute` selects **8 diskless nodes** with `maxComputeCoresPerNode: 16`.
+*Input:* drives on 6 nodes reach rawTLC 180 TiB ⇒ 6 × 30 TiB × 6 cores = `totalTlcDriveCores` 36, so
+`requiredComputeCores` = 36 (TLC-only at the 1.0 default).
+`roleNodeSelector.compute` selects **8 diskless nodes** of **16 core headroom** each, each with
+enough hugepages free for `hugepagesFor(6, 6) ≈ 42042 MiB` (~41 GiB — TLC-only, `tlcRawGiB = 184320`,
+default `hugepagesTlcRatio = 1000`, `computeDpdkPerCoreMiB = 64`).
 
 *Expected output:*
 
 | Pool | Plan |
 |---|---|
 | Drives | n1…n6: **CREATE** TLC 30 TiB each (6 cores) |
-| Compute | `count = max(6, ⌈36/16⌉) = 6`, `cores = max(1, ⌈36/6⌉) = 6` ⇒ **6 × 6 cores**, one-per-node on 6 of 8 |
+| Compute | scan settles at `n = 6`: the best 6 nodes hold ≥ `⌈36/6⌉ = 6` cores each, and ≥ `hugepagesFor(6, 6) ≈ 42042 MiB` ⇒ **6 × 6 cores, ~42042 MiB hugepages each**, one-per-node on 6 of 8 |
 
 **Compute create-then-grow sequence.**
 
-*Input:* 8 diskless compute nodes × 16 core headroom, `maxComputeCoresPerNode = 16`, 3/2/1 ⇒
-floor = 6. The same sizing runs every step (create and grow identical), `t = totalTlcDriveCores`:
+*Input:* 8 diskless compute nodes × 16 core headroom, `maxCoresPerContainer = 19`, 3/2/1 ⇒
+floor = 6. The **effective** per-container ceiling is `min(nodeHeadroom, maxCoresPerContainer)` =
+`min(16, 19)` = **16**, which is what the `⌈t/16⌉` below comes from. Assume every node also carries
+enough hugepages headroom for the `hugepagesFor(count, cores)` target at each step below (TLC-only,
+`tlcRawGiB = t × 5120`, default `hugepagesTlcRatio = 1000`, `computeDpdkPerCoreMiB = 64`). The same
+sizing runs every step (create and grow identical), `t = requiredComputeCores`:
 
 *Expected output:*
 
-| Step | Trigger | `t` | `count = max(6, ⌈t/16⌉)` | `cores = ⌈t/count⌉` | Action |
-|---|---|---|---|---|---|
-| 1 | create | 36 | 6 | 6 | **CREATE** 6 × 6 cores (on 6 of 8 nodes) |
-| 2 | cap ↑ | 72 | 6 | 12 | **GROW** all 6 in place 6→12 (deferred) |
-| 3 | cap ↑ | 120 | 8 | 15 | **GROW** the 6 existing 12→15, **then CREATE** 2 × 15 on the 2 free nodes |
+| Step | Trigger | `t` | `count = max(6, ⌈t/16⌉)` | `cores = ⌈t/count⌉` | `hugepagesFor(count, cores)` MiB | Action |
+|---|---|---|---|---|---|---|
+| 1 | create | 36 | 6 | 6 | ≈ 42042 | **CREATE** 6 × 6 cores (on 6 of 8 nodes) |
+| 2 | cap ↑ | 72 | 6 | 12 | ≈ 84082 | **GROW** all 6 in place 6→12 (deferred) |
+| 3 | cap ↑ | 120 | 8 | 15 | ≈ 105104 | **GROW** the 6 existing 12→15, **then CREATE** 2 × 15 on the 2 free nodes |
 
-Step 3: each existing node has `16−12 = 4` free, delta to 15 is `3 ≤ 4` ⇒ all 6 grow to 15
-(`existingCores = 90`). `shortfall = 8×15 − 90 = 30` ⇒ 2 new × 15. Total `8×15 = 120` ✓. If a fill
-node is hugepage-constrained its container is created smaller (e.g. 8 cores); a later grow **levels
-it up first** (8→16) *if* its hugepages freed up, else **freezes** it at 8 and covers the deficit with
-a fresh balanced container on a free node.
+Step 3: each existing node has `16−12 = 4` free cores, delta to 15 is `3 ≤ 4`; each also needs
+`105104 − 84082 ≈ 21022` more MiB hugepages (assumed available) ⇒ all 6 grow to 15 (`existingCores =
+90`). `shortfall = 8×15 − 90 = 30` ⇒ 2 new × 15, each needing the full `≈ 105104` MiB. Total `8×15 =
+120` ✓. If a node cannot cover its share of either dimension it is excluded from `fitNodes` outright
+— it's the compute-layout **scan** that adapts to a hugepage-short compute pool, by picking a
+larger `count` (more, smaller containers, each with a strictly smaller `hugepagesFor` share) before
+ever failing the plan; an *existing* compute container that cannot reach the new target on its own
+node is simply **frozen** there (see step (2) [above](#compute-sizing)), and the shortfall it leaves
+is covered by a fresh container elsewhere.
 
 ### Shrink
 
@@ -830,11 +925,13 @@ exactly**, and any value that violates a constraint makes the plan **fail fast**
   mixed pools it is the combined total split by raw-capacity ratio. Fails fast below `minFdNum`,
   above available FDs, with a per-container share below MinChunk, or (mixed) when the split drops a
   pool below `minFdNum`. (Example [L](#explicit-sizing-and-separate-compute-pool).)
-- **`driveCores`** — fixed per-container core count. Fails fast when a container's capacity needs
-  more cores, or a node cannot host the pinned cores. Pinning *more* than needed is allowed if the
-  node has room.
-- **`computeContainers` / `computeCores`** — per the [compute truth table](#compute-sizing); an
-  explicit value exceeding per-node headroom, the compute-node count, or breaking 1:1 fails fast.
+- **`driveCores`** — fixed per-container core count, at most `maxCoresPerContainer` (**19**; see the
+  admission policy below). Fails fast when a container's capacity needs more cores, or a node cannot
+  host the pinned cores. Pinning *more* than needed is allowed if the node has room.
+- **`computeContainers` / `computeCores`** — per the [compute truth table](#compute-sizing);
+  `computeCores` is bounded by the same per-container limit. An
+  explicit value exceeding per-node headroom (cores **or** hugepages), the compute-node count, or
+  falling below `requiredComputeCores` fails fast.
 
 **Hugepages are not planner pins.** The per-role hugepages fields — `driveHugepages` /
 `driveHugepagesOffset`, `computeHugepages` / `computeHugepagesOffset` — are applied later by the
@@ -855,8 +952,9 @@ clusterCapacity planning.
 | per-FD share would fall below 384 GiB (MinChunk) |
 | total node headroom across candidate FDs `< delta` (capacity/cores/hugepages/memory) |
 | no spare node has ≥ `T` (uniform per-FD chunk) free AND in-place growth is disabled (or the required grow is below `minGrowthFraction`, or the overshoot would exceed `maxOverProvisionFraction`) |
-| compute:drive 1:1 cannot fit one-per-node on the compute nodes' headroom (or `computeContainers` exceeds the compute-node count) |
-| explicit `computeCores` exceeds per-node compute headroom, or `computeContainers × computeCores < totalTlcDriveCores` |
+| `requiredComputeCores` cannot fit one-per-node on the compute nodes' headroom — cores **and** `hugepagesFor(count, cores)` MiB both required — (or `computeContainers` exceeds the compute-node count) |
+| explicit `computeCores` exceeds per-node compute core **or** hugepages headroom, or `computeContainers × computeCores < requiredComputeCores` |
+| a container's derived cores exceed `capacityPlannerConstraints.maxCoresPerContainer` (**19**) — raise `driveContainers` or lower `clusterCapacity` |
 | explicit `driveContainers < minFdNum`, `> available FDs`, or per-container share `< 384 GiB`; for mixed pools, the raw-ratio split drops a pool below `minFdNum` |
 | explicit `driveCores` smaller than a container's capacity needs, or a node cannot host the pinned `driveCores` |
 | `stripeWidth < 3` or `redundancyLevel < 2`; `clusterCapacity <= 0` (hot spare is optional, `hotSpare >= 0`) |
@@ -870,12 +968,19 @@ The event names the binding constraint (e.g. "QLC: only 4 of 6 required FDs have
 - `clusterCapacityChunkFeasibility` (greenfield only): each active pool's per-FD share must clear
   384 GiB — `clusterCapacity × part/(tlc+qlc) >= 384 × stripeWidth` for **both** pools. Skipped once
   the cluster already has drive containers.
+- `clusterCoresPerContainerLimit`: a pinned `driveCores`/`computeCores` above
+  `capacityPlannerConstraints.maxCoresPerContainer` (**19**). Error in strict mode, Warning in relaxed; silent when
+  the setting is `0`.
+- `clusterComputeDriveCoresFloor`: total compute cores below total drive cores (the hard 1:1 floor).
+  Error in strict mode, Warning in relaxed.
 
 ## Events
 
 Every planning decision is surfaced as a Kubernetes event on the WekaCluster (throttled to one per
-minute per reason). The conditions are defined in [§Rules](#rules-that-apply-everywhere) and the
-[constraints](#constraints) above; this table is just the reason→type→trigger index.
+minute per reason), except `UnschedulableDriveContainer` and `UnschedulableComputeContainer`, which
+land on the affected **WekaContainer** and are not throttled. The conditions are
+defined in [§Rules](#rules-that-apply-everywhere) and the [constraints](#constraints) above; this
+table is just the reason→type→trigger index.
 
 An **infeasible** plan is the sole signal: when the plan is infeasible only
 `ClusterCapacityInfeasible` is emitted, and the shrink / heterogeneous-growth / over-provision
@@ -885,6 +990,8 @@ advisories are suppressed for that reconcile (they describe placement that does 
 |--------|------|---------------|
 | `ClusterCapacityPlanned` | Normal | A feasible plan that actually places capacity (≥1 create or grow) — a positive signal, e.g. after recovering from infeasible by adding a node. Steady-state reconciles stay silent. Example: *"clusterCapacity plan applied: creating 3 drive container(s) [2 mixed, 1 TLC] across 3 node(s) / 3 failure domain(s) @ ~10.7TiB/FD, placing T/Q 24.0/8.0 TiB; growing 1 existing container(s) (+T 2.0TiB, cores 6→8); compute 3 container(s), 24 cores on 3 node(s); minFdNum 11; target raw T/Q 24.0/12.0 TiB (placed 34.0TiB), protection 8+2+1"*. |
 | `ClusterCapacityDeferred` | Normal | A drive container is alive but never scheduled — planning deferred and retried (see [§Rules](#rules-that-apply-everywhere)). Routine pod deletion does **not** cause this. |
+| `UnschedulableDriveContainer` | Warning | **Lands on the WekaContainer, not the Cluster.** The scheduler rejected the drive container's pod (`PodScheduled=False`/`Reason=Unschedulable`) for longer than the GC timeout, so it is deleted and its capacity re-placed on the next plan — possibly on a different node. Distinct from `ClusterCapacityDeferred` above: that fires while the pod might still schedule, this only once the scheduler has actually rejected it, so a pod merely `Pending` during a slow drive-signing step is left alone. |
+| `UnschedulableComputeContainer` | Warning | **Lands on the WekaContainer, not the Cluster.** The same rule applied to a compute container, so its cores are re-planned onto a node that can take them instead of being counted but never served. See [Act As Daemonset](act-as-daemonset.md#troubleshooting). |
 | `ClusterCapacityShrink` | Normal | A pool's current capacity exceeds desired by **more than `maxOverProvisionFraction` × desired**. **Never auto-applied** — delete WekaContainers manually to shrink. (An in-cap over-provision from create-new rounding stays silent — see `ClusterCapacityOverProvisioned`.) |
 | `ClusterCapacityHeterogeneousGrowth` | Warning | The heterogeneous-fallback notice: a fresh balanced (uniform) set was created on spare nodes because a fresh per-FD chunk would dwarf the existing FDs; the old smaller drive containers can be deleted manually once data has migrated. |
 | `ClusterCapacityOverProvisioned` | Normal | A pool was realized with uniformly-sized failure domains, and ceiling that uniform size lands up to one chunk above the desired raw (at most `maxOverProvisionFraction` × desired) — an intentional rounding, not reclaimable excess. The message names the pool, states the placement (growing existing FDs, adding new ones, or both), and reports the overshoot: `"<pool>: +N GiB covered by growing K existing failure domain(s), each sized to a uniform T GiB; this over-provisions the target by M GiB (within maxOverProvisionFraction=0.20) — intentional rounding to keep failure domains uniformly sized, not reclaimable excess (no manual shrink needed)"`. |
@@ -898,7 +1005,13 @@ that fails fast via `ClusterCapacityInfeasible`.)
 
 | Setting | Default | Env Var | Meaning |
 |---------|---------|---------|---------|
-| `maxComputeCoresPerNode` | `16` | `CLUSTER_CAPACITY_MAX_COMPUTE_CORES_PER_NODE` | Policy cap on compute cores per node (0 disables the *policy* cap; real per-node headroom still binds) |
+| `capacityPlannerConstraints.maxCoresPerContainer` | `19` | `CAPACITY_MAX_CORES_PER_CONTAINER` | Per-container core cap for **drive and compute** containers in **both** planners (0 disables the *policy* cap; real per-node headroom still binds). 19 is weka's own per-container limit; `driveCores`/`computeCores` above 19 are rejected at admission regardless of this value |
+| `capacityPlannerConstraints.driveSharing.computeToTlcDriveCoreRatio` | `1.0` | `CAPACITY_COMPUTE_TO_TLC_DRIVE_CORE_RATIO` | Compute cores wanted per **TLC** drive core (see [Compute sizing](#compute-sizing)); the 1:1 total-drive-core floor still applies |
+| `capacityPlannerConstraints.driveSharing.computeToQlcDriveCoreRatio` | `0.0` | `CAPACITY_COMPUTE_TO_QLC_DRIVE_CORE_RATIO` | Compute cores wanted per **QLC** drive core; `0` sizes compute from TLC cores alone (QLC drive cores excluded from the ratio term) |
+| `capacityPlannerConstraints.fullDrives.computeToDriveCoreRatio` | `2.0` | `CAPACITY_FULL_DRIVES_COMPUTE_TO_DRIVE_CORE_RATIO` | Compute cores wanted per drive core in **full-drives** mode (including the [daemonset mode](act-as-daemonset.md)), see [Act As Daemonset](act-as-daemonset.md#compute-sizing) |
+| `hugepagesTlcRatio` | `1000` | `HUGEPAGES_TLC_RATIO` | Divisor for the TLC term of the compute hugepages [capacity-based formula](#compute-sizing) |
+| `hugepagesQlcRatio` | `6000` | `HUGEPAGES_QLC_RATIO` | Divisor for the QLC term of the compute hugepages [capacity-based formula](#compute-sizing) |
+| `computeMaxHugepagesMiB` | `360000` | `COMPUTE_MAX_HUGEPAGES_MIB` | Hard cap on a single compute container's hugepages, applied after the [per-core floor](#compute-sizing) |
 | `tlcCapacityPerCoreGiB` | `5120` (5 TiB) | `CLUSTER_CAPACITY_TLC_CAPACITY_PER_CORE_GIB` | TLC raw capacity per drive core |
 | `qlcCapacityPerCoreGiB` | `51200` (50 TiB) | `CLUSTER_CAPACITY_QLC_CAPACITY_PER_CORE_GIB` | QLC raw capacity per drive core |
 | `imbalanceFactor` | `8.0` | `CLUSTER_CAPACITY_IMBALANCE_FACTOR` | A fresh per-FD chunk `≥ factor × existing per-FD average` triggers the heterogeneous (balanced-fresh) fallback. `0` (or below) disables the fallback. |
