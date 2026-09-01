@@ -39,7 +39,7 @@ Manual operations, policies, CSI, and driver management.
 
 | File | Purpose |
 |------|---------|
-| `discover_node.go` | Node discovery |
+| `discover_node.go` | Node discovery; slow requeue + NodeDiscoveryStuck event when dsc stalls (OP-357) |
 | `ensure_nics.go` | NIC configuration |
 | `trace_session.go` | Remote trace collection |
 | `cleanup_persistent_dir.go` | Cleanup operations |

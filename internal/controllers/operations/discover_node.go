@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
@@ -15,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -22,6 +24,14 @@ import (
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
+)
+
+// Discovery normally finishes within the grace period; past it the requeue
+// slows to bound API load from unschedulable/broken dsc pods (OP-357).
+const (
+	discoveryWaitGracePeriod     = 2 * time.Minute
+	discoverySlowRequeue         = time.Minute
+	discoveryStuckEventThreshold = 10 * time.Minute
 )
 
 type DiscoverNodeOperation struct {
@@ -39,6 +49,7 @@ type DiscoverNodeOperation struct {
 	mgr            ctrl.Manager
 	tolerations    []corev1.Toleration
 	node           *corev1.Node
+	recorder       record.EventRecorder
 }
 
 func NewDiscoverNodeOperation(mgr ctrl.Manager, restClient rest.Interface, node weka.NodeName, ownerRef client.Object, ownerDetails *weka.WekaOwnerDetails) *DiscoverNodeOperation {
@@ -56,6 +67,7 @@ func NewDiscoverNodeOperation(mgr ctrl.Manager, restClient rest.Interface, node 
 		tolerations:    ownerDetails.Tolerations,
 		result:         nil,
 		ownerRef:       ownerRef,
+		recorder:       mgr.GetEventRecorderFor("weka-discover-node"), //nolint:staticcheck // using deprecated API
 	}
 }
 
@@ -219,11 +231,22 @@ func (o *DiscoverNodeOperation) EnsureContainers(ctx context.Context) error {
 }
 
 func (o *DiscoverNodeOperation) PollResults(ctx context.Context) error {
-	if o.container.Status.ExecutionResult == nil {
-		return lifecycle.NewWaitError(fmt.Errorf("container execution result is not ready"))
+	if o.container.Status.ExecutionResult != nil {
+		return nil
 	}
 
-	return nil
+	err := fmt.Errorf("container execution result is not ready")
+	age := time.Since(o.container.CreationTimestamp.Time)
+	if age < discoveryWaitGracePeriod {
+		return lifecycle.NewWaitError(err)
+	}
+	if age >= discoveryStuckEventThreshold {
+		o.recorder.Event(o.ownerRef, corev1.EventTypeWarning, "NodeDiscoveryStuck",
+			fmt.Sprintf("node discovery on node %s is stuck; discovery container %s/%s has no result",
+				o.nodeName, o.container.Namespace, o.container.Name))
+	}
+
+	return lifecycle.NewWaitErrorWithDuration(err, discoverySlowRequeue)
 }
 
 func (o *DiscoverNodeOperation) ProcessResult(ctx context.Context) error {
