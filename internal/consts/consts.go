@@ -23,18 +23,17 @@ const WekaContainerName = "weka-container"
 
 // Node annotation keys for drive management
 const (
-	// AnnotationWekaDrives stores drive serial IDs for non-proxy mode.
-	// Format: ["SERIAL1", "SERIAL2", ...]
-	// Deprecated for writing: use AnnotationWekaFullDrives instead. Kept for backward compatibility reading.
+	// AnnotationWekaDrives stores drive serial IDs for non-proxy mode: ["SERIAL1", "SERIAL2", ...].
+	// Deprecated for writing: use AnnotationWekaFullDrives; kept for backward-compat reading.
 	AnnotationWekaDrives = "weka.io/weka-drives"
 
-	// AnnotationWekaFullDrives stores drive entries with full metadata (serial + capacity_gib) for non-proxy mode.
-	// Format: [{"serial":"SERIAL1","capacity_gib":14307},...]
-	// This supersedes AnnotationWekaDrives which is deprecated for writing but still supported for reading (fallback).
+	// AnnotationWekaFullDrives stores drive entries with full metadata for non-proxy mode:
+	// [{"serial":"SERIAL1","capacity_gib":14307},...]. Supersedes AnnotationWekaDrives (still read
+	// as fallback). TLC drives only: full-drives mode has no QLC accounting, so discovery excludes
+	// QLC drives here and every consumer charges these entries as TLC.
 	AnnotationWekaFullDrives = "weka.io/weka-full-drives"
 
-	// AnnotationBlockedDrives stores blocked drive serial IDs (non-proxy mode)
-	// Format: ["SERIAL1", "SERIAL2", ...]
+	// AnnotationBlockedDrives stores blocked drive serial IDs (non-proxy mode): ["SERIAL1", ...].
 	AnnotationBlockedDrives = "weka.io/blocked-drives"
 
 	// AnnotationSharedDrives stores shared drive information for proxy mode
@@ -62,8 +61,7 @@ const (
 	// Format: ["uuid1", "uuid2", ...]
 	AnnotationBlockedDrivesVirtualUuids = "weka.io/blocked-drives-virtual-uuids"
 
-	// AnnotationSignDrivesHash stores hash of signed drives to track changes
-	// Used to determine if drives need to be re-signed
+	// AnnotationSignDrivesHash stores a hash of signed drives, used to detect when re-signing is needed.
 	AnnotationSignDrivesHash = "weka.io/sign-drives-hash"
 )
 
@@ -77,13 +75,14 @@ const PodConfigCodeVersion = "1"
 
 // Kubernetes extended resource names
 const (
-	// ResourceDrives is the extended resource name for tracking available drives (non-proxy mode)
+	// ResourceDrives tracks available drives (non-proxy mode). TLC only: it counts the non-blocked
+	// entries of AnnotationWekaFullDrives, which excludes QLC.
 	ResourceDrives = "weka.io/drives"
 
-	// ResourceSharedDrivesCapacity is the extended resource name for tracking shared drive capacity (proxy mode)
+	// ResourceSharedDrivesCapacity tracks shared drive capacity (proxy mode).
 	ResourceSharedDrivesCapacity = "weka.io/shared-drives-capacity"
 
-	// ResourceSharedDrivesCapacityTLC is the extended resource name for tracking shared drive capacity of QLC drives (proxy mode)
+	// ResourcesSharedDrivesCapacityQLC tracks shared drive capacity of QLC drives (proxy mode).
 	ResourcesSharedDrivesCapacityQLC = "weka.io/shared-drives-capacity-qlc"
 
 	// WekaNumaRegionResourcePrefix is the extended resource name prefix for NUMA region confinement

@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/drivers"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -518,7 +519,7 @@ func (o *EnsureDistServiceOperation) DeleteIfNodeNotReady(ctx context.Context, c
 		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
 
-	if NodeNotReady(node) {
+	if !resources.NodeIsReady(node) {
 		logger.Info("Node is not ready, deleting dist container", "container", wc.Name, "node", nodeName)
 		deleteErr := o.client.Delete(ctx, container)
 
@@ -905,16 +906,4 @@ func (o *EnsureDistServiceOperation) AsStep() lifecycle.Step {
 		Name: "EnableLocalDriversDistribution",
 		Run:  AsRunFunc(o), // Assuming AsRunFunc helper exists
 	}
-}
-
-func NodeNotReady(node *corev1.Node) bool {
-	if node == nil {
-		return true // If node is nil, consider it not ready
-	}
-	for _, condition := range node.Status.Conditions {
-		if condition.Type == corev1.NodeReady && condition.Status != corev1.ConditionTrue {
-			return true // Node is not ready
-		}
-	}
-	return false // Node is ready
 }

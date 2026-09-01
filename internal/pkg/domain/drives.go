@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -10,6 +11,7 @@ import (
 )
 
 // DriveEntry represents a drive in the weka.io/weka-drives annotation (non-proxy mode).
+// TLC drives only: there is deliberately no Type field, because full-drives mode has no QLC.
 type DriveEntry struct {
 	Serial      string `json:"serial"`
 	CapacityGiB int    `json:"capacity_gib"`
@@ -24,9 +26,23 @@ func DriveEntrySerials(entries []DriveEntry) []string {
 	return serials
 }
 
-// ReadDriveAnnotations reads drive entries from the weka.io/weka-full-drives annotation only.
-// Returns nil (not an error) when the annotation is absent.
-// Never returns entries with zero capacity — entries without capacity are filtered out.
+// SortDriveEntriesDesc returns a capacity-descending copy of entries (never mutates the input), serial
+// ascending as a deterministic tiebreak so equal-capacity drives always land in the same order. This is
+// what makes a numDrives pin take a node's LARGEST drives, matching capacityplanner.SortDriveCapacitiesDesc.
+func SortDriveEntriesDesc(entries []DriveEntry) []DriveEntry {
+	out := make([]DriveEntry, len(entries))
+	copy(out, entries)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CapacityGiB != out[j].CapacityGiB {
+			return out[i].CapacityGiB > out[j].CapacityGiB
+		}
+		return out[i].Serial < out[j].Serial
+	})
+	return out
+}
+
+// ReadDriveAnnotations reads drive entries from the weka.io/weka-full-drives annotation, filtering out
+// zero-capacity entries. Returns nil (not an error) when the annotation is absent.
 func ReadDriveAnnotations(fullAnnotation string) ([]DriveEntry, error) {
 	if fullAnnotation == "" {
 		return nil, nil
@@ -35,7 +51,6 @@ func ReadDriveAnnotations(fullAnnotation string) ([]DriveEntry, error) {
 	if err := json.Unmarshal([]byte(fullAnnotation), &entries); err != nil {
 		return nil, fmt.Errorf("failed to parse weka-full-drives: %w", err)
 	}
-	// Filter out any zero-capacity entries — they must never be used for allocation or capacity calculation.
 	result := make([]DriveEntry, 0, len(entries))
 	for _, e := range entries {
 		if e.CapacityGiB > 0 {
@@ -45,10 +60,8 @@ func ReadDriveAnnotations(fullAnnotation string) ([]DriveEntry, error) {
 	return result, nil
 }
 
-// ReadAnnotatedDriveSerials returns all drive serial IDs found in either node annotation
-// (weka-full-drives or legacy weka-drives), deduplicated. Used in contexts that need to
-// know which drives are annotated on the node (e.g. sign-exclusion, block/unblock)
-// without needing capacity info.
+// ReadAnnotatedDriveSerials returns all drive serials from either node annotation (weka-full-drives or
+// legacy weka-drives), deduplicated — for callers that need only serials (e.g. sign-exclusion, block/unblock).
 func ReadAnnotatedDriveSerials(fullAnnotation, legacyAnnotation string) ([]string, error) {
 	seen := make(map[string]struct{})
 	serials := make([]string, 0)
