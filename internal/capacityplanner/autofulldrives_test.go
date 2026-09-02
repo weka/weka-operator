@@ -676,6 +676,99 @@ func TestPlanAutoFullDrives_ComputeLayout_HugepagesBound_MoreSmallerContainers(t
 	}
 }
 
+// TestPlanAutoFullDrives_ComputeLayout_HugepagesBound_Infeasible_ReportsBinding reproduces the live bug
+// (weka-capacity dry-run): an auto-full-drives compute-layout infeasibility that is entirely a hugepages
+// shortfall must carry Binding="hugepages" in the structured report, not the empty string, or a consumer
+// of InfeasibilityReport sees no binding and no shortfall and concludes nothing is wrong.
+func TestPlanAutoFullDrives_ComputeLayout_HugepagesBound_Infeasible_ReportsBinding(t *testing.T) {
+	cons := testCons()
+	cons.FullDrivesComputeToDriveCoreRatio = 0
+	const bigFree = 1 << 28
+
+	var inv []NodeCapacity
+	for i := 1; i <= 6; i++ {
+		inv = append(inv, NodeCapacity{
+			NodeName: "d" + itoa(i), FDValue: "d" + itoa(i),
+			DriveCapacitiesGiB: uniformDrives(15, 100), TlcGiB: 1500,
+			AllocatableCPU: 100, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+		})
+	}
+	// 8 compute-only nodes, ample cores (64) so cores never bind; hugepages split 6-high/2-low so the
+	// per-container bar (3000 MiB/core * 12 cores = 36000 MiB) is met by only 6 of the 8 nodes, mirroring
+	// the observed "only 6 of 8 nodes meet the ... bar" shape.
+	for i := 1; i <= 6; i++ {
+		inv = append(inv, tightNode("c"+itoa(i), 0, 64, 40000))
+	}
+	for i := 7; i <= 8; i++ {
+		inv = append(inv, tightNode("c"+itoa(i), 0, 64, 10000))
+	}
+	computeNodes := computeNodeSet("c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8")
+	desired := AutoFullDrivesDesired{DriveCores: 15}
+
+	plan := PlanAutoFullDrives(desired, nil, nil, inv, computeNodes, cons)
+
+	if plan.Infeasible == "" {
+		t.Fatalf("expected infeasible (hugepages bar met by only 6 of 8 compute nodes), got feasible plan: %+v", plan)
+	}
+	if !strings.Contains(plan.Infeasible, "hugepages insufficient for") || !strings.Contains(plan.Infeasible, "only 6 of 8 nodes") {
+		t.Fatalf("Infeasible = %q, want it to name the hugepages shortfall and the 6-of-8 node count", plan.Infeasible)
+	}
+	if plan.Infeasibility.Pool != "compute" {
+		t.Errorf("Infeasibility.Pool = %q, want %q", plan.Infeasibility.Pool, "compute")
+	}
+	if plan.Infeasibility.Binding != bindingHugepages {
+		t.Errorf("Infeasibility.Binding = %q, want %q", plan.Infeasibility.Binding, bindingHugepages)
+	}
+	// The shortfall here is in cores/MiB, never GiB; ShortfallGiB must stay 0 rather than invent a
+	// lossy MiB->GiB conversion.
+	if plan.Infeasibility.ShortfallGiB != 0 {
+		t.Errorf("Infeasibility.ShortfallGiB = %d, want 0 (hugepages shortfall is not GiB-quantifiable here)", plan.Infeasibility.ShortfallGiB)
+	}
+}
+
+// TestPlanAutoFullDrives_ComputeLayout_CoresBound_Infeasible_ReportsBinding is the cores-bound sibling of
+// the hugepages test above: compute nodes have ample hugepages but too few cores, so Binding must read
+// "cores", not "hugepages" or "".
+func TestPlanAutoFullDrives_ComputeLayout_CoresBound_Infeasible_ReportsBinding(t *testing.T) {
+	cons := testCons()
+	cons.FullDrivesComputeToDriveCoreRatio = 0
+	const bigFree = 1 << 28
+
+	var inv []NodeCapacity
+	for i := 1; i <= 6; i++ {
+		inv = append(inv, NodeCapacity{
+			NodeName: "d" + itoa(i), FDValue: "d" + itoa(i),
+			DriveCapacitiesGiB: uniformDrives(15, 100), TlcGiB: 1500,
+			AllocatableCPU: 100, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+		})
+	}
+	// 8 compute-only nodes with only 5 allocatable CPUs each (4 data cores after the non-HT base charge)
+	// but effectively unlimited hugepages, so cores alone bind the layout.
+	for i := 1; i <= 8; i++ {
+		inv = append(inv, tightNode("c"+itoa(i), 0, 5, bigFree))
+	}
+	computeNodes := computeNodeSet("c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8")
+	desired := AutoFullDrivesDesired{DriveCores: 15}
+
+	plan := PlanAutoFullDrives(desired, nil, nil, inv, computeNodes, cons)
+
+	if plan.Infeasible == "" {
+		t.Fatalf("expected infeasible (4 data cores/node can't cover the 90-core compute:drive requirement), got feasible plan: %+v", plan)
+	}
+	if !strings.Contains(plan.Infeasible, "hugepages are sufficient") {
+		t.Fatalf("Infeasible = %q, want it to attribute the failure to cores alone", plan.Infeasible)
+	}
+	if plan.Infeasibility.Pool != "compute" {
+		t.Errorf("Infeasibility.Pool = %q, want %q", plan.Infeasibility.Pool, "compute")
+	}
+	if plan.Infeasibility.Binding != bindingCores {
+		t.Errorf("Infeasibility.Binding = %q, want %q", plan.Infeasibility.Binding, bindingCores)
+	}
+	if plan.Infeasibility.ShortfallGiB != 0 {
+		t.Errorf("Infeasibility.ShortfallGiB = %d, want 0 (core shortfall is not GiB-quantifiable here)", plan.Infeasibility.ShortfallGiB)
+	}
+}
+
 // TestPlanAutoFullDrives_Infeasible_ReportsFullClaimAndNoCompute: an infeasible plan still reports what it
 // would have claimed, so an operator can see the size of what they are being denied, and carries no compute
 // layout at all.
@@ -2779,6 +2872,15 @@ func TestPlanAutoFullDrives_OneNodeCannotFitFailsWholePlan(t *testing.T) {
 	if u := plan.Infeasibility.RejectedNodes[0].Unit; u == "" {
 		t.Fatal("RejectedNodes must carry a Unit so renderers do not print a CPU count as GiB")
 	}
+	// n-short has no existing container: this is a create-only failure, so the message must not carry the
+	// growth-hazard clause (there is no drive container yet for a compute container to have blocked) and the
+	// fix catalog must not lead with the delete-compute tip.
+	if strings.Contains(plan.Infeasible, "compute container") {
+		t.Fatalf("create-only failure must not mention a blocking compute container, got %q", plan.Infeasible)
+	}
+	if hasFix(plan.Infeasibility.Fixes, "delete this cluster's compute container") {
+		t.Fatalf("create-only failure must not suggest deleting a compute container, got %+v", plan.Infeasibility.Fixes)
+	}
 }
 
 func TestPlanAutoFullDrives_EveryNonFittingNodeIsNamed(t *testing.T) {
@@ -3005,9 +3107,11 @@ func TestPlanAutoFullDrives_UnscheduledDriveContainer_FreezesGrowth(t *testing.T
 }
 
 // Both placement-deferral causes (unscheduled pod, container being deleted) map to the same
-// AutoFullDrivesPlacementDeferred reason, so a pass hitting both must still produce exactly one warning —
-// two would let the event throttle (keyed on reason alone) silently drop one of them.
-func TestPlanAutoFullDrives_UnscheduledAndDeletingCauses_MergeIntoOneWarning(t *testing.T) {
+// AutoFullDrivesPlacementDeferred reason, but describe genuinely different conditions, so a pass hitting
+// both must produce two separate warnings, each carrying its own Cause: merging them into one would leave
+// the pair sharing a single throttle window downstream, and a later event for either cause landing inside
+// it would be silently dropped just as it was before the per-cause split.
+func TestPlanAutoFullDrives_UnscheduledAndDeletingCauses_ProduceSeparateWarnings(t *testing.T) {
 	cons := testCons()
 	const bigFree = 1 << 28
 
@@ -3048,18 +3152,41 @@ func TestPlanAutoFullDrives_UnscheduledAndDeletingCauses_MergeIntoOneWarning(t *
 			transient = append(transient, w)
 		}
 	}
-	if len(transient) != 1 {
-		t.Fatalf("WarningKindTransient warnings = %+v, want exactly 1 covering both causes", transient)
+	if len(transient) != 2 {
+		t.Fatalf("WarningKindTransient warnings = %+v, want exactly 2 (one per cause)", transient)
 	}
-	w := transient[0]
-	if !strings.Contains(w.Message, "unscheduled") {
-		t.Errorf("warning message = %q, want it to name the unscheduled node %q", w.Message, "unscheduled")
+
+	byCause := map[WarningCause]Warning{}
+	for _, w := range transient {
+		byCause[w.Cause] = w
 	}
-	if !strings.Contains(w.Message, "deleting") {
-		t.Errorf("warning message = %q, want it to name the deleting node %q", w.Message, "deleting")
+
+	unscheduledWarning, ok := byCause[CausePlacementUnscheduled]
+	if !ok {
+		t.Fatalf("no WarningKindTransient warning with Cause=%q in %+v", CausePlacementUnscheduled, transient)
 	}
-	if !strings.Contains(w.Message, "both retry automatically") {
-		t.Errorf("warning message = %q, want the merged-causes retry clause \"both retry automatically\"", w.Message)
+	if !strings.Contains(unscheduledWarning.Message, "unscheduled") {
+		t.Errorf("unscheduled-cause warning = %q, want it to name node %q", unscheduledWarning.Message, "unscheduled")
+	}
+	if strings.Contains(unscheduledWarning.Message, "deleting") {
+		t.Errorf("unscheduled-cause warning = %q, must not name node %q", unscheduledWarning.Message, "deleting")
+	}
+	if !strings.Contains(unscheduledWarning.Message, "it retries automatically") {
+		t.Errorf("unscheduled-cause warning = %q, want the singular retry clause \"it retries automatically\"", unscheduledWarning.Message)
+	}
+
+	deletingWarning, ok := byCause[CausePlacementDriveDeleting]
+	if !ok {
+		t.Fatalf("no WarningKindTransient warning with Cause=%q in %+v", CausePlacementDriveDeleting, transient)
+	}
+	if !strings.Contains(deletingWarning.Message, "deleting") {
+		t.Errorf("deleting-cause warning = %q, want it to name node %q", deletingWarning.Message, "deleting")
+	}
+	if strings.Contains(deletingWarning.Message, "unscheduled") {
+		t.Errorf("deleting-cause warning = %q, must not name node %q", deletingWarning.Message, "unscheduled")
+	}
+	if !strings.Contains(deletingWarning.Message, "it retries automatically") {
+		t.Errorf("deleting-cause warning = %q, want the singular retry clause \"it retries automatically\"", deletingWarning.Message)
 	}
 }
 
@@ -3681,5 +3808,704 @@ func TestPlanAutoFullDrives_ComputeGrowth_KeptHugepagesNeverLowered(t *testing.T
 			t.Errorf("kept container's hugepages = %d, want >= the %d it already reserves — a computed fall must never be written",
 				l.HugepagesMiB, inflated)
 		}
+	}
+}
+
+// --- growth blocked by a compute container placed while the drive container was still small ---
+//
+// Relaxing sizing pins in three steps (numDrives+driveCores -> driveCores -> no pins) can leave a
+// hyperconverged fleet permanently infeasible. At the middle step driveCores is still pinned, so the drive
+// container has no pending growth and the walk correctly hands a new compute container all of a node's
+// remaining headroom. When the pin later drops, that drive container must grow into headroom compute is
+// now holding — compute cores/hugepages only ever rise, so the room is not returned. Every reconcile is
+// locally correct; the hazard is purely cross-reconcile ordering. hazardCons/hazardInventory/hazardCarry*
+// simulate that reconcile-by-reconcile so the test reproduces it instead of asserting it in the abstract.
+
+// hazardCons isolates hugepages as the only binding dimension: DriveDpdkPerCoreMiB collapses drive
+// hugepages to 1464/core + 200/drive, and zeroing the TLC ratio + compute DPDK term collapses compute
+// hugepages to a flat 3000/core, so the fixture's one tuned number (d2's hugepages) is easy to reason about.
+func hazardCons() *CapacityConstraints {
+	c := testCons()
+	c.DriveDpdkPerCoreMiB = 64
+	c.ComputeDpdkPerCoreMiB = 0
+	c.ComputeHugepagesTlcRatio = 0
+	c.FullDrivesComputeToDriveCoreRatio = 1.0
+	c.MaxCoresPerContainer = 19
+	return c
+}
+
+// hazardInventory rebuilds the two-node fleet's net headroom from raw node capacity and the containers
+// this cluster owns going into a pass — exactly what inventory.FullDrivesInventory does in production
+// (nodeHeadroom nets every existing container, drive and compute, out of raw allocatable). d1's larger CPU
+// headroom is load-bearing: autoPlaceNewCompute sorts placement candidates by core headroom descending, so
+// the fleet's first compute container lands on d1, leaving d2 compute-free at creation.
+func hazardInventory(existingDrives []ExistingContainer, existingCompute []ExistingComputeContainer, cons *CapacityConstraints, deletingComputeNodes ...string) []NodeCapacity {
+	deleting := map[string]bool{}
+	for _, n := range deletingComputeNodes {
+		deleting[n] = true
+	}
+	nodes := []NodeCapacity{
+		{NodeName: "d1", FDValue: "d1", AllocatableCPU: 200, AvailableHugepagesMiB: 1 << 20, AvailableMemoryMiB: 1 << 28},
+		{NodeName: "d2", FDValue: "d2", AllocatableCPU: 60, AvailableHugepagesMiB: 20000, AvailableMemoryMiB: 1 << 28},
+	}
+	byNode := map[string]ExistingContainer{}
+	for _, ec := range existingDrives {
+		byNode[ec.Node] = ec
+	}
+	for i := range nodes {
+		total := uniformDrives(6, 1000)
+		ec, owns := byNode[nodes[i].NodeName]
+		if owns {
+			nodes[i].OwnDriveCapacitiesGiB, nodes[i].DriveCapacitiesGiB = total[:ec.NumDrives], total[ec.NumDrives:]
+			nodes[i].TlcGiB = sumInts(total)
+			nodes[i].AllocatableCPU -= physicalCPUCost(&nodes[i], ec.NumCores, cons, true)
+			nodes[i].AvailableHugepagesMiB -= DriveContainerHugepagesMiB(ec.NumCores, ec.NumDrives, cons)
+			nodes[i].AvailableMemoryMiB -= ComputeMemoryFootprintMiB(ec.NumCores, cons)
+		} else {
+			nodes[i].DriveCapacitiesGiB = total
+			nodes[i].TlcGiB = sumInts(total)
+		}
+		nodes[i].HasDeletingComputeContainer = deleting[nodes[i].NodeName]
+	}
+	return netCompute(nodes, existingCompute, cons)
+}
+
+// hazardCarryDrives folds a pass's Create/Grow into the next pass's existingDrives, the way a controller
+// feeds back what it applied.
+func hazardCarryDrives(prev []ExistingContainer, plan CapacityPlan) []ExistingContainer {
+	out := append([]ExistingContainer(nil), prev...)
+	idx := map[string]int{}
+	for i, e := range out {
+		idx[e.Name] = i
+	}
+	for _, c := range plan.Create {
+		name := "drive-" + c.Node
+		out = append(out, ExistingContainer{Name: name, Node: c.Node, FDValue: c.FDValue, TlcGiB: c.TlcGiB, NumCores: c.NumCores, NumDrives: c.NumDrives})
+		idx[name] = len(out) - 1
+	}
+	for _, g := range plan.Grow {
+		if i, ok := idx[g.Name]; ok {
+			out[i].TlcGiB, out[i].NumCores, out[i].NumDrives = g.NewTlcGiB, g.NewCores, g.NewNumDrives
+		}
+	}
+	return out
+}
+
+// hazardCarryCompute folds a pass's ComputeLayout into the next pass's existingCompute. The max against
+// what was already there is redundant with the ratchet the planner itself enforces (autoCommitComputeGrowth
+// / autoRederiveKeptHugepages never hand back a smaller figure than their own input) — kept here anyway so
+// the test's own bookkeeping states the invariant it depends on rather than trusting it silently.
+func hazardCarryCompute(prev []ExistingComputeContainer, layout []ComputeContainerSpec) []ExistingComputeContainer {
+	prevByNode := map[string]ExistingComputeContainer{}
+	for _, ec := range prev {
+		prevByNode[ec.Node] = ec
+	}
+	out := make([]ExistingComputeContainer, 0, len(layout))
+	for _, l := range layout {
+		cores, hp := l.NumCores, l.HugepagesMiB
+		if p, ok := prevByNode[l.Node]; ok {
+			cores, hp = max(cores, p.NumCores), max(hp, p.HugepagesMiB)
+		}
+		out = append(out, ExistingComputeContainer{Name: "compute-" + l.Node, Node: l.Node, NumCores: cores, HugepagesMiB: hp})
+	}
+	return out
+}
+
+// TestPlanAutoFullDrives_ComputeContainerBlocksLaterDriveGrowth reproduces the hazard end to end: create,
+// then relax numDrives, then relax driveCores too (which is where the compute container the create pass
+// placed on d2 turns out to matter), then drop every pin. The last step must go infeasible on d2 alone,
+// bound on hugepages, with the report explaining a compute container may be holding the room.
+// hazardStateAfterPassB drives the fixture through create, pass A (numDrives relaxed) and pass B (driveCores
+// also relaxed), asserting each intermediate step along the way, and returns the existingDrives/existingCompute
+// state pass C is run against. Factored out so both the blocked-growth test and the recovery test start from
+// the same, already-verified state instead of each re-deriving it.
+func hazardStateAfterPassB(t *testing.T) ([]ExistingContainer, []ExistingComputeContainer, *CapacityConstraints, map[string]bool) {
+	t.Helper()
+	cons := hazardCons()
+	computeNodes := computeNodeSet("d1", "d2")
+
+	// create: both pins set, 2 drives at 2 cores each.
+	inv := hazardInventory(nil, nil, cons)
+	create := PlanAutoFullDrives(AutoFullDrivesDesired{NumDrives: 2, DriveCores: 2}, nil, nil, inv, computeNodes, cons)
+	if create.Infeasible != "" {
+		t.Fatalf("create pass infeasible: %s", create.Infeasible)
+	}
+	if len(create.Create) != 2 {
+		t.Fatalf("create pass: want 2 Create (one per node), got %d: %+v", len(create.Create), create.Create)
+	}
+	for _, c := range create.Create {
+		if c.NumDrives != 2 || c.NumCores != 2 || c.TlcGiB != 2000 {
+			t.Fatalf("create pass %s = %+v, want 2 drives/2 cores/2000 GiB", c.Node, c)
+		}
+	}
+	if create.RequiredComputeCores != 4 {
+		t.Fatalf("create pass RequiredComputeCores = %d, want 4 (2 nodes x 2 drive cores x ratio 1.0)", create.RequiredComputeCores)
+	}
+	if len(create.ComputeLayout) != 1 {
+		t.Fatalf("create pass: want exactly 1 compute container (d1's headroom wins placement), got %+v", create.ComputeLayout)
+	}
+	if create.ComputeLayout[0].Node != "d1" {
+		t.Fatalf("create pass compute landed on %s, want d1 (higher core headroom)", create.ComputeLayout[0].Node)
+	}
+	if create.ComputeLayout[0].NumCores != 4 || create.ComputeLayout[0].HugepagesMiB != 12000 {
+		t.Fatalf("create pass compute = %+v, want 4 cores/12000 MiB", create.ComputeLayout[0])
+	}
+
+	existingDrives := hazardCarryDrives(nil, create)
+	existingCompute := hazardCarryCompute(nil, create.ComputeLayout)
+
+	// pass A: numDrives relaxed to 4, driveCores still pinned at 2 -> no growth, nothing changes.
+	inv = hazardInventory(existingDrives, existingCompute, cons)
+	passA := PlanAutoFullDrives(AutoFullDrivesDesired{NumDrives: 4, DriveCores: 2}, existingDrives, existingCompute, inv, computeNodes, cons)
+	if passA.Infeasible != "" {
+		t.Fatalf("pass A infeasible: %s", passA.Infeasible)
+	}
+	if len(passA.Create) != 0 {
+		t.Fatalf("pass A: no new node, want no Create, got %+v", passA.Create)
+	}
+	// numDrives relaxed from 2 to 4 grows the drive count on both nodes; driveCores stays pinned at 2, so
+	// compute demand (and therefore d2's compute-container footprint) does not move.
+	if len(passA.Grow) != 2 {
+		t.Fatalf("pass A: want both drive containers to grow their drive count, got %+v", passA.Grow)
+	}
+	for _, g := range passA.Grow {
+		if g.NewNumDrives != 4 || g.NewCores != 2 || g.NewTlcGiB != 4000 {
+			t.Fatalf("pass A Grow[%s] = %+v, want 4 drives/2 cores/4000 GiB", g.Name, g)
+		}
+	}
+	if passA.RequiredComputeCores != 4 {
+		t.Fatalf("pass A RequiredComputeCores = %d, want 4 (driveCores still pinned at 2 per node)", passA.RequiredComputeCores)
+	}
+	if len(passA.ComputeLayout) != 1 || passA.ComputeLayout[0].NumCores != 4 || passA.ComputeLayout[0].HugepagesMiB != 12000 {
+		t.Fatalf("pass A: compute deficit is 0, want the single kept container unchanged, got %+v", passA.ComputeLayout)
+	}
+	existingDrives = hazardCarryDrives(existingDrives, passA)
+	existingCompute = hazardCarryCompute(existingCompute, passA.ComputeLayout)
+
+	// pass B: driveCores pin dropped too (still numDrives=4) -> drives grow to 4 cores each. d1's compute
+	// container is pinned in place; d2 is the only placeable node, so the deficit is covered by a NEW
+	// container there rather than growing d1's.
+	inv = hazardInventory(existingDrives, existingCompute, cons)
+	passB := PlanAutoFullDrives(AutoFullDrivesDesired{NumDrives: 4}, existingDrives, existingCompute, inv, computeNodes, cons)
+	if passB.Infeasible != "" {
+		t.Fatalf("pass B infeasible: %s", passB.Infeasible)
+	}
+	if len(passB.Grow) != 2 {
+		t.Fatalf("pass B: want both drive containers to grow, got %+v", passB.Grow)
+	}
+	for _, g := range passB.Grow {
+		if g.NewNumDrives != 4 || g.NewCores != 4 {
+			t.Fatalf("pass B Grow[%s] = %+v, want 4 drives/4 cores", g.Name, g)
+		}
+	}
+	if len(passB.ComputeLayout) != 2 {
+		t.Fatalf("pass B: want a second compute container placed (d1's kept, d2's new), got %+v", passB.ComputeLayout)
+	}
+	var d2Compute *ComputeContainerSpec
+	for i := range passB.ComputeLayout {
+		if passB.ComputeLayout[i].Node == "d2" {
+			d2Compute = &passB.ComputeLayout[i]
+		}
+	}
+	if d2Compute == nil {
+		t.Fatalf("pass B: want a compute container on d2, got %+v", passB.ComputeLayout)
+	}
+	if d2Compute.NumCores != 4 || d2Compute.HugepagesMiB != 12000 {
+		t.Fatalf("pass B d2 compute = %+v, want 4 cores/12000 MiB", *d2Compute)
+	}
+
+	existingDrives = hazardCarryDrives(existingDrives, passB)
+	existingCompute = hazardCarryCompute(existingCompute, passB.ComputeLayout)
+	return existingDrives, existingCompute, cons, computeNodes
+}
+
+func TestPlanAutoFullDrives_ComputeContainerBlocksLaterDriveGrowth(t *testing.T) {
+	existingDrives, existingCompute, cons, computeNodes := hazardStateAfterPassB(t)
+
+	// pass C: every pin dropped -> both drive containers must grow to their full 6 drives/6 cores. d1 still
+	// has room; d2 does not, because its compute container (placed in pass B, on top of d1's from create)
+	// now holds the hugepages the drive container's growth needs.
+	inv := hazardInventory(existingDrives, existingCompute, cons)
+	passC := PlanAutoFullDrives(AutoFullDrivesDesired{}, existingDrives, existingCompute, inv, computeNodes, cons)
+
+	if passC.Infeasible == "" {
+		t.Fatalf("pass C: expected infeasible — d2's drive container cannot grow into headroom its own "+
+			"compute container holds, got feasible Grow=%+v", passC.Grow)
+	}
+	if passC.Infeasibility == nil {
+		t.Fatalf("pass C: Infeasibility is nil")
+	}
+	if passC.Infeasibility.Binding != "hugepages" {
+		t.Fatalf("pass C: Infeasibility.Binding = %q, want %q", passC.Infeasibility.Binding, "hugepages")
+	}
+	var d2Rejected bool
+	for _, r := range passC.Infeasibility.RejectedNodes {
+		if r.Node == "d2" {
+			d2Rejected = true
+		}
+		if r.Node == "d1" {
+			t.Fatalf("pass C: d1 has room to grow and must not be rejected, got %+v", r)
+		}
+	}
+	if !d2Rejected {
+		t.Fatalf("pass C: want d2 in RejectedNodes, got %+v", passC.Infeasibility.RejectedNodes)
+	}
+	if !strings.Contains(passC.Infeasible, "d2") {
+		t.Fatalf("pass C: Reason must name d2, got %q", passC.Infeasible)
+	}
+	if !strings.Contains(passC.Infeasible, "compute container") {
+		t.Fatalf("pass C: Reason must explain the growth is blocked by this cluster's own compute container, got %q", passC.Infeasible)
+	}
+	if !strings.Contains(passC.Infeasible, "deleting it lets the next reconcile grow the drive container first") {
+		t.Fatalf("pass C: Reason must name the delete-compute recovery action, got %q", passC.Infeasible)
+	}
+	if !hasFix(passC.Infeasibility.Fixes, "delete this cluster's compute container") {
+		t.Fatalf("pass C: Fixes must include the delete-compute recovery tip, got %+v", passC.Infeasibility.Fixes)
+	}
+	if len(passC.Infeasibility.Fixes) == 0 || !strings.Contains(passC.Infeasibility.Fixes[0], "delete this cluster's compute container") {
+		t.Fatalf("pass C: the delete-compute tip must lead the catalog, got %+v", passC.Infeasibility.Fixes)
+	}
+}
+
+// TestPlanAutoFullDrives_DeletingComputeContainerDefersInsteadOfFailing covers the other resolution of the
+// same pass-C deadlock: the operator's own advice (delete d2's compute container) puts that container into
+// deletion, but its pod still holds the hugepages until the deletion actually lands. Failing the whole plan
+// here (as a bare fit failure would) is exactly what prevents compute from ever being re-planned — the
+// capacity weka needs before it will let the deactivation through. HasDeletingComputeContainer must instead
+// defer d2's growth and let d1 and compute proceed.
+func TestPlanAutoFullDrives_DeletingComputeContainerDefersInsteadOfFailing(t *testing.T) {
+	existingDrives, existingCompute, cons, computeNodes := hazardStateAfterPassB(t)
+
+	// The two views of a deleting compute container diverge, and the fixture has to reproduce both:
+	// inventory.ExistingCompute drops it (it skips utils.IsUnhealthy, which is true for a container marked
+	// for deletion), so the planner no longer sees it as one of ours to keep — but its pod still holds the
+	// node's hugepages until the deletion actually lands, so node headroom still nets it out. Passing the
+	// full set to hazardInventory and the trimmed set to the planner is what that state looks like.
+	keptCompute := make([]ExistingComputeContainer, 0, len(existingCompute))
+	for _, ec := range existingCompute {
+		if ec.Node != "d2" {
+			keptCompute = append(keptCompute, ec)
+		}
+	}
+
+	inv := hazardInventory(existingDrives, existingCompute, cons, "d2")
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{}, existingDrives, keptCompute, inv, computeNodes, cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("expected feasible: a deleting compute container defers d2's growth rather than failing the "+
+			"plan, got infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Grow) != 1 {
+		t.Fatalf("want exactly one drive container grown (d1's), got %+v", plan.Grow)
+	}
+	if plan.Grow[0].Name != "drive-d1" || plan.Grow[0].NewNumDrives != 6 || plan.Grow[0].NewCores != 6 {
+		t.Fatalf("Grow[0] = %+v, want d1 grown to its full 6 drives/6 cores", plan.Grow[0])
+	}
+	for _, g := range plan.Grow {
+		if g.Name == "drive-d2" {
+			t.Fatalf("d2's drive container must not grow this pass while its blocking compute container is "+
+				"still deleting, got %+v", g)
+		}
+	}
+
+	var named bool
+	for _, w := range plan.Warnings {
+		if strings.Contains(w.Message, "d2") && strings.Contains(w.Message, "placement deferred") {
+			named = true
+		}
+	}
+	if !named {
+		t.Fatalf("want a placement-deferred warning naming d2, got %+v", plan.Warnings)
+	}
+
+	// Every total charges d2 at what it is actually running (4 drives / 4 cores / 4000 GiB), not the 6 it
+	// would grow to: no Grow entry is written for it this pass. Charging the target would size compute for
+	// capacity that does not exist — and since tlcGiBTaken drives compute hugepages, it would raise compute
+	// demand on the very node whose growth a compute container is already blocking. An over-sized compute
+	// layout can go infeasible, which applies nothing at all, including d1's growth.
+	if plan.TotalTlcDriveCores != 10 {
+		t.Fatalf("TotalTlcDriveCores = %d, want 10 (d1 grown to 6 + d2 frozen at 4)", plan.TotalTlcDriveCores)
+	}
+	if plan.RequiredComputeCores != 10 {
+		t.Fatalf("RequiredComputeCores = %d, want 10", plan.RequiredComputeCores)
+	}
+	if plan.DriveSizing == nil || plan.DriveSizing.TlcGiBTaken != 10000 || plan.DriveSizing.DrivesTaken != 10 {
+		t.Fatalf("DriveSizing = %+v, want 10 drives / 10000 GiB (d1 grown to 6, d2 frozen at 4)", plan.DriveSizing)
+	}
+	// The denominator still reflects every signed drive on both nodes — the deferral hides nothing.
+	if plan.DriveSizing.DrivesAvailable != 12 || plan.DriveSizing.TlcGiBAvailable != 12000 {
+		t.Fatalf("DriveSizing available = %d drives / %d GiB, want the full signed 12 / 12000",
+			plan.DriveSizing.DrivesAvailable, plan.DriveSizing.TlcGiBAvailable)
+	}
+
+	// Compute must still be planned — the whole point of deferring rather than failing: this is the extra
+	// compute capacity weka needs before it will deactivate d2's compute container.
+	if len(plan.ComputeLayout) != 1 {
+		t.Fatalf("ComputeLayout = %+v, want exactly d1's container (d2 has no headroom while its compute "+
+			"container's pod is still up), got %d entries", plan.ComputeLayout, len(plan.ComputeLayout))
+	}
+	if c := plan.ComputeLayout[0]; c.Node != "d1" || c.NumCores != 10 || c.HugepagesMiB != 30000 {
+		t.Fatalf("ComputeLayout[0] = %+v, want d1 at 10 cores/30000 MiB", c)
+	}
+}
+
+// TestPlanAutoFullDrives_DeletingBlockingComputeContainerRecoversGrowth is the manual recovery for the
+// hazard above: deleting the cluster's compute container on the blocked node returns its spec footprint to
+// node headroom, and the next reconcile grows the drive container first (the drive walk runs before compute
+// sizing in the same pass), then re-places compute against what is left.
+func TestPlanAutoFullDrives_DeletingBlockingComputeContainerRecoversGrowth(t *testing.T) {
+	existingDrives, existingCompute, cons, computeNodes := hazardStateAfterPassB(t)
+
+	// Drop d2's compute container from existingCompute — exactly what deleting that WekaContainer produces:
+	// its 4 cores / 12000 MiB are no longer netted out of d2's headroom by hazardInventory below.
+	recovered := make([]ExistingComputeContainer, 0, len(existingCompute))
+	for _, ec := range existingCompute {
+		if ec.Node != "d2" {
+			recovered = append(recovered, ec)
+		}
+	}
+
+	inv := hazardInventory(existingDrives, recovered, cons)
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{}, existingDrives, recovered, inv, computeNodes, cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("expected feasible once d2's compute container is deleted, got infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Grow) != 2 {
+		t.Fatalf("want both drive containers to grow to their full drive set, got %+v", plan.Grow)
+	}
+	for _, g := range plan.Grow {
+		if g.NewNumDrives != 6 || g.NewCores != 6 || g.NewTlcGiB != 6000 {
+			t.Fatalf("Grow[%s] = %+v, want the full 6 drives/6 cores/6000 GiB", g.Name, g)
+		}
+	}
+	// 12 required drive cores (6+6 at ratio 1.0) against d1's kept 4 cores leaves an 8-core deficit. The
+	// growth search grows d1's existing container as far as it can (to 9 cores) before placing the remainder
+	// as a new container on d2, rather than growing d1 past what its own headroom allows.
+	if plan.RequiredComputeCores != 12 {
+		t.Fatalf("RequiredComputeCores = %d, want 12 (6+6 drive cores at ratio 1.0)", plan.RequiredComputeCores)
+	}
+	var d1Compute, d2Compute *ComputeContainerSpec
+	for i := range plan.ComputeLayout {
+		switch plan.ComputeLayout[i].Node {
+		case "d1":
+			d1Compute = &plan.ComputeLayout[i]
+		case "d2":
+			d2Compute = &plan.ComputeLayout[i]
+		}
+	}
+	if d1Compute == nil || d2Compute == nil {
+		t.Fatalf("want a compute container on both d1 and d2, got %+v", plan.ComputeLayout)
+	}
+	if d1Compute.NumCores != 9 {
+		t.Fatalf("d1 compute = %+v, want 9 cores (grown from its kept 4, as far as its own headroom allows)", *d1Compute)
+	}
+	if d2Compute.NumCores != 3 {
+		t.Fatalf("d2 compute = %+v, want a new 3-core container covering the remainder of the deficit", *d2Compute)
+	}
+	if d1Compute.NumCores+d2Compute.NumCores != plan.RequiredComputeCores {
+		t.Fatalf("compute layout totals %d+%d cores, want %d (RequiredComputeCores)",
+			d1Compute.NumCores, d2Compute.NumCores, plan.RequiredComputeCores)
+	}
+}
+
+// TestPlanAutoFullDrives_BothPinsDroppedInOnePass_ReachesFullGrowth: the hazard needs the intermediate step
+// (pass A/B above) where driveCores is still pinned while numDrives already isn't — that is what lets a
+// compute container land on the second node before that node's drive container has any pending growth of
+// its own. Dropping both pins in the same pass a create ran in skips that step entirely, so both drive
+// containers and the single compute container grow together and the fleet reaches full growth in one step.
+func TestPlanAutoFullDrives_BothPinsDroppedInOnePass_ReachesFullGrowth(t *testing.T) {
+	cons := hazardCons()
+	computeNodes := computeNodeSet("d1", "d2")
+
+	inv := hazardInventory(nil, nil, cons)
+	create := PlanAutoFullDrives(AutoFullDrivesDesired{NumDrives: 2, DriveCores: 2}, nil, nil, inv, computeNodes, cons)
+	if create.Infeasible != "" {
+		t.Fatalf("create pass infeasible: %s", create.Infeasible)
+	}
+	existingDrives := hazardCarryDrives(nil, create)
+	existingCompute := hazardCarryCompute(nil, create.ComputeLayout)
+
+	inv = hazardInventory(existingDrives, existingCompute, cons)
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{}, existingDrives, existingCompute, inv, computeNodes, cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("dropping both pins in one pass right after create must reach full growth, got infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Grow) != 2 {
+		t.Fatalf("want both drive containers to grow to their full drive set, got %+v", plan.Grow)
+	}
+	for _, g := range plan.Grow {
+		if g.NewNumDrives != 6 || g.NewCores != 6 || g.NewTlcGiB != 6000 {
+			t.Fatalf("Grow[%s] = %+v, want the full 6 drives/6 cores/6000 GiB", g.Name, g)
+		}
+	}
+}
+
+// An unscheduled node that also has a compute container being deleted keeps the unscheduled charging
+// convention: it never ran a fit, so the zero-valued result must not be read as a compute-blocked failure.
+// Only the deleting-compute flag differs from
+// TestPlanAutoFullDrives_UnscheduledDriveContainer_ComputeCountsPlannedNotFrozenCapacity, and neither the
+// numerator nor the compute sizing may move because of it.
+func TestPlanAutoFullDrives_UnscheduledNodeWithDeletingCompute_KeepsPlannedCapacity(t *testing.T) {
+	for _, deletingCompute := range []bool{false, true} {
+		cons := testCons()
+		cons.ComputeHugepagesTlcRatio = 1024
+		cons.FullDrivesComputeToDriveCoreRatio = 0
+		const bigFree = 1 << 28
+
+		existingDrives := []ExistingContainer{
+			{Name: "drive-unscheduled", Node: "unscheduled", FDValue: "unscheduled", NumCores: 1, NumDrives: 1, Unscheduled: true},
+		}
+		unscheduled := NodeCapacity{
+			NodeName: "unscheduled", FDValue: "unscheduled",
+			OwnDriveCapacitiesGiB: uniformDrives(1, 1000),
+			DriveCapacitiesGiB:    uniformDrives(2, 1000),
+			AllocatableCPU:        100, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+			HasDeletingComputeContainer: deletingCompute,
+		}
+		c1 := NodeCapacity{NodeName: "c1", FDValue: "fdC1", AllocatableCPU: 1000, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree}
+
+		plan := PlanAutoFullDrives(AutoFullDrivesDesired{}, existingDrives, nil,
+			[]NodeCapacity{unscheduled, c1}, computeNodeSet("c1"), cons)
+
+		if plan.DriveSizing == nil || plan.DriveSizing.TlcGiBTaken != 3000 {
+			t.Fatalf("deletingCompute=%v: DriveSizing = %+v, want TlcGiBTaken 3000 (the planned 3-drive figure)",
+				deletingCompute, plan.DriveSizing)
+		}
+		if len(plan.ComputeLayout) != 1 || plan.ComputeLayout[0].HugepagesMiB != 4700 {
+			t.Fatalf("deletingCompute=%v: ComputeLayout = %+v, want one entry at 4700 MiB (planned numerator)",
+				deletingCompute, plan.ComputeLayout)
+		}
+	}
+}
+
+// A compute-blocked node charges the capacity its container actually holds, which cannot be read off
+// ExistingContainer.TlcGiB: that field is structurally 0 for auto-full-drives (driveCapacity and
+// containerCapacity are both unset, and they are all DriveContainerCapacities reads), so the fixture leaves
+// it zero the way inventory.ExistingDrives does. Charging it directly would drop live capacity out of the
+// compute-hugepages numerator and under-size compute; charging the ratcheted target would over-size it.
+func TestPlanAutoFullDrives_ComputeBlocked_ChargesHeldCapacityNotSpecTlcGiB(t *testing.T) {
+	cons := testCons()
+	cons.ComputeHugepagesTlcRatio = 1024
+	cons.FullDrivesComputeToDriveCoreRatio = 0
+	const bigFree = 1 << 28
+
+	existingDrives := []ExistingContainer{
+		{Name: "drive-grow", Node: "grow", FDValue: "grow", NumCores: 1, NumDrives: 1},
+	}
+	// Holds 1 of its 3 signed drives; too little hugepages headroom to grow, so the fit fails.
+	grow := NodeCapacity{
+		NodeName: "grow", FDValue: "grow",
+		OwnDriveCapacitiesGiB: uniformDrives(1, 1000),
+		DriveCapacitiesGiB:    uniformDrives(2, 1000),
+		AllocatableCPU:        100, AvailableHugepagesMiB: 1, AvailableMemoryMiB: bigFree,
+		HasDeletingComputeContainer: true,
+	}
+	// No container of ours yet, so nothing is held and nothing is created.
+	create := NodeCapacity{
+		NodeName: "create", FDValue: "create",
+		DriveCapacitiesGiB: uniformDrives(2, 1000),
+		AllocatableCPU:     100, AvailableHugepagesMiB: 1, AvailableMemoryMiB: bigFree,
+		HasDeletingComputeContainer: true,
+	}
+	c1 := NodeCapacity{NodeName: "c1", FDValue: "fdC1", AllocatableCPU: 1000, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree}
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{}, existingDrives, nil,
+		[]NodeCapacity{grow, create, c1}, computeNodeSet("c1"), cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("want the deferral, not an infeasibility: %s", plan.Infeasible)
+	}
+	if len(plan.Grow) != 0 || len(plan.Create) != 0 {
+		t.Fatalf("both nodes are compute-blocked, want nothing planned, got Create=%+v Grow=%+v", plan.Create, plan.Grow)
+	}
+	// 1000: the grow node's one held drive. The create node contributes nothing — it holds no drives — and
+	// neither node's unclaimed drives count, since this pass does not claim them.
+	if plan.DriveSizing == nil || plan.DriveSizing.TlcGiBTaken != 1000 || plan.DriveSizing.DrivesTaken != 1 {
+		t.Fatalf("DriveSizing = %+v, want 1 drive / 1000 GiB taken (held capacity only)", plan.DriveSizing)
+	}
+	// The denominator still names every signed drive on both nodes, so the deferral hides no capacity.
+	if plan.DriveSizing.DrivesAvailable != 5 || plan.DriveSizing.TlcGiBAvailable != 5000 {
+		t.Fatalf("DriveSizing available = %d drives / %d GiB, want the full signed 5 / 5000",
+			plan.DriveSizing.DrivesAvailable, plan.DriveSizing.TlcGiBAvailable)
+	}
+}
+
+// afdPinnedComputeFleet builds a fleet for the computeCores-pin tests: a non-compute-eligible drive node
+// carrying `drives` drives (2*drives required compute cores at the 2.0 ratio), two compute-eligible nodes
+// each already hosting a keptCores-core container with ample CPU to grow into, and, when freeNodeCores > 0,
+// one free eligible node sized to host exactly that many data cores.
+func afdPinnedComputeFleet(drives, keptCores, freeNodeCores int) (
+	inv []NodeCapacity, eligible map[string]bool, existing []ExistingComputeContainer,
+) {
+	const big = 1 << 28
+	inv = []NodeCapacity{{
+		NodeName: "drv", FDValue: "fdDrv",
+		DriveCapacitiesGiB: afdDrives(drives, 5000), TlcGiB: drives * 5000,
+		AllocatableCPU: 64, AvailableHugepagesMiB: big, AvailableMemoryMiB: big,
+	}}
+	eligible = map[string]bool{}
+	for _, name := range []string{"e1", "e2"} {
+		inv = append(inv, NodeCapacity{
+			NodeName: name, FDValue: "fd" + name,
+			AllocatableCPU: 20, AvailableHugepagesMiB: big, AvailableMemoryMiB: big,
+		})
+		eligible[name] = true
+		existing = append(existing, ExistingComputeContainer{
+			Name: "ec-" + name, Node: name, NumCores: keptCores, HugepagesMiB: 1600,
+		})
+	}
+	if freeNodeCores > 0 {
+		// A free node reserves one core for management, so hosting freeNodeCores data cores costs one more.
+		inv = append(inv, NodeCapacity{
+			NodeName: "f1", FDValue: "fdF",
+			AllocatableCPU: freeNodeCores + 1, AvailableHugepagesMiB: big, AvailableMemoryMiB: big,
+		})
+		eligible["f1"] = true
+	}
+	return inv, eligible, existing
+}
+
+// A pinned computeCores is the exact size of every compute container, so in-place growth must stop at the
+// pin and spread across the kept containers rather than piling the whole deficit onto whichever one has the
+// most node headroom. Growth is the only lever here (no free node), and 2x3 is the one layout that both
+// covers the requirement and honors the pin.
+func TestPlanAutoFullDrives_ComputeGrowth_PinnedCoresBoundsGrowth(t *testing.T) {
+	const pin = 3
+	inv, eligible, existing := afdPinnedComputeFleet(3, 1, 0)
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeCores: pin}, nil, existing, inv, eligible, testCons())
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if plan.RequiredComputeCores != 6 {
+		t.Fatalf("RequiredComputeCores = %d, want 6 (3 drive cores x the 2.0 ratio)", plan.RequiredComputeCores)
+	}
+	if len(plan.ComputeLayout) != 2 {
+		t.Fatalf("ComputeLayout = %+v, want the 2 kept containers", plan.ComputeLayout)
+	}
+	total := 0
+	for _, l := range plan.ComputeLayout {
+		if l.NumCores > pin {
+			t.Errorf("compute container on %s has %d core(s), want at most the pinned %d (layout %+v)",
+				l.Node, l.NumCores, pin, plan.ComputeLayout)
+		}
+		total += l.NumCores
+	}
+	if total != plan.RequiredComputeCores {
+		t.Errorf("layout supplies %d core(s), want exactly the required %d", total, plan.RequiredComputeCores)
+	}
+	if plan.ComputeCores != pin {
+		t.Errorf("ComputeCores = %d, want the pinned %d", plan.ComputeCores, pin)
+	}
+	if got := afdComputeCores(plan.ComputeLayout); got["e1"] != pin || got["e2"] != pin {
+		t.Errorf("per-node cores = %v, want e1 and e2 each grown to the pinned %d", got, pin)
+	}
+}
+
+// With every kept container already at the pinned size there is no growth headroom left, so a deficit no
+// free node can absorb is infeasible rather than covered by carrying a container past the pin. The report
+// names the pinned core count and the compute-node shortfall, and offers the pin as a lever.
+func TestPlanAutoFullDrives_ComputeGrowth_PinnedCoresNoPlaceableNode_Infeasible(t *testing.T) {
+	const pin = 3
+	inv, eligible, existing := afdPinnedComputeFleet(4, pin, 0)
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeCores: pin}, nil, existing, inv, eligible, testCons())
+
+	if plan.Infeasible == "" {
+		t.Fatalf("want infeasible (2-core deficit, every kept container at the pinned %d, no free node), "+
+			"got layout %+v", pin, plan.ComputeLayout)
+	}
+	if !strings.Contains(plan.Infeasible, "of 3 cores") || !strings.Contains(plan.Infeasible, "compute nodes") {
+		t.Errorf("Infeasible = %q, want it to name the pinned core count and the compute-node shortfall",
+			plan.Infeasible)
+	}
+	if plan.Infeasibility.Pool != "compute" {
+		t.Errorf("Infeasibility.Pool = %q, want %q", plan.Infeasibility.Pool, "compute")
+	}
+	if plan.Infeasibility.Binding != bindingCores {
+		t.Errorf("Infeasibility.Binding = %q, want %q", plan.Infeasibility.Binding, bindingCores)
+	}
+	if !hasFix(plan.Infeasibility.Fixes, "lower dynamicTemplate.computeCores if it is pinned") {
+		t.Errorf("Fixes = %v, want one offering the computeCores pin as a lever", plan.Infeasibility.Fixes)
+	}
+	if plan.ComputeCores != 0 || plan.ComputeContainers != 0 || len(plan.ComputeLayout) != 0 {
+		t.Errorf("infeasible plan must not emit compute sizing, got %d container(s) x %d core(s), layout=%d",
+			plan.ComputeContainers, plan.ComputeCores, len(plan.ComputeLayout))
+	}
+}
+
+// The steady state a pin implies: a deficit is covered by a new container of exactly the pinned size on a
+// free node, leaving every kept container at the pin. New containers are the preferred lever, so bounding
+// growth must not divert this case into growth or infeasibility.
+func TestPlanAutoFullDrives_ComputeGrowth_PinnedCoresPlacesNewContainer(t *testing.T) {
+	const pin = 3
+	inv, eligible, existing := afdPinnedComputeFleet(4, pin, pin)
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeCores: pin}, nil, existing, inv, eligible, testCons())
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	got := afdComputeCores(plan.ComputeLayout)
+	want := map[string]int{"e1": pin, "e2": pin, "f1": pin}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("per-node cores = %v, want %v (kept containers at the pin, replacement placed at the pin)",
+			got, want)
+	}
+	if plan.ComputeCores != pin {
+		t.Errorf("ComputeCores = %d, want the pinned %d", plan.ComputeCores, pin)
+	}
+}
+
+// A compute shortfall on a node still draining a deleted compute container says so. The planner cannot tell
+// whether the returning reservation would close the gap, so the report stays infeasible — but the operator's
+// choice between waiting and intervening turns on that fact, and it is carried nowhere else in the report.
+func TestPlanAutoFullDrives_ComputeShortfall_NamesDrainingNode(t *testing.T) {
+	const big = 1 << 28
+	cons := testCons()
+	cons.FullDrivesComputeToDriveCoreRatio = 2.0
+
+	// One drive node with plenty of drives, and a compute-eligible node too small to host the compute the
+	// resulting drive cores demand — a genuine shortfall either way.
+	mk := func(deleting bool) CapacityPlan {
+		drive := NodeCapacity{
+			NodeName: "d1", FDValue: "d1",
+			DriveCapacitiesGiB: afdDrives(6, 1000), TlcGiB: 6000,
+			AllocatableCPU: 64, AvailableHugepagesMiB: big, AvailableMemoryMiB: big,
+		}
+		compute := NodeCapacity{
+			NodeName: "c1", FDValue: "c1",
+			AllocatableCPU: 1, AvailableHugepagesMiB: 1, AvailableMemoryMiB: 1,
+			HasDeletingComputeContainer: deleting,
+		}
+		return PlanAutoFullDrives(AutoFullDrivesDesired{}, nil, nil,
+			[]NodeCapacity{drive, compute}, computeNodeSet("c1"), cons)
+	}
+
+	without := mk(false)
+	if without.Infeasible == "" {
+		t.Fatalf("fixture must be infeasible to exercise the clause, got feasible")
+	}
+	if strings.Contains(without.Infeasible, "still being deleted") {
+		t.Fatalf("no node is draining, so the clause must be absent, got %q", without.Infeasible)
+	}
+
+	with := mk(true)
+	if with.Infeasible == "" {
+		t.Fatalf("the clause is wording only — the plan must stay infeasible, got feasible")
+	}
+	if !strings.Contains(with.Infeasible, "a compute container of this cluster is still being deleted on c1") {
+		t.Fatalf("shortfall must name the draining node, got %q", with.Infeasible)
+	}
+	if !strings.Contains(with.Infeasible, "may clear on its own") {
+		t.Fatalf("shortfall must say the condition can resolve without intervention, got %q", with.Infeasible)
+	}
+	// Wording only: the verdict, pool and binding must be untouched by the presence of a draining node.
+	if with.Infeasibility.Pool != without.Infeasibility.Pool ||
+		with.Infeasibility.Binding != without.Infeasibility.Binding {
+		t.Fatalf("clause must not change the classification: %+v vs %+v", with.Infeasibility, without.Infeasibility)
 	}
 }

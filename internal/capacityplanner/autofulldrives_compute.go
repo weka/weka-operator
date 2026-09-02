@@ -139,24 +139,25 @@ func planComputeAutoFullDrives(in *autoComputeInput, plan *CapacityPlan) {
 	// Prefer new containers, top up with in-place growth: the least growth that lets the rest fit on free
 	// nodes. probe reports whether a given growTake is coverable, deriving the layout for the target it
 	// leaves; it has no side effects, so it is safe to call for candidates that are never committed.
-	probe := func(growTake int) (computeProbe, string) {
+	probe := func(growTake int) (computeProbe, string, string) {
 		// Growth alone closes it, so there is nothing to derive — and deriving against a zero target would
 		// resurrect the phantom-container case guarded above. growTake==0 is excluded: a zero deficit there
 		// still owes the derivation its floor containers.
 		if deficit-growTake <= 0 && growTake > 0 {
-			return computeProbe{growthAlone: true}, ""
+			return computeProbe{growthAlone: true}, "", ""
 		}
 		// specCount is hard 0: a pinned computeContainers means the cluster is not in this mode at all.
-		count, cores, infeasible, warnings := deriveComputeLayout(
+		count, cores, infeasible, binding, warnings := deriveComputeLayout(
 			0, in.desired.ComputeCores, deficit-growTake,
 			floor, in.cons.MaxCoresPerContainer, coreHeadroom, nodeHugepagesMiB, hugepagesFor,
 		)
-		return computeProbe{count: count, cores: cores, warnings: warnings}, infeasible
+		return computeProbe{count: count, cores: cores, warnings: warnings}, infeasible, binding
 	}
 
 	// unaidedReason is the growTake==0 attempt's own explanation (usually the binding resource, often compute
-	// hugepages) for why new containers alone do not fit, and leads the infeasibility below.
-	best, unaidedReason := probe(0)
+	// hugepages) for why new containers alone do not fit, and leads the infeasibility below; unaidedBinding is
+	// its structured classification, carried through so the caller never re-parses the English reason.
+	best, unaidedReason, unaidedBinding := probe(0)
 	growTake := 0
 	if unaidedReason != "" {
 		// The search space is [1, hi]: hi is where growth alone would close the deficit, or all the growth
@@ -172,7 +173,7 @@ func planComputeAutoFullDrives(in *autoComputeInput, plan *CapacityPlan) {
 			// len(kept)*MaxCoresPerContainer and every probe re-derives the whole layout.
 			for lo := 1; lo <= hi; {
 				mid := lo + (hi-lo)/2
-				if p, infeasible := probe(mid); infeasible == "" {
+				if p, infeasible, _ := probe(mid); infeasible == "" {
 					best, growTake, found = p, mid, true
 					hi = mid - 1 // a smaller growTake may also cover it — keep the least
 				} else {
@@ -185,7 +186,7 @@ func planComputeAutoFullDrives(in *autoComputeInput, plan *CapacityPlan) {
 			// container count — rises as it shrinks. Coverability can therefore hold on an interval and fail
 			// above it, which a binary search would walk away from. Scan.
 			for g := 1; g <= hi; g++ {
-				if p, infeasible := probe(g); infeasible == "" {
+				if p, infeasible, _ := probe(g); infeasible == "" {
 					best, growTake, found = p, g, true
 					break
 				}
@@ -199,10 +200,14 @@ func planComputeAutoFullDrives(in *autoComputeInput, plan *CapacityPlan) {
 					"; growing the %d existing compute container(s) in place offers only %d more core(s), "+
 						"which does not close the %d-core shortfall", len(kept), growTotal, deficit)
 			}
+			reason += drainingComputeClause(in)
 			setInfeasible(plan, &InfeasibilityReport{
-				Reason: reason,
-				Pool:   "compute",
-				Fixes:  fixesAutoFullDrivesCompute(in.cons),
+				Reason:  reason,
+				Pool:    "compute",
+				Binding: unaidedBinding,
+				// ShortfallGiB stays 0: the deficit here is in cores or MiB-hugepages, never GiB, and
+				// converting either into GiB would invent a number this report never measured.
+				Fixes: fixesAutoFullDrivesCompute(in.cons),
 			})
 			return
 		}
@@ -283,16 +288,42 @@ func autoKeptCompute(in *autoComputeInput) (kept []autoComputeEntry, pinned map[
 	return kept, pinned, keptCores
 }
 
-// autoComputeGrowHeadroom is how many extra data cores ec's node can absorb in place, bounded by
-// MaxCoresPerContainer and the node's remaining CPU/hugepages/memory. All bounds are deltas: the container's
-// current footprint is already charged against remaining. The hugepages bound has no closed form, so the
-// candidate size walks down until the delta fits.
+// drainingComputeClause names nodes whose compute headroom is depressed by a compute container of this
+// cluster that is pending deletion, for appending to a shortfall report. Wording only: the planner cannot
+// tell whether that reservation returning would actually close the gap, so the shortfall stays infeasible —
+// but which of "wait" or "intervene" is right turns on this fact, and nothing else in the report carries it.
+func drainingComputeClause(in *autoComputeInput) string {
+	var nodes []string
+	for node, nc := range in.remaining {
+		if nc.HasDeletingComputeContainer {
+			nodes = append(nodes, node)
+		}
+	}
+	if len(nodes) == 0 {
+		return ""
+	}
+	sort.Strings(nodes)
+	return fmt.Sprintf(
+		"; a compute container of this cluster is still being deleted on %s, so this shortfall may clear on "+
+			"its own once that deletion lands", listNodes(nodes))
+}
+
+// autoComputeGrowHeadroom is how many extra data cores ec's node can absorb in place, bounded by a pinned
+// computeCores, MaxCoresPerContainer and the node's remaining CPU/hugepages/memory. All bounds are deltas:
+// the container's current footprint is already charged against remaining. The hugepages bound has no closed
+// form, so the candidate size walks down until the delta fits.
 func autoComputeGrowHeadroom(ec *ExistingComputeContainer, nc *NodeCapacity, keptCount int, in *autoComputeInput) int {
 	// includeBase=false throughout: the management core and memory base are already reserved by the running
 	// container, so only the per-core increments are charged.
 	maxCores := ec.NumCores + physicalCPUToDataCores(nc, 0, in.cons, false)
 	if in.cons.MaxCoresPerContainer > 0 {
 		maxCores = min(maxCores, in.cons.MaxCoresPerContainer)
+	}
+	// A pinned computeCores is every compute container's exact size, which deriveComputeLayout honors for new
+	// containers; growth stops there too, so a shortfall new containers cannot place is reported rather than
+	// absorbed by an oversized survivor.
+	if in.desired.ComputeCores > 0 {
+		maxCores = min(maxCores, in.desired.ComputeCores)
 	}
 	if in.cons.MemoryPerCoreMiB > 0 {
 		maxCores = min(maxCores, ec.NumCores+nc.AvailableMemoryMiB/in.cons.MemoryPerCoreMiB)
@@ -442,8 +473,8 @@ func autoPlaceNewCompute(
 		setInfeasible(plan, &InfeasibilityReport{
 			Reason: fmt.Sprintf(
 				"compute: cannot place %d new compute container(s) to cover the %d-core shortfall — "+
-					"only %d free fitting compute node(s) (each holds up to %d cores + %d MiB hugepages)",
-				count, shortfall, len(candidates), cores, perContainerHP),
+					"only %d free fitting compute node(s) (each holds up to %d cores + %d MiB hugepages)%s",
+				count, shortfall, len(candidates), cores, perContainerHP, drainingComputeClause(in)),
 			Pool:    "compute",
 			Binding: "cores",
 			Fixes:   fixesAutoFullDrivesCompute(in.cons),

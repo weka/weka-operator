@@ -5,11 +5,12 @@ import (
 	"strings"
 )
 
-// autofulldrives_warnings.go is where every auto-full-drives planner Warning is worded. Each condition
-// gets exactly one Warning per planning pass, naming every affected node, because the controller throttles
-// events on reason alone: a second Warning under the same reason would be silently dropped for the whole
-// window rather than reported. The walk in autofulldrives.go collects nodes per condition and calls one
-// formatter here after it completes.
+// autofulldrives_warnings.go is where every auto-full-drives planner Warning is worded. Each condition gets
+// exactly one Warning per planning pass, naming every affected node. Distinct conditions that share a
+// WarningKind (and so the same event reason) carry distinct Cause values, since the controller throttles
+// events on reason+cause: a condition with no dedicated Cause would share its throttle window with every
+// other Warning of that Kind, and a second one landing inside that window would be silently dropped. The
+// walk in autofulldrives.go collects nodes per condition and calls a formatter here after it completes.
 
 func listNodes(parts []string) string { return listNodesCapped(parts, autoFullDrivesMaxNamedNodes) }
 
@@ -49,40 +50,47 @@ func formatStrandedWarning(stranded []strandedNode, pin int) Warning {
 }
 
 // formatIneligibleWarning renders the aggregated NodeIneligible message. Each node's cause travels with it
-// in nodes ("h1-2-a (cordoned)"), so unlike stranding and placement-deferral there is no per-cause branching
-// to do here.
-func formatIneligibleWarning(nodes []string, freeDrives int) Warning {
-	return fleetWarning(WarningKindNodeIneligible,
+// in nodes ("h1-2-a (cordoned)"), already resolved by resources.NodeIneligibleReason to one of exactly three
+// values (cordoned, not ready, untolerated taint). reasons is the distinct subset actually present, sorted by
+// the caller for a stable Cause — so a node going NotReady gets its own throttle window instead of sharing
+// one with a fleet that was merely cordoned.
+func formatIneligibleWarning(nodes []string, freeDrives int, reasons []string) Warning {
+	return fleetWarningWithCause(WarningKindNodeIneligible, WarningCause(strings.Join(reasons, "+")),
 		"auto full drives: %d node(s) holding %d signed free full drive(s) are ineligible for a new drive "+
 			"container: %s; anything already running on them keeps running and still grows",
 		len(nodes), freeDrives, listNodes(nodes))
 }
 
-// formatPlacementDeferredWarning renders the aggregated PlacementDeferred message, one warning covering both
-// deferral causes (unscheduled pod, container being deleted) since both map to the single reason
-// AutoFullDrivesPlacementDeferred, whose throttle key ignores the message — two warnings would let one
-// silently suppress the other.
-func formatPlacementDeferredWarning(deferred, deleting []string) Warning {
-	// Two causes share one message, so halve the budget rather than let each spend the full cap.
-	limit := autoFullDrivesMaxNamedNodes
-	if len(deferred) > 0 && len(deleting) > 0 {
-		limit = autoFullDrivesMaxNamedNodes / 2
+// formatPlacementDeferredWarning renders one Warning per PlacementDeferred cause (unscheduled pod, drive
+// container being deleted, compute container being deleted) instead of merging them: each gets its own
+// Cause and so its own throttle window, and the full per-warning node-name cap rather than a share of it.
+// computeBlockedBinding is the fit dimension every compute-blocked node was short of, or "" when they
+// disagree (or it is unknown). It is only wording: the deferral itself fires on any binding, and on the
+// create path as well as growth, so the clause must not promise hugepages or growth specifically.
+func formatPlacementDeferredWarning(deferred, deleting, computeBlocked []string, computeBlockedBinding string) []Warning {
+	held := "the resources"
+	if computeBlockedBinding != "" {
+		held = "the " + computeBlockedBinding
 	}
-
-	var clauses []string
-	if len(deferred) > 0 {
-		clauses = append(clauses, fmt.Sprintf(
-			"pod not scheduled yet, growth waits for the scheduler: %s", listNodesCapped(deferred, limit)))
+	causes := []struct {
+		nodes  []string
+		cause  WarningCause
+		clause string
+	}{
+		{deferred, CausePlacementUnscheduled, "pod not scheduled yet, growth waits for the scheduler"},
+		{deleting, CausePlacementDriveDeleting,
+			"a this-cluster drive container is still being deleted, new placement waits for it"},
+		{computeBlocked, CausePlacementComputeDeleting,
+			"a this-cluster compute container on the node is still being deleted and holds " + held +
+				" this placement needs"},
 	}
-	if len(deleting) > 0 {
-		clauses = append(clauses, fmt.Sprintf(
-			"a this-cluster drive container is still being deleted, new placement waits for it: %s", listNodesCapped(deleting, limit)))
+	var warnings []Warning
+	for _, c := range causes {
+		if len(c.nodes) > 0 {
+			warnings = append(warnings, fleetWarningWithCause(WarningKindTransient, c.cause,
+				"auto full drives: placement deferred on %d node(s) this pass; %s: %s; it retries automatically",
+				len(c.nodes), c.clause, listNodes(c.nodes)))
+		}
 	}
-	retry := "it retries automatically"
-	if len(clauses) > 1 {
-		retry = "both retry automatically"
-	}
-	return fleetWarning(WarningKindTransient,
-		"auto full drives: placement deferred on %d node(s) this pass; %s; %s",
-		len(deferred)+len(deleting), strings.Join(clauses, "; "), retry)
+	return warnings
 }

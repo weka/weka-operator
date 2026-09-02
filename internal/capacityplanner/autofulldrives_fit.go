@@ -12,6 +12,14 @@ const (
 	bindingMemory    = "memory"
 )
 
+// fitKindCreate and fitKindGrowth classify an autoFitFailure: a create failure has no existing container to
+// grow from, a growth failure does. Constants, not string literals, so a typo can't silently disable the
+// growth-hazard diagnostic that keys off this value.
+const (
+	fitKindCreate = "create"
+	fitKindGrowth = "growth"
+)
+
 // autoFootprint is what a drive container is on a node: the cores it runs and the drives it holds. The zero
 // value means "nothing there yet", which is the create path.
 type autoFootprint struct {
@@ -102,8 +110,11 @@ func chargeFit(nc *NodeCapacity, cost autoFitCost) {
 // whole walk so the infeasibility names every offender rather than the first one reached.
 type autoFitFailure struct {
 	node      string
-	kind      string // "create" | "growth"
+	kind      string // fitKindCreate | fitKindGrowth
 	numDrives int
 	toCores   int
 	fit       autoFitResult
+	// ownCompute is whether this cluster runs a compute container on the node, which is what makes the
+	// growth-hazard diagnostic applicable — its remedy is to delete that container.
+	ownCompute bool
 }

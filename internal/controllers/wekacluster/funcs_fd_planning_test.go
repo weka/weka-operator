@@ -1029,9 +1029,9 @@ func TestPlannerEventSpecsCoverEveryReason(t *testing.T) {
 		{reasonAutoFullDrivesPlanned, corev1.EventTypeNormal, time.Minute},
 		{reasonAutoFullDrivesGrowthDetected, corev1.EventTypeNormal, time.Minute},
 		{reasonAutoFullDrivesGrowthDeferred, corev1.EventTypeWarning, plannerConvergedEventInterval},
-		// The three fleet-wide aggregates. Each names the affected node set in a message the throttle key
-		// ignores, so their window bounds how long a node that joins the set after the last event stays
-		// unreported — it must stay well under the converged-state one.
+		// The three fleet-wide aggregates. Each names the affected node set in a message the throttle key does
+		// not see, so a changed set under the same cause still waits out this window before it is
+		// re-reported — it must stay well under the converged-state one.
 		{reasonAutoFullDrivesDrivesStranded, corev1.EventTypeNormal, plannerAggregateEventInterval},
 		{reasonAutoFullDrivesPlacementDeferred, corev1.EventTypeNormal, plannerAggregateEventInterval},
 		{reasonAutoFullDrivesNodeIneligible, corev1.EventTypeNormal, plannerAggregateEventInterval},
@@ -1196,8 +1196,10 @@ func TestAutoFullDrivesWarningReasonAndSeverity(t *testing.T) {
 // TestPlanAutoFullDrivesAggregatesPlacementDeferredIntoOneEvent is the lab regression: forming a cluster
 // where several existing drive containers' pods have not bound yet must not fan out into one
 // AutoFullDrivesPlacementDeferred event per node (lab: 10+ near-identical events on a 14-node cluster,
-// differing only in the node name). One pass with N deferred nodes must produce exactly one event naming
-// all of them.
+// differing only in the node name). Every deferred node here shares the same cause (unscheduled pod), so
+// the per-cause split (TestPlanAutoFullDrivesPlacementDeferred_DistinctCausesDoNotShareThrottleWindow) does
+// not fragment it: one pass with N deferred nodes under one cause must still produce exactly one event
+// naming all of them.
 func TestPlanAutoFullDrivesAggregatesPlacementDeferredIntoOneEvent(t *testing.T) {
 	withoutFormClusterComputeFloor(t)
 
@@ -1264,6 +1266,118 @@ func TestPlanAutoFullDrivesAggregatesPlacementDeferredIntoOneEvent(t *testing.T)
 		if !strings.Contains(got[0], name) {
 			t.Errorf("event does not name deferred node %q: %s", name, got[0])
 		}
+	}
+}
+
+// TestPlanAutoFullDrivesPlacementDeferred_DistinctCausesDoNotShareThrottleWindow is the fix's regression
+// test for the lab bug: RecordEventThrottled keyed solely on eventtype+reason, so two
+// AutoFullDrivesPlacementDeferred events describing different causes inside one throttle window collided
+// and the second was silently dropped (lab: an "unscheduled pod" cause fired, then 18s later a "drive
+// container being deleted" cause on a different node was dropped inside the 3-minute window). A repeat of
+// the *same* cause inside the window must still be suppressed -- only a genuinely different cause escapes.
+func TestPlanAutoFullDrivesPlacementDeferred_DistinctCausesDoNotShareThrottleWindow(t *testing.T) {
+	withoutFormClusterComputeFloor(t)
+
+	const bigFree = 1 << 28
+
+	// computeNodes are ample compute-only nodes so each fixture's frozen core demand always fits, keeping
+	// the plan from going infeasible (which would make the event assertions below vacuous).
+	computeNodes := func() ([]capacityplanner.NodeCapacity, map[string]string, map[string]bool) {
+		var inv []capacityplanner.NodeCapacity
+		fdByNode := map[string]string{}
+		eligible := map[string]bool{}
+		for _, name := range []string{"compute-1", "compute-2"} {
+			inv = append(inv, capacityplanner.NodeCapacity{
+				NodeName: name, FDValue: "fd-" + name,
+				AllocatableCPU: 64, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+			})
+			fdByNode[name] = "fd-" + name
+			eligible[name] = true
+		}
+		return inv, fdByNode, eligible
+	}
+
+	// unscheduledFixture: an existing drive container whose pod has not bound yet, which ExistingDrives
+	// marks Unscheduled -- the "unscheduled-pod" cause.
+	unscheduledFixture := func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
+		inv, fdByNode, eligible := computeNodes()
+		inv = append(inv, capacityplanner.NodeCapacity{
+			NodeName: "unscheduled-node", FDValue: "fd-unscheduled",
+			OwnDriveCapacitiesGiB: []int{1000},
+			AllocatableCPU:        10, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+		})
+		fdByNode["unscheduled-node"] = "fd-unscheduled"
+		eligible["unscheduled-node"] = true
+		return fdByNode, inv, eligible, nil
+	}
+
+	// deletingFixture: a node with no container of ours yet, whose drive container is mid-deletion -- the
+	// distinct "drive-container-deleting" cause.
+	deletingFixture := func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
+		inv, fdByNode, eligible := computeNodes()
+		inv = append(inv, capacityplanner.NodeCapacity{
+			NodeName: "deleting-node", FDValue: "fd-deleting",
+			DriveCapacitiesGiB: []int{1000}, TlcGiB: 1000,
+			AllocatableCPU: 10, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+			HasDeletingDriveContainer: true,
+		})
+		fdByNode["deleting-node"] = "fd-deleting"
+		eligible["deleting-node"] = true
+		return fdByNode, inv, eligible, nil
+	}
+
+	unscheduledContainer := &weka.WekaContainer{}
+	unscheduledContainer.Name = "drive-unscheduled-node"
+	unscheduledContainer.Spec.Mode = weka.WekaContainerModeDrive
+	unscheduledContainer.Spec.NodeAffinity = "unscheduled-node"
+	// Status.NodeAffinity left unset: the pod has not bound, which is what makes ExistingDrives mark it Unscheduled.
+	unscheduledContainer.Spec.NumDrives = 1
+	unscheduledContainer.Spec.DriveCapacity = 1000
+	unscheduledContainer.Spec.NumCores = 1
+
+	phase := 0
+	inventoryFn := func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
+		if phase == 1 {
+			return deletingFixture()
+		}
+		return unscheduledFixture()
+	}
+
+	r, _ := newAutoFullDrivesLoop([]*weka.WekaContainer{unscheduledContainer}, inventoryFn)
+	// Generous buffer: FakeRecorder blocks rather than drops once full, and this test drives three passes.
+	r.Recorder = record.NewFakeRecorder(64)
+
+	// Pass 1: the unscheduled cause fires and is recorded.
+	if _, err := r.planAutoFullDrives(t.Context()); err != nil {
+		t.Fatalf("pass 1: planAutoFullDrives() unexpected error: %v", err)
+	}
+	// Pass 2, same throttle window: a distinct cause (drive container deleting) under the same reason must
+	// still be delivered -- this is the bug, the old key could not tell the two apart. deletingFixture's node
+	// carries no existing container of ours, so r.containers is cleared -- otherwise ExistingDrives would
+	// still look for unscheduled-node, which this pass's inventory no longer names.
+	phase = 1
+	r.containers = nil
+	if _, err := r.planAutoFullDrives(t.Context()); err != nil {
+		t.Fatalf("pass 2: planAutoFullDrives() unexpected error: %v", err)
+	}
+	// Pass 3, same window: pass 1's cause repeats and must be suppressed.
+	phase = 0
+	r.containers = []*weka.WekaContainer{unscheduledContainer}
+	if _, err := r.planAutoFullDrives(t.Context()); err != nil {
+		t.Fatalf("pass 3: planAutoFullDrives() unexpected error: %v", err)
+	}
+
+	got := eventsMatching(drainLoopEvents(t, r), "AutoFullDrivesPlacementDeferred")
+	if len(got) != 2 {
+		t.Fatalf("got %d AutoFullDrivesPlacementDeferred event(s), want exactly 2 (pass 1's unscheduled cause, "+
+			"pass 2's distinct deleting cause; pass 3's repeat of pass 1's cause must be suppressed): %v",
+			len(got), got)
+	}
+	if !strings.Contains(got[0], "unscheduled-node") || !strings.Contains(got[0], "pod not scheduled yet") {
+		t.Errorf("event[0] = %q, want pass 1's unscheduled-cause event naming unscheduled-node", got[0])
+	}
+	if !strings.Contains(got[1], "deleting-node") || strings.Contains(got[1], "unscheduled-node") {
+		t.Errorf("event[1] = %q, want pass 2's distinct deleting-cause event naming only deleting-node", got[1])
 	}
 }
 
@@ -1380,5 +1494,122 @@ func TestPlanAutoFullDrivesInfeasibleSuppressesAdvisories(t *testing.T) {
 			t.Errorf("%s leaked on an infeasible plan (%v) — the advisory loops must stay below the gate",
 				suppressed, got)
 		}
+	}
+}
+
+// TestPlanAutoFullDrivesInfeasibleEventExplainsBlockedGrowth is the controller-level wiring check for the
+// event body: a growth-kind node-fit failure (an existing drive container that must grow into headroom it no
+// longer has) must produce an AutoFullDrivesInfeasible event naming the node, the shortfall and the one
+// remedy that applies — and must NOT carry the rest of the Fixes catalog, which is terminal-side detail that
+// tripled the length of a message an operator reads in kubectl describe.
+func TestPlanAutoFullDrivesInfeasibleEventExplainsBlockedGrowth(t *testing.T) {
+	withoutFormClusterComputeFloor(t)
+
+	existingDrive := &weka.WekaContainer{}
+	existingDrive.Spec.Mode = weka.WekaContainerModeDrive
+	existingDrive.Spec.NodeAffinity = weka.NodeName("n1")
+	existingDrive.Spec.NumDrives = 2
+	existingDrive.Spec.NumCores = 4
+	existingDrive.Spec.DriveCapacity = 1000
+	existingDrive.Status.NodeAffinity = "n1" // scheduled: an unscheduled container is skipped before the fit check
+
+	// The clause tells the operator to delete this cluster's compute container on n1, so n1 must actually run
+	// one — without it the plan is infeasible for an unrelated reason and the advice names nothing real.
+	existingCompute := &weka.WekaContainer{}
+	existingCompute.Spec.Mode = weka.WekaContainerModeCompute
+	existingCompute.Spec.NodeAffinity = weka.NodeName("n1")
+	existingCompute.Spec.NumCores = 4
+	existingCompute.Spec.Hugepages = 12000
+	existingCompute.Status.NodeAffinity = "n1"
+
+	loop, _ := newAutoFullDrivesLoop([]*weka.WekaContainer{existingDrive, existingCompute},
+		func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
+			return map[string]string{}, []capacityplanner.NodeCapacity{
+				{
+					NodeName: "n1", FDValue: "n1",
+					// 2 drives already held by existingDrive (own) plus 2 more signed and free: the node
+					// walk must grow the container from 2 to 4 drives at the same 4 cores, so only the
+					// per-drive hugepages term changes — and AvailableHugepagesMiB: 0 makes that fail.
+					OwnDriveCapacitiesGiB: []int{1000, 1000},
+					DriveCapacitiesGiB:    []int{1000, 1000},
+					AllocatableCPU:        64, AvailableHugepagesMiB: 0, AvailableMemoryMiB: 1 << 28,
+				},
+			}, map[string]bool{"n1": true}, nil
+		})
+
+	plan, err := loop.planAutoFullDrives(context.Background())
+	if err == nil || plan != nil {
+		t.Fatalf("want an infeasible plan to return a WaitError and no plan, got plan=%v err=%v", plan, err)
+	}
+
+	events := drainLoopEvents(t, loop)
+	got := eventsMatching(events, reasonAutoFullDrivesInfeasible)
+	if len(got) != 1 {
+		t.Fatalf("want exactly 1 %s event, got %d: %v", reasonAutoFullDrivesInfeasible, len(got), events)
+	}
+	msg := got[0]
+	if !strings.Contains(msg, "n1") {
+		t.Fatalf("event must name n1, got %q", msg)
+	}
+	if !strings.Contains(msg, "needs 400 MiB hugepages") {
+		t.Fatalf("event must carry the shortfall figures, got %q", msg)
+	}
+	if !strings.Contains(msg, "may be blocked by this cluster's own compute container") {
+		t.Fatalf("event must explain the blocked growth, got %q", msg)
+	}
+	if !strings.Contains(msg, "deleting it lets the next reconcile grow the drive container first") {
+		t.Fatalf("event must name the remedy, got %q", msg)
+	}
+	// The catalog stays in the structured report for the CLI; an event carrying it was unreadably long.
+	if strings.Contains(msg, "1. ") || strings.Contains(msg, "or switch to a drive-sharing mode") {
+		t.Fatalf("event must not carry the numbered fix catalog, got %q", msg)
+	}
+	if len(msg) > 700 {
+		t.Fatalf("event message is %d chars; it is read in kubectl describe and must stay terse: %q", len(msg), msg)
+	}
+}
+
+// TestPlanAutoFullDrivesInfeasibleEventOmitsBlockedGrowthWithoutComputeContainer is the negative half: the
+// same growth shortfall on a node running none of this cluster's compute containers must not offer the
+// delete-compute remedy. Growth alone does not imply the hazard — the drive container can simply be on a node
+// with nothing left — and naming a container that does not exist sends the operator hunting for it.
+func TestPlanAutoFullDrivesInfeasibleEventOmitsBlockedGrowthWithoutComputeContainer(t *testing.T) {
+	withoutFormClusterComputeFloor(t)
+
+	existingDrive := &weka.WekaContainer{}
+	existingDrive.Spec.Mode = weka.WekaContainerModeDrive
+	existingDrive.Spec.NodeAffinity = weka.NodeName("n1")
+	existingDrive.Spec.NumDrives = 2
+	existingDrive.Spec.NumCores = 4
+	existingDrive.Spec.DriveCapacity = 1000
+	existingDrive.Status.NodeAffinity = "n1"
+
+	loop, _ := newAutoFullDrivesLoop([]*weka.WekaContainer{existingDrive},
+		func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
+			return map[string]string{}, []capacityplanner.NodeCapacity{
+				{
+					NodeName: "n1", FDValue: "n1",
+					OwnDriveCapacitiesGiB: []int{1000, 1000},
+					DriveCapacitiesGiB:    []int{1000, 1000},
+					AllocatableCPU:        64, AvailableHugepagesMiB: 0, AvailableMemoryMiB: 1 << 28,
+				},
+			}, map[string]bool{"n1": true}, nil
+		})
+
+	plan, err := loop.planAutoFullDrives(context.Background())
+	if err == nil || plan != nil {
+		t.Fatalf("want an infeasible plan to return a WaitError and no plan, got plan=%v err=%v", plan, err)
+	}
+
+	got := eventsMatching(drainLoopEvents(t, loop), reasonAutoFullDrivesInfeasible)
+	if len(got) != 1 {
+		t.Fatalf("want exactly 1 %s event, got %d", reasonAutoFullDrivesInfeasible, len(got))
+	}
+	msg := got[0]
+	if !strings.Contains(msg, "needs 400 MiB hugepages") {
+		t.Fatalf("event must still carry the shortfall figures, got %q", msg)
+	}
+	if strings.Contains(msg, "compute container") {
+		t.Fatalf("no compute container of ours runs on n1, so the event must not blame one, got %q", msg)
 	}
 }

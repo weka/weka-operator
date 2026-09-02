@@ -996,3 +996,40 @@ func mapKeys(m map[string]any) []string {
 	sort.Strings(out)
 	return out
 }
+
+// TestAutoFullDrivesNodeRows_ComputeDeletingNote covers the NOTE for the compute-blocked deferral. The
+// contract for the column is that any row with used < avail explains the gap, and this cause reaches it on
+// both paths: a create that never happens, and a growth held at the container's current size. Without the
+// case the row shows a bare gap while WARNINGS names the node.
+func TestAutoFullDrivesNodeRows_ComputeDeletingNote(t *testing.T) {
+	nodeInv := []capacityplanner.NodeCapacity{
+		// create deferred: no container of ours yet, nothing planned.
+		{NodeName: "n-blk-create", FDValue: "n-blk-create", DriveCapacitiesGiB: []int{3840, 3840},
+			HasDeletingComputeContainer: true},
+		// growth deferred: holds 1 of its 3 drives, no Grow entry written this pass.
+		{NodeName: "n-blk-grow", FDValue: "n-blk-grow", OwnDriveCapacitiesGiB: []int{3840},
+			DriveCapacitiesGiB: []int{3840, 3840}, HasDeletingComputeContainer: true},
+	}
+	existing := []capacityplanner.ExistingContainer{
+		{Name: "c-blk-grow", Node: "n-blk-grow", TlcGiB: 3840, NumCores: 1, NumDrives: 1},
+	}
+	plan := &capacityplanner.CapacityPlan{}
+
+	byNode := map[string]autoFullDrivesNodeRow{}
+	for _, r := range autoFullDrivesNodeRows(nodeInv, existing, plan) {
+		byNode[r.Node] = r
+	}
+
+	for _, node := range []string{"n-blk-create", "n-blk-grow"} {
+		row, ok := byNode[node]
+		if !ok {
+			t.Fatalf("%s: missing row", node)
+		}
+		if row.DrivesUsed >= row.DrivesAvail {
+			t.Fatalf("%s: fixture must leave a gap to explain, got used=%d avail=%d", node, row.DrivesUsed, row.DrivesAvail)
+		}
+		if !strings.Contains(row.Note, "compute container being deleted") {
+			t.Errorf("%s: Note = %q, want it to name the deleting compute container", node, row.Note)
+		}
+	}
+}

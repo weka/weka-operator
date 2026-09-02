@@ -87,7 +87,10 @@ func hugepagesFitCheck(nodeHeadroom, nodeHugepagesMiB []int, count, cores, maxCo
 // against real per-node headroom (fit is checked only for the nodes actually chosen; see topNMin), returning
 // a non-empty infeasible reason when it cannot. Invariants when feasible: count in [floor, len(nodeHeadroom)];
 // count*cores >= requiredComputeCores whenever either is auto-derived; hugepagesFor (if set) must also pass.
-func deriveComputeLayout(specCount, specCores, requiredComputeCores, floor, maxCoresPerContainer int, nodeHeadroom, nodeHugepagesMiB []int, hugepagesFor func(count, cores int) int) (count, cores int, infeasible string, warnings []string) {
+// binding classifies infeasible using the InfeasibilityReport.Binding vocabulary (bindingCores/bindingHugepages
+// here), so callers never need to re-parse the English reason; "" when infeasible is "" or the cause is a
+// structural node/container-count mismatch the vocabulary has no word for.
+func deriveComputeLayout(specCount, specCores, requiredComputeCores, floor, maxCoresPerContainer int, nodeHeadroom, nodeHugepagesMiB []int, hugepagesFor func(count, cores int) int) (count, cores int, infeasible, binding string, warnings []string) {
 	d := len(nodeHeadroom)
 	t := requiredComputeCores
 
@@ -97,8 +100,10 @@ func deriveComputeLayout(specCount, specCores, requiredComputeCores, floor, maxC
 		// unset. The cap only needs to hold for the `count` nodes actually used.
 		count = specCount
 		if count > d {
+			// A pinned container count outrunning the node count is a structural mismatch, not a resource
+			// dimension — the vocabulary has no "computeContainers" peer to "driveContainers", so unclassified.
 			return 0, 0, fmt.Sprintf(
-				"computeContainers=%d exceeds the %d compute nodes; compute spreads one-per-node", count, d), nil
+				"computeContainers=%d exceeds the %d compute nodes; compute spreads one-per-node", count, d), "", nil
 		}
 		cores = specCores
 		if cores == 0 {
@@ -109,46 +114,48 @@ func deriveComputeLayout(specCount, specCores, requiredComputeCores, floor, maxC
 		if perContainerCap > 0 && cores > perContainerCap {
 			return 0, 0, fmt.Sprintf(
 				"computeCores=%d exceeds the per-node compute core headroom (%d) after drive placement",
-				cores, perContainerCap), nil
+				cores, perContainerCap), bindingCores, nil
 		}
 		if reason := hugepagesFitCheck(nodeHeadroom, nodeHugepagesMiB, count, cores, maxCoresPerContainer, hugepagesFor); reason != "" {
-			return 0, 0, reason, nil
+			return 0, 0, reason, bindingHugepages, nil
 		}
 		if count*cores < t {
 			return 0, 0, fmt.Sprintf(
 				"compute:drive core ratio not met: %d compute containers × %d cores = %d compute cores < the %d compute "+
 					"core(s) required by the compute:drive ratio (at least 1 per drive core); "+
 					"increase computeContainers or computeCores, or remove them to enable auto-derivation",
-				count, cores, count*cores, t), nil
+				count, cores, count*cores, t), bindingCores, nil
 		}
-		return count, cores, "", warnings
+		return count, cores, "", "", warnings
 
 	case specCores != 0:
 		// Cores set, count unset: honor cores exactly, derive count against the floor, then check the cap —
 		// it depends on which `count` nodes end up in play, not a global figure.
 		cores = specCores
 		if cores <= 0 {
-			return 0, 0, "no compute core headroom on the compute nodes after drive placement", nil
+			return 0, 0, "no compute core headroom on the compute nodes after drive placement", bindingCores, nil
 		}
 		count = max(floor, util.CeilDiv(t, cores))
 		if count > d {
+			// The pinned cores drove the derived count above the node count — cores is the lever that
+			// would fix it (raise cores, or lower requiredComputeCores), so it is the binding dimension.
 			return 0, 0, fmt.Sprintf(
 				"cannot satisfy the compute:drive ratio: need %d compute containers of %d cores but only %d compute nodes",
-				count, cores, d), nil
+				count, cores, d), bindingCores, nil
 		}
 		perContainerCap := topNMin(nodeHeadroom, count, maxCoresPerContainer)
 		if perContainerCap <= 0 {
-			return 0, 0, "no compute core headroom on the compute nodes after drive placement", nil
+			return 0, 0, "no compute core headroom on the compute nodes after drive placement", bindingCores, nil
 		}
 		if cores > perContainerCap {
 			return 0, 0, fmt.Sprintf(
 				"computeCores=%d exceeds the per-node compute core headroom (%d) after drive placement",
-				cores, perContainerCap), nil
+				cores, perContainerCap), bindingCores, nil
 		}
 		if reason := hugepagesFitCheck(nodeHeadroom, nodeHugepagesMiB, count, cores, maxCoresPerContainer, hugepagesFor); reason != "" {
-			return 0, 0, reason, nil
+			return 0, 0, reason, bindingHugepages, nil
 		}
-		return count, cores, "", warnings
+		return count, cores, "", "", warnings
 
 	default:
 		// Neither set: minimize count subject to one-per-node fit and the required cores. For candidate n,
@@ -175,10 +182,10 @@ func deriveComputeLayout(specCount, specCores, requiredComputeCores, floor, maxC
 			break
 		}
 		if found {
-			return count, cores, "", warnings
+			return count, cores, "", "", warnings
 		}
 		if d == 0 || topNMinSorted(sortedHeadroom, d, maxCoresPerContainer) <= 0 {
-			return 0, 0, "no compute core headroom on the compute nodes after drive placement", nil
+			return 0, 0, "no compute core headroom on the compute nodes after drive placement", bindingCores, nil
 		}
 		// No n reached the requirement — report against n=d (most permissive), diagnosing which dimension
 		// actually failed there rather than always naming both (misleading if only hugepages were short).
@@ -189,7 +196,7 @@ func deriveComputeLayout(specCount, specCores, requiredComputeCores, floor, maxC
 		if hugepagesFor == nil {
 			return 0, 0, fmt.Sprintf(
 				"cannot satisfy the compute:drive ratio: need %d compute containers but only %d compute nodes (max %d compute cores < the %d required compute core(s))",
-				neededContainers, d, d*capAll, t), nil
+				neededContainers, d, d*capAll, t), bindingCores, nil
 		}
 		// nil nodeHugepagesMiB disables the check, matching other call sites.
 		hugepagesFit := true
@@ -207,28 +214,30 @@ func deriveComputeLayout(specCount, specCores, requiredComputeCores, floor, maxC
 		}
 		switch {
 		case !coresFit && !hugepagesFit:
+			// Both dimensions are short and the vocabulary carries only one binding at a time; cores leads
+			// since it is checked first above and the reason names it first too.
 			return 0, 0, fmt.Sprintf(
 				"cannot satisfy the compute:drive ratio: neither compute cores nor hugepages suffice for %d compute containers "+
 					"across %d compute nodes (max %d compute cores < the %d required compute core(s); only %d of %d nodes meet the "+
 					"%d MiB/container hugepages bar)",
-				d, d, d*capAll, t, hpFitAlone, d, hpAtD), nil
+				d, d, d*capAll, t, hpFitAlone, d, hpAtD), bindingCores, nil
 		case !coresFit:
 			return 0, 0, fmt.Sprintf(
 				"cannot satisfy the compute:drive ratio: need %d compute containers but only %d compute nodes (max %d compute "+
 					"cores < the %d required compute core(s); hugepages are sufficient)",
-				neededContainers, d, d*capAll, t), nil
+				neededContainers, d, d*capAll, t), bindingCores, nil
 		case !hugepagesFit:
 			return 0, 0, fmt.Sprintf(
 				"cannot satisfy the compute:drive ratio: hugepages insufficient for %d compute containers across %d compute "+
 					"nodes (only %d of %d nodes meet the %d MiB/container bar at %d cores/container; compute cores are sufficient)",
-				d, d, hpFitAlone, d, hpAtD, cAtD), nil
+				d, d, hpFitAlone, d, hpAtD, cAtD), bindingHugepages, nil
 		default:
 			// Unreachable in practice (the scan already tries n=d); kept as a defensive fallback so a
-			// latent scan bug never surfaces a blank message.
+			// latent scan bug never surfaces a blank message. Unclassified since it should never fire.
 			return 0, 0, fmt.Sprintf(
 				"cannot satisfy the compute:drive ratio: need %d compute containers but only %d compute nodes (max %d compute "+
 					"cores < the %d required compute core(s)) [unexpected: cores and hugepages both fit at n=%d]",
-				neededContainers, d, d*capAll, t, d), nil
+				neededContainers, d, d*capAll, t, d), "", nil
 		}
 	}
 }
@@ -271,7 +280,7 @@ func ComputeLayoutWouldGrow(specCount, specCores, requiredComputeCores, floor, m
 	}
 	// nil, nil: hugepages-awareness can only push the answer to a larger n (never lowers total cores below
 	// count*cores >= t), so omitting it here can only cause more re-plans, never an incorrectly skipped one.
-	count, cores, infeasible, _ := deriveComputeLayout(specCount, specCores, requiredComputeCores, floor, maxCoresPerContainer, headroom, nil, nil)
+	count, cores, infeasible, _, _ := deriveComputeLayout(specCount, specCores, requiredComputeCores, floor, maxCoresPerContainer, headroom, nil, nil)
 	if infeasible != "" {
 		return true
 	}

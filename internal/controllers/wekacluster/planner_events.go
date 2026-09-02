@@ -36,6 +36,12 @@ const (
 	// reasonCapacityGrowthApplied lands on the WekaContainer, not the cluster, and is unthrottled — hence no
 	// plannerEventSpecs row. It is named here only so the growth appliers and their tests share one spelling.
 	reasonCapacityGrowthApplied = "CapacityGrowthApplied"
+
+	// causeAutoFullDrivesAllDrivesHeldByDeletion is the pre-plan deferral emitted when every signed full
+	// drive is still held by a deleting drive container (no plan has run yet, so there is no Warning to
+	// carry a capacityplanner.WarningCause). It is distinct from capacityplanner.CausePlacementDriveDeleting,
+	// which covers the same condition once a plan exists, so the two never share a throttle window.
+	causeAutoFullDrivesAllDrivesHeldByDeletion = "all-signed-drives-held-by-deletion"
 )
 
 // plannerConvergedEventInterval throttles advisories describing a converged cluster — one that is
@@ -44,10 +50,10 @@ const (
 const plannerConvergedEventInterval = 15 * time.Minute
 
 // plannerAggregateEventInterval throttles the fleet-wide aggregates, whose message names the affected node
-// set. RecordEventThrottled keys on eventtype+reason and ignores the message, so a window also withholds an
-// aggregate naming a *different* set: a node cordoned two minutes after the first event would otherwise wait
-// out the whole converged-state window. Short enough that a changed set is reported promptly, long enough
-// that a stable one is not re-posted every reconcile.
+// set. emitPlannerEvent keys on eventtype+reason+cause, so a distinct cause (e.g. a node going NotReady vs.
+// one merely cordoned) gets its own window instead of waiting out one already open for a different cause. A
+// changed node set under the *same* cause is still bounded by this window — short enough that it is reported
+// promptly, long enough that a stable set is not re-posted every reconcile.
 const plannerAggregateEventInterval = 3 * time.Minute
 
 type plannerEventSpec struct {
@@ -82,15 +88,22 @@ var plannerEventSpecs = map[string]plannerEventSpec{
 	reasonAutoFullDrivesWarning:        {corev1.EventTypeWarning, plannerConvergedEventInterval},
 }
 
-// emitPlannerEvent records message on the WekaCluster under reason, with that reason's policy.
+// emitPlannerEvent records message on the WekaCluster under reason, with that reason's policy. For
+// reasons whose Warnings need their own throttle key per cause, use emitPlannerEventWithCause instead.
 func (r *wekaClusterReconcilerLoop) emitPlannerEvent(reason, message string) {
+	r.emitPlannerEventWithCause(reason, "", message)
+}
+
+// emitPlannerEventWithCause is emitPlannerEvent plus a cause that further keys the throttle, so a distinct
+// condition under the same reason (e.g. a node going NotReady vs. one merely cordoned) gets its own window.
+func (r *wekaClusterReconcilerLoop) emitPlannerEventWithCause(reason, cause, message string) {
 	spec, known := plannerEventSpecs[reason]
 	if !known {
 		// A reason with no row is a programming error that TestPlannerEventSpecsCoverEveryReason catches; still
 		// emit rather than silently drop it.
 		spec = plannerEventSpec{eventType: corev1.EventTypeWarning, interval: time.Minute}
 	}
-	_ = r.RecordEventThrottled(spec.eventType, reason, message, spec.interval) //nolint:errcheck // best effort
+	_ = r.RecordEventThrottledKeyed(spec.eventType, reason, cause, message, spec.interval) //nolint:errcheck // best effort
 }
 
 // autoFullDrivesWarningReasons gives each planner warning cause its own reason, so operators can filter with
