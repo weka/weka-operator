@@ -307,6 +307,8 @@ class FeaturesFlags:
     ssd_proxy_includes_dpdk_memory: Union[bool, int] = 9
     # flags 10, 11 are not used by the operator
     weka_manages_non_ionode_affinity: Union[bool, int] = 12
+    # flags 13, 14 are not used by the operator
+    auto_build_ids: Union[bool, int] = 15
 
     def __init__(self, b64_flags: Optional[str]) -> None:
         active: Set[int] = set(parse_feature_bitmap(b64_flags or ""))
@@ -1513,10 +1515,22 @@ class ReleaseSpec:
 
 
 async def get_release_spec() -> ReleaseSpec:
-    release_dir = "/opt/weka/dist/release"
-    files = os.listdir(release_dir)
-    assert len(files) == 1, Exception(f"Expected one release spec file, found: {files}")
-    spec_file_path = os.path.join(release_dir, files[0])
+    # same candidates as get_weka_version: in pods that stage the target version the
+    # local release dir is absent, and the shared copy is the one describing the
+    # version actually being installed
+    release_dirs = ["/opt/weka/dist/release", "/shared-weka-version/opt-weka/dist/release"]
+    spec_file_path = None
+    for release_dir in release_dirs:
+        if not os.path.isdir(release_dir):
+            continue
+        files = os.listdir(release_dir)
+        if not files:
+            continue
+        assert len(files) == 1, Exception(f"Expected one release spec file, found: {files}")
+        spec_file_path = os.path.join(release_dir, files[0])
+        break
+    if spec_file_path is None:
+        raise Exception(f"No release spec found in any of: {release_dirs}")
 
     with open(spec_file_path, 'r') as f:
         data = json.load(f)
@@ -1616,7 +1630,10 @@ async def load_drivers():
         elif is_google_cos():
             kernelBuildIdArg = f"--kernel-build-id {OS_BUILD_ID}"
         elif is_ubuntu_24() and weka_dist_service():
-            kernelBuildIdArg = f"--kernel-build-id {UBUNTU24_BUILD_ID}"
+            # weka derives the build id itself when AutoBuildIds is set
+            feature_flags = await get_feature_flags()
+            if not feature_flags.auto_build_ids:
+                kernelBuildIdArg = f"--kernel-build-id {UBUNTU24_BUILD_ID}"
 
         # When TARGET_IMAGE_NAME differs from IMAGE_NAME, weka files are copied
         # from cluster image to /shared-weka-version/ via init container
@@ -4370,9 +4387,11 @@ async def main():
             raise Exception(f"Failed to get weka version {version}: {stderr}")
         logging.info(f"Successfully got weka version {version}")
 
+        build_feature_flags = await get_feature_flags()
         kernel_build_id = ""
         kernel_arg = ""
-        if is_ubuntu_24():
+        if is_ubuntu_24() and not build_feature_flags.auto_build_ids:
+            # weka derives the build id itself when AutoBuildIds is set
             kernel_build_id = UBUNTU24_BUILD_ID
             kernel_arg = f"--kernel-build-id {kernel_build_id}"
         stdout, stderr, ec = await run_command(f"weka driver pack --without-agent --version {version} {kernel_arg}")

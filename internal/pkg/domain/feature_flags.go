@@ -16,4 +16,6 @@ type FeatureFlags struct {
 	SsdProxyIncludesDpdkMemory bool `json:"ssd_proxy_includes_dpdk_memory"` // 9
 	// flags 10, 11 are not used by the operator
 	WekaManagesNonIonodeAffinity bool `json:"weka_manages_non_ionode_affinity"` // 12
+	// flags 13, 14 are not used by the operator
+	AutoBuildIds bool `json:"auto_build_ids"` // 15
 }
