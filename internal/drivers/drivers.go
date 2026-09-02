@@ -13,17 +13,18 @@ import (
 
 var (
 	ubuntuRe = regexp.MustCompile(`(?i)ubuntu\s+(\d+)\.(\d+)`)
-	rhelRe   = regexp.MustCompile(`(?i)rhel\s*(\d+)`)
-	rockyRe  = regexp.MustCompile(`(?i)rocky\s*(\d+)`)
+	rhelRe   = regexp.MustCompile(`(?i)(?:rhel|red\s+hat\s+enterprise\s+linux)\s*(\d+)`)
+	rockyRe  = regexp.MustCompile(`(?i)rocky(?:\s+linux)?\s*(\d+)`)
 )
 
 // NormalizeOSImageName converts OS image names into short, DNS-1123 compliant canonical IDs.
 // Examples:
 //
-//	"Ubuntu 22.04.5 LTS" -> "ubuntu-22-04"
-//	"Ubuntu 24.04.3 LTS" -> "ubuntu-24"
-//	"RHEL 9.4"           -> "rhel09"
-//	"Rocky Linux 8.10"   -> "rocky08"
+//	"Ubuntu 22.04.5 LTS"                  -> "ubuntu-22-04"
+//	"Ubuntu 24.04.3 LTS"                  -> "ubuntu-24"
+//	"RHEL 9.4"                            -> "rhel09"
+//	"Red Hat Enterprise Linux 9.7 (Plow)" -> "rhel09"
+//	"Rocky Linux 8.10"                    -> "rocky08"
 func NormalizeOSImageName(input string) string {
 	s := strings.TrimSpace(input)
 

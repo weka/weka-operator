@@ -37,6 +37,33 @@ var _ = AfterSuite(func() {
 	}
 })
 
+func TestNormalizeOSImageName(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"Ubuntu 22.04.5 LTS", "Ubuntu 22.04.5 LTS", "ubuntu-22-04"},
+		{"Ubuntu 24.04.3 LTS", "Ubuntu 24.04.3 LTS", "ubuntu-24"},
+		{"Ubuntu 24.04.4 LTS", "Ubuntu 24.04.4 LTS", "ubuntu-24"},
+		{"RHEL 9.4", "RHEL 9.4", "rhel09"},
+		{"Red Hat Enterprise Linux 9.7 (Plow)", "Red Hat Enterprise Linux 9.7 (Plow)", "rhel09"},
+		{"Red Hat Enterprise Linux 8.10", "Red Hat Enterprise Linux 8.10", "rhel08"},
+		{"Rocky Linux 8.10", "Rocky Linux 8.10", "rocky08"},
+		{"empty string", "", "unknown-os"},
+		{"Some Weird Distro 1.2", "Some Weird Distro 1.2", "unknown-os"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NormalizeOSImageName(tt.input)
+			if got != tt.want {
+				t.Errorf("NormalizeOSImageName(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 var _ = Describe("Driver Image Selection", func() {
 
 	BeforeEach(func() {
