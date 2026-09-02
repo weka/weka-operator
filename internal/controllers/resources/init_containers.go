@@ -97,10 +97,26 @@ func (f *PodFactory) copyWekaVersionToContainer(pod *v1.Pod) {
 		Command: []string{"sh", "-c"},
 		Args: []string{
 			`
-					# Copy the actual binary file that command resolves to (follows symlinks)
-					mkdir -p /shared-weka-version/cli &&
-					cp -a -- "$(readlink -f -- "$(command -v weka)")" /shared-weka-version/cli/weka &&
-					echo "copy-cli init container done"
+					# Stage the weka CLI outside /opt/weka: the extraction step below bind-mounts
+					# over /opt/weka, where the CLI lives, and would otherwise hide it.
+					mkdir -p /shared-weka-version/cli || exit 1
+					# the wekactl filename carries a per-image hash and the machine arch
+					ARCH=$(uname -m)
+					CLI=$(ls -1 /opt/weka/dist/image/wekactl-*-"$ARCH" 2>/dev/null | head -1)
+					if [ -z "$CLI" ]; then
+						# older images ship only the weka binary; resolve the path we shadow
+						# rather than PATH, so a wrapper script can never be staged onto the
+						# very path it delegates to
+						CLI=$(readlink -f -- /usr/bin/weka)
+					fi
+					if [ -z "$CLI" ] || [ ! -f "$CLI" ]; then
+						echo "ERROR: no weka CLI found to stage" >&2
+						exit 1
+					fi
+					cp -- "$CLI" /shared-weka-version/cli/weka || exit 1
+					# the source is not executable in the image, so set the bit explicitly
+					chmod 0755 /shared-weka-version/cli/weka || exit 1
+					echo "copy-cli init container done: staged $CLI"
 					`,
 		},
 		VolumeMounts: []v1.VolumeMount{
@@ -147,6 +163,13 @@ func (f *PodFactory) copyWekaVersionToContainer(pod *v1.Pod) {
 	pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, v1.VolumeMount{
 		Name:      sharedVolumeName,
 		MountPath: sharedVolumeMountPath,
+	})
+	// the wrapper at /usr/local/bin/weka execs /usr/bin/weka, so shadowing that path makes the
+	// container use the CLI staged from the cluster image instead of its own older one
+	pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, v1.VolumeMount{
+		Name:      sharedVolumeName,
+		MountPath: "/usr/bin/weka",
+		SubPath:   "cli/weka",
 	})
 	pod.Spec.Volumes = append(pod.Spec.Volumes, v1.Volume{
 		Name: sharedVolumeName,
