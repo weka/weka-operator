@@ -123,9 +123,14 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 			image = drivers.GetBuilderImageForNode(node)
 		}
 
+		builderFlags, ffErr := r.GetFeatureFlags(ctx)
+		if ffErr != nil {
+			return errors.Wrap(ffErr, "failed to get feature flags for drivers-builder")
+		}
+
 		payloadBytes, _ := json.Marshal(map[string]string{ //nolint:errcheck // error return value intentionally not checked
 			"targetImage": container.Spec.Image,
-			"cliImage":    image,
+			"cliImage":    drivers.GetBuilderCliImage(builderFlags, container.Spec.Image, image),
 		})
 		container.Spec.Instructions = &weka.Instructions{
 			Type:    weka.InstructionCopyWekaFilesToDriverLoader,

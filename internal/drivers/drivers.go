@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	v1 "k8s.io/api/core/v1"
 )
@@ -66,13 +67,22 @@ func GetBuilderImageForNode(node *v1.Node) string {
 
 func GetLoaderImageForNode(ctx context.Context, node *v1.Node, image string) string {
 	flags, err := services.GetFeatureFlags(ctx, image)
-	if err == nil && flags != nil {
-		// innovation cli --kernel-build-id etc.
-		if flags.WekaGetCopyLocalDriverFiles {
-			return image
-		}
+	if err != nil {
+		flags = nil
 	}
 
-	// else - can use the builder image that has "innovation" cli
-	return GetBuilderImageForNode(node)
+	return GetBuilderCliImage(flags, image, GetBuilderImageForNode(node))
+}
+
+// GetBuilderCliImage picks the image that supplies the weka CLI staged for the
+// drivers-builder init containers. The extraction step bind-mounts over /opt/weka,
+// where the cluster image keeps its CLI, so a CLI is always staged out of band;
+// prefer the cluster image's own CLI when it can copy driver files itself.
+func GetBuilderCliImage(flags *domain.FeatureFlags, clusterImage, builderImage string) string {
+	if flags != nil && flags.WekaGetCopyLocalDriverFiles {
+		// innovation cli --kernel-build-id etc.
+		return clusterImage
+	}
+
+	return builderImage
 }
