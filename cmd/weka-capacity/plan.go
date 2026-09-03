@@ -555,8 +555,8 @@ func planSummary(p *capacityplanner.CapacityPlan, result *inventory.Result, desi
 	}
 
 	idle := 0
-	for _, n := range result.Inventory {
-		if _, used := newNodes[n.NodeName]; !used {
+	for i := range result.Inventory {
+		if _, used := newNodes[result.Inventory[i].NodeName]; !used {
 			idle++
 		}
 	}

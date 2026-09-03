@@ -29,7 +29,8 @@ func setRatioConfig(t *testing.T, tlcRatio, fullDrivesRatio float64) {
 }
 
 func TestClusterDriveComputeCoreRatio(t *testing.T) {
-	// Ratio pinned to 2.0, matching the old hardcoded 1:2 behavior this test mirrors.
+	// Pinned above the shipped drive-sharing 1.0, where the advisory is inert by design, so these cases are
+	// observable at all. TestClusterDriveComputeCoreRatio_FullDrivesUsesFullDrivesRatio covers the shipped pair.
 	setRatioConfig(t, 2.0, 2.0)
 
 	v := &clusterDriveComputeCoreRatio{}

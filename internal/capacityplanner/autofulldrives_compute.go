@@ -294,8 +294,8 @@ func autoKeptCompute(in *autoComputeInput) (kept []autoComputeEntry, pinned map[
 // but which of "wait" or "intervene" is right turns on this fact, and nothing else in the report carries it.
 func drainingComputeClause(in *autoComputeInput) string {
 	var nodes []string
-	for node, nc := range in.remaining {
-		if nc.HasDeletingComputeContainer {
+	for node := range in.remaining {
+		if in.remaining[node].HasDeletingComputeContainer {
 			nodes = append(nodes, node)
 		}
 	}

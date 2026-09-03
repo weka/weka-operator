@@ -937,8 +937,8 @@ func (c Collector) nodeDetailsFromLists(ctx context.Context, cluster *weka.WekaC
 
 	// Index the planner inventory by node for free-headroom + FD lookup.
 	invByNode := make(map[string]capacityplanner.NodeCapacity, len(inv))
-	for _, nc := range inv {
-		invByNode[nc.NodeName] = nc
+	for i := range inv {
+		invByNode[inv[i].NodeName] = inv[i]
 	}
 
 	// Union of driveNodes + computeNodeList: computeNodeList already aliases driveNodes when the
@@ -1154,15 +1154,16 @@ func resolveInventoryFDValue(node *corev1.Node, fdConfig *weka.FailureDomain) (f
 func mergeRoleNodes(driveInv, computeInv []capacityplanner.NodeCapacity) (inventory []capacityplanner.NodeCapacity, computeNodes map[string]bool) {
 	inventory = append([]capacityplanner.NodeCapacity(nil), driveInv...)
 	index := make(map[string]struct{}, len(inventory))
-	for _, nc := range inventory {
-		index[nc.NodeName] = struct{}{}
+	for i := range inventory {
+		index[inventory[i].NodeName] = struct{}{}
 	}
 	computeNodes = make(map[string]bool, len(computeInv))
-	for _, nc := range computeInv {
+	for i := range computeInv {
+		nc := &computeInv[i]
 		computeNodes[nc.NodeName] = nc.IneligibleReason == ""
 		if _, ok := index[nc.NodeName]; !ok {
 			index[nc.NodeName] = struct{}{}
-			inventory = append(inventory, nc)
+			inventory = append(inventory, *nc)
 		}
 	}
 	return inventory, computeNodes

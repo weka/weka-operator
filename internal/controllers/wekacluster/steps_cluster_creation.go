@@ -641,15 +641,7 @@ func (r *wekaClusterReconcilerLoop) buildPlannerComputeContainers(ctx context.Co
 	logger := instrumentation.CurrentSpanLogger(ctx)
 	cluster := r.cluster
 
-	occupied := make(map[string]struct{})
-	for _, c := range existing {
-		if c.Spec.Mode == weka.WekaContainerModeCompute {
-			if n := string(c.GetNodeAffinity()); n != "" {
-				occupied[n] = struct{}{}
-			}
-		}
-	}
-
+	occupied := computeNodesOccupied(existing)
 	totalCount := len(layout)
 
 	for _, entry := range layout {
@@ -687,18 +679,26 @@ func (r *wekaClusterReconcilerLoop) buildPlannerComputeContainers(ctx context.Co
 	return built, skippedReasons
 }
 
+// computeNodesOccupied indexes the nodes already hosting one of this cluster's compute containers — the
+// nodes a planner layout entry creates nothing on, since in-place growth resizes them instead.
+func computeNodesOccupied(containers []*weka.WekaContainer) map[string]struct{} {
+	occupied := make(map[string]struct{})
+	for _, c := range containers {
+		if c.Spec.Mode != weka.WekaContainerModeCompute {
+			continue
+		}
+		if n := string(c.GetNodeAffinity()); n != "" {
+			occupied[n] = struct{}{}
+		}
+	}
+	return occupied
+}
+
 // unusedComputeNodes returns the planner-reserved compute nodes that are not already hosting a compute
 // container, preserving the planner's order. New compute containers pin to these (one each) so they never
 // schedule onto a drive-pinned node lacking the post-drive hugepages to host both.
 func unusedComputeNodes(existing []*weka.WekaContainer, planned []string) []string {
-	used := make(map[string]struct{})
-	for _, c := range existing {
-		if c.Spec.Mode == weka.WekaContainerModeCompute {
-			if n := string(c.GetNodeAffinity()); n != "" {
-				used[n] = struct{}{}
-			}
-		}
-	}
+	used := computeNodesOccupied(existing)
 	free := make([]string, 0, len(planned))
 	for _, n := range planned {
 		if _, taken := used[n]; !taken {
