@@ -516,9 +516,10 @@ func PlanCapacity(
 
 	// Working per-node headroom, sorted deterministically by FD then node.
 	states := make(map[string]*nodeState, len(inventory))
-	for _, nc := range inventory {
+	for i := range inventory {
+		nc := &inventory[i]
 		states[nc.NodeName] = &nodeState{
-			nc:                        nc,
+			nc:                        *nc,
 			tlcFree:                   nc.TlcGiB,
 			qlcFree:                   nc.QlcGiB,
 			coresFree:                 nc.AllocatableCPU, // physical CPU remaining

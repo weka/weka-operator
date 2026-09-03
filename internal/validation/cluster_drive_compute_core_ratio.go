@@ -20,6 +20,9 @@ import (
 // auto-derived drive cores count too — except under clusterCapacity/auto-full-drives, where the planner
 // assigns both sides and the template's numbers are not the ones the cluster runs on. Skips cases
 // already below clusterComputeDriveCoresFloor's hard 1:1 floor, which owns those exclusively.
+//
+// At shipped defaults only exclusive full-drives (ratio 2.0) leaves room between that floor and the
+// recommendation; drive-sharing's 1.0 makes the two equal, so the advisory is inert there by design.
 type clusterDriveComputeCoreRatio struct{}
 
 func (clusterDriveComputeCoreRatio) ID() string {

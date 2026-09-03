@@ -36,13 +36,11 @@ func (clusterMinDrivesFeasibility) Validate(ctx context.Context, c client.Client
 
 	fldPath := field.NewPath("spec", "startIoConditions", "minNumDrives")
 
-	// Checked before the nil guard below: a nil dynamicTemplate IS auto-full-drives mode, so it takes
-	// the per-node branch rather than falling through as "nothing configured".
+	// A nil dynamicTemplate IS auto-full-drives mode (UsesAutoFullDrives returns true on a nil receiver),
+	// so it takes the per-node branch rather than falling through as "nothing configured" — which is also
+	// what lets everything below dereference Dynamic unguarded.
 	if cluster.Spec.Dynamic.UsesAutoFullDrives() {
 		return validateMinDrivesAutoFullDrives(ctx, c, cluster, minNumDrives, fldPath)
-	}
-	if cluster.Spec.Dynamic == nil {
-		return nil
 	}
 
 	driveContainers := cluster.Spec.Dynamic.DriveContainers
