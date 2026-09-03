@@ -106,7 +106,7 @@ func finalCores(c *ExistingContainer, growth map[string]*ContainerGrowth) int {
 // tlcDriveCoresForContainer returns the TLC-attributable core count for a container's final state. A
 // TLC-only container (qlcGiB <= 0, checked before the tlcGiB<=0 short-circuit below) attributes all of
 // assignedCores to TLC — the only reliable figure for auto-full-drives containers, which are always
-// TLC-only. Mixed containers fall back to capacity-derived TlcDriveCores(tlcGiB, cons).
+// TLC-only. Mixed containers derive the share from capacity, capped at assignedCores.
 func tlcDriveCoresForContainer(tlcGiB, qlcGiB, assignedCores int, cons *CapacityConstraints) int {
 	if qlcGiB <= 0 && assignedCores > 0 {
 		return assignedCores
@@ -114,7 +114,13 @@ func tlcDriveCoresForContainer(tlcGiB, qlcGiB, assignedCores int, cons *Capacity
 	if tlcGiB <= 0 {
 		return 0
 	}
-	return TlcDriveCores(tlcGiB, cons)
+	tlc := TlcDriveCores(tlcGiB, cons)
+	// Only an existing container can need the cap: pinCores keeps new ones at or above the derived value,
+	// so a shortfall means the assigned count predates the current TlcCapacityPerCoreGiB.
+	if assignedCores > 0 {
+		return min(tlc, assignedCores)
+	}
+	return tlc
 }
 
 // qlcDriveCoresForContainer returns the QLC-attributable core count for a single drive container in its
