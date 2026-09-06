@@ -16,4 +16,8 @@ type FeatureFlags struct {
 	SsdProxyIncludesDpdkMemory bool `json:"ssd_proxy_includes_dpdk_memory"` // 9
 	// flags 10, 11 are not used by the operator
 	WekaManagesNonIonodeAffinity bool `json:"weka_manages_non_ionode_affinity"` // 12
+	// flag 13 is not used by the operator
+	// WekactlAsDefault means the go CLI (wekactl) backs the `weka` command. It changes some JSON
+	// schemas, notably `weka nfs interface-group` port identity — see NfsInterfaceGroupPort.
+	WekactlAsDefault bool `json:"wekactl_as_default"` // 14
 }
