@@ -244,11 +244,35 @@ type SmbwCluster struct {
 	Active bool `json:"active"`
 }
 
+// NfsInterfaceGroupPort mirrors one entry of the "ports" array of `weka nfs interface-group --json`.
+// The two CLI generations identify the owning container differently, and both are accepted:
+//
+//	wekactl (domain.FeatureFlags.WekactlAsDefault): "container": 13, "container_uid": "..."
+//	legacy python CLI:                              "host_id": "HostId<13>", "host_uid": "..."
+//
+// Container is a pointer so that a genuine container 13 is distinguishable from an absent field,
+// which matters because container 0 is a valid id.
 type NfsInterfaceGroupPort struct {
-	HostId  string `json:"host_id"`
-	HostUid string `json:"host_uid"`
-	Port    string `json:"port"`
-	Status  string `json:"status"`
+	Container    *int   `json:"container"`
+	ContainerUid string `json:"container_uid"`
+	HostId       string `json:"host_id"`
+	HostUid      string `json:"host_uid"`
+	Port         string `json:"port"`
+	Status       string `json:"status"`
+}
+
+// OwnerContainerId resolves the weka container owning this port under either CLI schema.
+// It errors rather than defaulting, so an unrecognized schema cannot be silently read as
+// "this port belongs to nobody" — that reading previously let port removal no-op and wedge
+// container deletion behind a failing deactivate.
+func (p NfsInterfaceGroupPort) OwnerContainerId() (int, error) {
+	if p.Container != nil {
+		return *p.Container, nil
+	}
+	if p.HostId != "" {
+		return resources.HostIdToContainerId(p.HostId)
+	}
+	return 0, errors.Errorf("interface group port %q has neither a 'container' nor a 'host_id' field", p.Port)
 }
 
 type NfsInterfaceGroup struct {
@@ -258,9 +282,25 @@ type NfsInterfaceGroup struct {
 	Name            string                  `json:"name"`
 	Ports           []NfsInterfaceGroupPort `json:"ports"`
 	Status          string                  `json:"status"`
-	SubnetMask      string                  `json:"subnet_mask"`
 	Type            string                  `json:"type"`
 	Uid             string                  `json:"uid"`
+}
+
+// ContainerPorts returns the port device names the given weka container currently holds in the group.
+// Any port whose owner cannot be resolved fails the call: an unattributable port may well be the
+// caller's own, and treating it as somebody else's is what turns a missed removal into a wedge.
+func (g NfsInterfaceGroup) ContainerPorts(containerId int) ([]string, error) {
+	var ports []string
+	for _, port := range g.Ports {
+		owner, err := port.OwnerContainerId()
+		if err != nil {
+			return nil, errors.Wrapf(err, "cannot determine port ownership in interface group %s", g.Name)
+		}
+		if owner == containerId {
+			ports = append(ports, port.Port)
+		}
+	}
+	return ports, nil
 }
 
 type WekaUserResponse struct {
@@ -1050,6 +1090,31 @@ func (c *CliWekaService) RemoveFromSmbwCluster(ctx context.Context, containerId 
 	return nil
 }
 
+func (c *CliWekaService) getNfsInterfaceGroup(ctx context.Context, executor podexec.Exec, interfaceGroupName string) (*NfsInterfaceGroup, error) {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	cmd := []string{
+		"weka", "nfs", "interface-group", "--name", interfaceGroupName, "--json",
+	}
+	stdout, stderr, err := executor.ExecNamed(ctx, "GetNfsInterfaceGroup", cmd)
+	if err != nil {
+		logger.SetError(err, "Failed to get NFS interface group", "interfaceGroup", interfaceGroupName, "stderr", stderr.String())
+		return nil, err
+	}
+
+	var interfaceGroups []NfsInterfaceGroup
+	if parseErr := json.Unmarshal(stdout.Bytes(), &interfaceGroups); parseErr != nil {
+		logger.SetError(parseErr, "Failed to parse NFS interface group JSON", "stdout", stdout.String())
+		return nil, parseErr
+	}
+
+	if len(interfaceGroups) == 0 {
+		return nil, errors.Errorf("NFS interface group %s not found", interfaceGroupName)
+	}
+
+	return &interfaceGroups[0], nil
+}
+
 // EnsureNfsInterfaceGroupPorts ensures the NFS interface group has the specified ports for a container.
 // It fetches current state and reconciles to desired state by adding missing ports and removing extra ones.
 func (c *CliWekaService) EnsureNfsInterfaceGroupPorts(ctx context.Context, interfaceGroupName string, containerId int, targetInterfaces []string) error {
@@ -1062,35 +1127,17 @@ func (c *CliWekaService) EnsureNfsInterfaceGroupPorts(ctx context.Context, inter
 	}
 
 	containerIdStr := strconv.Itoa(containerId)
-	hostIdStr := fmt.Sprintf("HostId<%d>", containerId)
 
-	// Fetch current interface group configuration
-	cmd := []string{
-		"weka", "nfs", "interface-group", "--name", interfaceGroupName, "--json",
-	}
-	stdout, stderr, err := executor.ExecNamed(ctx, "GetNfsInterfaceGroup", cmd)
+	group, err := c.getNfsInterfaceGroup(ctx, executor, interfaceGroupName)
 	if err != nil {
-		logger.SetError(err, "Failed to get NFS interface group", "interfaceGroup", interfaceGroupName, "stderr", stderr.String())
 		return err
 	}
 
-	// Parse the response
-	var interfaceGroups []NfsInterfaceGroup
-	if parseErr := json.Unmarshal(stdout.Bytes(), &interfaceGroups); parseErr != nil {
-		logger.SetError(parseErr, "Failed to parse NFS interface group JSON", "stdout", stdout.String())
-		return parseErr
-	}
-
-	if len(interfaceGroups) == 0 {
-		return errors.Errorf("NFS interface group %s not found", interfaceGroupName)
-	}
-
 	// Get current ports for this container
-	var currentInterfaces []string
-	for _, port := range interfaceGroups[0].Ports {
-		if port.HostId == hostIdStr {
-			currentInterfaces = append(currentInterfaces, port.Port)
-		}
+	currentInterfaces, err := group.ContainerPorts(containerId)
+	if err != nil {
+		logger.SetError(err, "Failed to read current NFS interface group ports", "containerId", containerId)
+		return err
 	}
 
 	// Calculate what needs to be added and removed
@@ -1106,7 +1153,7 @@ func (c *CliWekaService) EnsureNfsInterfaceGroupPorts(ctx context.Context, inter
 
 	// Add new interfaces first (before removing old ones to avoid service interruption)
 	for _, interfaceName := range toAdd {
-		cmd = []string{
+		cmd := []string{
 			"wekaauthcli", "nfs", "interface-group", "port", "add", interfaceGroupName, containerIdStr, interfaceName,
 		}
 		_, stderr, err := executor.ExecNamed(ctx, "AddNfsInterfaceGroupPort", cmd)
@@ -1147,7 +1194,7 @@ func (c *CliWekaService) EnsureNfsInterfaceGroupPorts(ctx context.Context, inter
 
 	// Remove interfaces that shouldn't be there
 	for _, interfaceName := range toRemove {
-		cmd = []string{
+		cmd := []string{
 			"wekaauthcli", "nfs", "interface-group", "port", "delete", "-f", interfaceGroupName, containerIdStr, interfaceName,
 		}
 		_, stderr, err := executor.ExecNamed(ctx, "RemoveNfsInterfaceGroupPort", cmd)
