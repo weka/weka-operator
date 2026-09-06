@@ -3093,6 +3093,14 @@ async def configure_persistency():
             # --- defensive: kernel peer-group inheritance for subdirectory binds is subtle;
             # --- make-private ensures /opt/weka cannot propagate here under any propagation mode.
             mount --make-private /opt/weka-dist-save
+            # --- same staging for /opt/weka/bin, but only if it exists in the image
+            BIN_EXISTED=0
+            if [ -d /opt/weka/bin ]; then
+                BIN_EXISTED=1
+                mkdir -p /opt/weka-bin-save
+                mount -o bind /opt/weka/bin /opt/weka-bin-save
+                mount --make-private /opt/weka-bin-save
+            fi
             # --- WEKA_PERSISTENCE_DIR - is HostPath (persistent volume)
             mkdir -p {WEKA_PERSISTENCE_DIR}/dist/drivers
             mount -o bind {WEKA_PERSISTENCE_DIR} /opt/weka
@@ -3101,6 +3109,12 @@ async def configure_persistency():
             mount -o bind /opt/weka-dist-save /opt/weka/dist
             # --- /opt/weka/dist now holds its own reference; release the staging mount
             umount /opt/weka-dist-save
+            # --- restore image bin on top of the host persistence dir (only if it existed)
+            if [ "$BIN_EXISTED" = "1" ]; then
+                mkdir -p /opt/weka/bin
+                mount -o bind /opt/weka-bin-save /opt/weka/bin
+                umount /opt/weka-bin-save
+            fi
             # --- make drivers dir persistent
             mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka/dist/drivers
         fi
