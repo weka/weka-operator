@@ -307,6 +307,8 @@ class FeaturesFlags:
     ssd_proxy_includes_dpdk_memory: Union[bool, int] = 9
     # flags 10, 11 are not used by the operator
     weka_manages_non_ionode_affinity: Union[bool, int] = 12
+    # flag 13 is not used by the operator
+    wekactl_as_default: Union[bool, int] = 14
 
     def __init__(self, b64_flags: Optional[str]) -> None:
         active: Set[int] = set(parse_feature_bitmap(b64_flags or ""))
@@ -3093,6 +3095,17 @@ async def configure_persistency():
             # --- defensive: kernel peer-group inheritance for subdirectory binds is subtle;
             # --- make-private ensures /opt/weka cannot propagate here under any propagation mode.
             mount --make-private /opt/weka-dist-save
+            # --- bin/ ships only in the image, so the bind below would mask it entirely.
+            # --- wekactl resolves the agent through /opt/weka/bin/agent, and bin/ also holds
+            # --- netns_vlan.sh and weka-bootstrap.sh as real files with no copy under dist/.
+            # --- guarded: images without bin/ must not fail the whole block under set -e.
+            BIN_EXISTED=0
+            if [ -d /opt/weka/bin ]; then
+                BIN_EXISTED=1
+                mkdir -p /opt/weka-bin-save
+                mount -o bind /opt/weka/bin /opt/weka-bin-save
+                mount --make-private /opt/weka-bin-save
+            fi
             # --- WEKA_PERSISTENCE_DIR - is HostPath (persistent volume)
             mkdir -p {WEKA_PERSISTENCE_DIR}/dist/drivers
             mount -o bind {WEKA_PERSISTENCE_DIR} /opt/weka
@@ -3101,6 +3114,12 @@ async def configure_persistency():
             mount -o bind /opt/weka-dist-save /opt/weka/dist
             # --- /opt/weka/dist now holds its own reference; release the staging mount
             umount /opt/weka-dist-save
+            # --- restore image bin the same way
+            if [ "$BIN_EXISTED" = "1" ]; then
+                mkdir -p /opt/weka/bin
+                mount -o bind /opt/weka-bin-save /opt/weka/bin
+                umount /opt/weka-bin-save
+            fi
             # --- make drivers dir persistent
             mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka/dist/drivers
         fi
@@ -3169,7 +3188,14 @@ async def configure_persistency():
 
 
 async def ensure_weka_version(force_set=False):
-    if force_set:
+    ff = await get_feature_flags()
+    if ff.wekactl_as_default:
+        # the wekactl-backed CLI renders the version table with a '✔' column instead of
+        # a '*' marker and emits objects (not strings) in -J, which silently breaks the
+        # legacy marker grep and $(weka version) substitution
+        set_cmd = "weka version set $(weka version -J | jq -r '.[0].version')"
+        cmd = set_cmd if force_set else f"weka version -J | jq -e 'any(.[]; .current)' >/dev/null || {set_cmd}"
+    elif force_set:
         cmd = "weka version set $(weka version -J | jq -r '.[0]')"
     else:
         cmd = "weka version | grep '*' || weka version set $(weka version)"
