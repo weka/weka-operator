@@ -78,7 +78,7 @@ func checkForMaps(v reflect.Value) error {
 				}
 			}
 		}
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if !v.IsNil() {
 			if err := checkForMaps(v.Elem()); err != nil {
 				return err
