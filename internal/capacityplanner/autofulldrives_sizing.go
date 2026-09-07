@@ -62,9 +62,10 @@ func autoSizeNode(
 				"auto full drives: dynamicTemplate.numDrives=%d exceeds the %d signed full drive(s) on node %s — "+
 					"the pin asks for drives the node does not have",
 				desired.NumDrives, len(drives), name),
-			Pool:    "drive",
-			Binding: "numDrives",
-			Fixes:   fixesNumDrivesAboveCount(desired.NumDrives, len(drives), name),
+			Pool:      "drive",
+			Binding:   "numDrives",
+			SpecField: "numDrives",
+			Fixes:     fixesNumDrivesAboveCount(desired.NumDrives, len(drives), name),
 		}
 	}
 
@@ -74,9 +75,10 @@ func autoSizeNode(
 				"auto full drives: dynamicTemplate.driveCores=%d exceeds the %d full drive(s) node %s gives one "+
 					"container — full-drives mode requires at least one physical drive per drive core",
 				desired.DriveCores, taken, name),
-			Pool:    "drive",
-			Binding: "driveCores",
-			Fixes:   fixesDriveCoresAboveDriveCount(taken),
+			Pool:      "drive",
+			Binding:   "driveCores",
+			SpecField: "driveCores",
+			Fixes:     fixesDriveCoresAboveDriveCount(taken),
 		}
 	}
 

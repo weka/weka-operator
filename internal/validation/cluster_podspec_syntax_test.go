@@ -30,7 +30,7 @@ func TestClusterPodspecSyntax(t *testing.T) {
 	}
 
 	badRawTol := base()
-	badRawTol.Spec.RawTolerations = []corev1.Toleration{{Key: "k", Operator: corev1.TolerationOpExists, Effect: "NoSchedul"}}
+	badRawTol.Spec.RawTolerations = []corev1.Toleration{{Key: "k", Operator: corev1.TolerationOpExists, Effect: "BogusEffect"}}
 	if errs := v.Validate(context.Background(), nil, badRawTol); len(errs) != 1 {
 		t.Fatalf("bad rawToleration effect: got %v", errs)
 	} else if !strings.HasPrefix(errs[0].Field, "spec.rawTolerations") {

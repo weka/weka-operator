@@ -125,9 +125,89 @@ For each eligible node, the operator counts its signed non-blocked full drives, 
 - **Drive cores** — `min(drives taken, 19)`, unless you pinned `driveCores`. See
   [Drives and cores](#drives-and-cores).
 - **Hugepages and memory** for the drive container — recomputed from the derived core count (see
-  [Hugepages budget](#hugepages-budget) below for the exact per-core figures).
+  [Per-container footprint](#per-container-footprint-defaults-mib) below for the exact figures).
 - **Compute sizing** — derived from the total drive cores across the cluster at a configurable
   ratio, **2:1 by default** in full-drives mode. See [Compute sizing](#compute-sizing).
+
+## The algorithm
+
+The plan is recomputed from scratch on every reconcile. There is no placement search: every eligible
+node gets exactly one drive container holding that node's own drives, so the planner only *sizes*, it
+never chooses. What the spec can set, and how the planner treats it:
+
+| Field on `dynamicTemplate` | Effect |
+|---|---|
+| `numDrives`, `driveCores`, `computeCores` | **Pins.** Honored verbatim, sized and fit by the planner. Unset means derive. |
+| `overrides.dpdkBaseMemoryMb.drive` / `.compute` | Changes the `64` MiB/core DPDK term inside the derived figures; the planner fits with the changed value. |
+| `driveHugepages`, `computeHugepages` (and `*Offset`) | **Overrides, not pins.** Written to the container as given, but the planner still fits nodes against its *own* derived figure. See [the callout](#hugepages-budget). |
+
+1. **Inventory.** For each node matching the drive-role selector: its signed, non-blocked full drives
+   (TLC only; QLC is never signed into this mode) and its headroom, meaning allocatable minus every pod
+   already on the node, Weka's or not.
+2. **Size each drive container from its node.**
+
+   ```
+   drives     = numDrives pin, else every signed drive        # largest first, serial as tiebreak
+   driveCores = driveCores pin, else min(drives, 19)          # 19 = maxCoresPerContainer
+   ```
+
+   Neither number drops below what an existing container on that node already has. Infeasible when
+   `numDrives` exceeds the node's signed drives, or `driveCores` exceeds `drives` (weka needs one
+   physical drive per drive core). A pin that leaves drives unused is reported as `DrivesStranded`.
+3. **Fit each drive container.** The growth over the existing container is charged against the node's
+   physical CPU, hugepages and memory. Any node that cannot absorb it makes the **whole plan**
+   infeasible; nothing is created or grown anywhere, because silently dropping that node's drives would
+   be indistinguishable from lost capacity (see
+   [When a node cannot fit its drives](#when-a-node-cannot-fit-its-drives)). The report names the
+   dimension with the largest *relative* shortfall (needed ÷ available).
+4. **Size compute from drive cores.** Compute has no per-node pinning, so this is a real derivation:
+
+   ```
+   requiredComputeCores = max(totalDriveCores, ceil(2.0 × totalDriveCores))  # ratio 2.0, hard 1:1 floor
+   computeContainers    = smallest n ≥ 5 whose n best nodes fit ceil(required / n) cores + hugepages
+   computeCores         = ceil(requiredComputeCores / computeContainers)      # floor is 3 under ALLOW_SINGLE_PARITY
+   ```
+
+   Containers are spread round-robin across failure domains, best-headroom node first in each. An
+   existing compute container whose node cannot grow it stays at its current size and the deficit goes
+   to additional containers.
+5. **Apply or refuse.** Infeasible: `AutoFullDrivesInfeasible` fires and nothing is created or grown.
+   Feasible: creates and growths are written, `AutoFullDrivesPlanned` fires, plus any advisories below.
+
+### Per-container footprint (defaults, MiB)
+
+| | Drive container | Compute container |
+|---|---|---|
+| Cores | `min(drives, 19)`, or the `driveCores` pin | `ceil(requiredComputeCores / computeContainers)`, or the `computeCores` pin |
+| Hugepages | `1464 × cores + 200 × drives` | `max(capacityBased + 1700 × cores, 3000 × cores)`, rounded up to even, capped at `360000`, then `+ 64 × cores` |
+| Memory | `8000 + 3000 × cores` | `8000 + 3000 × cores` |
+
+`capacityBased = totalClaimedTlcGiB × 1024 / hugepagesTlcRatio / computeContainers`, with
+`hugepagesTlcRatio` defaulting to `1000`. The `1464` is `1400` per core plus `64` DPDK; the `200` per
+drive is the reservation weka takes off its own `--memory`, so the weka heap follows cores while the
+pod request grows with drives.
+
+**Only compute hugepages depend on capacity.** Every other figure follows drive or core count. Drive
+cores are deliberately not capacity-derived: weka needs one physical drive per core, so a capacity
+formula could ask for more cores than a node has drives. A node with 4 × 3.84 TB drives and one with
+4 × 15.36 TB both get 4 drive cores; the larger one only raises compute hugepages, and does so on every
+compute container at once, because the capacity term is a share of the fleet total.
+
+### What the planner reports instead of failing
+
+Conditions that are not infeasible but change what you get are emitted as fleet-wide warnings — one
+event per condition naming up to 10 nodes, not one event per node:
+
+| Kind | Cause | Condition |
+|---|---|---|
+| `DrivesStranded` | — | A `numDrives` pin leaves signed drives unused on some node |
+| `NodeIneligible` | `cordoned` / `not ready` / `untolerated taint` | Node has signed drives but cannot take new containers |
+| `Transient` | `unscheduled-pod` | An existing drive container's pod is not yet scheduled; growth waits |
+| `Transient` | `drive-container-deleting` | This cluster's drive container on the node is being deleted |
+| `Transient` | `compute-container-deleting` | A deleting compute container still holds hugepages, so the fit may fail until it lands |
+| `ComputeLayout` | — | Compute-sizing advisory, e.g. the form-cluster floor forcing more containers than the core requirement needs |
+
+The full event table with throttles is in [Events](#events).
 
 ## Drives and cores
 
@@ -154,7 +234,7 @@ Consequences worth knowing:
 - **A `driveCores` pin below the drive count is lossless and supported.** You keep every drive and
   run them on fewer cores. Useful when a node is short on CPU or hugepages, though it shrinks only the
   per-core part of the footprint: the `200` MiB per drive stays, since every drive is still claimed
-  (see [Hugepages budget](#hugepages-budget)).
+  (see [Per-container footprint](#per-container-footprint-defaults-mib)).
 - **A `driveCores` pin above a node's effective drive count is infeasible** — the plan is rejected and
   **nothing is created**, on the whole cluster, not just that node. Full drives cannot express more
   than one core per device. Lower `driveCores`, or switch to a **drive-sharing** mode
@@ -181,9 +261,9 @@ node takes exactly that many of its **largest** drives:
 - **`numDrives` above a node's signed drive count is infeasible.** An explicit pin is never silently
   reduced. Nothing is created until every eligible node has at least that many signed drives (sign
   more, or narrow the drive-role selector). Admission catches this too, via the
-  `cluster_auto_full_drives_pin_exceeds_node_drives` policy — an **error** in strict mode, a
-  **warning** in relaxed. The same policy covers a `driveCores` pin above a node's effective drive
-  count; it deliberately stays silent on a pin *below* it, which is lossless.
+  `cluster_auto_full_drives_feasible` policy — an **error** in strict mode, a **warning** in relaxed.
+  The same policy covers a `driveCores` pin above a node's effective drive count; it stays silent on a
+  pin *below* it, which is lossless.
 - **`numDrives` below a node's drive count strands the rest, and that is expected.** The drives you
   did not ask for are left unused. Because you asked for it explicitly, this is reported as a
   **Normal** `AutoFullDrivesDrivesStranded` event on the `WekaCluster` — one aggregated message naming
@@ -221,32 +301,14 @@ The limit is enforced only for the drive and compute roles the planners manage. 
 
 ### Hugepages budget
 
-Drive and compute containers each reserve hugepages per core, using the same default coefficients
-the operator applies everywhere else in the capacity planner:
+The figures are in [Per-container footprint](#per-container-footprint-defaults-mib). Two things follow
+from their shape:
 
-- **Drive side**: `1400` MiB per drive **core**, plus `200` MiB per **drive**, plus the per-core DPDK
-  reservation (`64` MiB/core by default, overridable via
-  `spec.dynamicTemplate.overrides.dpdkBaseMemoryMb.drive`):
-
-  ```
-  driveHugepagesMiB = 1400 × cores + 200 × drives + 64 × cores
-  ```
-
-  It scales with **both** axes. A node with as many drives as cores reserves `1664` MiB per core
-  (`1400 + 200 + 64`), but the two terms are otherwise independent of each other: a 30-drive
-  node running 19 cores reserves `1400 × 19 + 200 × 30 + 64 × 19 = 33,816` MiB, and a `driveCores: 5`
-  pin brings that to `1400 × 5 + 200 × 30 + 64 × 5 = 13,320` MiB — lower, but not `5 × 1664`, because
-  the per-drive part does not move when you lower cores.
-
-  The per-drive `200` MiB is the out-of-band reservation weka takes off its own `--memory`, so a
-  container's weka heap stays a function of cores alone; only the total pod request grows with drives.
-- **Compute side**: a per-core floor of `3000` MiB/core, **or** `1700` MiB/core plus a
-  **capacity-based share** (the cluster's total claimed drive capacity converted to hugepages and
-  divided across the number of compute containers), whichever is larger — plus the same per-core
-  DPDK reservation (`64` MiB/core by default, overridable via `.overrides.dpdkBaseMemoryMb.compute`).
-  At defaults, when the per-core floor dominates this is **3064 MiB per compute core**; the
-  capacity-based share grows with total cluster capacity divided by compute container count, and on
-  a drive-dense fleet it dominates by a wide margin — see
+- **The drive figure scales with cores and drives independently.** Lowering `driveCores` frees `1464`
+  MiB per core dropped but never the `200` MiB per drive, because every drive is still claimed.
+- **The compute figure's capacity term grows with total claimed capacity divided by compute container
+  count.** When the `3000`/core floor dominates it is `3064` MiB per core at defaults; on a drive-dense
+  fleet the capacity term dominates by a wide margin, see
   [Compute hugepages are the practical ceiling](#compute-hugepages-are-the-practical-ceiling).
 
 Budget node headroom (CPU, hugepages, memory) for both figures together on any node that hosts both
@@ -271,15 +333,8 @@ creation, so a container with no pod yet still occupies its share of the node's 
 
 ### Compute sizing
 
-Compute is sized from the cluster's drive cores at a **configurable ratio** with a **hard 1:1
-floor**:
-
-```
-requiredComputeCores = max(
-    totalDriveCores,                                            # hard floor — never less than 1:1
-    ceil(ratio × driveCores)                                    # the configured ratio
-)
-```
+Compute is sized from the cluster's drive cores at a **configurable ratio** with a **hard 1:1 floor**
+(step 4 of [The algorithm](#the-algorithm)):
 
 | Mode | Ratio setting | Default |
 |---|---|---|
@@ -350,14 +405,8 @@ compute fit. The only dials are the number of compute containers the total is di
 coefficients, and how much capacity you claim in the first place — and all three are yours to set,
 not the operator's to guess at.
 
-The formula the planner uses for one compute container, at defaults:
-
-```
-capacityBased = totalClaimedTlcGiB × 1024 / hugepagesTlcRatio / computeContainerCount
-hugepagesMiB  = max(capacityBased + 1700 × cores, 3000 × cores)     # rounded up to even
-                capped at computeMaxHugepagesMiB
-              + 64 × cores                                          # DPDK, added after the cap
-```
+The compute-container formula is in [Per-container footprint](#per-container-footprint-defaults-mib);
+the example below applies it at defaults.
 
 ### Worked example: an 8-node fleet
 
@@ -454,13 +503,17 @@ A pinned `computeCores` is checked the same way and against the same two walls, 
 pin needs more containers than you have compute-eligible nodes; too large a pin needs more hugepages per
 container than the nodes can give. Both are reported as themselves.
 
-**This is checked at admission.** The `cluster_auto_full_drives_compute_hugepages` policy projects
-claimed capacity from the signed-drive annotations and rejects the `WekaCluster` at `kubectl apply`
-(an **error** in strict mode, a **warning** in relaxed mode), naming the needed-vs-available
-hugepages, the sufficient compute-node count, and these remedies — rather than letting you discover it
-after a failed cluster formation. It is precise about remedy 4: it offers the `driveCores` lever only
-when lowering cores would actually help, and otherwise says so explicitly rather than sending you down
-a dead end.
+**This is checked at admission.** The `cluster_auto_full_drives_feasible` policy runs the capacity
+planner against the live fleet and rejects the `WekaCluster` at `kubectl apply` (an **error** in strict
+mode, a **warning** in relaxed mode) whenever the planner reports the plan infeasible — rather than
+letting you discover it after a failed cluster formation. The message is the planner's own verdict: it
+names what binds (hugepages or cores) and carries the same remedies the runtime
+`AutoFullDrivesInfeasible` event does, including the current `hugepagesTlcRatio` and
+`computeMaxHugepagesMiB` values and the `driveCores` lever. Where **cores** bind it names how many
+compute containers the ratio needs against the compute nodes available; where **hugepages** bind it
+quantifies the per-container shortfall in MiB rather than deriving the compute-node count that would
+clear it. It offers the `driveCores` lever whether or not lowering cores would clear this particular
+shortfall.
 
 **Treat it as best-effort, not a guarantee.** The check projects from the drives signed **at the time
 you apply**, and it skips nodes carrying no `weka.io/weka-full-drives` annotation yet — deliberately,
@@ -598,14 +651,14 @@ recreation is owed** on every container whose cores changed. See the
 until then.
 
 The switch **is** checked against the daemonset admission gates. Every policy runs on any update that
-changes the spec, evaluated against the new spec, so `cluster_auto_full_drives_min_nodes`,
-`cluster_auto_full_drives_compute_hugepages` and `cluster_auto_full_drives_pin_exceeds_node_drives`
-all apply to the switch exactly as they would to a fresh daemonset cluster. Expect
-`compute_hugepages` to be the one that rejects: claimed capacity typically jumps on the switch, since
-every drive on every eligible node is now claimed rather than the `numDrives` your counts asked for —
-work through [Compute hugepages are the practical ceiling](#compute-hugepages-are-the-practical-ceiling)
-before you switch. Those gates remain best-effort, though, projecting from node state as it looks at
-apply time, so `AutoFullDrivesInfeasible` can still surface at runtime.
+changes the spec, evaluated against the new spec, so `cluster_auto_full_drives_min_nodes` and
+`cluster_auto_full_drives_feasible` both apply to the switch exactly as they would to a fresh daemonset
+cluster. Expect `cluster_auto_full_drives_feasible` to be the one that rejects, on compute hugepages:
+claimed capacity typically jumps on the switch, since every drive on every eligible node is now claimed
+rather than the `numDrives` your counts asked for — work through
+[Compute hugepages are the practical ceiling](#compute-hugepages-are-the-practical-ceiling) before you
+switch. The gate reads fleet state as it looks at apply time, so a fleet that changes afterwards can
+still surface `AutoFullDrivesInfeasible` at runtime.
 
 ### Why the other transitions stay rejected
 
@@ -650,7 +703,7 @@ count, cores, or the number of containers, no matter what changes on the cluster
   [Events](#events)); growth the planner proposes but does not commit is deliberately not announced.
 - **Drive-only growth is cheap, but not free.** CPU and memory are functions of a container's **cores**,
   so absorbing more drives at the same core count costs neither. Hugepages do grow, by `200` MiB per
-  added drive (see [Hugepages budget](#hugepages-budget)), so a drives-only growth is charged against
+  added drive (see [Per-container footprint](#per-container-footprint-defaults-mib)), so a drives-only growth is charged against
   the node like any other. A node without that headroom blocks it — and, since drives are never dropped
   to make a container fit, that makes the whole plan infeasible (see
   [When a node cannot fit its drives](#when-a-node-cannot-fit-its-drives)).
@@ -762,7 +815,7 @@ already 19. Any container that sat
 **Every growth is charged, on both axes.** CPU and memory follow a container's **cores** alone, so a
 drives-only growth costs neither. Hugepages follow both, at `200` MiB per added **drive** and
 `1464` MiB per added **core** at defaults (`1400` + `64` DPDK; see
-[Hugepages budget](#hugepages-budget)). A growth that raises cores is additionally charged **physical
+[Per-container footprint](#per-container-footprint-defaults-mib)). A growth that raises cores is additionally charged **physical
 CPU** per the node's threading topology and CPU policy, and **memory**. If **any** node cannot absorb
 its delta on **any** of those dimensions, the **whole plan is infeasible**: nothing is created or grown
 anywhere, and `AutoFullDrivesInfeasible` names the offending nodes and the binding dimension (see
@@ -885,8 +938,7 @@ one that also needs the old spec, which is why it can catch a transition at all.
 |---|---|---|---|
 | CRD CEL rule (not a policy) | rejection | create + update | Exactly one of `computeContainers`/`driveContainers` set — see [the both-or-neither rule](#the-both-or-neither-rule) |
 | `cluster_auto_full_drives_min_nodes` | Error / Warn | create + update | A role selector matching fewer nodes than the form-cluster floor — see [above](#the-node-selector-sets-the-container-count) |
-| `cluster_auto_full_drives_compute_hugepages` | Error / Warn | create + update | No compute layout fits: not enough hugepages for the claimed capacity ([the ceiling](#compute-hugepages-are-the-practical-ceiling)), more cores required than the compute-eligible nodes can hold ([cores, not memory](#when-cores-not-memory-are-what-binds)), or a pinned `computeCores` that fits neither |
-| `cluster_auto_full_drives_pin_exceeds_node_drives` | Error / Warn | create + update | `driveCores` above a node's effective drive count, or `numDrives` above its signed count |
+| `cluster_auto_full_drives_feasible` | Error / Warn | create + update | Any plan the capacity planner reports infeasible: no compute layout fits — not enough hugepages for the claimed capacity ([the ceiling](#compute-hugepages-are-the-practical-ceiling)), more cores required than the compute-eligible nodes can hold ([cores, not memory](#when-cores-not-memory-are-what-binds)), a pinned `computeCores` that fits neither — or `driveCores` above a node's effective drive count or `numDrives` above its signed count. Skipped before any drive is signed |
 | `cluster_cores_per_container_limit` | Error / Warn | create + update | A pinned `driveCores`/`computeCores` above [19](#per-container-core-limit) |
 | `cluster_cores_available` | Warn / Warn | create + update | A pinned `driveCores`/`computeCores` larger than the smallest matched node's allocatable CPU |
 | `cluster_hugepages_available` | Warn / Warn | create + update | A pinned `driveHugepages`/`computeHugepages` larger than the smallest matched node's allocatable hugepages-2Mi — see [the override caveat](#hugepages-budget) |
@@ -975,9 +1027,9 @@ counts) or neither (to act as a daemonset) — see
 [The both-or-neither rule](#the-both-or-neither-rule).
 
 **The `WekaCluster` is rejected at creation with a message about compute hugepages.**
-The `cluster_auto_full_drives_compute_hugepages` policy projected the claimed capacity of your node
-selector and found that no compute layout fits. The message quantifies the shortfall and the
-compute-node count that would clear it; the remedies are in
+The `cluster_auto_full_drives_feasible` policy ran the capacity planner against your node selector and
+the planner found that no compute layout fits. The message is the planner's own, quantifying the
+shortfall; the remedies are in
 [Compute hugepages are the practical ceiling](#compute-hugepages-are-the-practical-ceiling). If it
 names **cores** rather than memory as what binds, see
 [When cores, not memory, are what binds](#when-cores-not-memory-are-what-binds) — more hugepages will

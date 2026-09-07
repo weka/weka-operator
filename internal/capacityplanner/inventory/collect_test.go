@@ -1605,3 +1605,20 @@ func TestCollect_PinnedAutoFullDrivesDriveContainer_NodeDetailsUsedPlusFreeEqual
 // Node eligibility classification (cordoned/not ready/untolerated taint) is exercised in
 // internal/controllers/resources/node_test.go: resources.NodeIneligibleReason is the single shared
 // predicate this package's NodeInventory/FullDrivesInventory/ExploreNodes all call into.
+
+// TestHasSignedFullDrives: nodeInv also carries compute-only nodes, and on a converged cluster every drive
+// is owned rather than free — so neither len(nodeInv) nor a free-only test would do.
+func TestHasSignedFullDrives(t *testing.T) {
+	if HasSignedFullDrives(nil) {
+		t.Error("empty inventory reported as signed")
+	}
+	if HasSignedFullDrives([]capacityplanner.NodeCapacity{{NodeName: "c0"}}) {
+		t.Error("a drive-less compute node reported as signed")
+	}
+	if !HasSignedFullDrives([]capacityplanner.NodeCapacity{{NodeName: "n0", DriveCapacitiesGiB: []int{1000}}}) {
+		t.Error("free signed drives not reported as signed")
+	}
+	if !HasSignedFullDrives([]capacityplanner.NodeCapacity{{NodeName: "n0", OwnDriveCapacitiesGiB: []int{1000}}}) {
+		t.Error("owned signed drives not reported as signed (a converged cluster reads as unsigned)")
+	}
+}

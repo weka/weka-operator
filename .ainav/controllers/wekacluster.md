@@ -62,9 +62,10 @@ auto-calculation.
 
 Validators (`internal/validation/`, severities in `internal/admission/defaults.go`):
 
-- `cluster_auto_full_drives_pin_exceeds_node_drives` — pinned cores/drives exceed node's signed drives
-- `cluster_auto_full_drives_compute_hugepages` — projected compute hugepages exceed node headroom
+- `cluster_auto_full_drives_feasible` — runs FullDrivesInventory + PlanAutoFullDrives and reports
+  `plan.Infeasibility` (pins above signed drives, compute hugepages/cores that cannot be placed)
 - `cluster_auto_full_drives_min_nodes` — role selector matches fewer nodes than min container counts
+  (the drive leg is the one case the planner calls feasible: it hangs on MinContainersNotReady)
 - `cluster_sizing_mode_flip` — derived mode changed (UPDATE only) while drive containers exist
 - `cluster_compute_drive_cores_floor` / `cluster_drive_compute_core_ratio` — compute:drive core ratio floor/advisory
 - `cluster_cores_per_container_limit` — pinned cores above `maxCoresPerContainer`

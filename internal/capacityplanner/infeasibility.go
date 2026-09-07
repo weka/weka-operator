@@ -33,13 +33,23 @@ type NodeRejection struct {
 type InfeasibilityReport struct {
 	// Reason is the human summary; it is byte-identical to plan.Infeasible.
 	Reason string
-	// Pool is "tlc", "qlc", "compute", or "" (cluster-wide, e.g. protection-floor check).
+	// Pool is "tlc", "qlc", "drive" (the auto-full-drives node walk, which has no tier split), "compute",
+	// or "" (cluster-wide, e.g. protection-floor check).
 	Pool string
 	// Binding is the tightest cause: "drive capacity" | "cores" | "hugepages" | "memory" |
-	// "failure domains" | "protection" | "driveContainers" | "driveCores" | "" (unclassified).
+	// "failure domains" | "protection" | "driveContainers" | "driveCores" | "numDrives" | ""
+	// (unclassified). Note it mixes two vocabularies — resource dimensions ("cores" is physical CPU) and
+	// spec field names — so it cannot be mapped to a field; SpecField below is what names a field.
 	Binding string
 	// ShortfallGiB is how much the pool/dimension is short, when quantifiable; 0 otherwise.
 	ShortfallGiB int
+	// SpecField names the dynamicTemplate field whose pin caused this rejection ("numDrives",
+	// "driveCores", "computeCores"), empty when no pinned field did. Distinct from Binding, which also
+	// carries resource dimensions ("cores" is physical CPU, not the driveCores pin) and so cannot be
+	// mapped to a field on its own: consumers that must blame a field — internal/validation's
+	// auto-full-drives feasibility rule, which turns this into a field.Error path — read this instead of
+	// inferring one, so a report caused by the fleet rather than the spec blames nothing.
+	SpecField string
 	// RejectedNodes is the per-node breakdown of why the candidate set fell short (drive pools only).
 	RejectedNodes []NodeRejection
 	// Fixes is the ordered, actionable remediation catalog for Binding.
@@ -58,6 +68,10 @@ const fixesAutoFullDrivesMaxNamedNodes = 5
 // infeasibility. There is no partial-fit outcome in that mode — drives are never dropped to make a container
 // fit — so one node short of resources blocks the whole cluster, and the fixes say how to exclude it if that
 // is the intent.
+//
+// It sets no SpecField even when driveCores is pinned, unlike the compute leg: a node's fit can bind on the
+// per-drive hugepages term, which driveCores does not control, so the pin is not reliably the cause. The
+// fixes name it as a remedy either way.
 func autoNodeFitInfeasible(failures []autoFitFailure) *InfeasibilityReport {
 	names := make([]string, 0, len(failures))
 	details := make([]string, 0, len(failures))
@@ -305,8 +319,9 @@ func fixesAutoFullDrivesNodeFit(nodes, growthNodes []string) []string {
 			"drive on every node and simply runs them on fewer cores",
 		fmt.Sprintf("or free physical CPU / hugepages / memory on %s (evict other pods, raise the node's "+
 			"hugepages reservation)", list),
-		fmt.Sprintf("or take those nodes out of the drive role — narrow spec.roleNodeSelector.drive so it no "+
-			"longer matches %s, or unsign their drives — so the plan is not required to place a container there", list),
+		fmt.Sprintf("or take those nodes out of the drive role — narrow spec.roleNodeSelector.drive (or "+
+			"spec.nodeSelector) so it no longer matches %s, or unsign their drives — so the plan is not "+
+			"required to place a container there", list),
 		"or switch to a drive-sharing mode (containerCapacity or clusterCapacity), which sizes containers from "+
 			"a capacity target instead of each node's full drive set",
 	)
@@ -318,9 +333,9 @@ func fixesAutoFullDrivesNodeFit(nodes, growthNodes []string) []string {
 // node count), or claiming less capacity. There is no computeContainers lever here.
 func fixesAutoFullDrivesCompute(cons *CapacityConstraints) []string {
 	fixes := []string{
-		"add compute-eligible nodes (matching spec.roleNodeSelector.compute) with free cores + hugepages — " +
-			"the capacity-based share of compute hugepages is divided by the compute container count, so more " +
-			"compute nodes is the direct lever",
+		"add compute-eligible nodes (matching spec.roleNodeSelector.compute, or spec.nodeSelector) with " +
+			"free cores + hugepages — the capacity-based share of compute hugepages is divided by the " +
+			"compute container count, so more compute nodes is the direct lever",
 	}
 	if cons != nil && cons.ComputeHugepagesTlcRatio > 0 {
 		fixes = append(fixes, fmt.Sprintf(

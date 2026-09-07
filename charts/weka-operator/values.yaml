@@ -715,22 +715,20 @@ admissionPolicies:
   #   # capacity-carved virtual drives instead (see cluster_capacity_*).
   #   cluster_signed_drives:                default  # strict: error  | relaxed: warn
   #
-  #   # Auto-full-drives ("acts as a daemonset", i.e. no container-count or capacity field set): a
-  #   # pinned numDrives above a node's signed full drive count, or a pinned driveCores above it when
-  #   # numDrives is unpinned (1 core per physical drive). Either makes the whole plan infeasible —
-  #   # nothing is created anywhere. A driveCores pin BELOW the drive count is fine and not reported:
-  #   # every drive is still claimed, just run on fewer cores.
-  #   cluster_auto_full_drives_pin_exceeds_node_drives: default  # strict: error | relaxed: warn
-  #
-  #   # Auto-full-drives claims every signed drive, so compute hugepages (which scale with total
-  #   # capacity) can exceed what any compute-eligible node has. Rejects at apply time instead of
-  #   # after a failed formation, naming the shortfall and the compute-node count that would suffice.
-  #   cluster_auto_full_drives_compute_hugepages: default  # strict: error | relaxed: warn
+  #   # Auto-full-drives ("acts as a daemonset", i.e. no container-count or capacity field set): runs
+  #   # the capacity planner at apply time and rejects a plan it reports infeasible — one that would
+  #   # create nothing anywhere. Covers a pinned numDrives or driveCores above a node's signed full
+  #   # drive count, and compute hugepages (which scale with total claimed capacity) exceeding what any
+  #   # compute-eligible node has. The message is the planner's own, with its remedies. A driveCores
+  #   # pin BELOW the drive count is fine and not reported: every drive is still claimed, on fewer
+  #   # cores. Skipped before any drive is signed (see cluster_drives_unsigned_advisory).
+  #   cluster_auto_full_drives_feasible:    default  # strict: error | relaxed: warn
   #
   #   # Auto-full-drives places one container per eligible node, so a role nodeSelector matching fewer
   #   # nodes than the form-cluster floor (FORM_CLUSTER_MIN_{DRIVE,COMPUTE}_CONTAINERS, 5 by default)
-  #   # can never form a cluster. The drive side is otherwise a silent hang on MinContainersNotReady;
-  #   # the compute side surfaces as AutoFullDrivesInfeasible only after a failed formation.
+  #   # can never form a cluster. The drive side is otherwise a silent hang on MinContainersNotReady —
+  #   # the planner calls that plan feasible — which is why this rule survives alongside
+  #   # cluster_auto_full_drives_feasible, and owns the too-few-nodes case for both roles.
   #   cluster_auto_full_drives_min_nodes:   default  # strict: error | relaxed: warn
   #
   #   # No matched drive-role node carries the drive annotation this cluster's mode consumes

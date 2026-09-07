@@ -302,28 +302,7 @@ func renderPlanText(d *planData) string {
 	}
 
 	// COMPUTE: create rows keyed by node, grow rows by container name, showing the core transition.
-	if len(d.ComputeCreate) > 0 || len(d.ComputeGrow) > 0 {
-		fmt.Fprintln(&buf, "\nCOMPUTE") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		if len(d.ComputeCreate) > 0 {
-			fmt.Fprintln(&buf, "  "+createLabel) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			tw := tabwriter.NewWriter(&buf, 0, 2, 2, ' ', 0)
-			fmt.Fprintln(tw, "    NODE\tCORES\tHUGEPAGES") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			for _, r := range d.ComputeCreate {
-				fmt.Fprintf(tw, "    %s\t%d\t%d\n", r.Node, r.ToCores, r.HugepagesMiB) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			}
-			tw.Flush() //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		}
-		if len(d.ComputeGrow) > 0 {
-			fmt.Fprintln(&buf, "  "+growLabel) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			tw := tabwriter.NewWriter(&buf, 0, 2, 2, ' ', 0)
-			fmt.Fprintln(tw, "    CONTAINER\tNODE\tCORES\tHUGEPAGES") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			for _, r := range d.ComputeGrow {
-				fmt.Fprintf(tw, "    %s\t%s\t%s\t%s\n", dashIfEmpty(r.Name), dashIfEmpty(r.Node), //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-					transitionInt(r.FromCores, r.ToCores), transitionInt(r.FromHugepagesMiB, r.HugepagesMiB))
-			}
-			tw.Flush() //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		}
-	}
+	renderComputeSection(&buf, createLabel, growLabel, d.ComputeCreate, d.ComputeGrow)
 
 	renderList(&buf, "WARNINGS", capacityplanner.WarningMessages(p.Warnings))
 	renderList(&buf, "OVER-PROVISION", p.OverProvisions)
@@ -332,6 +311,32 @@ func renderPlanText(d *planData) string {
 	fmt.Fprintln(&buf, "\nSUMMARY")        //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
 	fmt.Fprintf(&buf, "  %s\n", d.Summary) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
 	return buf.String()
+}
+
+func renderComputeSection(buf *bytes.Buffer, createLabel, growLabel string, create, grow []computeRow) {
+	if len(create) == 0 && len(grow) == 0 {
+		return
+	}
+	fmt.Fprintln(buf, "\nCOMPUTE") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+	if len(create) > 0 {
+		fmt.Fprintln(buf, "  "+createLabel) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+		tw := tabwriter.NewWriter(buf, 0, 2, 2, ' ', 0)
+		fmt.Fprintln(tw, "    NODE\tCORES\tHUGEPAGES") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+		for _, r := range create {
+			fmt.Fprintf(tw, "    %s\t%d\t%d\n", r.Node, r.ToCores, r.HugepagesMiB) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+		}
+		tw.Flush() //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+	}
+	if len(grow) > 0 {
+		fmt.Fprintln(buf, "  "+growLabel) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+		tw := tabwriter.NewWriter(buf, 0, 2, 2, ' ', 0)
+		fmt.Fprintln(tw, "    CONTAINER\tNODE\tCORES\tHUGEPAGES") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+		for _, r := range grow {
+			fmt.Fprintf(tw, "    %s\t%s\t%s\t%s\n", dashIfEmpty(r.Name), dashIfEmpty(r.Node), //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+				transitionInt(r.FromCores, r.ToCores), transitionInt(r.FromHugepagesMiB, r.HugepagesMiB))
+		}
+		tw.Flush() //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+	}
 }
 
 func renderList(buf *bytes.Buffer, title string, items []string) {
@@ -509,30 +514,9 @@ func renderAutoFullDrivesPlanText(d *autoFullDrivesPlanData) string {
 		tw.Flush() //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
 	}
 
-	// COMPUTE: identical shape to clusterCapacity's tables — same ComputeContainerSpec-derived model
-	// (see planComputeAutoFullDrives), fed by a different drive plan.
-	if len(d.ComputeCreate) > 0 || len(d.ComputeGrow) > 0 {
-		fmt.Fprintln(&buf, "\nCOMPUTE") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		if len(d.ComputeCreate) > 0 {
-			fmt.Fprintln(&buf, "  create") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			tw := tabwriter.NewWriter(&buf, 0, 2, 2, ' ', 0)
-			fmt.Fprintln(tw, "    NODE\tCORES\tHUGEPAGES") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			for _, r := range d.ComputeCreate {
-				fmt.Fprintf(tw, "    %s\t%d\t%d\n", r.Node, r.ToCores, r.HugepagesMiB) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			}
-			tw.Flush() //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		}
-		if len(d.ComputeGrow) > 0 {
-			fmt.Fprintln(&buf, "  grow") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			tw := tabwriter.NewWriter(&buf, 0, 2, 2, ' ', 0)
-			fmt.Fprintln(tw, "    CONTAINER\tNODE\tCORES\tHUGEPAGES") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			for _, r := range d.ComputeGrow {
-				fmt.Fprintf(tw, "    %s\t%s\t%s\t%s\n", dashIfEmpty(r.Name), dashIfEmpty(r.Node), //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-					transitionInt(r.FromCores, r.ToCores), transitionInt(r.FromHugepagesMiB, r.HugepagesMiB))
-			}
-			tw.Flush() //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		}
-	}
+	// COMPUTE: same ComputeContainerSpec-derived model as clusterCapacity's table (see planComputeAutoFullDrives),
+	// fed by a different drive plan.
+	renderComputeSection(&buf, "create", "grow", d.ComputeCreate, d.ComputeGrow)
 
 	renderList(&buf, "WARNINGS", capacityplanner.WarningMessages(p.Warnings))
 

@@ -186,10 +186,11 @@ func TestDeriveComputeLayout(t *testing.T) {
 	}
 }
 
-// Pins the same numbers as internal/validation TestAutoFullDrivesComputeHugepages_CoreCapBindsBeforeHugepages
-// (96 required compute cores, MaxCoresPerContainer=19): deriveComputeLayout and the validator's sweep must
-// reject the same counts for the same reason, or admission would pass a plan the planner refuses to build.
-func TestDeriveComputeLayout_AgreesWithAutoFullDrivesHugepagesValidator(t *testing.T) {
+// Pins the core cap binding ahead of hugepages: with 96 required cores over a 5-node floor,
+// ceil(96/5)=20 exceeds MaxCoresPerContainer=19, so the layout is infeasible on cores alone while
+// hugepages headroom is still ample. Admission reports this verdict through the planner
+// (clusterAutoFullDrivesFeasible), so these are the numbers an operator sees rejected.
+func TestDeriveComputeLayout_CoreCapBindsBeforeHugepages(t *testing.T) {
 	const requiredComputeCores = 96
 	const maxCoresPerContainer = 19
 	const floor = 5

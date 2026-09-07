@@ -6,7 +6,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-func TestPodUnschedulable(t *testing.T) {
+func TestPodUnschedulableCondition(t *testing.T) {
 	tests := []struct {
 		name string
 		pod  *v1.Pod
@@ -42,8 +42,8 @@ func TestPodUnschedulable(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := PodUnschedulable(tt.pod); got != tt.want {
-				t.Errorf("PodUnschedulable() = %v, want %v", got, tt.want)
+			if got := PodUnschedulableCondition(tt.pod) != nil; got != tt.want {
+				t.Errorf("PodUnschedulableCondition() != nil = %v, want %v", got, tt.want)
 			}
 		})
 	}

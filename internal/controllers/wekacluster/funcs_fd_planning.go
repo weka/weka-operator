@@ -173,19 +173,7 @@ func (r *wekaClusterReconcilerLoop) planAutoFullDrives(ctx context.Context) (*ca
 		return nil, err
 	}
 
-	// nodeInv also carries compute-selector nodes with no drives (for compute headroom), so a bare
-	// len(nodeInv)==0 check is wrong — check for a node actually carrying drives. "Signed" means own OR
-	// free: on a fully-converged cluster every drive is owned, so a free-only test would misreport a
-	// healthy cluster as unsigned.
-	hasSignedDrives := false
-	for i := range nodeInv {
-		n := &nodeInv[i]
-		if len(n.DriveCapacitiesGiB) > 0 || len(n.OwnDriveCapacitiesGiB) > 0 {
-			hasSignedDrives = true
-			break
-		}
-	}
-	if !hasSignedDrives {
+	if !inventory.HasSignedFullDrives(nodeInv) {
 		// A drive container on its way out still holds its drives, which the inventory reports as neither free
 		// nor own — so a fleet whose every drive is held by one reads exactly like an unsigned fleet here.
 		// Distinguish the two, or the operator is told to sign drives that are already signed.

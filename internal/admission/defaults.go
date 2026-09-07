@@ -23,12 +23,13 @@ var (
 		// run, they just never finish adding drives.
 		"cluster_num_drives_below_required_cores": {Strict: Error, Relaxed: Warn},
 		"cluster_cores_per_container_limit":       {Strict: Error, Relaxed: Warn},
-		// Both auto-full-drives policies describe a plan that never converges (the planner reports the
-		// whole thing infeasible and creates nothing), so strict rejects; relaxed warns so a fleet can
-		// still be applied and inspected.
-		"cluster_auto_full_drives_pin_exceeds_node_drives": {Strict: Error, Relaxed: Warn},
-		"cluster_auto_full_drives_compute_hugepages":       {Strict: Error, Relaxed: Warn},
-		"cluster_auto_full_drives_min_nodes":               {Strict: Error, Relaxed: Warn},
+		// Both auto-full-drives policies describe a cluster that never converges, so strict rejects;
+		// relaxed warns so a fleet can still be applied and inspected. cluster_auto_full_drives_feasible
+		// asks the planner directly and rejects a plan it calls infeasible — nothing gets created at all.
+		// min_nodes covers the one case the planner cannot see, a drive selector below the form-cluster
+		// floor: that plan IS feasible and the containers run, the cluster just never forms.
+		"cluster_auto_full_drives_feasible":  {Strict: Error, Relaxed: Warn},
+		"cluster_auto_full_drives_min_nodes": {Strict: Error, Relaxed: Warn},
 		// Error in BOTH modes: below the form-cluster minimum the cluster does not degrade, it never forms
 		// at all (waits forever on MinContainersNotReady), so relaxing this would only delay the failure.
 		"cluster_min_containers":        {Strict: Error, Relaxed: Error},

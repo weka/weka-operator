@@ -209,11 +209,11 @@ func (c Collector) nodeInventoryFromLists(ctx context.Context, cluster *weka.Wek
 	// Nodes hosting THIS cluster's drive container being deleted: excluded from existingDrives, so its
 	// TLC/QLC capacity re-enters the fresh-candidate pool — but while its pod lives, cores/hugepages/memory
 	// stay charged via chargeForeignPods. Flagged so the planner deprioritizes fresh placement.
-	deletingDriveNodes := NodesWithDeletingDriveContainer(ownContainers)
+	deletingDriveNodes := nodesWithDeletingDriveContainer(ownContainers)
 	// Nodes hosting THIS cluster's compute container being deleted: its pod still holds hugepages/CPU/memory
 	// (charged via chargeForeignPods), so a drive container on the same node can fail a fit it would pass
 	// once the deletion lands. Flagged so the auto-full-drives walk defers rather than fails the plan.
-	deletingComputeNodes := NodesWithDeletingComputeContainer(ownContainers)
+	deletingComputeNodes := nodesWithDeletingComputeContainer(ownContainers)
 
 	// Drive candidates: nodes with usable shared-drive capacity, carrying TLC/QLC headroom and an FD key.
 	fdByNode := map[string]string{}
@@ -307,8 +307,8 @@ func (c Collector) FullDrivesInventory(ctx context.Context, cluster *weka.WekaCl
 	allocatedDrives := allocatedNodeDrives(containers)
 	tolerations := resources.GetWekaPodTolerationsForCluster(cluster)
 
-	deletingDriveNodes := NodesWithDeletingDriveContainer(ownContainers)
-	deletingComputeNodes := NodesWithDeletingComputeContainer(ownContainers)
+	deletingDriveNodes := nodesWithDeletingDriveContainer(ownContainers)
+	deletingComputeNodes := nodesWithDeletingComputeContainer(ownContainers)
 
 	// ownDriveSerials is, per node, the serials allocated to THIS cluster's own drive container that still
 	// holds them, using the same IsDeletingDriveContainer predicate as ExistingDrives (see that function
@@ -514,6 +514,23 @@ func (c Collector) ExploreNodes(ctx context.Context, selector map[string]string,
 	return out, nil
 }
 
+// HasSignedFullDrives reports whether any candidate node in nodeInv carries a signed, non-blocked full
+// drive — free, or already owned by this cluster. nodeInv also holds compute-selector nodes with no drives
+// (they supply compute headroom), so len(nodeInv) says nothing about signing; and on a converged cluster
+// every drive is owned rather than free, so a free-only test would read a healthy fleet as unsigned.
+//
+// Note this is "no drive reached the inventory", which also covers drives still held by a drive container
+// being deleted — callers that must tell that apart inspect the containers themselves.
+func HasSignedFullDrives(nodeInv []capacityplanner.NodeCapacity) bool {
+	for i := range nodeInv {
+		n := &nodeInv[i]
+		if len(n.DriveCapacitiesGiB) > 0 || len(n.OwnDriveCapacitiesGiB) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // IsDeletingDriveContainer reports whether c is a drive container on its way out. Such a container still
 // physically holds its allocated drives — they stay out of the free pool via allocatedNodeDrives and out of
 // the own pool via ownDriveSerials — but can neither be grown nor planned against.
@@ -525,9 +542,9 @@ func IsDeletingDriveContainer(c *weka.WekaContainer) bool {
 	return c.Spec.Mode == weka.WekaContainerModeDrive && c.IsMarkedForDeletion()
 }
 
-// NodesWithDeletingDriveContainer is the set of nodes hosting one — the source of each node's
+// nodesWithDeletingDriveContainer is the set of nodes hosting one — the source of each node's
 // NodeCapacity.HasDeletingDriveContainer. A container with no node resolves to nowhere and is skipped.
-func NodesWithDeletingDriveContainer(ownContainers []*weka.WekaContainer) map[string]bool {
+func nodesWithDeletingDriveContainer(ownContainers []*weka.WekaContainer) map[string]bool {
 	out := map[string]bool{}
 	for _, cont := range ownContainers {
 		if !IsDeletingDriveContainer(cont) {
@@ -540,19 +557,19 @@ func NodesWithDeletingDriveContainer(ownContainers []*weka.WekaContainer) map[st
 	return out
 }
 
-// IsDeletingComputeContainer reports whether c is a compute container on its way out. Such a container's
+// isDeletingComputeContainer reports whether c is a compute container on its way out. Such a container's
 // pod still physically holds its hugepages/CPU/memory until the pod is actually gone, so a node hosting one
 // can fail a drive-growth fit that would pass once the deletion lands.
-func IsDeletingComputeContainer(c *weka.WekaContainer) bool {
+func isDeletingComputeContainer(c *weka.WekaContainer) bool {
 	return c.Spec.Mode == weka.WekaContainerModeCompute && c.IsMarkedForDeletion()
 }
 
-// NodesWithDeletingComputeContainer is the set of nodes hosting one — the source of each node's
+// nodesWithDeletingComputeContainer is the set of nodes hosting one — the source of each node's
 // NodeCapacity.HasDeletingComputeContainer. A container with no node resolves to nowhere and is skipped.
-func NodesWithDeletingComputeContainer(ownContainers []*weka.WekaContainer) map[string]bool {
+func nodesWithDeletingComputeContainer(ownContainers []*weka.WekaContainer) map[string]bool {
 	out := map[string]bool{}
 	for _, cont := range ownContainers {
-		if !IsDeletingComputeContainer(cont) {
+		if !isDeletingComputeContainer(cont) {
 			continue
 		}
 		if n := string(cont.GetNodeAffinity()); n != "" {
@@ -933,7 +950,7 @@ func buildNodeTopos(nodes []corev1.Node) map[string]capacityplanner.NodeCPUTopol
 // map, and cluster-wide container list instead of re-fetching them, so Collect can reuse the single
 // listing pass it shares with nodeInventoryFromLists.
 func (c Collector) nodeDetailsFromLists(ctx context.Context, cluster *weka.WekaCluster, ownContainers []*weka.WekaContainer, cons *capacityplanner.CapacityConstraints, inv []capacityplanner.NodeCapacity, fdByNode map[string]string, driveNodes, computeNodeList []corev1.Node, topos map[string]capacityplanner.NodeCPUTopology, allContainers []weka.WekaContainer) ([]NodeDetail, error) {
-	deletingDriveNodes := NodesWithDeletingDriveContainer(ownContainers)
+	deletingDriveNodes := nodesWithDeletingDriveContainer(ownContainers)
 
 	// Index the planner inventory by node for free-headroom + FD lookup.
 	invByNode := make(map[string]capacityplanner.NodeCapacity, len(inv))

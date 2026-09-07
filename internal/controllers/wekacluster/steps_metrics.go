@@ -245,10 +245,10 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 			}
 		}
 		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(desiredDrives)
-		cluster.Status.Stats.Containers.Compute.Processes.Desired = weka.IntMetric(max(int64(template.Cores.Compute), 1) * int64(template.Containers.Compute))
-		cluster.Status.Stats.Containers.Drive.Processes.Desired = weka.IntMetric(max(int64(template.Cores.Drive), 1) * int64(template.Containers.Drive))
 	default:
 		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(template.Containers.Drive * template.NumDrives)
+	}
+	if !plannerManaged {
 		cluster.Status.Stats.Containers.Compute.Processes.Desired = weka.IntMetric(max(int64(template.Cores.Compute), 1) * int64(template.Containers.Compute))
 		cluster.Status.Stats.Containers.Drive.Processes.Desired = weka.IntMetric(max(int64(template.Cores.Drive), 1) * int64(template.Containers.Drive))
 	}

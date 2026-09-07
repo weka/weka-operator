@@ -53,7 +53,7 @@ func TestValidateRawTolerations(t *testing.T) {
 		{"empty key with Exists (tolerate everything)", []corev1.Toleration{{Operator: corev1.TolerationOpExists}}, 0},
 		{"empty operator means Equal", []corev1.Toleration{{Key: "k", Value: "v"}}, 0},
 		{"bad key", []corev1.Toleration{{Key: "a:b", Operator: corev1.TolerationOpExists}}, 1},
-		{"bad effect enum", []corev1.Toleration{{Key: "k", Operator: corev1.TolerationOpExists, Effect: "NoSchedul"}}, 1},
+		{"bad effect enum", []corev1.Toleration{{Key: "k", Operator: corev1.TolerationOpExists, Effect: "BogusEffect"}}, 1},
 		{"bad operator enum", []corev1.Toleration{{Key: "k", Operator: "Sometimes"}}, 1},
 		{"Exists with value", []corev1.Toleration{{Key: "k", Operator: corev1.TolerationOpExists, Value: "v"}}, 1},
 		{"Exists with invalid value reports only must-be-empty", []corev1.Toleration{{Key: "k", Operator: corev1.TolerationOpExists, Value: "bad value!"}}, 1},

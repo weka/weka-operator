@@ -208,6 +208,10 @@ func TestPlanAutoFullDrives_DriveCoresPinnedAboveDriveCount_Infeasible(t *testin
 	if plan.Infeasibility.Binding != "driveCores" {
 		t.Errorf("Infeasibility.Binding = %q, want %q", plan.Infeasibility.Binding, "driveCores")
 	}
+	// The pin caused it, so the report names the field admission should blame.
+	if plan.Infeasibility.SpecField != "driveCores" {
+		t.Errorf("Infeasibility.SpecField = %q, want %q", plan.Infeasibility.SpecField, "driveCores")
+	}
 	if !strings.Contains(plan.Infeasible, "exceeds the 1 full drive(s)") {
 		t.Errorf("Infeasible = %q, want it to mention the 1 available full drive", plan.Infeasible)
 	}
@@ -763,6 +767,10 @@ func TestPlanAutoFullDrives_ComputeLayout_CoresBound_Infeasible_ReportsBinding(t
 	}
 	if plan.Infeasibility.Binding != bindingCores {
 		t.Errorf("Infeasibility.Binding = %q, want %q", plan.Infeasibility.Binding, bindingCores)
+	}
+	// Nothing was pinned, so no spec field may be blamed — Binding "cores" here is a node's physical CPU.
+	if plan.Infeasibility.SpecField != "" {
+		t.Errorf("Infeasibility.SpecField = %q, want empty when the layout is derived", plan.Infeasibility.SpecField)
 	}
 	if plan.Infeasibility.ShortfallGiB != 0 {
 		t.Errorf("Infeasibility.ShortfallGiB = %d, want 0 (core shortfall is not GiB-quantifiable here)", plan.Infeasibility.ShortfallGiB)
@@ -2493,7 +2501,7 @@ func TestPlanAutoFullDrives_Create_NumDrivesIndependentOfNumCores(t *testing.T) 
 // capacity-based share of ComputeContainerHugepagesMiB cannot be reduced by any planner decision. The
 // fleet is infeasible: the operator signed 48 drives and the cluster cannot host the compute they require.
 // Do not loosen these assertions to make it green — the infeasibility is the behaviour under test, caught
-// at kubectl apply by cluster_auto_full_drives_compute_hugepages.
+// at kubectl apply by cluster_auto_full_drives_feasible.
 //
 // Numbers below are the worked example in doc/operator/deployment/act-as-daemonset.md and must stay in
 // step with it:
@@ -2817,6 +2825,9 @@ func TestPlanAutoFullDrives_DriveCoresPinAboveEffectiveDrivesInfeasible(t *testi
 	if plan.Infeasibility.Binding != "driveCores" {
 		t.Fatalf("want Binding=driveCores, got %q (%s)", plan.Infeasibility.Binding, plan.Infeasible)
 	}
+	if plan.Infeasibility.SpecField != "driveCores" {
+		t.Fatalf("want SpecField=driveCores, got %q", plan.Infeasibility.SpecField)
+	}
 	if len(plan.ComputeLayout) != 0 {
 		t.Fatalf("infeasible plan must carry no compute layout, got %d entries", len(plan.ComputeLayout))
 	}
@@ -2836,6 +2847,9 @@ func TestPlanAutoFullDrives_NumDrivesPinAboveNodeCountInfeasible(t *testing.T) {
 	}
 	if plan.Infeasibility.Binding != "numDrives" {
 		t.Fatalf("want Binding=numDrives, got %q (%s)", plan.Infeasibility.Binding, plan.Infeasible)
+	}
+	if plan.Infeasibility.SpecField != "numDrives" {
+		t.Fatalf("want SpecField=numDrives, got %q", plan.Infeasibility.SpecField)
 	}
 	if len(plan.Create) != 0 || len(plan.ComputeLayout) != 0 {
 		t.Fatalf("nothing may be planned: %d create, %d compute", len(plan.Create), len(plan.ComputeLayout))

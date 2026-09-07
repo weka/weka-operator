@@ -40,11 +40,12 @@ func (clusterCoresPerContainerLimit) Validate(_ context.Context, _ client.Client
 	config := cluster.Spec.Dynamic
 	// Only the two planner-managed roles are checked; protocol roles are out of scope until confirmed to apply the same way.
 	checks := []struct {
-		field string
-		cores int
+		field      string
+		cores      int
+		countField string
 	}{
-		{"driveCores", config.DriveCores},
-		{"computeCores", config.ComputeCores},
+		{"driveCores", config.DriveCores, "driveContainers"},
+		{"computeCores", config.ComputeCores, "computeContainers"},
 	}
 
 	var out field.ErrorList
@@ -56,16 +57,9 @@ func (clusterCoresPerContainerLimit) Validate(_ context.Context, _ client.Client
 			"spec.dynamicTemplate.%s (%d) exceeds the per-container core limit of %d — a single weka "+
 				"container cannot hold more cores than that. Lower %s to at most %d, or add containers "+
 				"(raise %s) to spread the cores across more of them.",
-			c.field, c.cores, limit, c.field, limit, containerCountFieldFor(c.field),
+			c.field, c.cores, limit, c.field, limit, c.countField,
 		)
 		out = append(out, field.Invalid(field.NewPath("spec", "dynamicTemplate", c.field), c.cores, detail))
 	}
 	return out
-}
-
-func containerCountFieldFor(coresField string) string {
-	if coresField == "driveCores" {
-		return "driveContainers"
-	}
-	return "computeContainers"
 }

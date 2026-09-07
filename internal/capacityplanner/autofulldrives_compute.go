@@ -44,6 +44,17 @@ type computeProbe struct {
 	growthAlone  bool
 }
 
+// computeSpecField names the computeCores pin when one is set, for an infeasibility the pin took part in:
+// the pin is the caller's own lever (the planner never lowers it), so the report can blame the field. Empty
+// when the count is derived, where nothing in the spec holds the layout back and blaming a field would
+// point at a value the operator never chose.
+func computeSpecField(in *autoComputeInput) string {
+	if in.desired.ComputeCores > 0 {
+		return "computeCores"
+	}
+	return ""
+}
+
 func autoComputeSpecs(kept []autoComputeEntry) []ComputeContainerSpec {
 	out := make([]ComputeContainerSpec, 0, len(kept))
 	for _, e := range kept {
@@ -202,9 +213,10 @@ func planComputeAutoFullDrives(in *autoComputeInput, plan *CapacityPlan) {
 			}
 			reason += drainingComputeClause(in)
 			setInfeasible(plan, &InfeasibilityReport{
-				Reason:  reason,
-				Pool:    "compute",
-				Binding: unaidedBinding,
+				Reason:    reason,
+				Pool:      "compute",
+				Binding:   unaidedBinding,
+				SpecField: computeSpecField(in),
 				// ShortfallGiB stays 0: the deficit here is in cores or MiB-hugepages, never GiB, and
 				// converting either into GiB would invent a number this report never measured.
 				Fixes: fixesAutoFullDrivesCompute(in.cons),
@@ -407,9 +419,10 @@ func autoRederiveKeptHugepages(kept []autoComputeEntry, totalCount int, in *auto
 						"claimed capacity or the compute container count moved, so every compute container's "+
 						"share of the capacity-based term changed",
 					e.spec.Node, e.spec.NumCores, newHP, delta, nc.AvailableHugepagesMiB),
-				Pool:    "compute",
-				Binding: "hugepages",
-				Fixes:   fixesAutoFullDrivesCompute(in.cons),
+				Pool:      "compute",
+				Binding:   "hugepages",
+				SpecField: computeSpecField(in),
+				Fixes:     fixesAutoFullDrivesCompute(in.cons),
 			})
 			return false
 		}
@@ -475,9 +488,10 @@ func autoPlaceNewCompute(
 				"compute: cannot place %d new compute container(s) to cover the %d-core shortfall — "+
 					"only %d free fitting compute node(s) (each holds up to %d cores + %d MiB hugepages)%s",
 				count, shortfall, len(candidates), cores, perContainerHP, drainingComputeClause(in)),
-			Pool:    "compute",
-			Binding: "cores",
-			Fixes:   fixesAutoFullDrivesCompute(in.cons),
+			Pool:      "compute",
+			Binding:   "cores",
+			SpecField: computeSpecField(in),
+			Fixes:     fixesAutoFullDrivesCompute(in.cons),
 		})
 		return
 	}
@@ -496,7 +510,9 @@ func autoPlaceNewCompute(
 			// rather than a panic, since over-committing a node is worse than a loud plan failure.
 			setInfeasible(plan, &InfeasibilityReport{
 				Reason: fmt.Sprintf("compute: free compute node %s cannot host a %d-core compute container", node, cCores),
-				Pool:   "compute", Binding: "hugepages", Fixes: fixesAutoFullDrivesCompute(in.cons),
+				// No SpecField: the cause is the inconsistency above, not the computeCores pin.
+				Pool: "compute", Binding: "hugepages",
+				Fixes: fixesAutoFullDrivesCompute(in.cons),
 			})
 			return
 		}
