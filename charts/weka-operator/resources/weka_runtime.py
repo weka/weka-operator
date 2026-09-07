@@ -3264,7 +3264,10 @@ async def configure_agent(agent_handle_drivers=False):
         {no_reserve_space_cmd}
         sed -i 's/cgroups_mode=auto/cgroups_mode=none/g' /etc/wekaio/service.conf || true
         sed -i 's/override_core_pattern=true/override_core_pattern=false/g' /etc/wekaio/service.conf || true
-        sed -i "s/port=14100/port={AGENT_PORT}/g" /etc/wekaio/service.conf || true
+        sed -i "/^\\[agent\\]/,/^\\[/ s/^port=.*/port={AGENT_PORT}/" /etc/wekaio/service.conf
+        # sed exits 0 on no-match, so assert the rewrite landed: an agent left on
+        # port=0 listens on no TCP port and the operator cannot read its identity.
+        sed -n "/^\\[agent\\]/,/^\\[/p" /etc/wekaio/service.conf | grep -qx "port={AGENT_PORT}"
         # sed -i "s/serve_static=false/serve_static=true/g" /etc/wekaio/service.conf || true
         echo '{{"agent": {{"port": \'{AGENT_PORT}\'}}}}' > /etc/wekaio/service.json
     """)
