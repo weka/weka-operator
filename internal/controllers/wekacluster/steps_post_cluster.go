@@ -14,6 +14,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"go.opentelemetry.io/otel/codes"
+	"k8s.io/apimachinery/pkg/api/meta"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/utils"
@@ -231,6 +232,17 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			ContinueOnError: true,
 		},
 		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.IsWekaHomeConfigured,
+			},
+			Run: loop.EnsureWekaHomeCacertOverride,
+			Throttling: &throttling.ThrottlingSettings{
+				Interval:          config.Consts.WekaOverridesUpdateInterval,
+				EnsureStepSuccess: true,
+			},
+			ContinueOnError: true,
+		},
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondManagementServiceConfigured,
 			},
@@ -294,6 +306,12 @@ func (r *wekaClusterReconcilerLoop) DeleteAdminUser(ctx context.Context) error {
 	return wekaService.EnsureNoUser(ctx, "admin")
 }
 
+// IsWekaHomeConfigured gates the cacert override reconciliation on the one-time provisioning step,
+// so the two never race on a cluster that is still being set up.
+func (r *wekaClusterReconcilerLoop) IsWekaHomeConfigured() bool {
+	return meta.IsStatusConditionTrue(r.cluster.Status.Conditions, condition.WekaHomeConfigured)
+}
+
 func (r *wekaClusterReconcilerLoop) configureWekaHome(ctx context.Context) error {
 
 	wekaCluster := r.cluster
@@ -313,6 +331,9 @@ func (r *wekaClusterReconcilerLoop) configureWekaHome(ctx context.Context) error
 		return err
 	}
 
+	// Same resolution EnsureWekaHomeCacertOverride uses, so provisioning never writes a
+	// weka_cloud_ca_cert_path row that the override step would reap a tick later.
+	wekahomeConfig.CacertSecret = cacertSecretForOverride(wekahomeConfig)
 	wekaService := services.NewWekaService(r.ExecService, driveContainer)
 	err = wekaService.SetWekaHome(ctx, wekahomeConfig)
 	if err != nil {

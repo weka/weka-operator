@@ -4,6 +4,10 @@
 
 The Weka operator creates and manages several Kubernetes secrets for each Weka cluster. These secrets store credentials and connection information required for various components to interact with the Weka cluster. This document explains each secret's purpose, content, and how to manage them.
 
+This document does not cover the Secrets used for Weka Home TLS (CA
+certificates for telemetry/support connectivity) — see
+[weka-home-tls.md](weka-home-tls.md) for those.
+
 ## Secrets Created by the Operator
 
 For each WekaCluster, the operator creates four distinct secrets:

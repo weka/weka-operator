@@ -23,3 +23,20 @@ for change detection. `ResourcesDigest` does this for `spec.resources`;
 `spec.resources` last, for every mode and CPU policy. Explicit CPU overrides can
 therefore diverge from planner CPU accounting and DRA sizing. Inspect this path
 when changing resource propagation or accounting.
+
+## Weka Home CA cert
+
+- `domain.GetWekaHomeClientCacertSecret` (`internal/pkg/domain/wekahome.go`): resolves the cacert
+  Secret; the resolved name rides on `UpdatableClientSpec`.
+- Cross-namespace target clusters are not inherited from; admission warns via
+  `client_wekahome_cacert_not_inherited`, not at runtime. Path constant:
+  `domain.WekaHomeCacertPath`.
+- Semantics: `doc/operator/operations/weka-home-tls.md`.
+
+## Extra volumes
+
+- `spec.extraVolumes`/`spec.extraVolumeMounts` propagate via `UpdatableClientSpec`, normalized by
+  `resources.NormalizeExtraVolumes` and included in the gob hash; `ExtraVolumesEqual`/
+  `ExtraVolumeMountsEqual` drive the per-container update in `updateContainerIfChanged`.
+- `resources.applyExtraVolumes` (`internal/controllers/resources/pod.go`) mounts them into the
+  weka container only. Semantics: `doc/operator/deployment/extra-volumes.md`.

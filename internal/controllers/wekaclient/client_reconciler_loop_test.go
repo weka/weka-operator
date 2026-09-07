@@ -11,6 +11,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
 // TestUpdateContainerIfChanged_ExtraCores asserts that changing extraCores on a WekaClient, in
@@ -54,7 +56,7 @@ func TestUpdateContainerIfChanged_ExtraCores(t *testing.T) {
 	ctx := context.Background()
 
 	// Settle the container to match the initial wekaClient spec (extraCores=1).
-	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient)); err != nil {
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
 		t.Fatalf("initial settle failed: %v", err)
 	}
 	if container.Spec.ExtraCores != 1 {
@@ -63,7 +65,7 @@ func TestUpdateContainerIfChanged_ExtraCores(t *testing.T) {
 
 	// Increase extraCores: must propagate.
 	wekaClient.Spec.ExtraCores = 3
-	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient)); err != nil {
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
 		t.Fatalf("increase failed: %v", err)
 	}
 	if container.Spec.ExtraCores != 3 {
@@ -72,7 +74,7 @@ func TestUpdateContainerIfChanged_ExtraCores(t *testing.T) {
 
 	// Decrease extraCores: must also propagate (unlike coresNum, decreasing is allowed).
 	wekaClient.Spec.ExtraCores = 0
-	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient)); err != nil {
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
 		t.Fatalf("decrease failed: %v", err)
 	}
 	if container.Spec.ExtraCores != 0 {
@@ -123,7 +125,7 @@ func TestUpdateContainerIfChanged_Resources(t *testing.T) {
 	ctx := context.Background()
 
 	// Settle the container to match the initial wekaClient spec (memory request 4Gi).
-	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient)); err != nil {
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
 		t.Fatalf("initial settle failed: %v", err)
 	}
 	if container.Spec.Resources == nil || container.Spec.Resources.Requests.Memory.Cmp(resource.MustParse("4Gi")) != 0 {
@@ -134,7 +136,7 @@ func TestUpdateContainerIfChanged_Resources(t *testing.T) {
 	wekaClient.Spec.Resources = &weka.PodResourcesSpec{
 		Requests: weka.PodResources{Memory: resource.MustParse("64Gi")},
 	}
-	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient)); err != nil {
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
 		t.Fatalf("update failed: %v", err)
 	}
 	if container.Spec.Resources.Requests.Memory.Cmp(resource.MustParse("64Gi")) != 0 {
@@ -142,7 +144,7 @@ func TestUpdateContainerIfChanged_Resources(t *testing.T) {
 	}
 
 	// Re-settle with the identical spec: must be a no-op (no error, value unchanged).
-	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient)); err != nil {
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
 		t.Fatalf("no-op re-settle failed: %v", err)
 	}
 	if container.Spec.Resources.Requests.Memory.Cmp(resource.MustParse("64Gi")) != 0 {
@@ -186,7 +188,7 @@ func TestUpdateContainerIfChanged_ResourcesNilVsEmptyNoChurn(t *testing.T) {
 	ctx := context.Background()
 
 	// Settle with nil resources: container stays nil.
-	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient)); err != nil {
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
 		t.Fatalf("initial settle (nil resources) failed: %v", err)
 	}
 	if container.Spec.Resources != nil {
@@ -195,7 +197,7 @@ func TestUpdateContainerIfChanged_ResourcesNilVsEmptyNoChurn(t *testing.T) {
 
 	// Client now specifies an explicit empty struct: must not churn the container.
 	wekaClient.Spec.Resources = &weka.PodResourcesSpec{}
-	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient)); err != nil {
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
 		t.Fatalf("settle with empty-struct resources failed: %v", err)
 	}
 	if container.Spec.Resources != nil {
@@ -227,5 +229,98 @@ func TestPodResourcesDigest_NilAndEmptyAreEqual(t *testing.T) {
 	}
 	if again := podResourcesDigest(nonZero); again != nonZeroDigest {
 		t.Fatalf("expected podResourcesDigest to be stable across calls: %q != %q", again, nonZeroDigest)
+	}
+}
+
+// TestUpdateContainerIfChanged_ExtraVolumes asserts that changing WekaClient.Spec.ExtraVolumes/
+// ExtraVolumeMounts propagates to an existing WekaContainer, and that re-settling with an
+// unchanged spec is a no-op (no churn).
+func TestUpdateContainerIfChanged_ExtraVolumes(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := weka.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add weka scheme: %v", err)
+	}
+
+	wekaClient := &weka.WekaClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-client", Namespace: "default"},
+		Spec:       weka.WekaClientSpec{CoresNumber: 2},
+	}
+
+	container := &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-client-container", Namespace: "default"},
+		Spec: weka.WekaContainerSpec{
+			WekaSecretRef: v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{}},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(container).
+		Build()
+
+	c := &clientReconcilerLoop{
+		Client:     fakeClient,
+		Recorder:   events.NewFakeRecorder(10),
+		wekaClient: wekaClient,
+	}
+
+	ctx := context.Background()
+
+	// Settle with no extra volumes configured: must remain unset, no churn.
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
+		t.Fatalf("initial settle failed: %v", err)
+	}
+	if container.Spec.ExtraVolumes != nil || len(container.Spec.ExtraVolumeMounts) != 0 {
+		t.Fatalf("expected no extra volumes after initial settle, got volumes=%+v mounts=%+v", container.Spec.ExtraVolumes, container.Spec.ExtraVolumeMounts)
+	}
+
+	// Add extra volumes/mounts on the client: must propagate.
+	wekaClient.Spec.ExtraVolumes = &runtime.RawExtension{
+		Raw: []byte(`[{"name":"ca-bundle","secret":{"secretName":"ca-bundle"}}]`),
+	}
+	wekaClient.Spec.ExtraVolumeMounts = []v1.VolumeMount{
+		{Name: "ca-bundle", MountPath: "/etc/ssl/ca-bundle"},
+	}
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+	if container.Spec.ExtraVolumes == nil || len(container.Spec.ExtraVolumeMounts) != 1 {
+		t.Fatalf("expected extra volumes/mounts to propagate, got volumes=%+v mounts=%+v", container.Spec.ExtraVolumes, container.Spec.ExtraVolumeMounts)
+	}
+	settledVolumesRaw := string(container.Spec.ExtraVolumes.Raw)
+
+	// Re-settle with the identical spec: must be a no-op (value unchanged, no churn).
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
+		t.Fatalf("no-op re-settle failed: %v", err)
+	}
+	if string(container.Spec.ExtraVolumes.Raw) != settledVolumesRaw {
+		t.Fatalf("expected extra volumes to remain unchanged after no-op re-settle, got %s", container.Spec.ExtraVolumes.Raw)
+	}
+	if len(container.Spec.ExtraVolumeMounts) != 1 || container.Spec.ExtraVolumeMounts[0].Name != "ca-bundle" {
+		t.Fatalf("expected extra volume mounts to remain unchanged after no-op re-settle, got %+v", container.Spec.ExtraVolumeMounts)
+	}
+}
+
+// TestNewUpdatableClientSpec_HashStructSurvivesCsiVolumeAttributesMap is the critical regression
+// test for this feature: util.HashStruct hard-errors on any map reachable through the struct it
+// hashes (pkg/util/hashes.go), and a CSI volume's volumeAttributes is exactly such a map. Because
+// UpdatableClientSpec carries ExtraVolumes as *runtime.RawExtension (Raw is []byte, Object a nil
+// interface) rather than a typed []corev1.Volume, that map never reaches HashStruct's reflection
+// walk. If this test starts failing, HandleSpecUpdates would hard-error in production for the
+// first WekaClient with a CSI extra volume.
+func TestNewUpdatableClientSpec_HashStructSurvivesCsiVolumeAttributesMap(t *testing.T) {
+	wekaClient := &weka.WekaClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-client", Namespace: "default"},
+		Spec: weka.WekaClientSpec{
+			CoresNumber: 2,
+			ExtraVolumes: &runtime.RawExtension{
+				Raw: []byte(`[{"name":"csi-vol","csi":{"driver":"csi.example.com","volumeAttributes":{"key1":"value1","key2":"value2"}}}]`),
+			},
+		},
+	}
+
+	updatableSpec := NewUpdatableClientSpec(wekaClient, nil)
+	if _, err := util2.HashStruct(updatableSpec); err != nil {
+		t.Fatalf("HashStruct must not error on a CSI extra volume with volumeAttributes, got: %v", err)
 	}
 }

@@ -516,6 +516,7 @@ type WekaService interface {
 	EnsureUser(ctx context.Context, username, password, role string) error
 	EnsureNoUser(ctx context.Context, username string) error
 	SetWekaHome(ctx context.Context, WekaHomeConfig weka.WekaHomeConfig) error
+	RemoveOverride(ctx context.Context, overrideID string) error
 	EmitCustomEvent(ctx context.Context, msg, k8sVersion string) error
 	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]weka.Drive, error)
 	ListContainerDrives(ctx context.Context, containerId int) ([]weka.Drive, error)
@@ -649,8 +650,7 @@ if ! wekaauthcli debug override list | grep weka_cloud_ca_cert_path; then
 fi
 `
 	if wekaHomeConfig.CacertSecret != "" {
-		path := "/opt/weka/k8s-runtime/vars/wh-cacert/cert.pem"
-		customCaCertConfig = fmt.Sprintf(customCaCertConfig, path, path)
+		customCaCertConfig = fmt.Sprintf(customCaCertConfig, domain.WekaHomeCacertPath, domain.WekaHomeCacertPath)
 		cmds = append(cmds, customCaCertConfig)
 	}
 
@@ -1976,14 +1976,60 @@ func (c *CliWekaService) ListOverridesByKey(ctx context.Context, key string) ([]
 	if err != nil {
 		return nil, err
 	}
-	// Guard against CLI filter returning unexpected results
+	// Guard against CLI filter returning unexpected results.
 	var out []WekaOverride
 	for _, o := range all {
-		if o.Key == key {
-			out = append(out, o)
+		if o.Key != key {
+			continue
 		}
+		o.Value = unquoteOverrideValue(o.Value)
+		out = append(out, o)
 	}
 	return out, nil
+}
+
+// unquoteOverrideValue strips the JSON quoting the CLI puts around string override values
+// ("\"/a/b\"") so callers can compare against the value they would add. configureWekaHome writes
+// this key through a shell with literal quotes while AddOverride writes it bare, so both shapes
+// reach here; a value that is not quoted is returned unchanged.
+func unquoteOverrideValue(value string) string {
+	if unquoted, err := strconv.Unquote(value); err == nil {
+		return unquoted
+	}
+	return value
+}
+
+// parseOverrideID extracts the numeric id the CLI's --id flag expects from the
+// "ManualOverrideId<N>" form the list command reports, rejecting any other shape.
+func parseOverrideID(overrideID string) (string, error) {
+	id, hadPrefix := strings.CutPrefix(overrideID, "ManualOverrideId<")
+	id, hadSuffix := strings.CutSuffix(id, ">")
+	if hadPrefix != hadSuffix {
+		return "", fmt.Errorf("override id %q is not in a recognised form", overrideID)
+	}
+	if _, err := strconv.Atoi(id); err != nil {
+		return "", fmt.Errorf("override id %q is not in a recognised form", overrideID)
+	}
+	return id, nil
+}
+
+func (c *CliWekaService) RemoveOverride(ctx context.Context, overrideID string) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "RemoveOverride")
+	defer logger.End()
+
+	id, err := parseOverrideID(overrideID)
+	if err != nil {
+		return err
+	}
+	executor, err := c.getExecutor(ctx)
+	if err != nil {
+		return err
+	}
+	_, stderr, err := executor.ExecNamed(ctx, "RemoveOverride", []string{"weka", "debug", "override", "remove", "--id", id})
+	if err != nil {
+		return errors.Wrapf(err, "failed to remove override %s: %s", overrideID, stderr.String())
+	}
+	return nil
 }
 
 func (c *CliWekaService) AddOverride(ctx context.Context, key, value, comment string, force bool) error {

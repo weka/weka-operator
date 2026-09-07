@@ -940,6 +940,14 @@ echo "=== OTEL Init Container Completed ==="`,
 		})
 	}
 
+	// Runs last, right before affinities: only here has the pod accumulated its mode-dependent
+	// (smbw-shm) and config-dependent (otel-packages) volumes, so the collision scan below sees
+	// the full, final set the operator actually uses rather than a static approximation of it.
+	err = f.applyExtraVolumes(pod)
+	if err != nil {
+		return nil, err
+	}
+
 	err = f.setAffinities(ctx, pod)
 	if err != nil {
 		return nil, err
@@ -948,6 +956,73 @@ echo "=== OTEL Init Container Completed ==="`,
 	pod.Spec.SecurityContext = GetSecurityProfile()
 
 	return pod, nil
+}
+
+// applyExtraVolumes appends WekaContainerSpec.ExtraVolumes/ExtraVolumeMounts to the pod. It
+// mounts into the weka container only: init containers run different images with hand-picked
+// mounts and may lack the target directories.
+//
+// A collision is a hard error, not a silent skip: dropping the mount would leave a user's CA
+// absent and weka trusting nothing, so it has to surface rather than degrade quietly.
+func (f *PodFactory) applyExtraVolumes(pod *corev1.Pod) error {
+	volumes, err := f.container.Spec.GetExtraVolumes()
+	if err != nil {
+		return fmt.Errorf("failed to parse extraVolumes: %w", err)
+	}
+	mounts := f.container.Spec.ExtraVolumeMounts
+	if len(volumes) == 0 && len(mounts) == 0 {
+		return nil
+	}
+
+	existingNames := make(map[string]struct{}, len(pod.Spec.Volumes))
+	for i := range pod.Spec.Volumes {
+		existingNames[pod.Spec.Volumes[i].Name] = struct{}{}
+	}
+	existingPaths := make(map[string]struct{}, len(pod.Spec.Containers[0].VolumeMounts))
+	for _, m := range pod.Spec.Containers[0].VolumeMounts {
+		existingPaths[path.Clean(m.MountPath)] = struct{}{}
+	}
+
+	declared := make(map[string]struct{}, len(volumes))
+	for i := range volumes {
+		v := &volumes[i]
+		// A lenient decode drops a misspelled source field (secretname: for secretName:) and
+		// leaves the Volume sourceless; the API server would then reject every pod create with an
+		// opaque "must specify a volume type", so name the real cause here.
+		if v.VolumeSource == (corev1.VolumeSource{}) {
+			return fmt.Errorf("extraVolumes: %q has no volume source - check for a misspelled source field", v.Name)
+		}
+		// Re-enforced here, not just at admission: a name inactive in the current mode/config
+		// would otherwise be accepted now and collide later when an operator upgrade adds it.
+		if IsReservedVolumeName(v.Name) {
+			return fmt.Errorf("extraVolumes: %q is a reserved volume name", v.Name)
+		}
+		if _, exists := existingNames[v.Name]; exists {
+			return fmt.Errorf("extraVolumes: %q collides with an existing pod volume", v.Name)
+		}
+		if _, dup := declared[v.Name]; dup {
+			return fmt.Errorf("extraVolumes: %q is declared more than once", v.Name)
+		}
+		declared[v.Name] = struct{}{}
+	}
+
+	for _, m := range mounts {
+		if _, ok := declared[m.Name]; !ok {
+			return fmt.Errorf("extraVolumeMounts: %q does not name a declared extraVolumes entry", m.Name)
+		}
+		cleanPath := path.Clean(m.MountPath)
+		if IsReservedMountPath(cleanPath) {
+			return fmt.Errorf("extraVolumeMounts: %q is a reserved mount path", m.MountPath)
+		}
+		if _, exists := existingPaths[cleanPath]; exists {
+			return fmt.Errorf("extraVolumeMounts: %q collides with an existing mount path", m.MountPath)
+		}
+		existingPaths[cleanPath] = struct{}{}
+	}
+
+	pod.Spec.Volumes = append(pod.Spec.Volumes, volumes...)
+	pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, mounts...)
+	return nil
 }
 
 func getUnhealthyTolerations() []corev1.Toleration {

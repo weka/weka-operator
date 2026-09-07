@@ -19,6 +19,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/controllers/upgrade"
 	"github.com/weka/weka-operator/internal/controllers/utils"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
@@ -100,6 +102,13 @@ type UpdatableClusterSpec struct {
 	NfsHugepages              allocator.ContainerHugepages
 	DataServicesHugepages     allocator.ContainerHugepages
 	SmbwHugepages             allocator.ContainerHugepages
+	// ExtraVolumes is stored normalized (see resources.NormalizeExtraVolumes) so byte comparison
+	// in HandleSpecUpdates is stable across key order/whitespace differences.
+	ExtraVolumes      *runtime.RawExtension
+	ExtraVolumeMounts []v1.VolumeMount
+	// WekaHomeCacertSecret is the resolved cacert secret (spec, else operator default) so a
+	// rotation reaches running containers; the factory only sets it on container create.
+	WekaHomeCacertSecret string
 }
 
 // forRole returns the role-specific values for a given container mode.
@@ -210,6 +219,9 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 		RoleNetworkSelector:       spec.RoleNetworkSelector,
 		PvcConfig:                 resources.GetPvcConfig(spec.GlobalPVC),
 		TracesConfiguration:       spec.TracesConfiguration,
+		ExtraVolumes:              resources.NormalizeExtraVolumes(clusterForHp.GetRawExtraVolumes()),
+		ExtraVolumeMounts:         clusterForHp.GetExtraVolumeMounts(),
+		WekaHomeCacertSecret:      domain.GetWekaHomeClusterCacertSecret(clusterForHp),
 		RoleCoreIds:               spec.RoleCoreIds,
 		RoleNonDatapathCoreIds:    spec.RoleNonDatapathCoreIds,
 		CpuPolicy:                 spec.CpuPolicy,
@@ -359,6 +371,17 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		if container.Spec.TracesConfiguration != updatableSpec.TracesConfiguration {
 			container.Spec.TracesConfiguration = updatableSpec.TracesConfiguration
+		}
+
+		if !resources.ExtraVolumesEqual(container.Spec.ExtraVolumes, updatableSpec.ExtraVolumes) {
+			container.Spec.ExtraVolumes = updatableSpec.ExtraVolumes.DeepCopy()
+		}
+		if !resources.ExtraVolumeMountsEqual(container.Spec.ExtraVolumeMounts, updatableSpec.ExtraVolumeMounts) {
+			container.Spec.ExtraVolumeMounts = slices.Clone(updatableSpec.ExtraVolumeMounts)
+		}
+
+		if container.Spec.AdditionalSecrets["wekahome-cacert"] != updatableSpec.WekaHomeCacertSecret {
+			container.Spec.AdditionalSecrets = domain.WekaHomeAdditionalSecrets(container.Spec.AdditionalSecrets, updatableSpec.WekaHomeCacertSecret)
 		}
 
 		if container.IsDriveContainer() {

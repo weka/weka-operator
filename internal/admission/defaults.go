@@ -42,11 +42,21 @@ var (
 		"cluster_capacity_chunk_feasibility":    {Strict: Error, Relaxed: Error},
 		"cluster_skip_default_fs":               {Strict: Warn, Relaxed: Warn},
 		"cluster_podspec_syntax":                {Strict: Error, Relaxed: Error},
+		"cluster_extra_volumes":                 {Strict: Error, Relaxed: Error},
+		"cluster_wekahome_cacert_usable":        {Strict: Error, Relaxed: Error},
 	}
 
 	wekaClientDefaults = map[string]PolicyDefaults{
 		"client_target_cluster_exists": {Strict: Error, Relaxed: Warn},
 		"client_podspec_syntax":        {Strict: Error, Relaxed: Error},
+		"client_extra_volumes":         {Strict: Error, Relaxed: Error},
+		// Cross-namespace is a legitimate topology, the user just has to set the secret themselves.
+		"client_wekahome_cacert_not_inherited": {Strict: Warn, Relaxed: Warn},
+		// Warn in both modes, unlike the cluster twin, for two different reasons: an unusable Secret
+		// leaves the client on its OS trust store rather than pointing the cluster at a missing
+		// file (degraded and silent, not broken), and a missing one is routinely transient under
+		// GitOps/ExternalSecrets even though it does wedge the pod until it appears.
+		"client_wekahome_cacert_usable": {Strict: Warn, Relaxed: Warn},
 	}
 
 	// Update-only defaults: cores-decrease checks are always Error regardless

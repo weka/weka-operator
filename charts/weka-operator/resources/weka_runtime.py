@@ -3212,11 +3212,31 @@ async def configure_persistency():
             mount --make-rshared /opt/weka/external-mounts/shared-netns
         fi
 
-        if [ -f /var/run/secrets/weka-operator/wekahome-cacert/cert.pem ]; then
-            rm -rf /opt/weka/k8s-runtime/vars/wh-cacert
+        # The staged bundle lives under the persistent /opt/weka bind, so it is cleared on every
+        # boot: a stale copy must not outlive the secret being removed from the pod.
+        rm -rf /opt/weka/k8s-runtime/vars/wh-cacert
+        if [ -d /var/run/secrets/weka-operator/wekahome-cacert ]; then
             mkdir -p /opt/weka/k8s-runtime/vars/wh-cacert/
-            cp /var/run/secrets/weka-operator/wekahome-cacert/cert.pem /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
-            chmod 400 /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
+            # Created owner-only from the first byte so the bundle is never world-readable.
+            (umask 077; : > /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem)
+            # Secret data-key names are arbitrary, so every key is taken, dotfile keys included
+            # (the kubelet's ..data/..timestamp entries are not regular files). A key is used only
+            # if it holds a certificate and no private key: a kubernetes.io/tls secret is an easy
+            # thing to point at, and its tls.key must never land in the CA bundle.
+            for f in /var/run/secrets/weka-operator/wekahome-cacert/* /var/run/secrets/weka-operator/wekahome-cacert/.[!.]*; do
+                [ -f "$f" ] || continue
+                grep -q "BEGIN CERTIFICATE" "$f" || continue
+                grep -q "PRIVATE KEY" "$f" && continue
+                cat "$f" >> /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
+                echo "" >> /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
+            done
+            # An explicit CA replaces the system trust store, so pointing weka_cloud_ca_cert_path
+            # at a certificate-less file breaks Weka Home; leave no file rather than an empty one.
+            if grep -q "BEGIN CERTIFICATE" /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem; then
+                chmod 400 /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
+            else
+                rm -rf /opt/weka/k8s-runtime/vars/wh-cacert
+            fi
         fi
 
         if [ -d /host-binds/shared-configs ]; then

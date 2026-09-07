@@ -23,3 +23,5 @@ Helm-level configure of PVC is deprecated and should be used only when explicitl
 If just asked to "use pvc for cluster", use cluster spec field instead. `globalPVC` object field on cluster spec with, with `name` field on it, which references PVC
 
 `portAllocation.startingPort` - Starting port for Weka container port allocation (default: `35000`). This is the base port from which the operator allocates port ranges for Weka clusters. Only modify if you have specific firewall or port conflict requirements.
+
+`manager.extraVolumes` / `manager.extraVolumeMounts` - extra volumes/mounts on the operator's own Deployment pod (e.g. a corporate CA for an outbound proxy). The reserved volume name is `tmpdir`, the reserved mount path is `/tmp`. See `operator/deployment/extra-volumes.md` for this and the separate, per-CR `extraVolumes` fields on WekaCluster/WekaClient.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/controllers/upgrade"
 	"github.com/weka/weka-operator/internal/controllers/utils"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
@@ -467,19 +469,9 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 
 	wekaClient := c.wekaClient
 
-	additionalSecrets := map[string]string{}
+	whCaCert, _ := domain.GetWekaHomeClientCacertSecret(wekaClient, c.targetCluster)
 
-	whCaCert := ""
-	if wekaClient.Spec.WekaHome != nil {
-		whCaCert = wekaClient.Spec.WekaHome.CacertSecret
-		if whCaCert == "" {
-			whCaCert = config.Config.WekaHome.CacertSecret
-		}
-	}
-
-	if whCaCert != "" {
-		additionalSecrets["wekahome-cacert"] = whCaCert
-	}
+	additionalSecrets := domain.WekaHomeAdditionalSecrets(nil, whCaCert)
 
 	tolerations := util.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 	clientName, err := c.getClientContainerName(ctx, nodeName)
@@ -560,7 +552,9 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			NoAffinityConstraints: wekaClient.Spec.GetOverrides().DropAffinityConstraints,
 			// NodeSelector is propagated from WekaClient for container-level node selector mismatch validation.
 			// Note: Clients use NodeAffinity for scheduling, but NodeSelector is used for validation.
-			NodeSelector: wekaClient.Spec.NodeSelector,
+			NodeSelector:      wekaClient.Spec.NodeSelector,
+			ExtraVolumes:      resources.NormalizeExtraVolumes(wekaClient.Spec.ExtraVolumes),
+			ExtraVolumeMounts: wekaClient.Spec.ExtraVolumeMounts,
 		},
 	}
 
@@ -615,7 +609,7 @@ func (c *clientReconcilerLoop) resolveJoinIps(ctx context.Context) error {
 func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
-	updatableSpec := NewUpdatableClientSpec(c.wekaClient)
+	updatableSpec := NewUpdatableClientSpec(c.wekaClient, c.targetCluster)
 	specHash, err := util2.HashStruct(updatableSpec)
 	if err != nil {
 		return err
@@ -674,6 +668,16 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 
 	if podResourcesDigest(container.Spec.Resources) != newClientSpec.ResourcesDigest {
 		container.Spec.Resources = newClientSpec.Resources.DeepCopy()
+		changed = true
+	}
+
+	if !resources.ExtraVolumesEqual(container.Spec.ExtraVolumes, newClientSpec.ExtraVolumes) {
+		container.Spec.ExtraVolumes = newClientSpec.ExtraVolumes.DeepCopy()
+		changed = true
+	}
+
+	if !resources.ExtraVolumeMountsEqual(container.Spec.ExtraVolumeMounts, newClientSpec.ExtraVolumeMounts) {
+		container.Spec.ExtraVolumeMounts = slices.Clone(newClientSpec.ExtraVolumeMounts)
 		changed = true
 	}
 
@@ -819,6 +823,13 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 	// Propagate NodeSelector for container-level node selector mismatch validation.
 	if !util2.NewHashableMap(container.Spec.NodeSelector).Equals(newClientSpec.NodeSelector) {
 		container.Spec.NodeSelector = c.wekaClient.Spec.NodeSelector
+		changed = true
+	}
+
+	// Propagate the resolved wekaHome cacertSecret so a change reaches already-running containers,
+	// not only ones created after the change (buildClientWekaContainer only runs on container-create).
+	if container.Spec.AdditionalSecrets["wekahome-cacert"] != newClientSpec.WekaHomeCacertSecret {
+		container.Spec.AdditionalSecrets = domain.WekaHomeAdditionalSecrets(container.Spec.AdditionalSecrets, newClientSpec.WekaHomeCacertSecret)
 		changed = true
 	}
 
@@ -1244,7 +1255,11 @@ type UpdatableClientSpec struct {
 	Annotations        *util2.HashableMap
 	// NodeSelector is propagated to client containers for container-level node selector
 	// mismatch validation. Not used for scheduling (clients use NodeAffinity).
-	NodeSelector            *util2.HashableMap
+	NodeSelector *util2.HashableMap
+	// WekaHomeCacertSecret is the resolved wekaHome cacertSecret (see GetWekaHomeClientCacertSecret),
+	// carried here so a change is visible in specHash and reaches already-running containers, not
+	// only ones created afterwards.
+	WekaHomeCacertSecret    string
 	AutoRemoveTimeout       metav1.Duration
 	ForceDrain              bool
 	SkipActiveMountsCheck   bool
@@ -1260,6 +1275,10 @@ type UpdatableClientSpec struct {
 	// resource.Quantity keeps its value in unexported fields, so without a textual form a
 	// changed quantity leaves the spec hash identical and the update never fires.
 	ResourcesDigest string
+	// ExtraVolumes is normalized (see resources.NormalizeExtraVolumes) so an unset/null/empty
+	// spec always compares equal across reconciles.
+	ExtraVolumes      *runtime.RawExtension
+	ExtraVolumeMounts []v1.VolumeMount
 }
 
 // podResourcesDigest renders a resources spec as text for hashing and comparison. Unset and
@@ -1289,10 +1308,12 @@ func normalizePodResources(r *weka.PodResourcesSpec) *weka.PodResourcesSpec {
 	return r
 }
 
-func NewUpdatableClientSpec(wekaClient *weka.WekaClient) *UpdatableClientSpec {
+func NewUpdatableClientSpec(wekaClient *weka.WekaClient, targetCluster *weka.WekaCluster) *UpdatableClientSpec {
 	labels := util2.NewHashableMap(factory.BuildClientContainerLabels(wekaClient))
 	spec := wekaClient.Spec
 	meta := wekaClient.ObjectMeta
+
+	whCaCert, _ := domain.GetWekaHomeClientCacertSecret(wekaClient, targetCluster)
 
 	return &UpdatableClientSpec{
 		DriversDistService:      spec.DriversDistService,
@@ -1314,6 +1335,7 @@ func NewUpdatableClientSpec(wekaClient *weka.WekaClient) *UpdatableClientSpec {
 		Labels:                  labels,
 		Annotations:             util2.NewHashableMap(util2.RemoveKeysStartingWithPrefix(meta.Annotations, "weka.io/prepull-")),
 		NodeSelector:            util2.NewHashableMap(spec.NodeSelector),
+		WekaHomeCacertSecret:    whCaCert,
 		AutoRemoveTimeout:       spec.AutoRemoveTimeout,
 		ForceDrain:              spec.GetOverrides().ForceDrain,
 		SkipActiveMountsCheck:   spec.GetOverrides().SkipActiveMountsCheck,
@@ -1326,6 +1348,8 @@ func NewUpdatableClientSpec(wekaClient *weka.WekaClient) *UpdatableClientSpec {
 		DpdkBaseMemoryMb:        spec.GetOverrides().DpdkBaseMemoryMb,
 		Resources:               normalizePodResources(spec.Resources),
 		ResourcesDigest:         podResourcesDigest(spec.Resources),
+		ExtraVolumes:            resources.NormalizeExtraVolumes(spec.ExtraVolumes),
+		ExtraVolumeMounts:       spec.ExtraVolumeMounts,
 	}
 }
 

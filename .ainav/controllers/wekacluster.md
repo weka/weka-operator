@@ -23,3 +23,16 @@ protocols and management access. Source: `internal/controllers/wekacluster/`.
 - [Capacity planning](wekacluster-drive-planning.md): shared apply path, inventory, pure planners and device allocation.
 - Sizing modes and constraints: [cluster capacity](../../doc/operator/deployment/cluster-capacity.md), [auto full drives](../../doc/operator/deployment/act-as-daemonset.md). `plannerSizingMode` detects the mode; [validation](../config/validation.md) owns admission rules.
 - [Management proxy](management-proxy.md): bootstrap versus endpoint updates, probes and host networking.
+
+## Weka Home CA cert
+
+- `configureWekaHome` (`steps_post_cluster.go`): sets `weka_cloud_ca_cert_path` override at provisioning.
+- `EnsureWekaHomeCacertOverride` (`funcs_overrides.go`): keeps/removes the override as the secret changes.
+- Path constant: `domain.WekaHomeCacertPath`. Semantics: `doc/operator/operations/weka-home-tls.md`.
+
+## Extra volumes
+
+- `spec.podConfig.extraVolumes`/`extraVolumeMounts` propagate through `HandleSpecUpdates`
+  (`funcs_upgrade.go`) via `resources.NormalizeExtraVolumes`, `ExtraVolumesEqual`, `ExtraVolumeMountsEqual`.
+- Reserved names and paths: `internal/controllers/resources/extra_volumes.go`.
+  Semantics: `doc/operator/deployment/extra-volumes.md`.

@@ -21,8 +21,12 @@ type WekaClientCustomValidator struct {
 var _ admission.Validator[*wekav1alpha1.WekaClient] = &WekaClientCustomValidator{}
 
 func RegisterWekaClientWebhookWithManager(mgr ctrl.Manager) error {
+	c, err := newValidatorClient(mgr)
+	if err != nil {
+		return err
+	}
 	return ctrl.NewWebhookManagedBy(mgr, &wekav1alpha1.WekaClient{}).
-		WithValidator(&WekaClientCustomValidator{Client: mgr.GetClient()}).
+		WithValidator(&WekaClientCustomValidator{Client: c}).
 		Complete()
 }
 

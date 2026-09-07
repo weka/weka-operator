@@ -1981,6 +1981,24 @@
           "description": "affinity per container role\ntakes precedence over the `affinity` field",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "ExtraVolumes",
+          "jsonName": "extraVolumes",
+          "type": "k8s:runtime.RawExtension",
+          "description": "extra volumes added to every weka pod of this cluster, in the same shape as a PodSpec's\n`volumes`. Names must not collide with operator-managed volumes; see\ndoc/operator/deployment/extra-volumes.md for the reserved names and paths.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "ExtraVolumeMounts",
+          "jsonName": "extraVolumeMounts",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.VolumeMount"
+          },
+          "description": "mounts for `extraVolumes`, applied to the weka container only (not init containers)",
+          "optional": true
         }
       ],
       "usedBy": [
@@ -3557,6 +3575,24 @@
           "optional": true
         },
         {
+          "name": "ExtraVolumes",
+          "jsonName": "extraVolumes",
+          "type": "k8s:runtime.RawExtension",
+          "description": "extra volumes added to every client pod, in the same shape as a PodSpec's `volumes`.\nNames must not collide with operator-managed volumes; see\ndoc/operator/deployment/extra-volumes.md for the reserved names and paths.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "ExtraVolumeMounts",
+          "jsonName": "extraVolumeMounts",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.VolumeMount"
+          },
+          "description": "mounts for `extraVolumes`, applied to the weka container only (not init containers)",
+          "optional": true
+        },
+        {
           "name": "WekaSecretRef",
           "jsonName": "wekaSecretRef",
           "type": "string",
@@ -3702,15 +3738,6 @@
           "description": "value in megabytes to offset",
           "optional": true,
           "pointer": true
-        },
-        {
-          "name": "WekaHomeConfig",
-          "jsonName": "wekaHomeConfig",
-          "type": {
-            "$ref": "#/definitions/WekahomeClientConfig"
-          },
-          "description": "DEPRECATED, kept for compatibility with old API clients, not taking any action, to be removed on new API version",
-          "optional": true
         },
         {
           "name": "WekaHome",
@@ -3912,6 +3939,13 @@
           "type": {
             "$ref": "#/definitions/ClientPrinterColumns"
           },
+          "optional": true
+        },
+        {
+          "name": "LastAppliedPodConfigHash",
+          "jsonName": "lastAppliedPodConfigHash",
+          "type": "string",
+          "description": "Pod config version this client has adopted. Mirrors the WekaCluster field: it gates\nthe first-deploy adoption that lets tracking start on pods predating the annotation\nwithout rolling them.",
           "optional": true
         }
       ],
@@ -5321,6 +5355,24 @@
             "key": "string",
             "value": "string"
           },
+          "optional": true
+        },
+        {
+          "name": "ExtraVolumes",
+          "jsonName": "extraVolumes",
+          "type": "k8s:runtime.RawExtension",
+          "description": "extra volumes added to this pod, in the same shape as a PodSpec's `volumes`.\nPropagated from the owning WekaCluster/WekaClient; names must not collide with\noperator-managed volumes.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "ExtraVolumeMounts",
+          "jsonName": "extraVolumeMounts",
+          "type": {
+            "type": "array",
+            "items": "k8s:v1.VolumeMount"
+          },
+          "description": "mounts for `extraVolumes`, applied to the weka container only (not init containers)",
           "optional": true
         },
         {

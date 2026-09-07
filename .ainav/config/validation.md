@@ -22,3 +22,11 @@ is used in `FormCluster` so validation and formation agree.
 Pod syntax rules live in `*_podspec_syntax.go` and shared `podspec_syntax.go`.
 Auto-full-drives feasibility, minimum nodes, sizing-mode transitions and core limits
 are mapped in `registry.go`; sizing terminology and ownership belong in `doc.go`.
+
+Extra-volumes validators (`extra_volumes.go` shared core + `cluster_extra_volumes.go` /
+`client_extra_volumes.go`) reject reserved names/paths and malformed `extraVolumes` JSON;
+`cluster_wekahome_cacert_usable.go` rejects a resolved `cacertSecret` holding no usable PEM
+certificate (a missing Secret is skipped, self-heals), `client_wekahome_cacert_usable.go` warns for
+both missing and unusable on a client (shared check in `wekahome_cacert.go`);
+`client_wekahome_cacert_not_inherited.go` warns that a cross-namespace cluster's `cacertSecret`
+is not inherited.

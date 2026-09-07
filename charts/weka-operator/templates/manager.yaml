@@ -63,9 +63,23 @@ spec:
       {{- with .Values.dnsPolicy }}
       dnsPolicy: {{ .k8sNetwork | default "" }}
       {{- end }}
+      {{- range .Values.manager.extraVolumes }}
+      {{- if eq .name "tmpdir" }}{{ fail "manager.extraVolumes: the volume name \"tmpdir\" is reserved by the operator" }}{{ end }}
+      {{- end }}
+      {{- /* /tmp is the tmpdir emptyDir where the webhook writes its serving certs (WEBHOOK_CERT_DIR
+             defaults to /tmp/k8s-webhook-server/serving-certs), so a mount on, under, or above it
+             stops admission from serving. Only an exact /tmp duplicate is caught by the API server. */}}
+      {{- range .Values.manager.extraVolumeMounts }}
+      {{- if eq .name "tmpdir" }}{{ fail "manager.extraVolumeMounts: the volume name \"tmpdir\" is reserved by the operator" }}{{ end }}
+      {{- $mp := clean .mountPath }}
+      {{- if or (eq $mp "/tmp") (eq $mp "/") (hasPrefix "/tmp/" $mp) }}{{ fail (printf "manager.extraVolumeMounts: mount path %q overlaps the operator's reserved /tmp mount, where the webhook serving certs live (on, under, or above it)" .mountPath) }}{{ end }}
+      {{- end }}
       volumes:
         - name: tmpdir
           emptyDir: { }
+        {{- with .Values.manager.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       containers:
         - args:
             - --secure-listen-address=0.0.0.0:8443
@@ -518,6 +532,9 @@ spec:
           volumeMounts:
             - mountPath: /tmp
               name: tmpdir
+            {{- with .Values.manager.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           name: manager
           securityContext:
             allowPrivilegeEscalation: false

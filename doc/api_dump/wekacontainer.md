@@ -83,6 +83,8 @@
 | group | string |  |
 | serviceAccountName | string |  |
 | additionalSecrets | map[string]string |  |
+| extraVolumes | *runtime.RawExtension | extra volumes added to this pod, in the same shape as a PodSpec's `volumes`.<br>Propagated from the owning WekaCluster/WekaClient; names must not collide with<br>operator-managed volumes. |
+| extraVolumeMounts | []v1.VolumeMount | mounts for `extraVolumes`, applied to the weka container only (not init containers) |
 | instructions | *Instructions |  |
 | dropAffinityConstraints | bool |  |
 | uploadResultsTo | string |  |

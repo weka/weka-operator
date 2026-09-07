@@ -39,6 +39,8 @@ The `.ainav/` directory contains a curated navigation map of the codebase. This 
 - Changing file purposes or locations
 - Adding new features that should be documented
 
+`.ainav` is for AI navigation only. Do not put explanations, semantics, rationale, or caveats there — those belong in `doc/`; link to it.
+
 Files should stay under 3KB. If a file grows too large, split into subdirectories.
 Primary index file allowed to grow larger (up to ~10KB) for comprehensive overview.
 
