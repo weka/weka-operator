@@ -211,6 +211,8 @@
 | roleTopologySpreadConstraints | *RoleTopologySpreadConstraints | takes precedence over the `topologySpreadConstraints` |
 | affinity | *runtime.RawExtension | advanced scheduling constraints |
 | roleAffinity | *RoleAffinity | affinity per container role<br>takes precedence over the `affinity` field |
+| extraVolumes | *runtime.RawExtension | extra volumes added to every weka pod of this cluster, in the same shape as a PodSpec's<br>`volumes`. Names must not collide with operator-managed volumes; see<br>doc/operator/deployment/extra-volumes.md for the reserved names and paths. |
+| extraVolumeMounts | []v1.VolumeMount | mounts for `extraVolumes`, applied to the weka container only (not init containers) |
 
 ---
 

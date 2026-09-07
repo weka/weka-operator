@@ -63,9 +63,18 @@ spec:
       {{- with .Values.dnsPolicy }}
       dnsPolicy: {{ .k8sNetwork | default "" }}
       {{- end }}
+      {{- range .Values.manager.extraVolumes }}
+      {{- if eq .name "tmpdir" }}{{ fail "manager.extraVolumes: the volume name \"tmpdir\" is reserved by the operator" }}{{ end }}
+      {{- end }}
+      {{- range .Values.manager.extraVolumeMounts }}
+      {{- if eq .mountPath "/tmp" }}{{ fail "manager.extraVolumeMounts: the mount path \"/tmp\" is reserved by the operator" }}{{ end }}
+      {{- end }}
       volumes:
         - name: tmpdir
           emptyDir: { }
+        {{- with .Values.manager.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       containers:
         - args:
             - --secure-listen-address=0.0.0.0:8443
@@ -518,6 +527,9 @@ spec:
           volumeMounts:
             - mountPath: /tmp
               name: tmpdir
+            {{- with .Values.manager.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           name: manager
           securityContext:
             allowPrivilegeEscalation: false

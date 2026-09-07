@@ -89,13 +89,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		return nil, err
 	}
 
-	additionalSecrets := make(map[string]string)
-	if domain.GetWekaHomeSecretRef(wekahomeConfig) != nil {
-		secret := domain.GetWekaHomeSecretRef(wekahomeConfig)
-		if secret != nil {
-			additionalSecrets["wekahome-cacert"] = *secret
-		}
-	}
+	additionalSecrets := domain.WekaHomeAdditionalSecrets(wekahomeConfig.CacertSecret)
 
 	nodeSelector := cluster.GetNodeSelectorForRole(role)
 	if role == wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
@@ -149,6 +143,8 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			DriversBuildId:        cluster.Spec.GetOverrides().DriversBuildId,
 			PVC:                   resources.GetPvcConfig(cluster.Spec.GlobalPVC),
 			DpdkBaseMemoryMb:      dpdkBaseMemoryMb,
+			ExtraVolumes:          resources.NormalizeExtraVolumes(cluster.GetRawExtraVolumes()),
+			ExtraVolumeMounts:     cluster.GetExtraVolumeMounts(),
 			Overrides: &wekav1alpha1.WekaContainerSpecOverrides{
 				MachineIdentifierNodeRef: cluster.Spec.GetOverrides().MachineIdentifierNodeRef,
 				NoReserveSpace:           cluster.Spec.GetOverrides().NoReserveSpace,

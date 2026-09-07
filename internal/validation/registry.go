@@ -29,10 +29,13 @@ var (
 		&clusterCapacityChunkFeasibility{},
 		&clusterSkipDefaultFs{},
 		&clusterPodspecSyntax{},
+		&clusterExtraVolumes{},
 	}
 	WekaClient = []Validator{
 		&clientTargetClusterExists{},
 		&clientPodspecSyntax{},
+		&clientWekahomeCacertUnverifiable{},
+		&clientExtraVolumes{},
 	}
 
 	// Update-only registries: validators that require both old and new objects.

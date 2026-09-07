@@ -45,6 +45,8 @@
 | agentPort | int | if not set (0), weka will find a free port from the portRange |
 | portRange | *PortRange | used for dynamic port allocation |
 | nodeSelector | map[string]string |  |
+| extraVolumes | *runtime.RawExtension | extra volumes added to every client pod, in the same shape as a PodSpec's `volumes`.<br>Names must not collide with operator-managed volumes; see<br>doc/operator/deployment/extra-volumes.md for the reserved names and paths. |
+| extraVolumeMounts | []v1.VolumeMount | mounts for `extraVolumes`, applied to the weka container only (not init containers) |
 | wekaSecretRef | string |  |
 | network | Network |  |
 | driversDistService | string |  |
@@ -64,7 +66,6 @@
 | resources | *PodResourcesSpec | experimental: pod resources to be proxied as-is to the pod spec |
 | hugepages | int | hugepages, value in megabytes |
 | hugepagesOffset | *int | value in megabytes to offset |
-| wekaHomeConfig | WekahomeClientConfig | DEPRECATED, kept for compatibility with old API clients, not taking any action, to be removed on new API version |
 | wekaHome | *WekahomeClientConfig |  |
 | upgradePolicy | UpgradePolicy |  |
 | allowHotUpgrade | bool |  |
@@ -85,6 +86,7 @@
 | status | WekaClientStatusEnum |  |
 | stats | *ClientMetrics |  |
 | printer | ClientPrinterColumns |  |
+| lastAppliedPodConfigHash | string | Pod config version this client has adopted. Mirrors the WekaCluster field: it gates<br>the first-deploy adoption that lets tracking start on pods predating the annotation<br>without rolling them. |
 
 ---
 

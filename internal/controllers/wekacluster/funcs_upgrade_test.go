@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -17,6 +18,8 @@ import (
 
 	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
+	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 // fakeManagerWithClient, unlike fakeManagerNilClient (funcs_fd_planning_test.go), returns a real fake
@@ -411,5 +414,193 @@ func TestHandleSpecUpdates_StaticClusterStillPropagatesHugepages(t *testing.T) {
 	}
 	if got.Spec.HugepagesOffset != 728 {
 		t.Errorf("HugepagesOffset: want propagated template-derived value 728, got %d (static-cluster propagation regressed)", got.Spec.HugepagesOffset)
+	}
+}
+
+// csiExtraVolumeRaw is a CSI volume with a volumeAttributes map — the shape that would break
+// util.HashStruct (which hard-errors on any map field) if UpdatableClusterSpec carried extra
+// volumes as a typed []corev1.Volume instead of the normalized *runtime.RawExtension.
+const csiExtraVolumeRaw = `[{"name":"csi-vol","csi":{"driver":"csi.example.com","volumeAttributes":{"key":"value"}}}]`
+
+// TestNewUpdatableClusterSpec_HashStructSucceedsWithCSIExtraVolumeMap is the critical regression
+// test: without normalization, a CSI extraVolumes entry's volumeAttributes map would make
+// util.HashStruct error out on every reconcile, silently breaking HandleSpecUpdates in production
+// for any user with a CSI extra volume.
+func TestNewUpdatableClusterSpec_HashStructSucceedsWithCSIExtraVolumeMap(t *testing.T) {
+	cluster := &weka.WekaCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "default", UID: types.UID("test-uid")},
+		Spec: weka.WekaClusterSpec{
+			Dynamic: &weka.WekaClusterTemplate{ClusterCapacity: "10TiB"},
+			PodConfig: &weka.PodConfiguration{
+				ExtraVolumes: &runtime.RawExtension{Raw: []byte(csiExtraVolumeRaw)},
+			},
+		},
+	}
+
+	fakeClient := newFakeClient(t)
+
+	updatableSpec, err := NewUpdatableClusterSpec(context.Background(), fakeClient, &cluster.Spec, &cluster.ObjectMeta, nil)
+	if err != nil {
+		t.Fatalf("NewUpdatableClusterSpec returned unexpected error: %v", err)
+	}
+
+	if _, err := util.HashStruct(updatableSpec); err != nil {
+		t.Fatalf("util.HashStruct(NewUpdatableClusterSpec(cluster)) must not error for a CSI extraVolumes map, got: %v", err)
+	}
+}
+
+// TestHandleSpecUpdates_PropagatesExtraVolumesToContainer verifies that a container whose extra
+// volumes/mounts predate the feature (nil) is patched to match the cluster's normalized value.
+func TestHandleSpecUpdates_PropagatesExtraVolumesToContainer(t *testing.T) {
+	rawVolumes := &runtime.RawExtension{Raw: []byte(`[{"name":"cacert","secret":{"secretName":"cacert"}}]`)}
+	mounts := []corev1.VolumeMount{{Name: "cacert", MountPath: "/etc/ssl/cacert"}}
+
+	cluster := &weka.WekaCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "default", UID: types.UID("test-uid")},
+		Spec: weka.WekaClusterSpec{
+			Dynamic: &weka.WekaClusterTemplate{ClusterCapacity: "10TiB"},
+			PodConfig: &weka.PodConfiguration{
+				ExtraVolumes:      rawVolumes,
+				ExtraVolumeMounts: mounts,
+			},
+		},
+	}
+
+	staleContainer := &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-s3-0", Namespace: "default"},
+		Spec:       weka.WekaContainerSpec{Mode: weka.WekaContainerModeS3},
+	}
+
+	loop := newUpgradeLoop(t, cluster, []*weka.WekaContainer{staleContainer})
+	fakeClient := loop.getClient()
+
+	if err := loop.HandleSpecUpdates(context.Background()); err != nil {
+		t.Fatalf("HandleSpecUpdates returned unexpected error: %v", err)
+	}
+
+	got := &weka.WekaContainer{}
+	if err := fakeClient.Get(context.Background(), client.ObjectKeyFromObject(staleContainer), got); err != nil {
+		t.Fatalf("failed to fetch container: %v", err)
+	}
+
+	wantDigest := resources.ExtraVolumesDigest(rawVolumes)
+	if gotDigest := resources.ExtraVolumesDigest(got.Spec.ExtraVolumes); gotDigest != wantDigest {
+		t.Errorf("container.Spec.ExtraVolumes digest = %q, want %q (raw=%v)", gotDigest, wantDigest, got.Spec.ExtraVolumes)
+	}
+	wantMountsDigest := resources.ExtraVolumeMountsDigest(mounts)
+	if gotMountsDigest := resources.ExtraVolumeMountsDigest(got.Spec.ExtraVolumeMounts); gotMountsDigest != wantMountsDigest {
+		t.Errorf("container.Spec.ExtraVolumeMounts digest = %q, want %q (mounts=%v)", gotMountsDigest, wantMountsDigest, got.Spec.ExtraVolumeMounts)
+	}
+}
+
+// TestHandleSpecUpdates_ExtraVolumesUnchanged_NoChurn verifies that a container whose extra
+// volumes/mounts already match the cluster's normalized value is left untouched: the digest
+// comparison must not treat an already-normalized, already-equal value as a diff and rewrite it.
+func TestHandleSpecUpdates_ExtraVolumesUnchanged_NoChurn(t *testing.T) {
+	rawVolumes := &runtime.RawExtension{Raw: []byte(`[{"name":"cacert","secret":{"secretName":"cacert"}}]`)}
+	mounts := []corev1.VolumeMount{{Name: "cacert", MountPath: "/etc/ssl/cacert"}}
+	normalized := resources.NormalizeExtraVolumes(rawVolumes)
+
+	cluster := &weka.WekaCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "default", UID: types.UID("test-uid")},
+		Spec: weka.WekaClusterSpec{
+			Dynamic: &weka.WekaClusterTemplate{ClusterCapacity: "10TiB"},
+			PodConfig: &weka.PodConfiguration{
+				ExtraVolumes:      rawVolumes,
+				ExtraVolumeMounts: mounts,
+			},
+		},
+	}
+
+	upToDateContainer := &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-s3-0", Namespace: "default"},
+		Spec: weka.WekaContainerSpec{
+			Mode:              weka.WekaContainerModeS3,
+			ExtraVolumes:      normalized.DeepCopy(),
+			ExtraVolumeMounts: append([]corev1.VolumeMount{}, mounts...),
+		},
+	}
+
+	loop := newUpgradeLoop(t, cluster, []*weka.WekaContainer{upToDateContainer})
+	fakeClient := loop.getClient()
+
+	// First pass: LastAppliedSpec starts empty, so the full body runs (and sets it) even though
+	// extra volumes/mounts are already correct — the digest comparison must not touch them.
+	if err := loop.HandleSpecUpdates(context.Background()); err != nil {
+		t.Fatalf("HandleSpecUpdates returned unexpected error: %v", err)
+	}
+
+	got := &weka.WekaContainer{}
+	if err := fakeClient.Get(context.Background(), client.ObjectKeyFromObject(upToDateContainer), got); err != nil {
+		t.Fatalf("failed to fetch container: %v", err)
+	}
+	if got.Spec.ExtraVolumes == nil || string(got.Spec.ExtraVolumes.Raw) != string(normalized.Raw) {
+		t.Errorf("container.Spec.ExtraVolumes = %v, want unchanged normalized value %v", got.Spec.ExtraVolumes, normalized)
+	}
+	if resources.ExtraVolumeMountsDigest(got.Spec.ExtraVolumeMounts) != resources.ExtraVolumeMountsDigest(mounts) {
+		t.Errorf("container.Spec.ExtraVolumeMounts = %v, want unchanged %v", got.Spec.ExtraVolumeMounts, mounts)
+	}
+
+	// Second pass: loop.containers still holds the pre-first-pass object, so reset it to the
+	// now-synced state (LastAppliedSpec included) fetched above, then reconcile again. Because
+	// everything — extra volumes included — is already correct, LastAppliedSpec now equals the
+	// spec hash and the per-container closure short-circuits before issuing any patch at all.
+	loop.containers = []*weka.WekaContainer{got}
+	beforeResourceVersion := got.ResourceVersion
+
+	if err := loop.HandleSpecUpdates(context.Background()); err != nil {
+		t.Fatalf("HandleSpecUpdates (second pass) returned unexpected error: %v", err)
+	}
+
+	gotAfterSecondPass := &weka.WekaContainer{}
+	if err := fakeClient.Get(context.Background(), client.ObjectKeyFromObject(upToDateContainer), gotAfterSecondPass); err != nil {
+		t.Fatalf("failed to fetch container after second pass: %v", err)
+	}
+	if gotAfterSecondPass.ResourceVersion != beforeResourceVersion {
+		t.Errorf("container.ResourceVersion changed from %q to %q on a reconcile where nothing (including extra volumes/mounts) had changed — unwanted churn",
+			beforeResourceVersion, gotAfterSecondPass.ResourceVersion)
+	}
+}
+
+// TestHandleSpecUpdates_PropagatesWekaHomeCacertSecret verifies that rotating
+// spec.wekaHome.cacertSecret reaches an existing container, and that clearing it drops the mount.
+func TestHandleSpecUpdates_PropagatesWekaHomeCacertSecret(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		cluster string
+		want    map[string]string
+	}{
+		{name: "rotate", cluster: "wh-ca-new", want: map[string]string{"wekahome-cacert": "wh-ca-new"}},
+		{name: "clear", cluster: "", want: map[string]string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cluster := &weka.WekaCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "default", UID: types.UID("test-uid")},
+				Spec: weka.WekaClusterSpec{
+					Dynamic:  &weka.WekaClusterTemplate{ClusterCapacity: "10TiB"},
+					WekaHome: &weka.WekaHomeConfig{CacertSecret: tc.cluster},
+				},
+			}
+			staleContainer := &weka.WekaContainer{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-s3-0", Namespace: "default"},
+				Spec: weka.WekaContainerSpec{
+					Mode:              weka.WekaContainerModeS3,
+					AdditionalSecrets: map[string]string{"wekahome-cacert": "wh-ca-old"},
+				},
+			}
+
+			loop := newUpgradeLoop(t, cluster, []*weka.WekaContainer{staleContainer})
+			if err := loop.HandleSpecUpdates(context.Background()); err != nil {
+				t.Fatalf("HandleSpecUpdates returned unexpected error: %v", err)
+			}
+
+			got := &weka.WekaContainer{}
+			if err := loop.getClient().Get(context.Background(), client.ObjectKeyFromObject(staleContainer), got); err != nil {
+				t.Fatalf("failed to fetch container: %v", err)
+			}
+			if !util.NewHashableMap(got.Spec.AdditionalSecrets).Equals(util.NewHashableMap(tc.want)) {
+				t.Errorf("container.Spec.AdditionalSecrets = %v, want %v", got.Spec.AdditionalSecrets, tc.want)
+			}
+		})
 	}
 }

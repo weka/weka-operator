@@ -145,6 +145,11 @@ manager:
   nodeSelector: {}
   tolerations: []
   labels: {}
+  # -- extra volumes added to the operator Deployment pod spec (standard PodSpec `volumes` shape).
+  # The reserved name is `tmpdir`.
+  extraVolumes: []
+  # -- extra volumeMounts for the `manager` container. The reserved path is `/tmp`.
+  extraVolumeMounts: []
   loggerSettings:
     level: 0
     format: raw

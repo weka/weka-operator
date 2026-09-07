@@ -23,3 +23,12 @@ protocols and management access. Source: `internal/controllers/wekacluster/`.
 - [Capacity planning](wekacluster-drive-planning.md): shared apply path, inventory, pure planners and device allocation.
 - Sizing modes and constraints: [cluster capacity](../../doc/operator/deployment/cluster-capacity.md), [auto full drives](../../doc/operator/deployment/act-as-daemonset.md). `plannerSizingMode` detects the mode; [validation](../config/validation.md) owns admission rules.
 - [Management proxy](management-proxy.md): bootstrap versus endpoint updates, probes and host networking.
+
+## Weka Home CA cert scope
+
+`configureWekaHome` (`steps_post_cluster.go`) sets `weka_cloud_ca_cert_path` from a drive container.
+The override is cluster-wide: it replicates to every joining machine, but the certificate file does
+not, and an explicit CA replaces the OS trust store rather than adding to it. Setting
+`spec.wekaHome.cacertSecret` therefore obliges every joining machine — including clients this
+operator does not manage — to place a PEM at `/opt/weka/k8s-runtime/vars/wh-cacert/cert.pem`.
+See `doc/operator/operations/weka-home-tls.md`.
