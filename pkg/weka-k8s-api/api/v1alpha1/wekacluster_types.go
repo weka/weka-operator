@@ -614,6 +614,14 @@ type PodConfiguration struct {
 	// affinity per container role
 	// takes precedence over the `affinity` field
 	RoleAffinity *RoleAffinity `json:"roleAffinity,omitempty"`
+	// extra volumes added to every weka pod of this cluster, in the same shape as a PodSpec's
+	// `volumes`. Names must not collide with operator-managed volumes; see
+	// doc/operator/deployment/extra-volumes.md for the reserved names and paths.
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	ExtraVolumes *runtime.RawExtension `json:"extraVolumes,omitempty"`
+	// mounts for `extraVolumes`, applied to the weka container only (not init containers)
+	ExtraVolumeMounts []v1.VolumeMount `json:"extraVolumeMounts,omitempty"`
 }
 
 // unmarshalAffinity safely unmarshals RawExtension to v1.Affinity
@@ -640,6 +648,19 @@ func unmarshalTopologySpreadConstraints(raw *runtime.RawExtension) ([]v1.Topolog
 		return nil, fmt.Errorf("failed to unmarshal topologySpreadConstraints: %w", err)
 	}
 	return constraints, nil
+}
+
+// unmarshalVolumes safely unmarshals RawExtension to []v1.Volume
+func unmarshalVolumes(raw *runtime.RawExtension) ([]v1.Volume, error) {
+	if raw == nil || raw.Raw == nil {
+		return nil, nil
+	}
+
+	var volumes []v1.Volume
+	if err := json.Unmarshal(raw.Raw, &volumes); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal extraVolumes: %w", err)
+	}
+	return volumes, nil
 }
 
 type StartIoConditions struct {
@@ -1407,4 +1428,33 @@ func (c *WekaCluster) GetTopologySpreadConstraintsForRole(role string) []v1.Topo
 
 func init() {
 	SchemeBuilder.Register(&WekaCluster{}, &WekaClusterList{})
+}
+
+// GetExtraVolumes returns the cluster-level extra volumes, parsed. Callers that only need to
+// propagate the value should use GetRawExtraVolumes instead and avoid the round-trip.
+func (c *WekaCluster) GetExtraVolumes() ([]v1.Volume, error) {
+	if c.Spec.PodConfig == nil {
+		return nil, nil
+	}
+	return unmarshalVolumes(c.Spec.PodConfig.ExtraVolumes)
+}
+
+// GetRawExtraVolumes returns the unparsed extra volumes for propagation into WekaContainer specs.
+func (c *WekaCluster) GetRawExtraVolumes() *runtime.RawExtension {
+	if c.Spec.PodConfig == nil {
+		return nil
+	}
+	return c.Spec.PodConfig.ExtraVolumes
+}
+
+func (c *WekaCluster) GetExtraVolumeMounts() []v1.VolumeMount {
+	if c.Spec.PodConfig == nil {
+		return nil
+	}
+	return c.Spec.PodConfig.ExtraVolumeMounts
+}
+
+// GetExtraVolumes returns the container's extra volumes, parsed.
+func (s *WekaContainerSpec) GetExtraVolumes() ([]v1.Volume, error) {
+	return unmarshalVolumes(s.ExtraVolumes)
 }

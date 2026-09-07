@@ -8,6 +8,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
@@ -261,29 +262,37 @@ type WekaContainerSpec struct {
 	NonDatapathCoreIds []int `json:"nonDatapathCoreIds,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	// +kubebuilder:default=auto
-	CpuPolicy             CpuPolicy             `json:"cpuPolicy,omitempty"`
-	Network               Network               `json:"network,omitempty"`
-	Hugepages             int                   `json:"hugepages,omitempty"`
-	HugepagesOffset       int                   `json:"hugepagesOffset,omitempty"`
-	HugepagesSize         string                `json:"hugepagesSize,omitempty"`
-	NumDrives             int                   `json:"numDrives,omitempty"`
-	DriversDistService    string                `json:"driversDistService,omitempty"`
-	DriversLoaderImage    string                `json:"driversLoaderImage,omitempty"`
-	DriversBuildId        *string               `json:"driversBuildId,omitempty"`
-	Builder               *WekaContainerBuilder `json:"builder,omitempty"`
-	WekaSecretRef         v1.EnvVarSource       `json:"wekaSecretRef,omitempty"`
-	JoinIps               []string              `json:"joinIpPorts,omitempty"`
-	TracesConfiguration   *TracesConfiguration  `json:"tracesConfiguration,omitempty"`
-	Tolerations           []v1.Toleration       `json:"tolerations,omitempty"`
-	NodeInfoConfigMap     string                `json:"nodeInfoConfigMap,omitempty"`
-	Ipv6                  bool                  `json:"ipv6,omitempty"`
-	AdditionalMemory      int                   `json:"additionalMemory,omitempty"`
-	Group                 string                `json:"group,omitempty"`
-	ServiceAccountName    string                `json:"serviceAccountName,omitempty"`
-	AdditionalSecrets     map[string]string     `json:"additionalSecrets,omitempty"`
-	Instructions          *Instructions         `json:"instructions,omitempty"`
-	NoAffinityConstraints bool                  `json:"dropAffinityConstraints,omitempty"`
-	UploadResultsTo       string                `json:"uploadResultsTo,omitempty"`
+	CpuPolicy           CpuPolicy             `json:"cpuPolicy,omitempty"`
+	Network             Network               `json:"network,omitempty"`
+	Hugepages           int                   `json:"hugepages,omitempty"`
+	HugepagesOffset     int                   `json:"hugepagesOffset,omitempty"`
+	HugepagesSize       string                `json:"hugepagesSize,omitempty"`
+	NumDrives           int                   `json:"numDrives,omitempty"`
+	DriversDistService  string                `json:"driversDistService,omitempty"`
+	DriversLoaderImage  string                `json:"driversLoaderImage,omitempty"`
+	DriversBuildId      *string               `json:"driversBuildId,omitempty"`
+	Builder             *WekaContainerBuilder `json:"builder,omitempty"`
+	WekaSecretRef       v1.EnvVarSource       `json:"wekaSecretRef,omitempty"`
+	JoinIps             []string              `json:"joinIpPorts,omitempty"`
+	TracesConfiguration *TracesConfiguration  `json:"tracesConfiguration,omitempty"`
+	Tolerations         []v1.Toleration       `json:"tolerations,omitempty"`
+	NodeInfoConfigMap   string                `json:"nodeInfoConfigMap,omitempty"`
+	Ipv6                bool                  `json:"ipv6,omitempty"`
+	AdditionalMemory    int                   `json:"additionalMemory,omitempty"`
+	Group               string                `json:"group,omitempty"`
+	ServiceAccountName  string                `json:"serviceAccountName,omitempty"`
+	AdditionalSecrets   map[string]string     `json:"additionalSecrets,omitempty"`
+	// extra volumes added to this pod, in the same shape as a PodSpec's `volumes`.
+	// Propagated from the owning WekaCluster/WekaClient; names must not collide with
+	// operator-managed volumes.
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	ExtraVolumes *runtime.RawExtension `json:"extraVolumes,omitempty"`
+	// mounts for `extraVolumes`, applied to the weka container only (not init containers)
+	ExtraVolumeMounts     []v1.VolumeMount `json:"extraVolumeMounts,omitempty"`
+	Instructions          *Instructions    `json:"instructions,omitempty"`
+	NoAffinityConstraints bool             `json:"dropAffinityConstraints,omitempty"`
+	UploadResultsTo       string           `json:"uploadResultsTo,omitempty"`
 	// +kubebuilder:validation:Enum=manual;all-at-once;rolling;all-at-once-force
 	// +kubebuilder:default=manual
 	UpgradePolicyType UpgradePolicyType `json:"upgradePolicyType,omitempty"`
