@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
+	"github.com/weka/weka-operator/internal/consts"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -58,34 +59,35 @@ const plannerAggregateEventInterval = 3 * time.Minute
 
 type plannerEventSpec struct {
 	eventType string
+	action    string
 	interval  time.Duration
 }
 
 var plannerEventSpecs = map[string]plannerEventSpec{
-	reasonClusterCapacityPlanned:             {corev1.EventTypeNormal, time.Minute},
-	reasonClusterCapacityInfeasible:          {corev1.EventTypeWarning, time.Minute},
-	reasonClusterCapacityDeferred:            {corev1.EventTypeNormal, time.Minute},
-	reasonClusterCapacityShrink:              {corev1.EventTypeNormal, time.Minute},
-	reasonClusterCapacityOverProvisioned:     {corev1.EventTypeNormal, time.Minute},
-	reasonClusterCapacityHeterogeneousGrowth: {corev1.EventTypeWarning, time.Minute},
+	reasonClusterCapacityPlanned:             {corev1.EventTypeNormal, consts.ActionPlanCapacity, time.Minute},
+	reasonClusterCapacityInfeasible:          {corev1.EventTypeWarning, consts.ActionPlanCapacity, time.Minute},
+	reasonClusterCapacityDeferred:            {corev1.EventTypeNormal, consts.ActionPlanCapacity, time.Minute},
+	reasonClusterCapacityShrink:              {corev1.EventTypeNormal, consts.ActionPlanCapacity, time.Minute},
+	reasonClusterCapacityOverProvisioned:     {corev1.EventTypeNormal, consts.ActionPlanCapacity, time.Minute},
+	reasonClusterCapacityHeterogeneousGrowth: {corev1.EventTypeWarning, consts.ActionPlanCapacity, time.Minute},
 
-	reasonAutoFullDrivesPlanned:        {corev1.EventTypeNormal, time.Minute},
-	reasonAutoFullDrivesInfeasible:     {corev1.EventTypeWarning, time.Minute},
-	reasonAutoFullDrivesNoSignedDrives: {corev1.EventTypeNormal, time.Minute},
-	reasonAutoFullDrivesGrowthDetected: {corev1.EventTypeNormal, time.Minute},
-	reasonAutoFullDrivesGrowthDeferred: {corev1.EventTypeWarning, plannerConvergedEventInterval},
+	reasonAutoFullDrivesPlanned:        {corev1.EventTypeNormal, consts.ActionPlanCapacity, time.Minute},
+	reasonAutoFullDrivesInfeasible:     {corev1.EventTypeWarning, consts.ActionPlanCapacity, time.Minute},
+	reasonAutoFullDrivesNoSignedDrives: {corev1.EventTypeNormal, consts.ActionPlanCapacity, time.Minute},
+	reasonAutoFullDrivesGrowthDetected: {corev1.EventTypeNormal, consts.ActionPlanCapacity, time.Minute},
+	reasonAutoFullDrivesGrowthDeferred: {corev1.EventTypeWarning, consts.ActionPlanCapacity, plannerConvergedEventInterval},
 	// Stranding is expected under a numDrives pin and a transient deferral clears itself, so neither is a
 	// Warning — emitting them as such made a healthy converged cluster accumulate Warnings.
-	reasonAutoFullDrivesDrivesStranded:    {corev1.EventTypeNormal, plannerAggregateEventInterval},
-	reasonAutoFullDrivesPlacementDeferred: {corev1.EventTypeNormal, plannerAggregateEventInterval},
+	reasonAutoFullDrivesDrivesStranded:    {corev1.EventTypeNormal, consts.ActionPlanCapacity, plannerAggregateEventInterval},
+	reasonAutoFullDrivesPlacementDeferred: {corev1.EventTypeNormal, consts.ActionPlanCapacity, plannerAggregateEventInterval},
 	// Normal, not Warning: withholding a node costs nothing on its own — the plan proceeds on the rest, and
 	// when the loss does matter the plan turns infeasible and AutoFullDrivesInfeasible carries that as a
 	// Warning. Aggregate window, not the converged one: cordon/taint is an administrative state that persists
 	// for minutes-to-hours, but the set of cordoned nodes changes within that, and the throttle key cannot
 	// tell one node list from another.
-	reasonAutoFullDrivesNodeIneligible: {corev1.EventTypeNormal, plannerAggregateEventInterval},
-	reasonAutoFullDrivesComputeLayout:  {corev1.EventTypeWarning, plannerConvergedEventInterval},
-	reasonAutoFullDrivesWarning:        {corev1.EventTypeWarning, plannerConvergedEventInterval},
+	reasonAutoFullDrivesNodeIneligible: {corev1.EventTypeNormal, consts.ActionPlanCapacity, plannerAggregateEventInterval},
+	reasonAutoFullDrivesComputeLayout:  {corev1.EventTypeWarning, consts.ActionPlanCapacity, plannerConvergedEventInterval},
+	reasonAutoFullDrivesWarning:        {corev1.EventTypeWarning, consts.ActionPlanCapacity, plannerConvergedEventInterval},
 }
 
 // emitPlannerEvent records message on the WekaCluster under reason, with that reason's policy. For
@@ -101,9 +103,9 @@ func (r *wekaClusterReconcilerLoop) emitPlannerEventWithCause(reason, cause, mes
 	if !known {
 		// A reason with no row is a programming error that TestPlannerEventSpecsCoverEveryReason catches; still
 		// emit rather than silently drop it.
-		spec = plannerEventSpec{eventType: corev1.EventTypeWarning, interval: time.Minute}
+		spec = plannerEventSpec{eventType: corev1.EventTypeWarning, action: consts.ActionPlanCapacity, interval: time.Minute}
 	}
-	_ = r.RecordEventThrottledKeyed(spec.eventType, reason, cause, message, spec.interval) //nolint:errcheck // best effort
+	_ = r.RecordEventThrottledKeyed(spec.eventType, reason, cause, spec.action, message, spec.interval) //nolint:errcheck // best effort
 }
 
 // autoFullDrivesWarningReasons gives each planner warning cause its own reason, so operators can filter with

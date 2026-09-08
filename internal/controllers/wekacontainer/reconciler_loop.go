@@ -9,7 +9,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -17,6 +17,7 @@ import (
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 func NewContainerReconcileLoop(r *ContainerController, restClient rest.Interface) *containerReconcilerLoop {
@@ -40,7 +41,7 @@ func NewContainerReconcileLoop(r *ContainerController, restClient rest.Interface
 		MetricsService: metricsService,
 		ExecService:    execService,
 		Manager:        mgr,
-		Recorder:       mgr.GetEventRecorderFor("wekaContainer-controller"), //nolint:staticcheck // old events API: record.EventRecorder is used throughout; migrating is a separate change
+		Recorder:       util.WrapEventRecorder(mgr.GetEventRecorder("wekaContainer-controller"), mgr.GetScheme()),
 		RestClient:     restClient,
 		ThrottlingMap:  r.ThrottlingMap,
 	}
@@ -63,7 +64,7 @@ type containerReconcilerLoop struct {
 	Scheme           *runtime.Scheme
 	KubeService      kubernetes.KubeService
 	ExecService      exec.ExecService
-	Recorder         record.EventRecorder
+	Recorder         events.EventRecorder
 	Manager          ctrl.Manager
 	container        *weka.WekaContainer
 	pod              *v1.Pod

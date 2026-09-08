@@ -106,6 +106,7 @@ func (r *containerReconcilerLoop) reportAdhocPodNotProgressing(ctx context.Conte
 	_ = r.RecordEventThrottled( //nolint:errcheck // best-effort event
 		v1.EventTypeWarning,
 		"AdhocPodNotProgressing",
+		consts.ActionManageOneOffOperation,
 		fmt.Sprintf("Adhoc-op pod stuck (%s) for %s, will delete container after %s%s",
 			reason, time.Since(podStuckSince(r.pod)).Round(time.Second),
 			config.Config.StuckAdhocPodTimeout, eventDetailSuffix(detail)),
@@ -127,6 +128,7 @@ func (r *containerReconcilerLoop) deleteStuckAdhocContainer(ctx context.Context)
 	_ = r.RecordEvent( //nolint:errcheck // best-effort event
 		v1.EventTypeWarning,
 		"AdhocPodStuck",
+		consts.ActionManageOneOffOperation,
 		fmt.Sprintf("Adhoc-op pod stuck (%s) for %s, deleting container%s",
 			reason, stuckFor, eventDetailSuffix(detail)),
 	)
@@ -378,7 +380,7 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	discoveredDrives, qlcSerials := filterOutQLCDrives(opResult.Drives)
 	if len(qlcSerials) > 0 {
 		logger.Info("Skipping QLC drives in full-drives mode", "serials", qlcSerials)
-		_ = r.RecordEvent(v1.EventTypeWarning, "QLCDrivesSkipped", //nolint:errcheck // event recording is best-effort
+		_ = r.RecordEvent(v1.EventTypeWarning, "QLCDrivesSkipped", consts.ActionSignDrives, //nolint:errcheck // event recording is best-effort
 			fmt.Sprintf("%d QLC drive(s) excluded from full-drives mode (unsupported): %s",
 				len(qlcSerials), strings.Join(qlcSerials, ", ")))
 	}
@@ -608,7 +610,7 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 	if len(mergedDrives) == 0 && !opResult.KernelViewComplete {
 		err = fmt.Errorf("proxy mode drive discovery for node %s has an incomplete kernel view and produced zero shared drives; refusing to persist an empty %s annotation and a fresh %s to avoid permanently locking the node out of future re-scans. Check that this node's NVMe devices are bound to the kernel \"nvme\" driver, then re-run sign-drives with force",
 			node.Name, consts.AnnotationSharedDrives, consts.AnnotationSignDrivesHash)
-		if eventErr := r.RecordEvent(v1.EventTypeWarning, "IncompleteKernelView", err.Error()); eventErr != nil {
+		if eventErr := r.RecordEvent(v1.EventTypeWarning, "IncompleteKernelView", consts.ActionSignDrives, err.Error()); eventErr != nil {
 			logger.Warn("Failed to record IncompleteKernelView event", "error", eventErr)
 		}
 		return err

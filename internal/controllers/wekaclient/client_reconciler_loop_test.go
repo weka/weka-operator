@@ -9,7 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -47,7 +47,7 @@ func TestUpdateContainerIfChanged_ExtraCores(t *testing.T) {
 
 	c := &clientReconcilerLoop{
 		Client:     fakeClient,
-		Recorder:   record.NewFakeRecorder(10),
+		Recorder:   events.NewFakeRecorder(10),
 		wekaClient: wekaClient,
 	}
 
@@ -116,7 +116,7 @@ func TestUpdateContainerIfChanged_Resources(t *testing.T) {
 
 	c := &clientReconcilerLoop{
 		Client:     fakeClient,
-		Recorder:   record.NewFakeRecorder(10),
+		Recorder:   events.NewFakeRecorder(10),
 		wekaClient: wekaClient,
 	}
 
@@ -179,7 +179,7 @@ func TestUpdateContainerIfChanged_ResourcesNilVsEmptyNoChurn(t *testing.T) {
 
 	c := &clientReconcilerLoop{
 		Client:     fakeClient,
-		Recorder:   record.NewFakeRecorder(10),
+		Recorder:   events.NewFakeRecorder(10),
 		wekaClient: wekaClient,
 	}
 

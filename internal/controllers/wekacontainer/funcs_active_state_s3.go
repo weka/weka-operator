@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -104,6 +105,7 @@ func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context)
 	_ = r.RecordEvent( //nolint:errcheck // error return value intentionally not checked
 		v1.EventTypeNormal,
 		"EnvoyContainerWithoutS3Neighbor",
+		consts.ActionMonitorContainerHealth,
 		"Envoy container has no S3 neighbor, deleting it",
 	)
 

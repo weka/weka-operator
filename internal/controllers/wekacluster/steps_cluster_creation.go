@@ -243,7 +243,7 @@ func (r *wekaClusterReconcilerLoop) AllocateClusterRanges(ctx context.Context) e
 	err = resourcesAllocator.AllocateClusterRange(ctx, cluster, featureFlags)
 	var allocateRangeErr *allocator.AllocateClusterRangeError
 	if errors.As(err, &allocateRangeErr) {
-		_ = r.RecordEvent(v1.EventTypeWarning, "AllocateClusterRangeError", allocateRangeErr.Error()) //nolint:errcheck // error is intentionally ignored
+		_ = r.RecordEvent(v1.EventTypeWarning, "AllocateClusterRangeError", consts.ActionAllocateClusterRange, allocateRangeErr.Error()) //nolint:errcheck // error is intentionally ignored
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 	if err != nil {
@@ -301,11 +301,11 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	cluster.Spec.DriversDistService = resolvedURL
 	switch source {
 	case utils.DriverDistDefault:
-		_ = r.RecordEvent(v1.EventTypeNormal, "DriversDistDefault", fmt.Sprintf("No WekaPolicy, using default driversDistService: %s", resolvedURL)) //nolint:errcheck // event recording errors are intentionally ignored
+		_ = r.RecordEvent(v1.EventTypeNormal, "DriversDistDefault", consts.ActionResolveDriversDist, fmt.Sprintf("No WekaPolicy, using default driversDistService: %s", resolvedURL)) //nolint:errcheck // event recording errors are intentionally ignored
 	case utils.DriverDistPolicy:
-		_ = r.RecordEvent(v1.EventTypeNormal, "DriversDistAutoResolved", fmt.Sprintf("Resolved driversDistService from WekaPolicy: %s", resolvedURL)) //nolint:errcheck // event recording errors are intentionally ignored
+		_ = r.RecordEvent(v1.EventTypeNormal, "DriversDistAutoResolved", consts.ActionResolveDriversDist, fmt.Sprintf("Resolved driversDistService from WekaPolicy: %s", resolvedURL)) //nolint:errcheck // event recording errors are intentionally ignored
 	case utils.DriverDistAmbiguous:
-		_ = r.RecordEvent(v1.EventTypeWarning, "DriversDistAmbiguousPolicy", fmt.Sprintf("Multiple WekaPolicy resources found for drivers distribution, falling back to default: %s", resolvedURL)) //nolint:errcheck // event recording errors are intentionally ignored
+		_ = r.RecordEvent(v1.EventTypeWarning, "DriversDistAmbiguousPolicy", consts.ActionResolveDriversDist, fmt.Sprintf("Multiple WekaPolicy resources found for drivers distribution, falling back to default: %s", resolvedURL)) //nolint:errcheck // event recording errors are intentionally ignored
 	}
 	missingContainers, err := r.BuildMissingContainers(ctx)
 	if err != nil {
@@ -436,7 +436,7 @@ func (r *wekaClusterReconcilerLoop) GarbageCollectUnschedulablePlannerContainers
 		// "Unschedulable" here, so reporting that would say nothing the event's own reason does not.
 		message := fmt.Sprintf("%s container unschedulable for %s (> %s): %s; deleting so capacity can be re-placed",
 			kindDesc, unschedulableFor.Round(time.Second), timeout, cond.Message)
-		r.Recorder.Event(c, v1.EventTypeWarning, eventReason, message)
+		util.RecordEvent(r.Recorder, c, v1.EventTypeWarning, eventReason, consts.ActionScheduleContainers, message)
 
 		logger.Info("Deleting long-unschedulable planner container", "name", c.Name, "kind", kindDesc,
 			"unschedulableFor", unschedulableFor.String(), "schedulerMessage", cond.Message)
@@ -536,7 +536,7 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 	}
 
 	if len(skippedReasons) > 0 {
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ContainersBuildPending", //nolint:errcheck // event is best effort, if recording fails, we don't want to log the reason
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ContainersBuildPending", consts.ActionBuildContainers, //nolint:errcheck // event is best effort, if recording fails, we don't want to log the reason
 			strings.Join(skippedReasons, "; "), time.Minute)
 	}
 
@@ -572,7 +572,7 @@ func (r *wekaClusterReconcilerLoop) desiredRoleCounts(nums allocator.IntPerWekaR
 	}
 	if n := nums.DataServices; n > 0 {
 		if cluster.Spec.Dynamic.GetDataServicesFeCores() != 0 {
-			_ = r.RecordEventThrottled(v1.EventTypeWarning, "DataServicesValidationFailed", //nolint:errcheck // event recording errors are intentionally ignored
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "DataServicesValidationFailed", consts.ActionBuildContainers, //nolint:errcheck // event recording errors are intentionally ignored
 				"dataServicesContainers > 0 requires dataServicesFeCores to be explicitly set to 0; skipping data-services container creation", time.Minute)
 		} else {
 			want["data-services"] = n
@@ -768,7 +768,7 @@ func (r *wekaClusterReconcilerLoop) updateContainersOnNodeSelectorMismatch(ctx c
 				"value": cluster.Spec.NodeSelector,
 			},
 		}
-		r.Recorder.Event(container, v1.EventTypeNormal, "NodeSelectorMismatch", "Node selector mismatch, updating container nodeSelector")
+		util.RecordEvent(r.Recorder, container, v1.EventTypeNormal, "NodeSelectorMismatch", consts.ActionScheduleContainers, "Node selector mismatch, updating container nodeSelector")
 		patchBytes, err := json.Marshal(patch)
 		if err != nil {
 			return fmt.Errorf("failed to marshal patch for container %s: %w", container.Name, err)
@@ -783,7 +783,7 @@ func (r *wekaClusterReconcilerLoop) updateContainersOnNodeSelectorMismatch(ctx c
 
 	logger.Info("Deleting containers with node selector mismatch", "toDelete", len(toDelete))
 	deleteErr := workers.ProcessConcurrently(ctx, toDelete, maxBackendsDeletePerReconcile, func(ctx context.Context, container *weka.WekaContainer) error {
-		r.Recorder.Event(container, v1.EventTypeNormal, "NodeSelectorMismatch", "Node selector mismatch, deleting container")
+		util.RecordEvent(r.Recorder, container, v1.EventTypeNormal, "NodeSelectorMismatch", consts.ActionScheduleContainers, "Node selector mismatch, deleting container")
 
 		return errors.Wrap(
 			services.SetContainerStateDeleting(ctx, container, r.getClient()),

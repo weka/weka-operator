@@ -15,7 +15,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -118,7 +118,7 @@ var _ = Describe("ensureAwsTerminationLifecycleHook", func() {
 		node     *v1.Node
 		cluster  *weka.WekaCluster
 		fakeAsg  *fakeClusterLifecycleClient
-		recorder *record.FakeRecorder
+		recorder *events.FakeRecorder
 	)
 
 	BeforeEach(func() {
@@ -138,7 +138,7 @@ var _ = Describe("ensureAwsTerminationLifecycleHook", func() {
 		fakeAsg = &fakeClusterLifecycleClient{asgName: "my-asg"}
 		newClusterLifecycleClient = func(region string) awslib.LifecycleClient { return fakeAsg }
 
-		recorder = record.NewFakeRecorder(10)
+		recorder = events.NewFakeRecorder(10)
 
 		verifiedHookASGs.Reset()
 		verifiedHookNodes.Reset()

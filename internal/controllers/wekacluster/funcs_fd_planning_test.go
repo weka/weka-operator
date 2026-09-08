@@ -11,7 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -276,7 +276,7 @@ func TestSteadyStatePlanOverProvisioned(t *testing.T) {
 		containers = append(containers, computeContainer("c", 1))
 	}
 
-	rec := record.NewFakeRecorder(8)
+	rec := events.NewFakeRecorder(8)
 	r := &wekaClusterReconcilerLoop{
 		containers: containers,
 		cluster:    &weka.WekaCluster{},
@@ -316,7 +316,7 @@ func TestPlanClusterCapacitySkipsNodeInventory(t *testing.T) {
 		r := &wekaClusterReconcilerLoop{
 			containers: containers,
 			cluster:    cluster,
-			Recorder:   record.NewFakeRecorder(8),
+			Recorder:   events.NewFakeRecorder(8),
 			Throttler:  throttling.NewSyncMapThrottler(),
 			buildNodeInventoryFn: func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 				calls++
@@ -383,7 +383,7 @@ func newCapacityLoop(capacity string, containers []*weka.WekaContainer, inventor
 	r := &wekaClusterReconcilerLoop{
 		containers: containers,
 		cluster:    cluster,
-		Recorder:   record.NewFakeRecorder(8),
+		Recorder:   events.NewFakeRecorder(8),
 		Throttler:  throttling.NewSyncMapThrottler(),
 		buildNodeInventoryFn: func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 			calls++
@@ -639,7 +639,7 @@ func newAutoFullDrivesLoop(containers []*weka.WekaContainer, inventoryFn func() 
 	r := &wekaClusterReconcilerLoop{
 		containers: containers,
 		cluster:    cluster,
-		Recorder:   record.NewFakeRecorder(8),
+		Recorder:   events.NewFakeRecorder(8),
 		Throttler:  throttling.NewSyncMapThrottler(),
 		buildFullDrivesInventoryFn: func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 			calls++
@@ -692,7 +692,7 @@ func TestPlanAutoFullDrivesDefersWithoutSignedDrives(t *testing.T) {
 	driveRoleNoDrives := autoFullDrivesNode("drive-role-node", "fd-a", nil) // drive-role selector matches, nothing signed yet
 	computeOnly := autoFullDrivesNode("compute-node", "fd-b", nil)          // compute-selector node, also no drives
 
-	rec := record.NewFakeRecorder(8)
+	rec := events.NewFakeRecorder(8)
 	r, _ := newAutoFullDrivesLoop(nil, func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 		return map[string]string{}, []capacityplanner.NodeCapacity{driveRoleNoDrives, computeOnly}, map[string]bool{"compute-node": true}, nil
 	})
@@ -733,7 +733,7 @@ func TestPlanAutoFullDrivesDefersOnDeletingContainerNotUnsigned(t *testing.T) {
 	}
 	driveRoleNoDrives := autoFullDrivesNode("drive-role-node", "fd-a", nil)
 
-	rec := record.NewFakeRecorder(8)
+	rec := events.NewFakeRecorder(8)
 	r, _ := newAutoFullDrivesLoop([]*weka.WekaContainer{deleting}, func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 		return map[string]string{}, []capacityplanner.NodeCapacity{driveRoleNoDrives}, map[string]bool{}, nil
 	})
@@ -776,7 +776,7 @@ func TestPlanAutoFullDrivesDeletingContainerWithoutDrivesReportsUnsigned(t *test
 	}
 	driveRoleNoDrives := autoFullDrivesNode("drive-role-node", "fd-a", nil)
 
-	rec := record.NewFakeRecorder(8)
+	rec := events.NewFakeRecorder(8)
 	r, _ := newAutoFullDrivesLoop([]*weka.WekaContainer{deleting}, func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 		return map[string]string{}, []capacityplanner.NodeCapacity{driveRoleNoDrives}, map[string]bool{}, nil
 	})
@@ -863,7 +863,7 @@ func TestBuildMissingContainersModeIsolation(t *testing.T) {
 		cluster.Spec.Dynamic = &weka.WekaClusterTemplate{ClusterCapacity: "1Gi"}
 		r := &wekaClusterReconcilerLoop{
 			cluster:   cluster,
-			Recorder:  record.NewFakeRecorder(8),
+			Recorder:  events.NewFakeRecorder(8),
 			Throttler: throttling.NewSyncMapThrottler(),
 			buildNodeInventoryFn: func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 				return map[string]string{}, nil, map[string]bool{}, nil // empty inventory -> infeasible, but consulted
@@ -883,7 +883,7 @@ func TestBuildMissingContainersModeIsolation(t *testing.T) {
 		cluster.Spec.Dynamic = &weka.WekaClusterTemplate{}
 		r := &wekaClusterReconcilerLoop{
 			cluster:   cluster,
-			Recorder:  record.NewFakeRecorder(8),
+			Recorder:  events.NewFakeRecorder(8),
 			Throttler: throttling.NewSyncMapThrottler(),
 			buildNodeInventoryFn: func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 				t.Fatalf("clusterCapacity's shared-drives inventory must not be consulted for an auto-full-drives cluster")
@@ -957,7 +957,7 @@ func TestPlanAutoFullDrivesStillDefersWithoutSignedDrivesAfterSteadyStateGate(t 
 	driveRoleNoDrives := autoFullDrivesNode("drive-role-node", "fd-a", nil) // drive-role selector matches, nothing signed yet
 	computeOnly := autoFullDrivesNode("compute-node", "fd-b", nil)          // compute-selector node, also no drives
 
-	rec := record.NewFakeRecorder(8)
+	rec := events.NewFakeRecorder(8)
 	r, calls := newAutoFullDrivesLoop(nil, func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 		return map[string]string{}, []capacityplanner.NodeCapacity{driveRoleNoDrives, computeOnly}, map[string]bool{"compute-node": true}, nil
 	})
@@ -984,7 +984,7 @@ func TestPlanAutoFullDrivesStillDefersWithoutSignedDrivesAfterSteadyStateGate(t 
 }
 
 // drainEvents non-blockingly collects every event currently buffered on rec (tests need the full count, not just presence).
-func drainEvents(rec *record.FakeRecorder) []string {
+func drainEvents(rec *events.FakeRecorder) []string {
 	var events []string
 	for {
 		select {
@@ -1118,7 +1118,7 @@ func TestPlanAutoFullDrivesNeverAnnouncesGrowthItself(t *testing.T) {
 	}
 	n2, n3 := computeOnly("n2"), computeOnly("n3")
 
-	rec := record.NewFakeRecorder(16)
+	rec := events.NewFakeRecorder(16)
 	r, _ := newAutoFullDrivesLoop([]*weka.WekaContainer{drive}, func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 		return map[string]string{"n1": "fdA", "n2": "fd-n2", "n3": "fd-n3"},
 			[]capacityplanner.NodeCapacity{n1, n2, n3},
@@ -1246,7 +1246,7 @@ func TestPlanAutoFullDrivesAggregatesPlacementDeferredIntoOneEvent(t *testing.T)
 	r, _ := newAutoFullDrivesLoop(containers, func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 		return fdByNode, nodeInv, eligible, nil
 	})
-	rec := record.NewFakeRecorder(16)
+	rec := events.NewFakeRecorder(16)
 	r.Recorder = rec
 
 	plan, err := r.planAutoFullDrives(t.Context())
@@ -1345,7 +1345,7 @@ func TestPlanAutoFullDrivesPlacementDeferred_DistinctCausesDoNotShareThrottleWin
 
 	r, _ := newAutoFullDrivesLoop([]*weka.WekaContainer{unscheduledContainer}, inventoryFn)
 	// Generous buffer: FakeRecorder blocks rather than drops once full, and this test drives three passes.
-	r.Recorder = record.NewFakeRecorder(64)
+	r.Recorder = events.NewFakeRecorder(64)
 
 	// Pass 1: the unscheduled cause fires and is recorded.
 	if _, err := r.planAutoFullDrives(t.Context()); err != nil {

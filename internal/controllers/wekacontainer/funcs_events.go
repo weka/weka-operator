@@ -6,9 +6,11 @@ import (
 
 	"github.com/weka/go-steps-engine/throttling"
 	v1 "k8s.io/api/core/v1"
+
+	"github.com/weka/weka-operator/pkg/util"
 )
 
-func (r *containerReconcilerLoop) RecordEvent(eventtype, reason, message string) error {
+func (r *containerReconcilerLoop) RecordEvent(eventtype, reason, action, message string) error {
 	if r.container == nil {
 		return fmt.Errorf("container is not set")
 	}
@@ -17,19 +19,19 @@ func (r *containerReconcilerLoop) RecordEvent(eventtype, reason, message string)
 		eventtype = normal
 	}
 
-	r.Recorder.Event(r.container, eventtype, reason, message)
+	util.RecordEvent(r.Recorder, r.container, eventtype, reason, action, message)
 	return nil
 }
 
-func (r *containerReconcilerLoop) RecordEventThrottled(eventtype, reason, message string, interval time.Duration) error {
+func (r *containerReconcilerLoop) RecordEventThrottled(eventtype, reason, action, message string, interval time.Duration) error {
 	throttler := r.ThrottlingMap.WithPartition("container/" + r.container.Name)
 
-	if !throttler.ShouldRun(eventtype+reason, &throttling.ThrottlingSettings{
+	if !throttler.ShouldRun(eventtype+reason+action, &throttling.ThrottlingSettings{
 		Interval:                    interval,
 		DisableRandomPreSetInterval: true,
 	}) {
 		return nil
 	}
 
-	return r.RecordEvent(eventtype, reason, message)
+	return r.RecordEvent(eventtype, reason, action, message)
 }

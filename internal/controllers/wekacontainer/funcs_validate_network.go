@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/weka-operator/internal/consts"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -18,7 +19,7 @@ func (r *containerReconcilerLoop) validateNetworkConfig(ctx context.Context) err
 	if len(network.Selectors) > 0 {
 		if network.EthDevice != "" || len(network.EthDevices) > 0 || len(network.DeviceSubnets) > 0 {
 			err := fmt.Errorf("network selectors cannot be used together with ethDevice, ethDevices, or deviceSubnets; use one or the other")
-			_ = r.RecordEvent(v1.EventTypeWarning, "InvalidNetworkConfig", err.Error()) //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEvent(v1.EventTypeWarning, "InvalidNetworkConfig", consts.ActionValidateNetworkConfig, err.Error()) //nolint:errcheck // error return value intentionally not checked
 			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
 		}
 	}
@@ -26,7 +27,7 @@ func (r *containerReconcilerLoop) validateNetworkConfig(ctx context.Context) err
 	// Check 2: Single selector with rdmaOnly is invalid
 	if len(network.Selectors) == 1 && network.Selectors[0].RdmaOnly {
 		err := fmt.Errorf("a single network selector with rdmaOnly is invalid; at least one non-rdmaOnly selector is required for data traffic")
-		_ = r.RecordEvent(v1.EventTypeWarning, "InvalidNetworkConfig", err.Error()) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEvent(v1.EventTypeWarning, "InvalidNetworkConfig", consts.ActionValidateNetworkConfig, err.Error()) //nolint:errcheck // error return value intentionally not checked
 		return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
 	}
 
@@ -41,7 +42,7 @@ func (r *containerReconcilerLoop) validateNetworkConfig(ctx context.Context) err
 		}
 		if allRdmaOnly && len(network.ManagementIPsSelectors) == 0 {
 			err := fmt.Errorf("all network selectors have rdmaOnly set but no managementIpsSelectors are configured; rdma-only NICs cannot serve as management IPs")
-			_ = r.RecordEvent(v1.EventTypeWarning, "InvalidNetworkConfig", err.Error()) //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEvent(v1.EventTypeWarning, "InvalidNetworkConfig", consts.ActionValidateNetworkConfig, err.Error()) //nolint:errcheck // error return value intentionally not checked
 			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
 		}
 	}

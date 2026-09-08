@@ -22,7 +22,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -52,7 +52,7 @@ func NewClientReconcileLoop(r *ClientController) *clientReconcilerLoop {
 	return &clientReconcilerLoop{
 		Client:        kClient,
 		Scheme:        mgr.GetScheme(),
-		Recorder:      mgr.GetEventRecorderFor("weka-operator"), //nolint:staticcheck // old events API: record.EventRecorder is used throughout; migrating is a separate change
+		Recorder:      util2.WrapEventRecorder(mgr.GetEventRecorder("weka-operator"), mgr.GetScheme()),
 		KubeService:   kubernetes.NewKubeService(kClient),
 		Manager:       mgr,
 		ThrottlingMap: r.ThrottlingMap,
@@ -65,7 +65,7 @@ type clientReconcilerLoop struct {
 	Scheme         *runtime.Scheme
 	KubeService    kubernetes.KubeService
 	Manager        ctrl.Manager
-	Recorder       record.EventRecorder
+	Recorder       events.EventRecorder
 	containers     []*weka.WekaContainer
 	wekaClient     *weka.WekaClient
 	ThrottlingMap  throttling.Throttler
@@ -290,7 +290,7 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	return nil
 }
 
-func (c *clientReconcilerLoop) RecordEvent(eventtype *string, reason, message string) error {
+func (c *clientReconcilerLoop) RecordEvent(eventtype *string, reason, action, message string) error {
 	if c.wekaClient == nil {
 		return fmt.Errorf("current client is nil")
 	}
@@ -299,7 +299,7 @@ func (c *clientReconcilerLoop) RecordEvent(eventtype *string, reason, message st
 		eventtype = &normal
 	}
 
-	c.Recorder.Event(c.wekaClient, *eventtype, reason, message)
+	util2.RecordEvent(c.Recorder, c.wekaClient, *eventtype, reason, action, message)
 	return nil
 }
 
@@ -952,14 +952,14 @@ func (c *clientReconcilerLoop) emitClientUpgradeCustomEvent(ctx context.Context)
 	}
 }
 
-func (c *clientReconcilerLoop) RecordEventThrottled(eventtype, reason, message string, interval time.Duration) error {
+func (c *clientReconcilerLoop) RecordEventThrottled(eventtype, reason, action, message string, interval time.Duration) error {
 	if !c.ThrottlingMap.ShouldRun(eventtype+reason, &throttling.ThrottlingSettings{
 		Interval:                    interval,
 		DisableRandomPreSetInterval: true,
 	}) {
 		return nil
 	}
-	return c.RecordEvent(&eventtype, reason, message)
+	return c.RecordEvent(&eventtype, reason, action, message)
 }
 
 func (c *clientReconcilerLoop) ValidateClientVersionCompatibility(ctx context.Context) error {
@@ -983,7 +983,7 @@ func (c *clientReconcilerLoop) ValidateClientVersionCompatibility(ctx context.Co
 			"clusterVersion", clusterVersion,
 		)
 
-		_ = c.RecordEventThrottled(v1.EventTypeWarning, "ClientVersionMismatch", msg, 30*time.Second) //nolint:errcheck // error is intentionally ignored
+		_ = c.RecordEventThrottled(v1.EventTypeWarning, "ClientVersionMismatch", consts.ActionValidateClientVersion, msg, 30*time.Second) //nolint:errcheck // error is intentionally ignored
 
 		return lifecycle.NewWaitErrorWithDuration(errors.New(msg), 30*time.Second)
 	}

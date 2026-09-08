@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -294,7 +295,7 @@ func (r *containerReconcilerLoop) reconcileProxyHugepagesSpec(ctx context.Contex
 	if err := r.Update(ctx, r.container); err != nil {
 		return errors.Wrap(err, "failed to update ssdproxy hugepages spec")
 	}
-	_ = r.RecordEvent(v1.EventTypeWarning, "CapacityGrowthApplied", //nolint:errcheck // error return value intentionally not checked
+	_ = r.RecordEvent(v1.EventTypeWarning, "CapacityGrowthApplied", consts.ActionApplyCapacityGrowth, //nolint:errcheck // error return value intentionally not checked
 		fmt.Sprintf("ssdproxy hugepages increased from %dMiB (offset %dMiB) to %dMiB (offset %dMiB); the pod must be manually recreated to apply the new hugepages/memory",
 			oldHugepages, oldOffset, desiredHugepages, desiredOffset))
 	return nil

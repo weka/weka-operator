@@ -103,7 +103,7 @@ func (r *containerReconcilerLoop) checkDriveResourceFeasibility(ctx context.Cont
 	}
 
 	msg := fmt.Sprintf("deferring drive add: pod under-resourced for target capacity (%s)", shortfall)
-	_ = r.RecordEvent(v1.EventTypeWarning, "DriveCapacityResourceShortfall", msg) //nolint:errcheck // event recording is best effort
+	_ = r.RecordEvent(v1.EventTypeWarning, "DriveCapacityResourceShortfall", consts.ActionManageDrives, msg) //nolint:errcheck // event recording is best effort
 
 	return lifecycle.NewWaitErrorWithDuration(errors.New(msg), time.Minute)
 }
@@ -234,7 +234,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			}
 
 			l.Info("Virtual drive added to cluster")
-			_ = r.RecordEvent("", "VirtualDriveAdded", fmt.Sprintf("Virtual drive %s added to cluster", vd.VirtualUUID)) //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEvent("", "VirtualDriveAdded", consts.ActionManageDrives, fmt.Sprintf("Virtual drive %s added to cluster", vd.VirtualUUID)) //nolint:errcheck // error return value intentionally not checked
 		}
 	} else {
 		drivesAddedBySerial := make(map[string]bool)
@@ -305,7 +305,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 				continue
 			} else {
 				l.Info("Drive added into system")
-				_ = r.RecordEvent("", "DriveAdded", fmt.Sprintf("Drive %s added", drive)) //nolint:errcheck // error return value intentionally not checked
+				_ = r.RecordEvent("", "DriveAdded", consts.ActionManageDrives, fmt.Sprintf("Drive %s added", drive)) //nolint:errcheck // error return value intentionally not checked
 			}
 		}
 	}
@@ -335,6 +335,17 @@ func (r *containerReconcilerLoop) UpdateWekaAddedDrives(ctx context.Context) err
 	}
 
 	logger.Info("Fetched added drives from weka", "count", len(drivesAdded), "drives", drivesAdded)
+
+	// weka cluster drive doesn't guarantee stable ordering, so compare by Uuid regardless of order
+	sortedByUuid := func(drives []weka.Drive) []weka.Drive {
+		sorted := slices.Clone(drives)
+		slices.SortFunc(sorted, func(a, b weka.Drive) int { return strings.Compare(a.Uuid, b.Uuid) })
+		return sorted
+	}
+
+	if slices.Equal(sortedByUuid(container.Status.AddedDrives), sortedByUuid(drivesAdded)) {
+		return nil
+	}
 
 	container.Status.AddedDrives = drivesAdded
 	err = r.Status().Update(ctx, container)
@@ -628,7 +639,7 @@ func (r *containerReconcilerLoop) RemoveDrivesByPhysicalUuids(ctx context.Contex
 		if !ok {
 			logger.Warn("Added drive virtual UUID has no matching physical UUID", "virtual_uuid", d.Uuid)
 
-			_ = r.RecordEventThrottled(v1.EventTypeWarning, "DriveRemovalSkipped", fmt.Sprintf("Added drive virtual UUID %s has no matching physical UUID", d.Uuid), time.Minute*1) //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "DriveRemovalSkipped", consts.ActionManageDrives, fmt.Sprintf("Added drive virtual UUID %s has no matching physical UUID", d.Uuid), time.Minute*1) //nolint:errcheck // error return value intentionally not checked
 			continue
 		}
 
@@ -741,7 +752,7 @@ func (r *containerReconcilerLoop) RemoveDrivesByVirtualUuids(ctx context.Context
 	}
 
 	if len(removedVids) > 0 && !config.Config.DriveSharing.EnableDynamicDriveScaling {
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "VirtualDriveReplacementDisabled", //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "VirtualDriveReplacementDisabled", consts.ActionManageDrives, //nolint:errcheck // error return value intentionally not checked
 			fmt.Sprintf("Removed virtual drives %v; no replacement will be created because dynamic drive "+
 				"scaling is disabled (ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES). The container stays "+
 				"below its target capacity until it is enabled.", removedVids), time.Minute*10)
@@ -847,7 +858,7 @@ func (r *containerReconcilerLoop) MarkDrivesForRemoval(ctx context.Context) erro
 		return fmt.Errorf("failed to block drives %v: %w", toRemoveSerialIDs, err)
 	}
 
-	_ = r.RecordEvent(v1.EventTypeWarning, "DrivesMarkedForRemoval", fmt.Sprintf("Drives %v marked for removal from container", toRemoveSerialIDs)) //nolint:errcheck // error return value intentionally not checked
+	_ = r.RecordEvent(v1.EventTypeWarning, "DrivesMarkedForRemoval", consts.ActionManageDrives, fmt.Sprintf("Drives %v marked for removal from container", toRemoveSerialIDs)) //nolint:errcheck // error return value intentionally not checked
 
 	return nil
 }
@@ -1056,7 +1067,7 @@ func (r *containerReconcilerLoop) removeDriveFromCluster(
 			return fmt.Errorf("error deactivating %s %s: %w", noun, driveRef, err)
 		}
 
-		_ = r.RecordEvent("", naming.eventPrefix+"Deactivated", fmt.Sprintf("%s %s deactivated", naming.noun, driveRef)) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEvent("", naming.eventPrefix+"Deactivated", consts.ActionManageDrives, fmt.Sprintf("%s %s deactivated", naming.noun, driveRef)) //nolint:errcheck // error return value intentionally not checked
 	default:
 		return fmt.Errorf("%s has status '%s', wait for it to become '%s'", noun, reFetchedDrive.Status, services.DriveStatusInactive)
 	}
@@ -1066,7 +1077,7 @@ func (r *containerReconcilerLoop) removeDriveFromCluster(
 		return fmt.Errorf("error removing %s %s: %w", noun, driveRef, err)
 	}
 
-	_ = r.RecordEvent("", naming.eventPrefix+"Removed", fmt.Sprintf("%s %s removed%s", naming.noun, driveRef, naming.removedSuffix)) //nolint:errcheck // error return value intentionally not checked
+	_ = r.RecordEvent("", naming.eventPrefix+"Removed", consts.ActionManageDrives, fmt.Sprintf("%s %s removed%s", naming.noun, driveRef, naming.removedSuffix)) //nolint:errcheck // error return value intentionally not checked
 
 	return nil
 }
@@ -1105,7 +1116,7 @@ func (r *containerReconcilerLoop) removeVirtualDriveFromWekaAndProxy(
 		return fmt.Errorf("error erasing virtual drive %s from the physical drive: %w", virtualUUID, err)
 	}
 
-	_ = r.RecordEvent("", "VirtualDriveErased", fmt.Sprintf("Virtual drive %s erased from its physical drive", virtualUUID)) //nolint:errcheck // error return value intentionally not checked
+	_ = r.RecordEvent("", "VirtualDriveErased", consts.ActionManageDrives, fmt.Sprintf("Virtual drive %s erased from its physical drive", virtualUUID)) //nolint:errcheck // error return value intentionally not checked
 
 	return nil
 }

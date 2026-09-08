@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -105,6 +106,7 @@ func (r *containerReconcilerLoop) deleteTelemetryAfterGracePeriod(ctx context.Co
 	_ = r.RecordEvent( //nolint:errcheck // error return value intentionally not checked
 		v1.EventTypeNormal,
 		"TelemetryContainerWithoutComputeNeighbor",
+		consts.ActionManageTelemetry,
 		"Telemetry container has no compute neighbor, deleting it",
 	)
 
@@ -143,6 +145,7 @@ func (r *containerReconcilerLoop) upgradeTelemetryOnComputeVersionMismatch(ctx c
 		_ = r.RecordEventThrottled( //nolint:errcheck // error return value intentionally not checked
 			v1.EventTypeWarning,
 			"TelemetryVersionAheadOfCompute",
+			consts.ActionManageTelemetry,
 			fmt.Sprintf("telemetry image version %s is ahead of compute lastAppliedImage version %s", telemetryVersion, computeVersion),
 			10*time.Minute,
 		)
@@ -156,6 +159,7 @@ func (r *containerReconcilerLoop) upgradeTelemetryOnComputeVersionMismatch(ctx c
 	_ = r.RecordEvent( //nolint:errcheck // error return value intentionally not checked
 		v1.EventTypeNormal,
 		"TelemetryImageAutoUpgrade",
+		consts.ActionManageTelemetry,
 		fmt.Sprintf("auto-upgrading telemetry image from %s to %s to match compute neighbor", r.container.Spec.Image, computeImage),
 	)
 

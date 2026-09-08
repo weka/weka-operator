@@ -14,7 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -22,6 +22,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 // WekaPolicyReconciler reconciles a WekaPolicy object
@@ -30,7 +31,7 @@ type WekaPolicyReconciler struct {
 	Scheme     *runtime.Scheme
 	Mgr        ctrl.Manager
 	RestClient rest.Interface
-	Recorder   record.EventRecorder
+	Recorder   events.EventRecorder
 }
 
 func NewWekaPolicyController(mgr ctrl.Manager, restClient rest.Interface) *WekaPolicyReconciler {
@@ -39,7 +40,7 @@ func NewWekaPolicyController(mgr ctrl.Manager, restClient rest.Interface) *WekaP
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
 		RestClient: restClient,
-		Recorder:   mgr.GetEventRecorderFor("wekaPolicy-controller"), //nolint:staticcheck // old events API: record.EventRecorder is used throughout; migrating is a separate change
+		Recorder:   util.WrapEventRecorder(mgr.GetEventRecorder("wekaPolicy-controller"), mgr.GetScheme()),
 	}
 }
 

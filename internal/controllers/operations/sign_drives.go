@@ -18,7 +18,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -57,7 +57,7 @@ type SignDrivesOperation struct {
 	failureCallback lifecycle.StepFunc
 	force           bool
 	tolerations     []v1.Toleration
-	recorder        record.EventRecorder
+	recorder        events.EventRecorder
 
 	// apiReader is the uncached reader for Node reads inside ApplyDriveTypeOverrides'
 	// RetryOnConflict closures: the cached client would re-read the same stale resourceVersion on
@@ -89,7 +89,7 @@ func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, o
 		successCallback: successCallback,
 		failureCallback: failureCallback,
 		force:           force,
-		recorder:        mgr.GetEventRecorderFor("weka-sign-drives"), //nolint:staticcheck // old events API: record.EventRecorder is used throughout; migrating is a separate change
+		recorder:        util.WrapEventRecorder(mgr.GetEventRecorder("weka-sign-drives"), mgr.GetScheme()),
 		apiReader:       mgr.GetAPIReader(),
 	}
 }
@@ -589,7 +589,7 @@ func (o *SignDrivesOperation) ApplyDriveTypeOverrides(ctx context.Context) error
 			continue
 		}
 		msg := fmt.Sprintf("Drive type override rule (model=%q, capacityGiB=%d, type=%s) matched no drive on %d of %d evaluated nodes", rule.Model, rule.CapacityGiB, rule.Type, nodeCount, evaluatedNodes)
-		o.recorder.Event(o.ownerRef, v1.EventTypeWarning, "DriveTypeOverrideNoMatch", msg)
+		util.RecordEvent(o.recorder, o.ownerRef, v1.EventTypeWarning, "DriveTypeOverrideNoMatch", consts.ActionApplyDriveTypeOverrides, msg)
 	}
 
 	if nodesUpdated > 0 {
@@ -597,10 +597,10 @@ func (o *SignDrivesOperation) ApplyDriveTypeOverrides(ctx context.Context) error
 		// every evaluated pass by design — emitting this every pass would turn a one-off "applied"
 		// record into noise.
 		if len(newRules) == 0 {
-			o.recorder.Event(o.ownerRef, v1.EventTypeNormal, "DriveTypeOverridesCleared",
+			util.RecordEvent(o.recorder, o.ownerRef, v1.EventTypeNormal, "DriveTypeOverridesCleared", consts.ActionApplyDriveTypeOverrides,
 				fmt.Sprintf("Cleared drive type overrides on %d node(s); overridden drives keep their forced type until the re-sign that follows restores the IU-derived one", nodesUpdated))
 		} else {
-			o.recorder.Event(o.ownerRef, v1.EventTypeNormal, "DriveTypeOverridesApplied",
+			util.RecordEvent(o.recorder, o.ownerRef, v1.EventTypeNormal, "DriveTypeOverridesApplied", consts.ActionApplyDriveTypeOverrides,
 				fmt.Sprintf("Applied %d drive type override rule(s): %d node(s) updated, %d drive type(s) changed", len(newRules), nodesUpdated, drivesChanged))
 		}
 	}
@@ -615,7 +615,7 @@ func (o *SignDrivesOperation) ApplyDriveTypeOverrides(ctx context.Context) error
 	// once-per-rule-set-change cadence as Applied rather than re-firing every pass. Rules-only
 	// clears need no Event: there is no forced type on an unsigned node to report undoing.
 	if rulesOnlyNodes > 0 && len(newRules) > 0 {
-		o.recorder.Event(o.ownerRef, v1.EventTypeNormal, "DriveTypeOverridesPersisted",
+		util.RecordEvent(o.recorder, o.ownerRef, v1.EventTypeNormal, "DriveTypeOverridesPersisted", consts.ActionApplyDriveTypeOverrides,
 			fmt.Sprintf("Persisted %d drive type override rule(s) on %d not-yet-signed node(s); the forced types are applied when those nodes are first signed", len(newRules), rulesOnlyNodes))
 	}
 
@@ -640,7 +640,7 @@ func (o *SignDrivesOperation) ApplyDriveTypeOverrides(ctx context.Context) error
 		// aggregates above. len(nodes) (the selected node count), not evaluatedNodes: a node can
 		// fail its precheck read before ever being evaluated, so evaluatedNodes would be the wrong
 		// denominator here.
-		o.recorder.Event(o.ownerRef, v1.EventTypeWarning, "DriveTypeOverrideFailed",
+		util.RecordEvent(o.recorder, o.ownerRef, v1.EventTypeWarning, "DriveTypeOverrideFailed", consts.ActionApplyDriveTypeOverrides,
 			fmt.Sprintf("Drive type overrides failed on %d of %d node(s): %s", len(nodeErrs), len(nodes), merr.Error()))
 		return merr
 	}
@@ -753,7 +753,7 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 	res := string(resultJSON)
 
 	if len(drivesByNode) > 0 {
-		_ = o.RecordEvent("SignDrives", res) //nolint:errcheck // event recording is best-effort; error not actionable
+		_ = o.RecordEvent("SignDrives", consts.ActionSignDrives, res) //nolint:errcheck // event recording is best-effort; error not actionable
 	}
 	return res
 }
@@ -794,12 +794,12 @@ func (o *SignDrivesOperation) OperationFailed() bool {
 	return o.results.Err != ""
 }
 
-func (o *SignDrivesOperation) RecordEvent(reason, message string) error {
+func (o *SignDrivesOperation) RecordEvent(reason, action, message string) error {
 	if o.ownerRef == nil {
 		return fmt.Errorf("ownerRef is nil")
 	}
 
-	o.recorder.Event(o.ownerRef, v1.EventTypeNormal, reason, message)
+	util.RecordEvent(o.recorder, o.ownerRef, v1.EventTypeNormal, reason, action, message)
 	return nil
 }
 

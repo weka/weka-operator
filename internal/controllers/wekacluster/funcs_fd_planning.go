@@ -14,6 +14,7 @@ import (
 	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/capacityplanner/inventory"
 	globalconfig "github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/pkg/util"
@@ -567,7 +568,7 @@ func (r *wekaClusterReconcilerLoop) steadyStatePlan(ctx context.Context, desired
 		}
 		msg := fmt.Sprintf("%s capacity is over-provisioned by %d GiB (desired %d, current %d); delete WekaContainers manually to shrink — the operator never auto-shrinks",
 			pool, cur-want, want, cur)
-		_ = r.RecordEventThrottled(corev1.EventTypeNormal, "ClusterCapacityShrink", msg, time.Minute) //nolint:errcheck // best effort
+		_ = r.RecordEventThrottled(corev1.EventTypeNormal, "ClusterCapacityShrink", consts.ActionPlanCapacity, msg, time.Minute) //nolint:errcheck // best effort
 	}
 	emitShrink("TLC", drv.tlcGiB, desired.TlcRawGiB)
 	emitShrink("QLC", drv.qlcGiB, desired.QlcRawGiB)

@@ -15,11 +15,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -57,7 +58,7 @@ type RotateSsdProxyOperation struct {
 	execSvc     exec.ExecService
 	payload     *weka.RotateSsdProxyPayload
 	ownerRef    client.Object
-	recorder    record.EventRecorder
+	recorder    events.EventRecorder
 
 	// gate defaults to EvaluateNodeDisruption; injectable for tests, since the real gate needs a live
 	// Secret + HTTP call and is unreachable through controller-runtime fakes. See evaluateGate.
@@ -81,7 +82,7 @@ func NewRotateSsdProxyOperation(
 	execSvc exec.ExecService,
 	payload *weka.RotateSsdProxyPayload,
 	ownerRef client.Object,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 	progressCallback lifecycle.StepFunc,
 	successCallback lifecycle.StepFunc,
 	failureCallback lifecycle.StepFunc,
@@ -135,10 +136,8 @@ func (o *RotateSsdProxyOperation) GetSteps() []lifecycle.Step {
 // finalize emits the campaign-completion event, then delegates to successCallback (owner-status
 // write to Done). Reached exactly once: the next reconcile short-circuits at SkipIfTerminal.
 func (o *RotateSsdProxyOperation) finalize(ctx context.Context) error {
-	if o.recorder != nil {
-		o.recorder.Eventf(o.ownerRef, corev1.EventTypeNormal, rotateSsdProxyEventReasonCampaignComplete,
-			"ssdproxy rotation complete: %d nodes on image %s", countDoneOrSkipped(o.results.Nodes), o.results.TargetImage)
-	}
+	util.RecordEvent(o.recorder, o.ownerRef, corev1.EventTypeNormal, rotateSsdProxyEventReasonCampaignComplete, consts.ActionRotateSsdProxy,
+		fmt.Sprintf("ssdproxy rotation complete: %d nodes on image %s", countDoneOrSkipped(o.results.Nodes), o.results.TargetImage))
 	return o.successCallback(ctx)
 }
 
@@ -148,14 +147,6 @@ func (o *RotateSsdProxyOperation) GetJsonResult() string {
 		return ""
 	}
 	return string(resultJSON)
-}
-
-// warn emits a Warning event on the owner if a recorder is set; no-op otherwise.
-func (o *RotateSsdProxyOperation) warn(reason, format string, args ...any) {
-	if o.recorder == nil {
-		return
-	}
-	o.recorder.Eventf(o.ownerRef, corev1.EventTypeWarning, reason, format, args...)
 }
 
 // ---------------------------------------------------------------------------
@@ -222,9 +213,9 @@ func (o *RotateSsdProxyOperation) Plan(ctx context.Context) error {
 		logger.Info("Ssdproxy rotation: node dropped from campaign, proxy no longer targeted",
 			"node", n.Node, "phase", n.Phase, "proxy", n.ProxyName)
 		if n.Phase == RotateSsdProxyPhaseInFlight || n.Phase == RotateSsdProxyPhaseDone {
-			o.warn(rotateSsdProxyEventReasonStalled,
-				"Node %s (phase %s) dropped from the ssdproxy rotation campaign: its proxy is no longer targeted",
-				n.Node, n.Phase)
+			util.RecordEvent(o.recorder, o.ownerRef, corev1.EventTypeWarning, rotateSsdProxyEventReasonStalled, consts.ActionRotateSsdProxy,
+				fmt.Sprintf("Node %s (phase %s) dropped from the ssdproxy rotation campaign: its proxy is no longer targeted",
+					n.Node, n.Phase))
 		}
 	}
 
@@ -481,10 +472,8 @@ func (o *RotateSsdProxyOperation) advanceInFlight(ctx context.Context, idx int) 
 	logger.Info("Ssdproxy rotation completed for node", "node", node.Node)
 
 	// Fires exactly once per node: this branch is only reached on the transition into Done.
-	if o.recorder != nil {
-		o.recorder.Eventf(o.ownerRef, corev1.EventTypeNormal, rotateSsdProxyEventReasonNodeComplete,
-			"Rotated ssdproxy on node %s (%d/%d nodes complete)", node.Node, o.results.Done, o.results.Total)
-	}
+	util.RecordEvent(o.recorder, o.ownerRef, corev1.EventTypeNormal, rotateSsdProxyEventReasonNodeComplete, consts.ActionRotateSsdProxy,
+		fmt.Sprintf("Rotated ssdproxy on node %s (%d/%d nodes complete)", node.Node, o.results.Done, o.results.Total))
 
 	if err := o.persist(ctx); err != nil {
 		return err
@@ -610,11 +599,9 @@ func (o *RotateSsdProxyOperation) advancePending(ctx context.Context, idx int) e
 		return o.parkOnErr(ctx, node, "patch proxy image", err)
 	}
 
-	if o.recorder != nil {
-		o.recorder.Eventf(o.ownerRef, corev1.EventTypeNormal, rotateSsdProxyEventReasonStarted,
-			"Started ssdproxy rotation on node %s (%d/%d nodes complete): %s -> %s",
-			node.Node, o.results.Done, o.results.Total, node.PreviousImage, o.results.TargetImage)
-	}
+	util.RecordEvent(o.recorder, o.ownerRef, corev1.EventTypeNormal, rotateSsdProxyEventReasonStarted, consts.ActionRotateSsdProxy,
+		fmt.Sprintf("Started ssdproxy rotation on node %s (%d/%d nodes complete): %s -> %s",
+			node.Node, o.results.Done, o.results.Total, node.PreviousImage, o.results.TargetImage))
 	logger.Info("Started ssdproxy rotation on node", "node", node.Node, "previous_image", node.PreviousImage, "target_image", o.results.TargetImage)
 
 	// WaitError.Err must never be nil: Error() calls w.Err.Error() unconditionally.
@@ -763,7 +750,8 @@ func (o *RotateSsdProxyOperation) maybeWarnParked(node *RotateSsdProxyNodeState,
 	// Rounded to minutes, not seconds: two consecutive ticks can land in the same warn window and
 	// each independently decide to warn — matching messages let the event recorder aggregate them
 	// into one event instead of two. Don't narrow the window instead; a delayed tick could miss it.
-	o.warn(signal.eventReason, "Node %s has been %s for %s: %s", node.Node, signal.description, elapsed.Round(time.Minute), node.Reason)
+	util.RecordEvent(o.recorder, o.ownerRef, corev1.EventTypeWarning, signal.eventReason, consts.ActionRotateSsdProxy,
+		fmt.Sprintf("Node %s has been %s for %s: %s", node.Node, signal.description, elapsed.Round(time.Minute), node.Reason))
 }
 
 // maybeWarnParkedCampaign is maybeWarnParked's campaign-scoped sibling, keyed on the campaign's own
@@ -780,8 +768,9 @@ func (o *RotateSsdProxyOperation) maybeWarnParkedCampaign(reason string) {
 		if !campaignParkedInFlightWarnSignal.shouldWarn(elapsed) {
 			return
 		}
-		o.warn(campaignParkedInFlightWarnSignal.eventReason, "Node %s has been %s for %s: %s",
-			o.results.Nodes[idx].Node, campaignParkedInFlightWarnSignal.description, elapsed.Round(time.Minute), reason)
+		util.RecordEvent(o.recorder, o.ownerRef, corev1.EventTypeWarning, campaignParkedInFlightWarnSignal.eventReason, consts.ActionRotateSsdProxy,
+			fmt.Sprintf("Node %s has been %s for %s: %s",
+				o.results.Nodes[idx].Node, campaignParkedInFlightWarnSignal.description, elapsed.Round(time.Minute), reason))
 		return
 	}
 
@@ -789,8 +778,9 @@ func (o *RotateSsdProxyOperation) maybeWarnParkedCampaign(reason string) {
 		return
 	}
 	// Rounded to minutes for the event-aggregation reason maybeWarnParked explains.
-	o.warn(campaignParkedWarnSignal.eventReason, "Ssdproxy rotation campaign has been %s for %s: %s",
-		campaignParkedWarnSignal.description, elapsed.Round(time.Minute), reason)
+	util.RecordEvent(o.recorder, o.ownerRef, corev1.EventTypeWarning, campaignParkedWarnSignal.eventReason, consts.ActionRotateSsdProxy,
+		fmt.Sprintf("Ssdproxy rotation campaign has been %s for %s: %s",
+			campaignParkedWarnSignal.description, elapsed.Round(time.Minute), reason))
 }
 
 // failTerminally records err, marks the owner Failed, and returns a WaitError so the engine
@@ -804,10 +794,10 @@ func (o *RotateSsdProxyOperation) failTerminally(ctx context.Context, err error)
 		if idx := indexOfPhase(o.results.Nodes, RotateSsdProxyPhaseInFlight); idx >= 0 {
 			node := o.results.Nodes[idx]
 			// node.Image is what it was patched to as of the last Plan, not necessarily what the pod runs.
-			o.warn(rotateSsdProxyEventReasonStalled,
-				"Node %s was left in-flight and unverified when the campaign failed terminally: patched to "+
+			util.RecordEvent(o.recorder, o.ownerRef, corev1.EventTypeWarning, rotateSsdProxyEventReasonStalled, consts.ActionRotateSsdProxy,
+				fmt.Sprintf("Node %s was left in-flight and unverified when the campaign failed terminally: patched to "+
 					"image %s (was %s), pod state never confirmed: %s",
-				node.Node, node.Image, node.PreviousImage, err.Error())
+					node.Node, node.Image, node.PreviousImage, err.Error()))
 		}
 		o.failureCallback(ctx) //nolint:errcheck // callback error is informational; returning primary error
 	}

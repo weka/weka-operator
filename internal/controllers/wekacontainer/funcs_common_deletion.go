@@ -486,7 +486,7 @@ func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) erro
 
 	if r.node == nil {
 		// no reason to wait for mounts if node does not exist
-		_ = r.RecordEventThrottled(v1.EventTypeNormal, "NodeNotFound", "Node is not found", time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeNormal, "NodeNotFound", consts.ActionDrainContainer, "Node is not found", time.Minute) //nolint:errcheck // error return value intentionally not checked
 		return nil
 	}
 
@@ -500,7 +500,7 @@ func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) erro
 	}
 	if mounts == nil {
 		err := errors.New("Mounts are not set")
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", consts.ActionDrainContainer, err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 		return err
 	}
 
@@ -518,7 +518,7 @@ func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) erro
 			}
 		}
 		err := fmt.Errorf("%d mounts are still active", *mounts)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", activeMountsHoldMessage(r.node.Name, *mounts), time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", consts.ActionDrainContainer, activeMountsHoldMessage(r.node.Name, *mounts), time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 		return lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
 	}

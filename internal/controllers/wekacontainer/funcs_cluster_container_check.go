@@ -11,6 +11,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -94,7 +95,7 @@ func (r *containerReconcilerLoop) verifyClusterContainerApplied(ctx context.Cont
 	if err != nil {
 		msg := fmt.Sprintf("could not resolve a container to read cluster container %d from: %v", *containerId, err)
 		logger.Error(err, "Could not resolve exec container")
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ClusterContainerCheckFailed", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ClusterContainerCheckFailed", consts.ActionUpgrade, msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
 		return lifecycle.NewWaitErrorWithDuration(errors.New(msg), clusterContainerCheckRetry)
 	}
 
@@ -111,13 +112,13 @@ func (r *containerReconcilerLoop) verifyClusterContainerApplied(ctx context.Cont
 		containerNotFound := &services.WekaContainerNotFound{}
 		if errors.As(err, &containerNotFound) {
 			msg := fmt.Sprintf("container %d is not known to the cluster", *containerId)
-			_ = r.RecordEventThrottled(v1.EventTypeWarning, "ClusterContainerNotUp", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "ClusterContainerNotUp", consts.ActionUpgrade, msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
 			return lifecycle.NewWaitErrorWithDuration(errors.New(msg), clusterContainerCheckRetry)
 		}
 
 		msg := fmt.Sprintf("could not read cluster container %d: %v", *containerId, err)
 		logger.Error(err, "Could not read cluster container info")
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ClusterContainerCheckFailed", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ClusterContainerCheckFailed", consts.ActionUpgrade, msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
 		return lifecycle.NewWaitErrorWithDuration(errors.New(msg), clusterContainerCheckRetry)
 	}
 
@@ -127,7 +128,7 @@ func (r *containerReconcilerLoop) verifyClusterContainerApplied(ctx context.Cont
 			*containerId, clusterContainer.State, clusterContainer.Status,
 		)
 		logger.Info("Cluster container is not ACTIVE/UP yet", "state", clusterContainer.State, "status", clusterContainer.Status)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ClusterContainerNotUp", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ClusterContainerNotUp", consts.ActionUpgrade, msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
 		return lifecycle.NewWaitErrorWithDuration(errors.New(msg), clusterContainerCheckRetry)
 	}
 
@@ -141,7 +142,7 @@ func (r *containerReconcilerLoop) verifyClusterContainerApplied(ctx context.Cont
 		)
 		logger.Info("Skipping cluster container version comparison", "image", r.container.Spec.Image, "reported_version", reported)
 		// Normal, not Warning: a deliberate skip with nothing for an operator to act on.
-		_ = r.RecordEventThrottled(v1.EventTypeNormal, "ClusterContainerCheckSkipped", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeNormal, "ClusterContainerCheckSkipped", consts.ActionUpgrade, msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
 		return nil
 	}
 
@@ -151,7 +152,7 @@ func (r *containerReconcilerLoop) verifyClusterContainerApplied(ctx context.Cont
 			*containerId, reported, expected, r.container.Spec.Image,
 		)
 		logger.Info("Cluster container is not on the target version yet", "reported_version", reported, "expected_version", expected)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ClusterContainerVersionMismatch", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ClusterContainerVersionMismatch", consts.ActionUpgrade, msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
 		return lifecycle.NewWaitErrorWithDuration(errors.New(msg), clusterContainerCheckRetry)
 	}
 

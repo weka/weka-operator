@@ -13,6 +13,7 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
+	"github.com/weka/weka-operator/internal/consts"
 	"go.opentelemetry.io/otel/codes"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -204,21 +205,21 @@ func (r *wekaClusterReconcilerLoop) JoinSmbwDomain(ctx context.Context) error {
 	password, err := r.getSmbwDomainJoinPassword(ctx, secretName)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to get SMB-W domain join password from secret %s: %v", secretName, err)
-		r.Recorder.Event(r.cluster, "Warning", "SmbwDomainJoinFailed", errMsg)
+		_ = r.RecordEvent(corev1.EventTypeWarning, "SmbwDomainJoinFailed", consts.ActionJoinSmbwDomain, errMsg) //nolint:errcheck // error is intentionally ignored
 		return errors.Wrap(err, "Failed to get SMB-W domain join password")
 	}
 
 	execInContainer := discovery.SelectActiveContainer(r.containers)
 	if execInContainer == nil {
 		joinErr := errors.New("No active container found for SMB-W domain join")
-		r.Recorder.Event(r.cluster, "Warning", "SmbwDomainJoinFailed", joinErr.Error())
+		_ = r.RecordEvent(corev1.EventTypeWarning, "SmbwDomainJoinFailed", consts.ActionJoinSmbwDomain, joinErr.Error()) //nolint:errcheck // error is intentionally ignored
 		return joinErr
 	}
 
 	executor, err := r.ExecService.GetExecutor(ctx, execInContainer)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to get executor for SMB-W domain join: %v", err)
-		r.Recorder.Event(r.cluster, "Warning", "SmbwDomainJoinFailed", errMsg)
+		_ = r.RecordEvent(corev1.EventTypeWarning, "SmbwDomainJoinFailed", consts.ActionJoinSmbwDomain, errMsg) //nolint:errcheck // error is intentionally ignored
 		return errors.Wrap(err, "Failed to get executor")
 	}
 
@@ -234,7 +235,7 @@ func (r *wekaClusterReconcilerLoop) JoinSmbwDomain(ctx context.Context) error {
 		}
 
 		errMsg := fmt.Sprintf("Failed to join SMB-W domain: %s", stderrStr)
-		r.Recorder.Event(r.cluster, "Warning", "SmbwDomainJoinFailed", errMsg)
+		_ = r.RecordEvent(corev1.EventTypeWarning, "SmbwDomainJoinFailed", consts.ActionJoinSmbwDomain, errMsg) //nolint:errcheck // error is intentionally ignored
 		return errors.Wrapf(err, "Failed to join SMB-W domain: %s", stderrStr)
 	}
 

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/weka/go-steps-engine/lifecycle"
@@ -12,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -21,6 +22,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/services/exec"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 // WekaManualOperationReconciler reconciles a WekaManualOperation object
@@ -29,7 +31,7 @@ type WekaManualOperationReconciler struct {
 	Scheme     *runtime.Scheme
 	Mgr        ctrl.Manager
 	RestClient rest.Interface
-	Recorder   record.EventRecorder
+	Recorder   events.EventRecorder
 }
 
 func NewWekaManualOperationController(mgr ctrl.Manager, restClient rest.Interface) *WekaManualOperationReconciler {
@@ -38,7 +40,7 @@ func NewWekaManualOperationController(mgr ctrl.Manager, restClient rest.Interfac
 		RestClient: restClient,
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
-		Recorder:   mgr.GetEventRecorderFor("wekaManualOperation-controller"), //nolint:staticcheck // old events API: record.EventRecorder is used throughout; migrating is a separate change
+		Recorder:   util.WrapEventRecorder(mgr.GetEventRecorder("wekaManualOperation-controller"), mgr.GetScheme()),
 	}
 }
 
@@ -103,6 +105,8 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 	// onProgress persists the current result without completing the operation, so a subsequent
 	// reconcile cycle can read it back (used by the stale-virtual-drives stability gate).
 	onProgress := func(ctx context.Context) error {
+		before := wekaManualOperation.Status.DeepCopy()
+
 		if wekaManualOperation.Status.Status == "" {
 			wekaManualOperation.Status.Status = "Running"
 		}
@@ -113,6 +117,10 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			wekaManualOperation.Status.CompletedAt = metav1.Now()
 		}
 		wekaManualOperation.Status.Result = loop.Op.GetJsonResult()
+
+		if reflect.DeepEqual(before, &wekaManualOperation.Status) {
+			return nil
+		}
 		return r.Status().Update(ctx, wekaManualOperation)
 	}
 

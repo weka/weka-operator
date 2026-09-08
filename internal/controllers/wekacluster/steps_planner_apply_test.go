@@ -6,7 +6,7 @@ import (
 
 	"github.com/weka/go-steps-engine/throttling"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
@@ -64,7 +64,7 @@ func TestNilDynamicTemplateReachesThePlanner(t *testing.T) {
 	calls := 0
 	r := &wekaClusterReconcilerLoop{
 		cluster:   cluster,
-		Recorder:  record.NewFakeRecorder(8),
+		Recorder:  events.NewFakeRecorder(8),
 		Throttler: throttling.NewSyncMapThrottler(),
 		buildFullDrivesInventoryFn: func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
 			calls++

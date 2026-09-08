@@ -13,7 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -190,7 +190,7 @@ func assertResourceQuantity(t *testing.T, list corev1.ResourceList, name string,
 	}
 }
 
-// testOwnerRef is a placeholder ownerRef for ApplyDriveTypeOverrides tests. record.FakeRecorder.Event
+// testOwnerRef is a placeholder ownerRef for ApplyDriveTypeOverrides tests. events.FakeRecorder.Event
 // does not dereference the object, so any client.Object satisfies it.
 func testOwnerRef() client.Object {
 	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "owner", Namespace: "default"}}
@@ -203,7 +203,7 @@ func newOverrideTestOp(c client.Client, payload *weka.SignDrivesPayload) *SignDr
 		client:      c,
 		kubeService: kubernetes.NewKubeService(c),
 		payload:     payload,
-		recorder:    record.NewFakeRecorder(10),
+		recorder:    events.NewFakeRecorder(10),
 		ownerRef:    testOwnerRef(),
 	}
 }
@@ -610,7 +610,7 @@ func TestApplyDriveTypeOverrides_UnmatchedRule_EmitsEventOnIdempotentPass(t *tes
 	ctx := context.Background()
 
 	rules := []weka.DriveTypeOverrideRule{{Model: "Samsung PM1733", Type: "QLC"}}
-	newOp := func(recorder *record.FakeRecorder) *SignDrivesOperation {
+	newOp := func(recorder *events.FakeRecorder) *SignDrivesOperation {
 		return &SignDrivesOperation{
 			client:      c,
 			kubeService: kubernetes.NewKubeService(c),
@@ -626,11 +626,11 @@ func TestApplyDriveTypeOverrides_UnmatchedRule_EmitsEventOnIdempotentPass(t *tes
 	// Pass 1: node1's rules annotation goes from absent to present (a real change), so this
 	// returns a WaitError rather than nil (Finding C), and the dead rule fires a
 	// DriveTypeOverrideNoMatch event.
-	op1 := newOp(record.NewFakeRecorder(10))
+	op1 := newOp(events.NewFakeRecorder(10))
 	assertNodeChangedWait(t, op1.ApplyDriveTypeOverrides(ctx))
 
 	select {
-	case msg := <-op1.recorder.(*record.FakeRecorder).Events:
+	case msg := <-op1.recorder.(*events.FakeRecorder).Events:
 		if !strings.Contains(msg, "DriveTypeOverrideNoMatch") {
 			t.Errorf("pass 1 event = %q, want it to mention DriveTypeOverrideNoMatch", msg)
 		}
@@ -642,11 +642,11 @@ func TestApplyDriveTypeOverrides_UnmatchedRule_EmitsEventOnIdempotentPass(t *tes
 	// already equal, so needsWrite is false and nothing is written this pass — the call returns
 	// nil, not a WaitError. But the dead rule must still be reported: the precheck that decides
 	// evaluatedNodes and the matched/unmatched set runs regardless of whether a write happens.
-	op2 := newOp(record.NewFakeRecorder(10))
+	op2 := newOp(events.NewFakeRecorder(10))
 	assertNodeUnchangedNoWait(t, op2.ApplyDriveTypeOverrides(ctx))
 
 	select {
-	case msg := <-op2.recorder.(*record.FakeRecorder).Events:
+	case msg := <-op2.recorder.(*events.FakeRecorder).Events:
 		if !strings.Contains(msg, "DriveTypeOverrideNoMatch") {
 			t.Errorf("pass 2 event = %q, want it to mention DriveTypeOverrideNoMatch", msg)
 		}
@@ -682,7 +682,7 @@ func TestApplyDriveTypeOverrides_TwoNodesTwoDrives_BothUpdatedNoUnmatchedEvent(t
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&corev1.Node{}).WithObjects(node1, node2).Build()
 	ctx := context.Background()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	op := &SignDrivesOperation{
 		client:      c,
 		kubeService: kubernetes.NewKubeService(c),
@@ -857,7 +857,7 @@ func TestApplyDriveTypeOverrides_AllNodesUnsigned_EmitsPersistedEvent(t *testing
 	// WaitError path that guards EnsureContainers against a stale sign-drives hash.
 	assertNodeUnchangedNoWait(t, op.ApplyDriveTypeOverrides(ctx))
 
-	recorder := op.recorder.(*record.FakeRecorder)
+	recorder := op.recorder.(*events.FakeRecorder)
 	var events []string
 	for {
 		select {
@@ -921,7 +921,7 @@ func TestApplyDriveTypeOverrides_ClearOnUnsignedNode_EmitsNoPersistedEvent(t *te
 
 	assertNodeUnchangedNoWait(t, op.ApplyDriveTypeOverrides(context.Background()))
 
-	assertNoEventWithReason(t, op.recorder.(*record.FakeRecorder), "DriveTypeOverridesPersisted")
+	assertNoEventWithReason(t, op.recorder.(*events.FakeRecorder), "DriveTypeOverridesPersisted")
 }
 
 // TestApplyDriveTypeOverrides_NoModelEvidence_SuppressesUnmatchedEvent verifies a model-based rule
@@ -940,7 +940,7 @@ func TestApplyDriveTypeOverrides_NoModelEvidence_SuppressesUnmatchedEvent(t *tes
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&corev1.Node{}).WithObjects(node).Build()
 	ctx := context.Background()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	op := &SignDrivesOperation{
 		client:      c,
 		kubeService: kubernetes.NewKubeService(c),
@@ -969,7 +969,7 @@ func TestGetJsonResult_OmitsDriveTypeOverrides(t *testing.T) {
 	owner.Status.Result = `{"message":"No new drives signed","driveTypeOverrides":{"nodesUpdated":8,"drivesChanged":24,"unmatchedRules":1}}`
 
 	op := &SignDrivesOperation{
-		recorder: record.NewFakeRecorder(10),
+		recorder: events.NewFakeRecorder(10),
 		ownerRef: owner,
 	}
 	gotJSON := op.GetJsonResult()
@@ -981,7 +981,7 @@ func TestGetJsonResult_OmitsDriveTypeOverrides(t *testing.T) {
 // assertNoEventWithReason asserts no queued event carries the given reason. It filters by reason
 // rather than asserting the queue is empty, so the normal-path DriveTypeOverridesApplied event
 // does not read as a spurious warning.
-func assertNoEventWithReason(t *testing.T, recorder *record.FakeRecorder, reason string) {
+func assertNoEventWithReason(t *testing.T, recorder *events.FakeRecorder, reason string) {
 	t.Helper()
 	for {
 		select {
@@ -1001,7 +1001,7 @@ func drainEvents(t *testing.T, op *SignDrivesOperation) []string {
 	var got []string
 	for {
 		select {
-		case msg := <-op.recorder.(*record.FakeRecorder).Events:
+		case msg := <-op.recorder.(*events.FakeRecorder).Events:
 			got = append(got, msg)
 		default:
 			return got
@@ -1314,7 +1314,7 @@ func TestApplyDriveTypeOverrides_StaleCachedRead_NoBogusDenominator(t *testing.T
 	// unmatched index survived, reporting a rule as dead on a node that had no drives to match it
 	// against ("matched no drive on 1 of 1 evaluated nodes"), and the node was counted in both
 	// evaluatedNodes and rulesOnlyNodes, which the caller documents as disjoint.
-	assertNoEventWithReason(t, op.recorder.(*record.FakeRecorder), "DriveTypeOverrideNoMatch")
+	assertNoEventWithReason(t, op.recorder.(*events.FakeRecorder), "DriveTypeOverrideNoMatch")
 
 	// The rules must still have been persisted on the not-yet-signed node.
 	got := &corev1.Node{}

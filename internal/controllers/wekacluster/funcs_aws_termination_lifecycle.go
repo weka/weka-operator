@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	awslib "github.com/weka/weka-operator/internal/services/aws"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -181,7 +182,7 @@ func (loop *wekaClusterReconcilerLoop) ensureAwsTerminationLifecycleHook(ctx con
 		if err != nil {
 			logger.Info("failed to resolve ASG while ensuring termination lifecycle hook", "node", nodeName, "error", err.Error())
 			msg := fmt.Sprintf("could not resolve the Auto Scaling group for a backend node (%s) — cluster is in risk of data loss", awslib.APIErrorSummary(err))
-			_ = loop.RecordEventThrottled(v1.EventTypeWarning, asgResolutionFailedReason, msg, 10*time.Minute) //nolint:errcheck // best-effort event
+			_ = loop.RecordEventThrottled(v1.EventTypeWarning, asgResolutionFailedReason, consts.ActionEnsureAwsTerminationHook, msg, 10*time.Minute) //nolint:errcheck // best-effort event
 			if initialProvisioning {
 				return errors.New(msg)
 			}
@@ -192,7 +193,7 @@ func (loop *wekaClusterReconcilerLoop) ensureAwsTerminationLifecycleHook(ctx con
 			if err := asgClient.PutTerminationHook(ctx, asgName, awslib.LifecycleHookName, hookHeartbeatTimeoutSeconds); err != nil {
 				logger.Info("failed to ensure termination lifecycle hook", "asg", asgName, "node", nodeName, "error", err.Error())
 				msg := fmt.Sprintf("could not create the termination lifecycle hook %q on Auto Scaling group %q (%s) — cluster is in risk of data loss", awslib.LifecycleHookName, asgName, awslib.APIErrorSummary(err))
-				_ = loop.RecordEventThrottled(v1.EventTypeWarning, noAwsTerminationLifecycleHookReason, msg, 10*time.Minute) //nolint:errcheck // best-effort event
+				_ = loop.RecordEventThrottled(v1.EventTypeWarning, noAwsTerminationLifecycleHookReason, consts.ActionEnsureAwsTerminationHook, msg, 10*time.Minute) //nolint:errcheck // best-effort event
 				if initialProvisioning {
 					return errors.New(msg)
 				}

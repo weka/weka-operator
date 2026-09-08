@@ -10,7 +10,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
@@ -145,7 +145,7 @@ func newUpgradeLoopWithPods(t *testing.T, cluster *weka.WekaCluster, containers 
 		Manager:    fakeManagerWithClient{c: fakeClient},
 		cluster:    cluster,
 		containers: containers,
-		Recorder:   record.NewFakeRecorder(32),
+		Recorder:   events.NewFakeRecorder(32),
 		Throttler:  throttling.NewSyncMapThrottler(),
 	}
 }
@@ -307,9 +307,9 @@ func TestGarbageCollectUnschedulablePlannerContainers_EventCarriesSchedulerMessa
 		t.Fatalf("GarbageCollectUnschedulablePlannerContainers: %v", err)
 	}
 
-	recorder, ok := loop.Recorder.(*record.FakeRecorder)
+	recorder, ok := loop.Recorder.(*events.FakeRecorder)
 	if !ok {
-		t.Fatalf("Recorder is %T, want *record.FakeRecorder", loop.Recorder)
+		t.Fatalf("Recorder is %T, want *events.FakeRecorder", loop.Recorder)
 	}
 	close(recorder.Events)
 	var found string
@@ -595,9 +595,9 @@ func TestApplyPlannerComputeGrowth_AppliesHugepagesOnlyChanges(t *testing.T) {
 			"container is a no-op", same.Spec.NumCores, same.Spec.Hugepages)
 	}
 
-	recorder, ok := loop.Recorder.(*record.FakeRecorder)
+	recorder, ok := loop.Recorder.(*events.FakeRecorder)
 	if !ok {
-		t.Fatalf("Recorder is %T, want *record.FakeRecorder", loop.Recorder)
+		t.Fatalf("Recorder is %T, want *events.FakeRecorder", loop.Recorder)
 	}
 	close(recorder.Events)
 	var events []string
@@ -660,9 +660,9 @@ func TestApplyPlannerComputeGrowth_RatchetsCoresAndHugepagesIndependently(t *tes
 			mixed.Spec.Hugepages, newCores, layoutHugepages)
 	}
 
-	recorder, ok := loop.Recorder.(*record.FakeRecorder)
+	recorder, ok := loop.Recorder.(*events.FakeRecorder)
 	if !ok {
-		t.Fatalf("Recorder is %T, want *record.FakeRecorder", loop.Recorder)
+		t.Fatalf("Recorder is %T, want *events.FakeRecorder", loop.Recorder)
 	}
 	close(recorder.Events)
 	var events []string
@@ -728,9 +728,9 @@ func TestApplyAutoFullDrivesComputeGrowth_GrowsToLayoutAndNeverShrinks(t *testin
 
 	// Exactly one CapacityGrowthApplied Warning, naming the recreate requirement, for the one container
 	// that actually changed.
-	recorder, ok := loop.Recorder.(*record.FakeRecorder)
+	recorder, ok := loop.Recorder.(*events.FakeRecorder)
 	if !ok {
-		t.Fatalf("Recorder is %T, want *record.FakeRecorder", loop.Recorder)
+		t.Fatalf("Recorder is %T, want *events.FakeRecorder", loop.Recorder)
 	}
 	close(recorder.Events)
 	var events []string
@@ -787,7 +787,7 @@ func newAutoFullDrivesGrowthLoop(t *testing.T, containers []*weka.WekaContainer)
 	t.Helper()
 	loop := newUpgradeLoop(t, autoFullDrivesComputeCluster(t), containers)
 	loop.Throttler = throttling.NewSyncMapThrottler()
-	loop.Recorder = record.NewFakeRecorder(16)
+	loop.Recorder = events.NewFakeRecorder(16)
 	return loop
 }
 
@@ -795,9 +795,9 @@ func newAutoFullDrivesGrowthLoop(t *testing.T, containers []*weka.WekaContainer)
 // eventsMatching — draining is destructive, so a second drain always looks empty.
 func drainLoopEvents(t *testing.T, loop *wekaClusterReconcilerLoop) []string {
 	t.Helper()
-	rec, ok := loop.Recorder.(*record.FakeRecorder)
+	rec, ok := loop.Recorder.(*events.FakeRecorder)
 	if !ok {
-		t.Fatalf("Recorder is %T, want *record.FakeRecorder", loop.Recorder)
+		t.Fatalf("Recorder is %T, want *events.FakeRecorder", loop.Recorder)
 	}
 	return drainEvents(rec)
 }

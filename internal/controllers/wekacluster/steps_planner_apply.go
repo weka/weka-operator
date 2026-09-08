@@ -13,9 +13,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/utils"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 // steps_planner_apply.go is the shared build/apply layer for both capacity-planner modes: building containers
@@ -277,7 +279,7 @@ func (r *wekaClusterReconcilerLoop) applyPlannerDriveGrowth(
 			summary:      r.driveGrowthSummary(mode, c, node, newCap),
 			coresChanged: coresChanged,
 		})
-		r.Recorder.Event(c, v1.EventTypeWarning, reasonCapacityGrowthApplied,
+		util.RecordEvent(r.Recorder, c, v1.EventTypeWarning, reasonCapacityGrowthApplied, consts.ActionApplyCapacityGrowth,
 			r.driveGrowthMessage(mode, c, coresChanged, newCap))
 	}
 	return applied, len(growErrs), stderrors.Join(growErrs...)
@@ -404,7 +406,7 @@ func (r *wekaClusterReconcilerLoop) applyPlannerComputeGrowth(ctx context.Contex
 			logger.Debug("skipping growth: container was already grown to the target concurrently", "name", c.Name)
 			continue
 		}
-		r.Recorder.Event(c, v1.EventTypeWarning, reasonCapacityGrowthApplied,
+		util.RecordEvent(r.Recorder, c, v1.EventTypeWarning, reasonCapacityGrowthApplied, consts.ActionApplyCapacityGrowth,
 			fmt.Sprintf("applied compute growth to container (cores %d, hugepages %d MiB); the compute spec changed — the pod must be recreated to apply the new cores/hugepages",
 				c.Spec.NumCores, c.Spec.Hugepages))
 	}

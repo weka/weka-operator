@@ -19,6 +19,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -453,7 +454,7 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 	result, err := containerAllocator.ReallocateDrives(ctx, reallocRequest)
 	if err != nil {
 		logger.Error(err, "Failed to allocate additional drives for container", "container", container.Name)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "AllocateContainerDrivesError", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "AllocateContainerDrivesError", consts.ActionAllocateResources, err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 		// This step has ContinueOnError: true (flow_active_state.go): an unmet numDrives is a wait state, not
 		// a reconcile failure — the container keeps serving the drives it already has until more free up.
 		return err

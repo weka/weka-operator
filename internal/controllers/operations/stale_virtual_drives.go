@@ -15,12 +15,14 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/internal/services/ssdproxy"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 const (
@@ -44,7 +46,7 @@ type StaleVirtualDrivesOperation struct {
 	proxyClient *ssdproxy.Client
 	payload     *weka.CleanStaleVirtualDrivesPayload
 	ownerRef    client.Object
-	recorder    record.EventRecorder
+	recorder    events.EventRecorder
 
 	results weka.StaleVirtualDrivesResult
 	// vidToProxyUID maps a scanned virtual UUID to the UID of the exact ssdproxy container it was
@@ -64,7 +66,7 @@ func NewStaleVirtualDrivesOperation(
 	mgr ctrl.Manager,
 	payload *weka.CleanStaleVirtualDrivesPayload,
 	ownerRef client.Object,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 	progressCallback lifecycle.StepFunc,
 	successCallback lifecycle.StepFunc,
 ) *StaleVirtualDrivesOperation {
@@ -249,10 +251,10 @@ func (o *StaleVirtualDrivesOperation) Scan(ctx context.Context) error {
 		logger.Error(nil, "Stale-VID scan had errors; deletion will be skipped this run", "errors", o.results.Err)
 	}
 
-	if o.results.StaleCount > 0 && o.recorder != nil {
-		o.recorder.Eventf(o.ownerRef, corev1.EventTypeWarning, staleVidsDetectedEventReason,
-			"Detected %d stale virtual drive(s) (%.2f TiB) across %d node(s); owner cluster GUIDs: %s",
-			o.results.StaleCount, o.results.StaleTiB, o.results.ScannedNodes, strings.Join(distinctOwnerGUIDs(stale), ", "))
+	if o.results.StaleCount > 0 {
+		util.RecordEvent(o.recorder, o.ownerRef, corev1.EventTypeWarning, staleVidsDetectedEventReason, consts.ActionCleanStaleVirtualDrives,
+			fmt.Sprintf("Detected %d stale virtual drive(s) (%.2f TiB) across %d node(s); owner cluster GUIDs: %s",
+				o.results.StaleCount, o.results.StaleTiB, o.results.ScannedNodes, summarizeGUIDs(distinctOwnerGUIDs(stale))))
 	}
 
 	logger.Info("Stale virtual drive scan complete",
@@ -365,11 +367,9 @@ func (o *StaleVirtualDrivesOperation) MaybeDelete(ctx context.Context) error {
 			"node", s.Node,
 			"physical_uuid", s.PhysicalUUID,
 		)
-		if o.recorder != nil {
-			o.recorder.Eventf(o.ownerRef, corev1.EventTypeWarning, staleVidRemovedEventReason,
-				"Removed stale virtual drive %s (owner cluster %s, category %s) on node %s",
-				s.VirtualUUID, s.OwnerClusterGUID, s.Category, s.Node)
-		}
+		util.RecordEvent(o.recorder, o.ownerRef, corev1.EventTypeWarning, staleVidRemovedEventReason, consts.ActionCleanStaleVirtualDrives,
+			fmt.Sprintf("Removed stale virtual drive %s (owner cluster %s, category %s) on node %s",
+				s.VirtualUUID, s.OwnerClusterGUID, s.Category, s.Node))
 	}
 
 	o.results.Deleted = deleted
@@ -463,4 +463,14 @@ func distinctOwnerGUIDs(stale []weka.StaleVirtualDriveInfo) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// summarizeGUIDs caps the event note at maxSummarizedGUIDs entries; the full list stays in Status.Result.
+const maxSummarizedGUIDs = 10
+
+func summarizeGUIDs(guids []string) string {
+	if len(guids) <= maxSummarizedGUIDs {
+		return strings.Join(guids, ", ")
+	}
+	return fmt.Sprintf("%s, and %d more", strings.Join(guids[:maxSummarizedGUIDs], ", "), len(guids)-maxSummarizedGUIDs)
 }

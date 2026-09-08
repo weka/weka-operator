@@ -13,7 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -502,7 +502,7 @@ func TestPlanErrorsReachTheOwnerStatus(t *testing.T) {
 
 	t.Run("terminal error with an InFlight node emits a Warning event so it isn't silently abandoned", func(t *testing.T) {
 		var failed, progressed int
-		recorder := record.NewFakeRecorder(10)
+		recorder := events.NewFakeRecorder(10)
 		op := newOp(&weka.WekaManualOperation{}, &failed, &progressed)
 		op.recorder = recorder
 		op.results.Nodes = []RotateSsdProxyNodeState{
@@ -525,7 +525,7 @@ func TestPlanErrorsReachTheOwnerStatus(t *testing.T) {
 
 	t.Run("terminal error with no InFlight node emits no event", func(t *testing.T) {
 		var failed, progressed int
-		recorder := record.NewFakeRecorder(10)
+		recorder := events.NewFakeRecorder(10)
 		op := newOp(&weka.WekaManualOperation{}, &failed, &progressed)
 		op.recorder = recorder
 		op.results.Nodes = []RotateSsdProxyNodeState{
@@ -545,7 +545,7 @@ func TestPlanErrorsReachTheOwnerStatus(t *testing.T) {
 
 	t.Run("an already-Failed owner is not rewritten every reconcile, and the InFlight event does not refire", func(t *testing.T) {
 		var failed, progressed int
-		recorder := record.NewFakeRecorder(10)
+		recorder := events.NewFakeRecorder(10)
 		op := newOp(&weka.WekaManualOperation{Status: weka.WekaManualOperationStatus{Status: "Failed"}}, &failed, &progressed)
 		op.recorder = recorder
 		op.results.Nodes = []RotateSsdProxyNodeState{
@@ -620,7 +620,7 @@ func TestPlanErrorsReachTheOwnerStatus(t *testing.T) {
 		// refuseIfAnotherCampaignRunning fires from Plan, before AdvanceOne runs, so it can catch a node
 		// already InFlight from a previous cycle. That node is patched but unverified, which is active
 		// impact like a stuck node -- so it must use the Stuck thresholds/reason and name the node.
-		recorder := record.NewFakeRecorder(10)
+		recorder := events.NewFakeRecorder(10)
 		op := newOp(&weka.WekaManualOperation{}, new(int), new(int))
 		op.recorder = recorder
 		op.results.Nodes = []RotateSsdProxyNodeState{
@@ -649,7 +649,7 @@ func TestPlanErrorsReachTheOwnerStatus(t *testing.T) {
 	})
 
 	t.Run("a campaign-scope park with no InFlight node emits the generic Blocked message", func(t *testing.T) {
-		recorder := record.NewFakeRecorder(10)
+		recorder := events.NewFakeRecorder(10)
 		op := newOp(&weka.WekaManualOperation{}, new(int), new(int))
 		op.recorder = recorder
 		// Same window rule as above: 15m (Blocked threshold) + 10s, not just "past the threshold".

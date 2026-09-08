@@ -7,6 +7,7 @@ import (
 	"time"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/consts"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
@@ -49,7 +50,7 @@ func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, stepName s
 	}
 
 	reason := fmt.Sprintf("%sError", stepName)
-	_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
+	_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, consts.ActionReconcile, err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 	if !r.IsStatusOverwritableByLocal() {
 		return nil
@@ -63,7 +64,7 @@ func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, stepName s
 }
 
 func (r *containerReconcilerLoop) setDrivesErrorStatus(ctx context.Context, _ string, err error) error {
-	_ = r.RecordEvent(v1.EventTypeWarning, "DrivesAddingError", err.Error()) //nolint:errcheck // error return value intentionally not checked
+	_ = r.RecordEvent(v1.EventTypeWarning, "DrivesAddingError", consts.ActionManageDrives, err.Error()) //nolint:errcheck // error return value intentionally not checked
 
 	if r.container.Status.Status == weka.DrivesAdding {
 		return nil

@@ -248,7 +248,7 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	if len(wekaClients) > 0 {
 		clientsErr := fmt.Errorf("cannot delete cluster with dependent WekaClients, please delete them first")
 
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "DependentWekaClients", clientsErr.Error(), time.Second*30) //nolint:errcheck // error is intentionally ignored
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "DependentWekaClients", consts.ActionDeleteCluster, clientsErr.Error(), time.Second*30) //nolint:errcheck // error is intentionally ignored
 
 		return lifecycle.NewWaitErrorWithDuration(clientsErr, time.Second*15)
 	}
@@ -256,7 +256,7 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	err = clusterService.EnsureNoContainers(ctx, weka.WekaContainerModeS3)
 	if err != nil {
 		reason := fmt.Sprintf("EnsureNo%sContainersError", weka.WekaContainerModeS3)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30) //nolint:errcheck // event recording errors are intentionally ignored //nolint:errcheck // error is intentionally ignored
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, consts.ActionDeleteCluster, err.Error(), time.Second*30) //nolint:errcheck // event recording errors are intentionally ignored //nolint:errcheck // error is intentionally ignored
 
 		return err
 	}
@@ -264,7 +264,7 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	err = clusterService.EnsureNoContainers(ctx, weka.WekaContainerModeNfs)
 	if err != nil {
 		reason := fmt.Sprintf("EnsureNo%sContainersError", weka.WekaContainerModeNfs)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30) //nolint:errcheck // event recording errors are intentionally ignored //nolint:errcheck // error is intentionally ignored
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, consts.ActionDeleteCluster, err.Error(), time.Second*30) //nolint:errcheck // event recording errors are intentionally ignored //nolint:errcheck // error is intentionally ignored
 
 		return err
 	}
@@ -272,7 +272,7 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	err = clusterService.EnsureNoContainers(ctx, weka.WekaContainerModeSmbw)
 	if err != nil {
 		reason := fmt.Sprintf("EnsureNo%sContainersError", weka.WekaContainerModeSmbw)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30) //nolint:errcheck // event recording errors are intentionally ignored
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, consts.ActionDeleteCluster, err.Error(), time.Second*30) //nolint:errcheck // event recording errors are intentionally ignored
 
 		return err
 	}
@@ -280,7 +280,7 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	err = clusterService.EnsureNoContainers(ctx, weka.WekaContainerModeDataServices)
 	if err != nil {
 		reason := fmt.Sprintf("EnsureNo%sContainersError", weka.WekaContainerModeDataServices)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30) //nolint:errcheck // event recording errors are intentionally ignored
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, consts.ActionDeleteCluster, err.Error(), time.Second*30) //nolint:errcheck // event recording errors are intentionally ignored
 
 		return err
 	}
@@ -288,7 +288,7 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	err = clusterService.EnsureNoContainers(ctx, "")
 	if err != nil {
 		reason := "EnsureNoContainersError"
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30) //nolint:errcheck // event recording errors are intentionally ignored //nolint:errcheck // error is intentionally ignored
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, consts.ActionDeleteCluster, err.Error(), time.Second*30) //nolint:errcheck // event recording errors are intentionally ignored //nolint:errcheck // error is intentionally ignored
 
 		return err
 	}

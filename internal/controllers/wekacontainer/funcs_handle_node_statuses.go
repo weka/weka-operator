@@ -13,6 +13,7 @@ import (
 	k8sTypes "k8s.io/apimachinery/pkg/types"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -31,7 +32,7 @@ func (r *containerReconcilerLoop) HandleNodeNotReady(ctx context.Context) error 
 
 		err := fmt.Errorf("node %s is not ready", node.Name)
 
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", consts.ActionScheduleContainers, err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 		if !r.container.IsDriversContainer() {
 			logger.Info("Skipping pod deletion on NotReady node for non-drivers container")
@@ -124,7 +125,7 @@ func (r *containerReconcilerLoop) deleteIfTolerationsMismatch(ctx context.Contex
 		"container", r.container.Name,
 		"node", r.node.Name)
 
-	_ = r.RecordEvent(v1.EventTypeNormal, "TolerationMismatch", "Toleration mismatch, deleting container") //nolint:errcheck // error return value intentionally not checked
+	_ = r.RecordEvent(v1.EventTypeNormal, "TolerationMismatch", consts.ActionScheduleContainers, "Toleration mismatch, deleting container") //nolint:errcheck // error return value intentionally not checked
 
 	return services.SetContainerStateDeleting(ctx, r.container, r.Client)
 }
@@ -190,7 +191,7 @@ func (r *containerReconcilerLoop) deleteIfNodeSelectorMismatch(ctx context.Conte
 				"container", r.container.Name,
 				"node", r.node.Name,
 				"error", err.Error())
-			_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeSelectorMismatchDrainPending", //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeSelectorMismatchDrainPending", consts.ActionScheduleContainers, //nolint:errcheck // error return value intentionally not checked
 				fmt.Sprintf("Node selector mismatch on node %s, but active mounts could not be determined (%v); not retiring container", r.node.Name, err),
 				time.Minute)
 			return nil
@@ -201,7 +202,7 @@ func (r *containerReconcilerLoop) deleteIfNodeSelectorMismatch(ctx context.Conte
 			logger.Info("Node selector mismatch, holding container because active mounts are unset",
 				"container", r.container.Name,
 				"node", r.node.Name)
-			_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeSelectorMismatchDrainPending", //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeSelectorMismatchDrainPending", consts.ActionScheduleContainers, //nolint:errcheck // error return value intentionally not checked
 				fmt.Sprintf("Node selector mismatch on node %s, but the active mount count is unset; not retiring container", r.node.Name),
 				time.Minute)
 			return nil
@@ -213,7 +214,7 @@ func (r *containerReconcilerLoop) deleteIfNodeSelectorMismatch(ctx context.Conte
 				"container", r.container.Name,
 				"node", r.node.Name,
 				"activeMounts", *activeMounts)
-			_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeSelectorMismatchDrainPending", //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeSelectorMismatchDrainPending", consts.ActionScheduleContainers, //nolint:errcheck // error return value intentionally not checked
 				activeMountsHoldMessage(r.node.Name, *activeMounts), time.Minute)
 			return nil
 		}
@@ -224,7 +225,7 @@ func (r *containerReconcilerLoop) deleteIfNodeSelectorMismatch(ctx context.Conte
 		"node", r.node.Name,
 		"nodeSelector", r.container.Spec.NodeSelector)
 
-	_ = r.RecordEvent(v1.EventTypeNormal, "NodeSelectorMismatch", "Node selector mismatch, deleting container") //nolint:errcheck // error return value intentionally not checked
+	_ = r.RecordEvent(v1.EventTypeNormal, "NodeSelectorMismatch", consts.ActionScheduleContainers, "Node selector mismatch, deleting container") //nolint:errcheck // error return value intentionally not checked
 
 	return services.SetContainerStateDeleting(ctx, r.container, r.Client)
 }

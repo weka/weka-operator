@@ -8,7 +8,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 
 	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
@@ -99,7 +99,7 @@ func TestCheckDriveResourceFeasibility(t *testing.T) {
 			r := &containerReconcilerLoop{
 				container: tt.container,
 				pod:       tt.pod,
-				Recorder:  record.NewFakeRecorder(10),
+				Recorder:  events.NewFakeRecorder(10),
 			}
 			err := r.checkDriveResourceFeasibility(context.Background())
 			if tt.wantErr && err == nil {

@@ -14,6 +14,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 )
 
@@ -85,7 +86,7 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 		var configErr *allocator.InvalidDriveSharingConfigError
 		if errors.As(validationErr, &configErr) {
 			logger.Error(validationErr, "Invalid drive sharing configuration")
-			_ = r.RecordEvent(v1.EventTypeWarning, "InvalidDriveSharingConfig", validationErr.Error()) //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEvent(v1.EventTypeWarning, "InvalidDriveSharingConfig", consts.ActionAllocateResources, validationErr.Error()) //nolint:errcheck // error return value intentionally not checked
 			return lifecycle.NewWaitErrorWithDuration(validationErr, 30*time.Second)
 		}
 		return validationErr
@@ -124,7 +125,7 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 		var insufficientDrivesErr *allocator.InsufficientDrivesError
 		if errors.As(err, &insufficientDrivesErr) {
 			logger.Error(err, "Insufficient drives on node, will retry")
-			_ = r.RecordEvent(v1.EventTypeWarning, "InsufficientDrives", err.Error()) //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEvent(v1.EventTypeWarning, "InsufficientDrives", consts.ActionAllocateResources, err.Error()) //nolint:errcheck // error return value intentionally not checked
 			// Use longer wait to avoid starving other containers waiting for the lease
 			// Standard wait is ~5s, use 30s for resource exhaustion
 			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
@@ -133,7 +134,7 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 		var insufficientCapacityErr *allocator.InsufficientDriveCapacityError
 		if errors.As(err, &insufficientCapacityErr) {
 			logger.Error(err, "Insufficient drive capacity on node, will retry")
-			_ = r.RecordEvent(v1.EventTypeWarning, "InsufficientDriveCapacity", err.Error()) //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEvent(v1.EventTypeWarning, "InsufficientDriveCapacity", consts.ActionAllocateResources, err.Error()) //nolint:errcheck // error return value intentionally not checked
 			// Longer wait for resource exhaustion
 			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
 		}
@@ -141,7 +142,7 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 		var portAllocationErr *allocator.PortAllocationError
 		if errors.As(err, &portAllocationErr) {
 			logger.Error(err, "Failed to allocate port ranges, will retry with backoff")
-			_ = r.RecordEvent(v1.EventTypeWarning, "PortAllocationFailed", err.Error()) //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEvent(v1.EventTypeWarning, "PortAllocationFailed", consts.ActionAllocateResources, err.Error()) //nolint:errcheck // error return value intentionally not checked
 			// Longer wait for port exhaustion as well
 			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
 		}
@@ -200,7 +201,7 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 	default:
 		allocMsg = fmt.Sprintf("Allocated %d drives", driveCount)
 	}
-	_ = r.RecordEvent(v1.EventTypeNormal, "ResourcesAllocated", allocMsg) //nolint:errcheck // error return value intentionally not checked
+	_ = r.RecordEvent(v1.EventTypeNormal, "ResourcesAllocated", consts.ActionAllocateResources, allocMsg) //nolint:errcheck // error return value intentionally not checked
 
 	return nil
 }

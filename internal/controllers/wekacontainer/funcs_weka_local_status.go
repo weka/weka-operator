@@ -11,6 +11,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/services"
 )
@@ -23,7 +24,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	if node != nil && !NodeIsReady(node) {
 		err := fmt.Errorf("node %s is not ready", node.Name)
 
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", consts.ActionMonitorContainerHealth, err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 		logger.Info("Skipping weka local status reconciliation on NotReady node", "node", node.Name)
 
@@ -97,7 +98,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 			"Container is not ready, status: %s, last failure: %s (%s)",
 			internalStatus, localContainer.LastFailure, localContainer.LastFailureTime,
 		)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "WekaLocalStatus", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "WekaLocalStatus", consts.ActionMonitorContainerHealth, msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
 	}
 
 	// skip status update for DrivesAdding (if still adding drives)

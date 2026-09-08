@@ -11,12 +11,13 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/exec"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 type ReadyForClusterizationContainers struct {
@@ -42,7 +43,7 @@ func NewWekaClusterReconcileLoop(r *WekaClusterReconciler) *wekaClusterReconcile
 	return &wekaClusterReconcilerLoop{
 		Manager:         mgr,
 		ExecService:     execService,
-		Recorder:        mgr.GetEventRecorderFor("wekaCluster-controller"), //nolint:staticcheck // old events API: record.EventRecorder is used throughout; migrating is a separate change
+		Recorder:        util.WrapEventRecorder(mgr.GetEventRecorder("wekaCluster-controller"), mgr.GetScheme()),
 		SecretsService:  services.NewSecretsService(mgr.GetClient(), scheme, execService),
 		RestClient:      restClient,
 		GlobalThrottler: r.ThrottlingMap,
@@ -52,7 +53,7 @@ func NewWekaClusterReconcileLoop(r *WekaClusterReconciler) *wekaClusterReconcile
 type wekaClusterReconcilerLoop struct {
 	Manager         ctrl.Manager
 	ExecService     exec.ExecService
-	Recorder        record.EventRecorder
+	Recorder        events.EventRecorder
 	cluster         *weka.WekaCluster
 	clusterService  services.WekaClusterService
 	containers      []*weka.WekaContainer
@@ -159,7 +160,7 @@ func (r *wekaClusterReconcilerLoop) FetchCluster(ctx context.Context, req ctrl.R
 	return err
 }
 
-func (r *wekaClusterReconcilerLoop) RecordEvent(eventtype, reason, message string) error {
+func (r *wekaClusterReconcilerLoop) RecordEvent(eventtype, reason, action, message string) error {
 	if r.cluster == nil {
 		return fmt.Errorf("cluster is not set")
 	}
@@ -168,20 +169,20 @@ func (r *wekaClusterReconcilerLoop) RecordEvent(eventtype, reason, message strin
 		eventtype = normal
 	}
 
-	r.Recorder.Event(r.cluster, eventtype, reason, message)
+	util.RecordEvent(r.Recorder, r.cluster, eventtype, reason, action, message)
 	return nil
 }
 
 // RecordEventThrottled throttles on eventtype+reason alone, for callers with no cause to distinguish.
-func (r *wekaClusterReconcilerLoop) RecordEventThrottled(eventtype, reason, message string, interval time.Duration) error {
-	return r.RecordEventThrottledKeyed(eventtype, reason, "", message, interval)
+func (r *wekaClusterReconcilerLoop) RecordEventThrottled(eventtype, reason, action, message string, interval time.Duration) error {
+	return r.RecordEventThrottledKeyed(eventtype, reason, "", action, message, interval)
 }
 
-// RecordEventThrottledKeyed throttles on eventtype+reason+cause, so two events sharing a reason but
-// describing different causes get independent windows: one cannot silently suppress the other. cause may be
-// empty, which reproduces the plain eventtype+reason key.
-func (r *wekaClusterReconcilerLoop) RecordEventThrottledKeyed(eventtype, reason, cause, message string, interval time.Duration) error {
-	key := eventtype + "|" + reason + "|" + cause
+// RecordEventThrottledKeyed throttles on eventtype+reason+action+cause, so two events sharing a reason but
+// describing different actions or causes get independent windows: one cannot silently suppress the other.
+// cause may be empty, which reproduces the plain eventtype+reason+action key.
+func (r *wekaClusterReconcilerLoop) RecordEventThrottledKeyed(eventtype, reason, cause, action, message string, interval time.Duration) error {
+	key := eventtype + "|" + reason + "|" + action + "|" + cause
 	if !r.Throttler.ShouldRun(key, &throttling.ThrottlingSettings{
 		Interval:                    interval,
 		DisableRandomPreSetInterval: true,
@@ -189,7 +190,7 @@ func (r *wekaClusterReconcilerLoop) RecordEventThrottledKeyed(eventtype, reason,
 		return nil
 	}
 
-	return r.RecordEvent(eventtype, reason, message)
+	return r.RecordEvent(eventtype, reason, action, message)
 }
 
 func (r *wekaClusterReconcilerLoop) ClusterDeletionCancelled() bool {

@@ -13,6 +13,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services"
 )
@@ -95,7 +96,7 @@ func (r *containerReconcilerLoop) deleteEnvoyIfProcessNotExists(ctx context.Cont
 			}
 		}
 
-		_ = r.RecordEvent(v1.EventTypeWarning, "EnvoyProcessNotFound", //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEvent(v1.EventTypeWarning, "EnvoyProcessNotFound", consts.ActionMonitorContainerHealth, //nolint:errcheck // error return value intentionally not checked
 			fmt.Sprintf("Envoy process not found while container is in Error state (pod running for %v), deleting container for recreation",
 				podRunningDuration.Round(time.Second)))
 

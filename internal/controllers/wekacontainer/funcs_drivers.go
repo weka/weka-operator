@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -87,7 +88,7 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 				msg := fmt.Sprintf(
 					"cannot load drivers for image %s on node %s: driver image %s is loaded and pod %s still runs it",
 					details.Image, r.node.Name, loadedImage, holder)
-				_ = r.RecordEventThrottled(v1.EventTypeWarning, "DriversWaitForConsumer", msg, time.Minute) //nolint:errcheck // event recording is best-effort
+				_ = r.RecordEventThrottled(v1.EventTypeWarning, "DriversWaitForConsumer", consts.ActionManageDrivers, msg, time.Minute) //nolint:errcheck // event recording is best-effort
 				if err := r.updateStatusWaitForDrivers(ctx); err != nil {
 					return err
 				}
@@ -100,7 +101,7 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 			// Throttled: the record is only cleared once the load succeeds, so this
 			// branch re-fires on every reconcile until then (and indefinitely if the
 			// load keeps failing).
-			_ = r.RecordEventThrottled(v1.EventTypeNormal, "DriversPreemptStaleRecord", fmt.Sprintf( //nolint:errcheck // event recording is best-effort
+			_ = r.RecordEventThrottled(v1.EventTypeNormal, "DriversPreemptStaleRecord", consts.ActionManageDrivers, fmt.Sprintf( //nolint:errcheck // event recording is best-effort
 				"preempting stale driver record %s on node %s: no live container demands it and no live pod runs it",
 				loadedImage, r.node.Name), time.Minute)
 		}
@@ -117,7 +118,7 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 		msg := fmt.Sprintf(
 			"cannot load drivers for image %s: incompatible driver image %s already loaded on node %s, required by %s",
 			details.Image, loadedImage, r.node.Name, blocker)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "DriversVersionConflict", msg, time.Minute) //nolint:errcheck // event recording is best-effort
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "DriversVersionConflict", consts.ActionManageDrivers, msg, time.Minute) //nolint:errcheck // event recording is best-effort
 		if err := r.updateStatusWaitForDrivers(ctx); err != nil {
 			return err
 		}
@@ -461,7 +462,7 @@ func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Conte
 			msg := "Cannot load drivers, trigger re-build and re-upload"
 			logger.Info(msg)
 
-			_ = r.RecordEvent("", "DriversRebuild", msg) //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEvent("", "DriversRebuild", consts.ActionManageDrivers, msg) //nolint:errcheck // error return value intentionally not checked
 
 			if clearErr := r.clearStatus(ctx); clearErr != nil {
 				return fmt.Errorf("error clearing builder results: %w", clearErr)

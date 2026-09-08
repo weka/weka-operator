@@ -13,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	k8sTypes "k8s.io/apimachinery/pkg/types"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -139,7 +140,7 @@ func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context)
 
 	if activeMounts != nil && *activeMounts != 0 {
 		err := fmt.Errorf("%d mounts are still active", *activeMounts)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", consts.ActionDrainContainer, err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 		return false, err
 	}

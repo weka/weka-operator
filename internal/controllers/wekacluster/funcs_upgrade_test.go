@@ -10,7 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -63,7 +63,7 @@ func newUpgradeLoop(t *testing.T, cluster *weka.WekaCluster, containers []*weka.
 		Manager:    fakeManagerWithClient{c: fakeClient},
 		cluster:    cluster,
 		containers: containers,
-		Recorder:   record.NewFakeRecorder(32),
+		Recorder:   events.NewFakeRecorder(32),
 		Throttler:  throttling.NewSyncMapThrottler(),
 	}
 }
@@ -124,9 +124,9 @@ func TestHandleSpecUpdates_DeferredComputeHugepagesDoNotBlockDrivePropagation(t 
 // upgradeLoopEvents drains the loop's fake recorder.
 func upgradeLoopEvents(t *testing.T, r *wekaClusterReconcilerLoop) []string {
 	t.Helper()
-	rec, ok := r.Recorder.(*record.FakeRecorder)
+	rec, ok := r.Recorder.(*events.FakeRecorder)
 	if !ok {
-		t.Fatalf("Recorder is %T, want *record.FakeRecorder", r.Recorder)
+		t.Fatalf("Recorder is %T, want *events.FakeRecorder", r.Recorder)
 	}
 	close(rec.Events)
 	var out []string

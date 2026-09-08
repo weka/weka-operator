@@ -17,6 +17,7 @@ import (
 	k8sTypes "k8s.io/apimachinery/pkg/types"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util/podexec"
@@ -278,7 +279,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: func(ctx context.Context) error {
 				msg := fmt.Sprintf("node %s is unschedulable", r.node.Name)
 
-				return r.RecordEventThrottled(v1.EventTypeWarning, "NodeUnschedulable", msg, time.Minute)
+				return r.RecordEventThrottled(v1.EventTypeWarning, "NodeUnschedulable", consts.ActionScheduleContainers, msg, time.Minute)
 			},
 			Predicates: lifecycle.Predicates{
 				func() bool { return NodeIsUnschedulable(r.node) },
@@ -934,6 +935,7 @@ func (r *containerReconcilerLoop) deletePodIfUnschedulable(ctx context.Context) 
 		_ = r.RecordEvent( //nolint:errcheck // error return value intentionally not checked
 			v1.EventTypeWarning,
 			"UnschedulablePod",
+			consts.ActionScheduleContainers,
 			fmt.Sprintf("Pod is unschedulable since %s, deleting it", unschedulableSince),
 		)
 
@@ -1022,7 +1024,7 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 			// The wait is uncapped by design, so also raise an event: otherwise a permanently
 			// wedged IO process stalls the whole cluster's rolling upgrade with no signal outside
 			// the operator log.
-			_ = r.RecordEventThrottled(v1.EventTypeWarning, "IoProcessesNotUp", msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "IoProcessesNotUp", consts.ActionUpgrade, msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 			// Logged at Info, not Debug: the wait below is uncapped, so the reported
 			// process ids have to be visible at the default log level.

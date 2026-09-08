@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -538,8 +539,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			default:
 				what = fmt.Sprintf("drives to %d", drivesRaisedTo)
 			}
-			r.Recorder.Event(
-				container, v1.EventTypeWarning, "CapacityGrowthApplied",
+			util.RecordEvent(r.Recorder, container, v1.EventTypeWarning, "CapacityGrowthApplied", consts.ActionApplyCapacityGrowth,
 				fmt.Sprintf("raised drive container %s (derived from the cluster template); the drive spec changed — the pod must be recreated to apply the new sizing", what),
 			)
 		}
@@ -716,7 +716,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		}
 
 		if !status.Rebuild.IsFullyProtected() {
-			_ = r.RecordEvent("", "WaitingForStabilize", "Weka is not fully protected, waiting to stabilize") //nolint:errcheck // error is intentionally ignored
+			_ = r.RecordEvent("", "WaitingForStabilize", consts.ActionUpgrade, "Weka is not fully protected, waiting to stabilize") //nolint:errcheck // error is intentionally ignored
 			return lifecycle.NewWaitError(errors.Errorf("Weka is not fully protected, waiting to stabilize, %v", status.Rebuild))
 		}
 
@@ -728,13 +728,13 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		// currently reports, so a container that vanished still counts against the threshold.
 		if !services.MeetsThreshold(status.Containers.Drives.Active, nums.Drive, config.Config.Upgrade.DriveThresholdPercent) {
 			msg := fmt.Sprintf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, nums.Drive)
-			_ = r.RecordEvent("", "ClusterSizeThreshold", msg) //nolint:errcheck // error is intentionally ignored
+			_ = r.RecordEvent("", "ClusterSizeThreshold", consts.ActionUpgrade, msg) //nolint:errcheck // error is intentionally ignored
 			return lifecycle.NewWaitError(errors.New(msg))
 		}
 
 		if !services.MeetsThreshold(status.Containers.Computes.Active, nums.Compute, config.Config.Upgrade.ComputeThresholdPercent) {
 			msg := fmt.Sprintf("Not enough computes containers are active, waiting to stabilize, %d/%d", status.Containers.Computes.Active, nums.Compute)
-			_ = r.RecordEvent("", "ClusterSizeThreshold", msg) //nolint:errcheck // error is intentionally ignored
+			_ = r.RecordEvent("", "ClusterSizeThreshold", consts.ActionUpgrade, msg) //nolint:errcheck // error is intentionally ignored
 			return lifecycle.NewWaitError(errors.New(msg))
 		}
 

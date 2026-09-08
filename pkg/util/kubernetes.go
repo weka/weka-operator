@@ -2,6 +2,7 @@ package util
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"reflect"
@@ -15,10 +16,16 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/tools/reference"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
 )
+
+// maxEventNoteBytes matches the events.k8s.io v1 Event.Note field cap; an oversized note is rejected
+// by the apiserver and never retried, so it must be capped before the recorder ever sends it.
+const maxEventNoteBytes = 1024
 
 type ConfigurationError struct {
 	Err     error
@@ -27,6 +34,57 @@ type ConfigurationError struct {
 
 func (e *ConfigurationError) Error() string {
 	return fmt.Sprintf("configuration error: %s, %v", e.Message, e.Err)
+}
+
+// eventRecorder rewrites the dedup key and caps the note on every Eventf, so the fix cannot be
+// bypassed by callers that hold the recorder directly.
+type eventRecorder struct {
+	events.EventRecorder
+	scheme *runtime.Scheme
+}
+
+// WrapEventRecorder returns rec with stable dedup keys and note truncation applied to every event.
+// scheme must resolve every kind events are emitted for (use mgr.GetScheme()).
+func WrapEventRecorder(rec events.EventRecorder, scheme *runtime.Scheme) events.EventRecorder {
+	return &eventRecorder{EventRecorder: rec, scheme: scheme}
+}
+
+func (r *eventRecorder) Eventf(regarding, related runtime.Object, eventtype, reason, action, note string, args ...interface{}) {
+	msg := fmt.Sprintf(note, args...)
+	if len(msg) > maxEventNoteBytes {
+		msg = strings.ToValidUTF8(msg[:maxEventNoteBytes-3], "") + "..."
+	}
+	r.EventRecorder.Eventf(stableEventRef(r.scheme, regarding, msg), related, eventtype, reason, action, "%s", msg)
+}
+
+// RecordEvent emits a fixed-message event; a nil recorder is a no-op so unit-tested operations
+// need no guards. "%s" keeps '%' in messages (e.g. err.Error()) from being read as a directive.
+// Dedup-key rewriting and note truncation happen in the recorder, see WrapEventRecorder.
+func RecordEvent(rec events.EventRecorder, obj runtime.Object, eventtype, reason, action, message string) {
+	if rec == nil {
+		return
+	}
+	rec.Eventf(obj, nil, eventtype, reason, action, "%s", message)
+}
+
+// stableEventRef builds an ObjectReference to obj for the events.k8s.io dedup key, with two changes
+// from the raw reference: ResourceVersion is cleared, because status we heartbeat bumps it on every
+// poll and would otherwise start a fresh dedup series each time; and FieldPath carries a digest of
+// message, because the note itself isn't part of the key and a second distinct note under the same
+// (type, action, reason, regarding) is otherwise silently dropped instead of opening a new event.
+//
+// A GetReference failure means obj's kind is not in the scheme; obj is passed through untouched so
+// the wrapped recorder, which runs the same lookup, reports and drops the event itself.
+func stableEventRef(scheme *runtime.Scheme, obj runtime.Object, message string) runtime.Object {
+	ref, err := reference.GetReference(scheme, obj)
+	if err != nil {
+		return obj
+	}
+	ref = ref.DeepCopy()
+	ref.ResourceVersion = ""
+	digest := sha256.Sum256([]byte(message))
+	ref.FieldPath = fmt.Sprintf("note-%x", digest[:8])
+	return ref
 }
 
 func GetOperatorDeployment(ctx context.Context, k8sClient crclient.Client) (*appsv1.Deployment, error) {

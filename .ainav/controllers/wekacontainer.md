@@ -36,7 +36,7 @@ Container states and their flow files:
 | `funcs_resources_allocation.go` | Resource allocation |
 | `funcs_handle_node_statuses.go` | Node status handling |
 | `funcs_status_updates.go` | Status field updates |
-| `funcs_events.go` | K8s event emission |
+| `funcs_events.go` | K8s event emission, routes through `util.RecordEvent` |
 | `funcs_migrations.go` | Data migrations |
 | `funcs_oneoff.go` | One-off operations, stuck adhoc-op reaping |
 | `funcs_not_used.go` | Deprecated/unused |
