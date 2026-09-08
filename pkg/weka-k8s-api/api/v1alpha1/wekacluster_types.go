@@ -97,6 +97,11 @@ type Network struct {
 	// This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).
 	// If you have a flat, non-routed backend network, you can leave this field empty.
 	Gateway string `json:"gateway,omitempty"`
+	// The data-path netmask for the backend containers’ network, expressed as prefix bits (for example, 24).
+	// This is only necessary when the netmask cannot be inferred from deviceSubnets.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=32
+	Netmask int `json:"netmask,omitempty"`
 	// A setting that enables or disables UDP encapsulation for backend traffic.
 	// - false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.
 	// This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based.
@@ -131,6 +136,9 @@ func (n *Network) Equal(o *Network) bool {
 		return false
 	}
 	if n.Gateway != o.Gateway {
+		return false
+	}
+	if n.Netmask != o.Netmask {
 		return false
 	}
 	if n.UdpMode != o.UdpMode {

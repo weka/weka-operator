@@ -1277,6 +1277,13 @@ spec:
                           type: string
                       type: object
                     type: array
+                  netmask:
+                    description: |-
+                      The data-path netmask for the backend containers’ network, expressed as prefix bits (for example, 24).
+                      This is only necessary when the netmask cannot be inferred from deviceSubnets.
+                    maximum: 32
+                    minimum: 1
+                    type: integer
                   nvidiaVfSingleIp:
                     description: |-
                       NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF
