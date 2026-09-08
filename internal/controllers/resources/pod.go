@@ -139,6 +139,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		netDevice = ""
 	}
 	gateway := f.container.Spec.Network.Gateway
+	netmask := f.container.Spec.Network.Netmask
 	if f.container.Spec.Network.EthDevice != "" {
 		netDevice = f.container.Spec.Network.EthDevice
 	}
@@ -340,6 +341,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						{
 							Name:  "NET_GATEWAY",
 							Value: gateway,
+						},
+						{
+							Name:  "NET_NETMASK",
+							Value: strconv.Itoa(netmask),
 						},
 						{
 							Name:  "UDP_MODE",

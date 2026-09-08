@@ -1712,6 +1712,13 @@
           "optional": true
         },
         {
+          "name": "Netmask",
+          "jsonName": "netmask",
+          "type": "int",
+          "description": "The data-path netmask for the backend containers’ network, expressed as prefix bits (for example, 24).\nThis is only necessary when the netmask cannot be inferred from deviceSubnets.",
+          "optional": true
+        },
+        {
           "name": "UdpMode",
           "jsonName": "udpMode",
           "type": "bool",

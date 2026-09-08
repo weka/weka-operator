@@ -46,6 +46,7 @@ FIELDS:
    ethDevices	<[]string>
    ethSlots	<[]string>
    gateway	<string>
+   netmask	<integer>
    udpMode	<boolean>
 ```
 

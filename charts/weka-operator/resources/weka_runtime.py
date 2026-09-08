@@ -77,6 +77,7 @@ POD_NAMESPACE = os.environ.get("POD_NAMESPACE", "")
 FAILURE_DOMAIN = os.environ.get("FAILURE_DOMAIN", None)
 MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
 NET_GATEWAY = os.environ.get("NET_GATEWAY", None)
+NET_NETMASK = int(os.environ.get("NET_NETMASK") or 0)
 IS_IPV6 = os.environ.get("IS_IPV6", "false") == "true"
 MANAGEMENT_IPS = []  # to be populated at later stage
 UDP_MODE = os.environ.get("UDP_MODE", "false") == "true"
@@ -3025,14 +3026,20 @@ async def ensure_weka_container():
         node['core_id'] = full_cores[cores_cursor]
         cores_cursor += 1
 
-    # fix/add gateway
-    if NET_GATEWAY:
-        if not is_udp():
+    # fix/add gateway/netmask
+    if NET_GATEWAY or NET_NETMASK:
+        if is_udp():
+            logging.warning(
+                f"Ignoring gateway={NET_GATEWAY} netmask={NET_NETMASK}: not applicable in UDP mode")
+        else:
             # TODO: Multi-nic support with custom gateways
             # figure out what is meant here ^
             if len(resources['net_devices']) != 1:
-                raise Exception("Gateway configuration is not supported with multiple or zero NICs")
-            resources['net_devices'][0]['gateway'] = NET_GATEWAY
+                raise Exception("Gateway/netmask configuration is not supported with multiple or zero NICs")
+            if NET_GATEWAY:
+                resources['net_devices'][0]['gateway'] = NET_GATEWAY
+            if NET_NETMASK:
+                resources['net_devices'][0]['netmask'] = NET_NETMASK
 
     # save resources
     resource_gen = str(uuid.uuid4())
