@@ -4,3 +4,5 @@ WekaCluster/WekaClient property
     - `coreIds` - used in combination with `cpuPolicy: manual`
     - unless advised by Weka personal, avoid using any other policy rather then default `auto`
     - when specifying manual cores IDs should also include siblings if hyperthreading is enabled, and also keep one additional core(HT or full core, depending on hyperthreading status) free for non-dpdk processes
+
+See `numa-alignment.md` for placing those cores on a NUMA node (`spec.numa`, `spec.roleNuma`) and the kubelet/host configuration required to keep them exclusive.

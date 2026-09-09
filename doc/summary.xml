@@ -8,6 +8,10 @@
         <tags>cpuPolicy, auto, manual, coreIds, hyperthreading, core allocation, DPDK processes, management processes</tags>
         <summary>Explains CPU policy configuration options for WekaCluster and WekaClient resources, including automatic hyperthreading detection, manual core assignment, and core allocation best practices for DPDK and management processes.</summary>
     </file>
+    <file relpath="operator/concepts/numa-alignment.md">
+        <tags>NUMA, numa.single, numa.region, numa.method, roleNuma, device-plugin, DRA, dra-driver-cpu, ResourceClaim, topology manager, static CPU manager, reservedSystemCPUs, strict-cpu-reservation, memory manager, hugepages, IRQ affinity, NRI, nri-cpuset, multi-NUMA</tags>
+        <summary>Customer-facing reference for NUMA confinement of WEKA containers: spec.numa (single, region, method) and per-role roleNuma on WekaCluster, spec.numa on WekaClient; the two enforcement methods (node-agent kubelet device plugin advertising weka.io/numa-region-N with TopologyInfo, enabled via Helm nodeAgent.devicePlugin.enabled, vs. DRA ResourceClaims against dra-driver-cpu's dra.cpu DeviceClass, its CPU-policy restriction and its incompatibility with the kubelet CPU manager); required kubelet configuration (static CPU manager, reservedSystemCPUs, cpu_manager_state reset, strict-cpu-reservation semantics, topology manager policies, max-allowable-numa-nodes, Memory Manager for hugepages); Linux host CPU-partitioning controls that keep kernel work off poll cores; multi-NUMA placement via per-role binding and the weka/nri-cpuset NRI plugin; and current limits: no core-id pinning via NUMA, one drive and one compute container per node, drive/NIC selection independent of NUMA. Every statement is backed by operator code or official Kubernetes/kernel/driver documentation listed in its References section.</summary>
+    </file>
 
     <!-- Operator Deployment -->
     <file relpath="operator/deployment/pre-requisites.md">
