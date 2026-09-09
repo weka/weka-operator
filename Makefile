@@ -167,9 +167,13 @@ lint-fix: ## Run golangci-lint and auto-fix issues where possible.
 	golangci-lint run --fix ./...
 
 .PHONY: test
-test: ## Run tests.
+test: test-runtime ## Run Go and Python runtime tests.
 	go test -v ./internal/... -coverprofile cover.out
 	cd pkg/weka-k8s-api && go test -v ./...
+
+.PHONY: test-runtime
+test-runtime: ## Run Python runtime unit tests.
+	python3 -m unittest discover -s tests/runtime -p 'test_*.py' -v
 
 .PHONY: test-e2e
 test-e2e: ## Run e2e tests.

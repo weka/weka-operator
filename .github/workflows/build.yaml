@@ -177,6 +177,10 @@ jobs:
             pkg/weka-k8s-api/go.sum
             pkg/go-steps-engine/go.sum
 
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
       - name: Setup envtest
         run: |
           make envtest
