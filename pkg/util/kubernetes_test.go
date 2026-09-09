@@ -152,3 +152,20 @@ func TestWrapEventRecorder_ObjectReferenceRegardingNotMutated(t *testing.T) {
 func TestRecordEvent_NilRecorderDoesNotPanic(t *testing.T) {
 	RecordEvent(nil, &corev1.ConfigMap{}, corev1.EventTypeNormal, "Reason", "Action", "hello")
 }
+
+func TestWrapEventRecorder_DigestCoversTruncatedTail(t *testing.T) {
+	rec := &fakeEventRecorder{}
+	wrapped := WrapEventRecorder(rec, testScheme(t))
+	obj := &corev1.ConfigMap{}
+
+	prefix := strings.Repeat("a", maxEventNoteBytes*2)
+	RecordEvent(wrapped, obj, corev1.EventTypeNormal, "Reason", "Action", prefix+"tail-one")
+	first := rec.regarding.(*corev1.ObjectReference).FieldPath
+
+	RecordEvent(wrapped, obj, corev1.EventTypeNormal, "Reason", "Action", prefix+"tail-two")
+	second := rec.regarding.(*corev1.ObjectReference).FieldPath
+
+	if first == second {
+		t.Errorf("expected notes differing only past the truncation cap to produce different FieldPaths, both were %q", first)
+	}
+}

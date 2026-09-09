@@ -107,8 +107,11 @@ func (r *containerReconcilerLoop) reportAdhocPodNotProgressing(ctx context.Conte
 		v1.EventTypeWarning,
 		"AdhocPodNotProgressing",
 		consts.ActionManageOneOffOperation,
-		fmt.Sprintf("Adhoc-op pod stuck (%s) for %s, will delete container after %s%s",
-			reason, time.Since(podStuckSince(r.pod)).Round(time.Second),
+		// The note carries the stuck-since instant rather than the elapsed time: the note is part
+		// of the event dedup key, so an elapsed value would open a new Event object on every
+		// emission instead of bumping the series count on one.
+		fmt.Sprintf("Adhoc-op pod stuck (%s) since %s, will delete container after %s%s",
+			reason, podStuckSince(r.pod).UTC().Format(time.RFC3339),
 			config.Config.StuckAdhocPodTimeout, eventDetailSuffix(detail)),
 		time.Minute,
 	)

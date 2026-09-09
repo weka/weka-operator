@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	utilexec "k8s.io/utils/exec"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/consts"
@@ -446,8 +447,12 @@ func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Conte
 	}
 
 	// assuming `weka driver pack` is supported
+	// --from is mandatory: with no distribution server in the environment, /etc/wekaio/dist-servers
+	// or service.conf - none of which the operator populates - the CLI refuses before looking at
+	// the local tree. Pointing it at the dist container's own tree makes the command answer the
+	// question the check is actually asking: are these drivers here to be served?
 	downloadCmd := fmt.Sprintf(
-		"weka driver download --without-agent --version %s --kernel-signature %s",
+		"weka driver download --without-agent --version %s --kernel-signature %s --from file:///opt/weka",
 		results.WekaVersion, results.KernelSignature,
 	)
 
@@ -458,7 +463,12 @@ func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Conte
 		err = fmt.Errorf("error downloading drivers: %w, stderr: %s", err, stderr.String())
 		logger.Debug(err.Error())
 
-		if strings.Contains(stderr.String(), "Failed to download the drivers") || strings.Contains(stderr.String(), "Version missing") {
+		// Rebuild only when the CLI itself ran and rejected the request. podexec returns a
+		// wrapped exec.ExitError for a real non-zero remote exit and a plain stream error for
+		// transport failures (target gone, kubelet unreachable, broken stream), which say
+		// nothing about the artifacts and must not wipe a good builder's status.
+		var exitErr utilexec.ExitError
+		if errors.As(err, &exitErr) {
 			msg := "Cannot load drivers, trigger re-build and re-upload"
 			logger.Info(msg)
 

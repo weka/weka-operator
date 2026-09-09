@@ -50,11 +50,14 @@ func WrapEventRecorder(rec events.EventRecorder, scheme *runtime.Scheme) events.
 }
 
 func (r *eventRecorder) Eventf(regarding, related runtime.Object, eventtype, reason, action, note string, args ...interface{}) {
-	msg := fmt.Sprintf(note, args...)
+	full := fmt.Sprintf(note, args...)
+	msg := full
 	if len(msg) > maxEventNoteBytes {
 		msg = strings.ToValidUTF8(msg[:maxEventNoteBytes-3], "") + "..."
 	}
-	r.EventRecorder.Eventf(stableEventRef(r.scheme, regarding, msg), related, eventtype, reason, action, "%s", msg)
+	// The digest covers the untruncated note: two long notes that differ only past the cap would
+	// otherwise share a dedup key and the second would be dropped.
+	r.EventRecorder.Eventf(stableEventRef(r.scheme, regarding, full), related, eventtype, reason, action, "%s", msg)
 }
 
 // RecordEvent emits a fixed-message event; a nil recorder is a no-op so unit-tested operations

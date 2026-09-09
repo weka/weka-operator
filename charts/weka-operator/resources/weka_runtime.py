@@ -3154,6 +3154,19 @@ async def configure_persistency():
             fi
             # --- WEKA_PERSISTENCE_DIR - is HostPath (persistent volume)
             mkdir -p {WEKA_PERSISTENCE_DIR}/dist/drivers
+            # --- stage image-shipped drivers into the host dir so the bind below cannot mask
+            # --- them. -n keeps already-persisted artifacts, so this also covers an image
+            # --- upgrade, where the host dir is non-empty but lacks the new image's drivers.
+            cp -an /opt/weka/dist/drivers/. {WEKA_PERSISTENCE_DIR}/dist/drivers/ \
+                || echo "warning: failed to stage image drivers into {WEKA_PERSISTENCE_DIR}/dist/drivers" >&2
+            # --- the image dist bind below also masks {WEKA_PERSISTENCE_DIR}/dist, since by then
+            # --- /opt/weka and the persistence dir are the same directory. stage the host drivers
+            # --- dir first, the way dist/ and bin/ are staged above.
+            # --- the source is a subdirectory of the hostPath, never /opt/weka itself, so this
+            # --- creates no root-level peer; make-private detaches it from the peer group.
+            mkdir -p /opt/weka-drivers-save
+            mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka-drivers-save
+            mount --make-private /opt/weka-drivers-save
             mount -o bind {WEKA_PERSISTENCE_DIR} /opt/weka
             mkdir -p /opt/weka/dist
             # --- restore image dist on top of the host persistence dir
@@ -3166,8 +3179,11 @@ async def configure_persistency():
                 mount -o bind /opt/weka-bin-save /opt/weka/bin
                 umount /opt/weka-bin-save
             fi
-            # --- make drivers dir persistent
-            mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka/dist/drivers
+            # --- make drivers dir persistent. mkdir guards images that ship no dist/drivers:
+            # --- a bind onto a missing mountpoint would abort the whole block under set -e
+            mkdir -p /opt/weka/dist/drivers
+            mount -o bind /opt/weka-drivers-save /opt/weka/dist/drivers
+            umount /opt/weka-drivers-save
         fi
 
         # External mounts - always check and mount if they exist
