@@ -42,7 +42,7 @@ func NewWekaClusterReconcileLoop(r *WekaClusterReconciler) *wekaClusterReconcile
 	return &wekaClusterReconcilerLoop{
 		Manager:         mgr,
 		ExecService:     execService,
-		Recorder:        mgr.GetEventRecorderFor("wekaCluster-controller"),
+		Recorder:        mgr.GetEventRecorderFor("wekaCluster-controller"), //nolint:staticcheck // old events API: record.EventRecorder is used throughout; migrating is a separate change
 		SecretsService:  services.NewSecretsService(mgr.GetClient(), scheme, execService),
 		RestClient:      restClient,
 		GlobalThrottler: r.ThrottlingMap,

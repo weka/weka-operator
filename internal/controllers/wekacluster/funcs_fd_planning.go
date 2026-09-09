@@ -101,7 +101,8 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*c
 		"minFdNum", s.MinFdNum(), "candidateNodes", len(nodeInv), "existingDrives", len(existingDrives),
 		"grow", len(plan.Grow), "create", len(plan.Create),
 		"infeasible", plan.Infeasible)
-	for _, n := range nodeInv {
+	for i := range nodeInv {
+		n := &nodeInv[i]
 		logger.Debug("clusterCapacity node headroom", "node", n.NodeName, "fd", n.FDValue,
 			"tlcGiB", n.TlcGiB, "qlcGiB", n.QlcGiB, "cores", n.AllocatableCPU,
 			"hugepagesMiB", n.AvailableHugepagesMiB, "memoryMiB", n.AvailableMemoryMiB)

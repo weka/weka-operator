@@ -2,8 +2,6 @@ package capacityplanner
 
 import (
 	"math"
-
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 )
 
 // constraints.go holds pure capacity helpers for the clusterCapacity planner (planner.go).
@@ -15,22 +13,6 @@ const MinChunkSizeGiB = 128 * 3
 // DefaultMaxCoresPerContainer is weka's own per-container core limit (19 cores); both planners default
 // CapacityConstraints.MaxCoresPerContainer to this.
 const DefaultMaxCoresPerContainer = 19
-
-// DefaultConstraints returns a CapacityConstraints with compile-time defaults; the operator layers
-// env-derived knobs on top via allocator.CapacityConstraintsFromConfig.
-func DefaultConstraints() *CapacityConstraints {
-	return &CapacityConstraints{
-		MinChunkSizeGiB:                   MinChunkSizeGiB,
-		HugepagesPerCoreMiB:               HugepagesPerCoreMiB,
-		MemoryBaseMiB:                     MemoryBaseMiB,
-		MemoryPerCoreMiB:                  MemoryPerCoreMiB,
-		MaxCoresPerContainer:              DefaultMaxCoresPerContainer,
-		ComputeToTlcDriveCoreRatio:        1.0,
-		ComputeToQlcDriveCoreRatio:        0.0,
-		FullDrivesComputeToDriveCoreRatio: 2.0,
-		CpuPolicy:                         weka.CpuPolicyAuto,
-	}
-}
 
 // RawCapacityGiB converts usable capacity to raw, including parity/hot-spare overhead and WEKA's ~10%
 // usable-capacity reserve: raw = usable * (sw+rl+hs) / sw / 0.9. Non-positive stripeWidth returns 0

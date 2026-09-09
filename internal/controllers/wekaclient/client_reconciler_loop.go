@@ -52,7 +52,7 @@ func NewClientReconcileLoop(r *ClientController) *clientReconcilerLoop {
 	return &clientReconcilerLoop{
 		Client:        kClient,
 		Scheme:        mgr.GetScheme(),
-		Recorder:      mgr.GetEventRecorderFor("weka-operator"),
+		Recorder:      mgr.GetEventRecorderFor("weka-operator"), //nolint:staticcheck // old events API: record.EventRecorder is used throughout; migrating is a separate change
 		KubeService:   kubernetes.NewKubeService(kClient),
 		Manager:       mgr,
 		ThrottlingMap: r.ThrottlingMap,

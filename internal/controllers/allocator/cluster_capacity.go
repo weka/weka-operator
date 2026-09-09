@@ -9,8 +9,8 @@ import (
 )
 
 // cluster_capacity.go holds the operator-side adapters that build the pure planner's inputs from
-// global config. The pure helpers (RawCapacityGiB, CapacityShort, CapacityCoverTarget, the
-// NodeCapacity view and DefaultConstraints) live in internal/capacityplanner.
+// global config. The pure helpers (RawCapacityGiB, CapacityShort, CapacityCoverTarget and the
+// NodeCapacity view) live in internal/capacityplanner.
 
 // CapacityConstraintsFromConfig builds the planner/feasibility constraints from global config. Shared
 // by the cluster-level planner and the container-level pre-add feasibility check so both use identical

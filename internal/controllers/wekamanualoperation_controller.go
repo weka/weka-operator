@@ -38,7 +38,7 @@ func NewWekaManualOperationController(mgr ctrl.Manager, restClient rest.Interfac
 		RestClient: restClient,
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
-		Recorder:   mgr.GetEventRecorderFor("wekaManualOperation-controller"),
+		Recorder:   mgr.GetEventRecorderFor("wekaManualOperation-controller"), //nolint:staticcheck // old events API: record.EventRecorder is used throughout; migrating is a separate change
 	}
 }
 

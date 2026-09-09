@@ -39,7 +39,7 @@ func NewWekaPolicyController(mgr ctrl.Manager, restClient rest.Interface) *WekaP
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
 		RestClient: restClient,
-		Recorder:   mgr.GetEventRecorderFor("wekaPolicy-controller"),
+		Recorder:   mgr.GetEventRecorderFor("wekaPolicy-controller"), //nolint:staticcheck // old events API: record.EventRecorder is used throughout; migrating is a separate change
 	}
 }
 

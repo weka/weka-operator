@@ -89,7 +89,7 @@ func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, o
 		successCallback: successCallback,
 		failureCallback: failureCallback,
 		force:           force,
-		recorder:        mgr.GetEventRecorderFor("weka-sign-drives"),
+		recorder:        mgr.GetEventRecorderFor("weka-sign-drives"), //nolint:staticcheck // old events API: record.EventRecorder is used throughout; migrating is a separate change
 		apiReader:       mgr.GetAPIReader(),
 	}
 }

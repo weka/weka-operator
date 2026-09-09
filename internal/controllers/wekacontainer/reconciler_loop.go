@@ -40,7 +40,7 @@ func NewContainerReconcileLoop(r *ContainerController, restClient rest.Interface
 		MetricsService: metricsService,
 		ExecService:    execService,
 		Manager:        mgr,
-		Recorder:       mgr.GetEventRecorderFor("wekaContainer-controller"),
+		Recorder:       mgr.GetEventRecorderFor("wekaContainer-controller"), //nolint:staticcheck // old events API: record.EventRecorder is used throughout; migrating is a separate change
 		RestClient:     restClient,
 		ThrottlingMap:  r.ThrottlingMap,
 	}
