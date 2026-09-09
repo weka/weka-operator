@@ -29,7 +29,7 @@ func TestCPURequestCores(t *testing.T) {
 		// ExtraCores: dedicated_ht counts it once (numCores*2 + extra + 1); dedicated counts it once (numCores+extra+1)
 		{"s3 dedicated_ht 2 cores +1 extra", weka.WekaContainerSpec{Mode: weka.WekaContainerModeS3, NumCores: 2, ExtraCores: 1, CpuPolicy: weka.CpuPolicyDedicatedHT}, ht, 6},
 		{"s3 dedicated 2 cores +1 extra", weka.WekaContainerSpec{Mode: weka.WekaContainerModeS3, NumCores: 2, ExtraCores: 1, CpuPolicy: weka.CpuPolicyDedicated}, ht, 4},
-		// client also supports ExtraCores (SupportsExtraCores), same fold/de-doubling as data-core modes
+		// client also supports ExtraCores (HasWekaCoresMode), same fold/de-doubling as data-core modes
 		{"client dedicated_ht 16 cores +4 extra", weka.WekaContainerSpec{Mode: weka.WekaContainerModeClient, NumCores: 16, ExtraCores: 4, CpuPolicy: weka.CpuPolicyDedicatedHT}, ht, 37},
 		{"client dedicated 16 cores +4 extra", weka.WekaContainerSpec{Mode: weka.WekaContainerModeClient, NumCores: 16, ExtraCores: 4, CpuPolicy: weka.CpuPolicyDedicated}, ht, 21},
 		// client fullPcpusOnly odd rounding: dedicated 16+4extra+1=21 (odd) => bump to 22

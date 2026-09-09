@@ -690,8 +690,23 @@ func (w *WekaContainer) IsDriversBuilder() bool {
 	return slices.Contains([]string{WekaContainerModeDriversBuilder, WekaContainerModeDist}, w.Spec.Mode)
 }
 
+// IsBackendMode reports whether mode runs weka data or protocol cores.
+func IsBackendMode(mode string) bool {
+	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeSmbw, WekaContainerModeDataServices}, mode)
+}
+
+// HasWekaCoresMode reports whether mode's weka container owns cores: the backends plus client frontends.
+// Mirrors MODE_CORES_FLAG in weka_runtime.py.
+func HasWekaCoresMode(mode string) bool {
+	return IsBackendMode(mode) || mode == WekaContainerModeClient
+}
+
 func (w *WekaContainer) IsBackend() bool {
-	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeSmbw, WekaContainerModeDataServices}, w.Spec.Mode)
+	return IsBackendMode(w.Spec.Mode)
+}
+
+func (w *WekaContainer) HasWekaCores() bool {
+	return HasWekaCoresMode(w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsDiscoveryContainer() bool {
