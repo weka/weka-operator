@@ -383,6 +383,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Predicates: lifecycle.Predicates{
 				r.PodIsSet,
 				r.HasStatusNodeAffinity,
+				r.NodeIsReadyOrUnset,
 				// Skip for Running containers to avoid disrupting live workloads;
 				// the check fires naturally on the next restart/reconcile cycle.
 				func() bool { return r.container.Status.Status != weka.Running },
