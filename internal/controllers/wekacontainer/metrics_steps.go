@@ -36,6 +36,7 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
 				lifecycle.IsNotFunc(loop.PodNotSet),
+				loop.NodeIsReadyOrUnset,
 				func() bool {
 					return slices.Contains(
 						[]string{
@@ -60,6 +61,7 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 			Run:  loop.RegisterContainerOnMetrics,
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
+				loop.NodeIsReadyOrUnset,
 				func() bool {
 					return slices.Contains(
 						[]string{
