@@ -1,80 +1,25 @@
 # WekaCluster Controller
 
-Manages cluster-level resources and post-cluster operations.
+Creates WekaContainers, forms the cluster and coordinates credentials, upgrades,
+protocols and management access. Source: `internal/controllers/wekacluster/`.
 
-**Location**: `internal/controllers/wekacluster/`
+| File | Responsibility / symbols |
+|---|---|
+| `controller.go`, `reconciler_loop.go` | Watches and reconciliation flow |
+| `steps_cluster_creation.go` | `BuildMissingContainers`, count-based role creation |
+| `steps_planner_apply.go` | `plannerSizingMode`, `buildPlannerDriveContainers`, `applyPlannerDriveGrowth`, `applyPlannerComputeGrowth`, `updateContainerWithRetry` |
+| `funcs_fd_planning.go` | `planClusterCapacity`, `planAutoFullDrives` |
+| `planner_events.go` | Event reasons, severity and throttling: `plannerEventSpecs`, `emitPlannerEvent` |
+| `funcs_clusterization.go` | Cluster formation |
+| `funcs_credentials.go`, `funcs_helpers.go` | Credentials and helpers |
+| `funcs_upgrade.go` | Upgrade orchestration and per-role spec propagation in `HandleSpecUpdates` |
+| `funcs_nfs.go`, `funcs_s3.go` | NFS interface groups and S3 configuration |
+| `steps_post_cluster.go` | Post-creation operations, including `configureWekaHome` |
+| `steps_metrics.go`, `steps_deletion.go` | Monitoring setup and deletion |
+| `funcs_management_proxy.go`, `funcs_management_service.go` | Proxy resources and endpoint selection |
 
-## Main Files
+## Focused routes
 
-| File | Purpose |
-|------|---------|
-| `controller.go` | Controller setup, watches |
-| `reconciler_loop.go` | Main reconciliation loop |
-
-## Steps (steps_*.go)
-
-| File | Purpose |
-|------|---------|
-| `steps_cluster_creation.go` | Initial cluster creation; `BuildMissingContainers` + the count-based role path |
-| `steps_planner_apply.go` | Build/apply for both planner modes: `plannerSizingMode`, `buildPlannerDriveContainers`, `applyPlannerDriveGrowth`, `applyPlannerComputeGrowth`, `updateContainerWithRetry` |
-| `planner_events.go` | Planner event reasons/severities/throttling: `plannerEventSpecs`, `emitPlannerEvent` |
-| `steps_post_cluster.go` | Post-creation operations |
-| `steps_metrics.go` | Metrics/monitoring setup |
-| `steps_deletion.go` | Cluster deletion flow |
-
-## Functions (funcs_*.go)
-
-| File | Purpose |
-|------|---------|
-| `funcs_clusterization.go` | Cluster formation logic |
-| `funcs_fd_planning.go` | Capacity planning entry points: `planClusterCapacity`, `planAutoFullDrives` |
-| `funcs_credentials.go` | Secret/credential mgmt |
-| `funcs_helpers.go` | Utility functions |
-| `funcs_upgrade.go` | Upgrade orchestration; also propagates cluster spec (incl. `Numa`) to containers per-role in `HandleSpecUpdates` |
-| `funcs_nfs.go` | NFS interface-group config + teardown (EnsureNfs / ShouldDestroyNfs+DestroyNfs) |
-| `funcs_s3.go` | S3 configuration |
-| `funcs_management_proxy.go` | Envoy management proxy: ConfigMap + Deployment + Service + Ingress → [management-proxy.md](management-proxy.md) |
-| `funcs_management_service.go` | Management k8s service; endpoint selection → [management-proxy.md](management-proxy.md) |
-
-## Drive-container sizing modes
-
-Mode is derived from which `spec.dynamicTemplate` fields are set; `plannerSizingMode`
-(`steps_planner_apply.go`) is the single detection site.
-
-| Mode | Family | Planner | Notes |
-|------|--------|---------|-------|
-| explicit counts (`computeContainers`+`driveContainers`, +`numDrives`/`driveCores`) | exclusive | none (static template) | uniform shape, scheduler-placed |
-| `numDrives`+`driveCapacity` | drive-sharing | none (cores derived in `allocator.getDriveCores`) | TLC-only |
-| `containerCapacity` | drive-sharing | none (cores derived) | split by `driveTypesRatio` |
-| `clusterCapacity` | drive-sharing | `PlanCapacity` | whole-cluster target, FD-aware, grows |
-| **daemonset** (auto full drives) | exclusive | `PlanAutoFullDrives` | active iff counts + all 3 capacity fields unset (`UsesAutoFullDrives()`); 1 node-pinned container per node taking all its signed drives, expand-only |
-
-CEL both-or-neither: with no capacity field, `computeContainers`/`driveContainers` must be both set or both unset.
-
-Event reasons/severities/throttling: `planner_events.go` (`plannerEventSpecs` table).
-
-Core sizing formulas: `internal/capacityplanner/{cores,hugepages}.go` — drive/compute core arithmetic
-(`FullDriveCores`, `RequiredComputeCores`) and hugepages (`DriveContainerHugepagesMiB`,
-`ComputeContainerHugepagesMiB`).
-
-Explicit `dynamicTemplate` overrides (cores, hugepages) are enforced by admission validators, not
-auto-calculation.
-
-Validators (`internal/validation/`, severities in `internal/admission/defaults.go`):
-
-- `cluster_auto_full_drives_feasible` — runs FullDrivesInventory + PlanAutoFullDrives and reports
-  `plan.Infeasibility` (pins above signed drives, compute hugepages/cores that cannot be placed)
-- `cluster_auto_full_drives_min_nodes` — role selector matches fewer nodes than min container counts
-  (the drive leg is the one case the planner calls feasible: it hangs on MinContainersNotReady)
-- `cluster_sizing_mode_flip` — derived mode changed (UPDATE only) while drive containers exist
-- `cluster_compute_drive_cores_floor` / `cluster_drive_compute_core_ratio` — compute:drive core ratio floor/advisory
-- `cluster_cores_per_container_limit` — pinned cores above `maxCoresPerContainer`
-
-Docs: `doc/operator/deployment/act-as-daemonset.md`, `cluster-capacity.md`.
-
-## Key Interactions
-
-- Creates WekaContainer resources for cluster nodes
-- Manages cluster-wide secrets and credentials
-- Coordinates NFS/S3 protocol configuration
-- Exposes management via K8s services/ingress
+- [Capacity planning](wekacluster-drive-planning.md): shared apply path, inventory, pure planners and device allocation.
+- Sizing modes and constraints: [cluster capacity](../../doc/operator/deployment/cluster-capacity.md), [auto full drives](../../doc/operator/deployment/act-as-daemonset.md). `plannerSizingMode` detects the mode; [validation](../config/validation.md) owns admission rules.
+- [Management proxy](management-proxy.md): bootstrap versus endpoint updates, probes and host networking.
