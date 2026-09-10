@@ -27,8 +27,14 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 	execInContainer := discovery.SelectActiveContainer(r.containers)
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)
 
+	// the CLI generation determines the S3 payload schema
+	featureFlags, err := r.GetFeatureFlags(ctx)
+	if err != nil {
+		return err // Propagate error (including WaitError if ad-hoc container still running)
+	}
+
 	// check if s3 cluster already exists
-	s3Cluster, err := wekaService.GetS3Cluster(ctx)
+	s3Cluster, err := wekaService.GetS3Cluster(ctx, featureFlags)
 	if err != nil {
 		err = errors.Wrap(err, "Failed to get S3 cluster")
 		return err

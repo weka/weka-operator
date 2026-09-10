@@ -14,6 +14,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
 	"github.com/weka/weka-operator/pkg/util/podexec"
@@ -203,6 +204,27 @@ type S3Cluster struct {
 	Port         string   `json:"port"`
 	InternalPort string   `json:"internal_port"`
 	Filesystem   string   `json:"filesystem_name"`
+}
+
+// wekactl encodes the S3 ports as JSON numbers where the legacy python CLI encodes them as
+// strings, so GetS3Cluster reads this shape and normalizes it when
+// domain.FeatureFlags.WekactlAsDefault is set.
+type s3ClusterWekactl struct {
+	Active       bool     `json:"active"`
+	S3Hosts      []string `json:"s3_hosts"`
+	Port         int      `json:"port"`
+	InternalPort int      `json:"internal_port"`
+	Filesystem   string   `json:"filesystem_name"`
+}
+
+func (s *s3ClusterWekactl) normalize() *S3Cluster {
+	return &S3Cluster{
+		Active:       s.Active,
+		S3Hosts:      s.S3Hosts,
+		Port:         strconv.Itoa(s.Port),
+		InternalPort: strconv.Itoa(s.InternalPort),
+		Filesystem:   s.Filesystem,
+	}
 }
 
 type NFSParams struct {
@@ -475,7 +497,7 @@ type WekaService interface {
 	ConfigureNfs(ctx context.Context, nfsParams *NFSParams) error
 	DeleteNfsInterfaceGroup(ctx context.Context, interfaceGroupName string) error
 	EnsureNfsIpRanges(ctx context.Context, interfaceGroupName string, targetIpRanges []string) error
-	GetS3Cluster(ctx context.Context) (*S3Cluster, error)
+	GetS3Cluster(ctx context.Context, featureFlags *domain.FeatureFlags) (*S3Cluster, error)
 	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
 	ListS3ClusterContainers(ctx context.Context) ([]int, error)
 	DeleteS3Cluster(ctx context.Context) error
@@ -1835,10 +1857,24 @@ func (c *CliWekaService) ListLocalContainers(ctx context.Context) ([]WekaLocalCo
 	return containers, nil
 }
 
-func (c *CliWekaService) GetS3Cluster(ctx context.Context) (*S3Cluster, error) {
+func (c *CliWekaService) GetS3Cluster(ctx context.Context, featureFlags *domain.FeatureFlags) (*S3Cluster, error) {
 	// weka s3 cluster --json
 	cmd := []string{
 		"wekaauthcli", "s3", "cluster", "--json",
+	}
+
+	// Guessing the generation would silently pick the wrong port encoding, so require the flags.
+	if featureFlags == nil {
+		return nil, errors.New("feature flags are required to parse the S3 cluster payload")
+	}
+
+	if featureFlags.WekactlAsDefault {
+		var s3Cluster s3ClusterWekactl
+		err := c.RunJsonCmd(ctx, cmd, "GetS3Cluster", &s3Cluster)
+		if err != nil {
+			return nil, err
+		}
+		return s3Cluster.normalize(), nil
 	}
 
 	var s3Cluster S3Cluster
