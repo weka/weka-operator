@@ -1,24 +1,30 @@
-# Capacity accounting: intent vs reality (+ known defect)
+# Capacity accounting: intent and allocated drives
 
-Detail of [wekacluster-drive-planning.md](wekacluster-drive-planning.md). Code is source of truth.
+Detail of [capacity planning](wekacluster-drive-planning.md).
 
-## Intent vs reality (critical distinction)
+## Two capacity views
 
-- **Intent** = `Spec.ContainerCapacity × Spec.DriveTypesRatio` (via `GetTlcQlcCapacity` in
-  `wekacluster_types.go` ~325-333). This is what the planner's `curTlc/curQlc` currently sum from.
-- **Reality** = `Status.Allocations.VirtualDrives[].CapacityGiB` grouped by `.Type`.
-- `printer.capacity` "T/Q …" is derived from **intent** (the ratio), so it can advertise a drive type
-  that was never actually allocated.
+- **Intent**: `inventory.DriveContainerCapacities` in
+  `internal/capacityplanner/inventory/collect.go` derives TLC/QLC from
+  `Spec.ContainerCapacity` and `Spec.DriveTypesRatio` via `GetTlcQlcCapacity`
+  (with a legacy per-drive-capacity path).
+- **Allocated drives**: `Status.Allocations.VirtualDrives[].CapacityGiB`, grouped
+  by `.Type`; inspect `checkDriveResourceFeasibility` in
+  `internal/controllers/wekacontainer/funcs_drives.go`.
 
-## Known defect (branch `07-01-fix_consider_nodes...`, 2026-07-01)
+## Current caveat
 
-Planner reads TLC/QLC "current" from **intent**, not **reality**. If a TLC drive alloc fails (e.g. grow
-grafts a TLC slice, realloc errors "no TLC drives available", swallowed by `ContinueOnError:true`), the
-phantom TLC still counts as current → `curTlc==desiredTlc` → `steadyStatePlan` skips node inventory →
-cluster is silently short and never self-heals. Symptom: drive container `T/Q` capacity that's absent
-from `weka cluster drive`; container shows `VirtualDrivesAdded=True` with a single QLC vdrive and
-`processes N/N/N+1` (idle TLC core).
+`summarizeDriveContainers` and `steadyStatePlan` in
+`internal/controllers/wekacluster/funcs_fd_planning.go` sum `curTlc`/`curQlc` from
+spec-derived intent, not from allocated virtual drives. If a TLC drive allocation fails
+(realloc error swallowed by `ContinueOnError: true`), the phantom TLC still counts, so
+`curTlc == desiredTlc`, `steadyStatePlan` skips node inventory, and the cluster stays
+silently short of capacity; nothing retries, so it never self-heals.
 
-Fix direction: compute `curTlc/curQlc` from `Status.Allocations.VirtualDrives` (reuse
-`checkDriveResourceFeasibility`); revisit `ContinueOnError` on drive realloc; clamp per-node
-`TlcGiB+QlcGiB` to physical device capacity in planning.
+Symptom: a drive container advertises `T/Q` capacity that is absent from
+`weka cluster drive`, shows `VirtualDrivesAdded=True` with a single QLC vdrive, and has
+`processes N/N/N+1` (idle TLC core). Spec-derived capacity output alone does not prove
+allocation succeeded; compare it with virtual-drive status and Weka's drive list.
+
+Fix direction: derive `curTlc`/`curQlc` from `Status.Allocations.VirtualDrives` (reuse
+`checkDriveResourceFeasibility`) and revisit `ContinueOnError` on drive realloc.

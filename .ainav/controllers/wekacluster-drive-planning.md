@@ -1,43 +1,36 @@
-# WekaCluster Drive Capacity Planning
+# WekaCluster Capacity Planning
 
-Hub for the drive-capacity planner (cluster TLC/QLC targets → per-node drive containers → device
-allocation). Nav aid only — code is source of truth; line numbers are hints. Deep topics are split into
-the detail docs at the bottom.
+Maps whole-cluster drive targets and auto full drives to node-pinned containers.
+Code is the source of truth.
 
-## Flow (cluster → node → device)
+## Reconciliation path
 
-```
-WekaClusterReconcile
-  EnsureWekaContainers → BuildMissingContainers → buildPlannerDriveContainers  # steps_planner_apply.go
-    planClusterCapacity
-      steadyStatePlan          # fast path: if cur≈desired, "skipping node inventory"
-      buildNodeInventory       # per-node physical capacity from shared-drives annotation
-      allocator.PlanCapacity   # constrained pool first (pool ordering), then planPool → {FreshUniform | UniformIncrease | Explicit}
-  steps_cluster_creation: create/grow drive containers (writes ContainerCapacity + DriveTypesRatio)
-  wekacontainer AllocateSharedDrives → allocator.allocateSharedDrivesByCapacityWithTypes
-    → Status.Allocations.VirtualDrives (the ACTUAL drives)
-```
+`BuildMissingContainers` → `buildPlannerDriveContainers` → `planClusterCapacity`
+or `planAutoFullDrives` → inventory collection → `capacityplanner.PlanCapacity`
+or `capacityplanner.PlanAutoFullDrives` → create/grow containers.
 
-## Key files & functions
+For clusterCapacity, `steadyStatePlan` can skip inventory when existing capacity
+covers the target and compute needs no growth; see the accounting caveat below.
+Device allocation then populates `Status.Allocations.VirtualDrives`.
 
-| Concern | File | Symbols (approx line) |
-|---|---|---|
-| Steady-state / cluster plan | `internal/controllers/wekacluster/funcs_fd_planning.go` | `planClusterCapacity` (orchestrator), `steadyStatePlan`, `summarizeDriveContainers`; node inventory + existing views now come from `inventory.Collector` (below) |
-| Node inventory + existing views | `internal/capacityplanner/inventory/collect.go` | `Collector.NodeInventory`/`Collect`/`ExploreNodes`, `ExistingDrives`/`ExistingCompute`, `aggregateContainerResources`, `DriveContainerCapacities`, `nodeCPUTopology` (HT/full-pcpus from `weka.io/discovery.json`) |
-| Physical CPU model (data cores → pod CPU) | `internal/capacityplanner/cpu.go` | `CPURequestCores`/`cpuModel`/`NodeCPUTopology` — SINGLE SOURCE OF TRUTH mirroring `resources/pod.go setResources`; `dedicated_ht` = `numCores*2+1`. `NodeCapacity.AllocatableCPU`/`nodeState.coresFree` are PHYSICAL CPU; `driveCPUCost`/`computeCPUCost` convert at charge sites. `pod.go` and `funcs_fd_planning.go` (sets `cons.Drive/ComputeCpuPolicy`) both feed it |
-| Create/grow drive containers | `internal/controllers/wekacluster/steps_planner_apply.go` | `buildPlannerDriveContainers`, `applyPlannerDriveGrowth`, `applyPlannerComputeGrowth` — SHARED by clusterCapacity and daemonset; the two differ only at inline `switch mode` points |
-| Per-FD sizing & pool math | `internal/capacityplanner/planner.go` | `planPoolUniformIncrease`, `maxPerFdCap = desiredRaw/minFd`; `RatioFromCaps` in `internal/capacityplanner/ratio.go` |
-| Fresh greenfield placement | `internal/capacityplanner/planner.go` | `planPoolFreshUniform` → `selectUniform` → `pickPreferringColocated` |
-| Infeasibility report + fix tips | `internal/capacityplanner/infeasibility.go` | `InfeasibilityReport`, `setInfeasible`, per-cause `fixes*` catalog (reused by the `ClusterCapacityInfeasible` event + the weka-capacity CLI) |
-| Device allocation | `internal/.../allocator/container_allocator.go` | `allocateSharedDrivesByCapacityWithTypes` (~550), `buildDriveCapacityMap` (~477-515), per-type maps (~679-691), no-TLC error (~680-682), VD CapacityGiB (~894-900) |
-| Device typing (QLC/TLC) | `allocator/node_info.go` (~70-91), `internal/pkg/domain/drives.go` (~87-92) | from node annotation `weka.io/weka-shared-drives` |
-| Re-alloc trigger | `internal/controllers/wekacontainer/funcs_getters.go` | `NeedsDrivesToAllocate` (~218-221) — capacity-based |
-| Actual-drive capacity (correct view) | `internal/controllers/wekacontainer/funcs_drives.go` | `checkDriveResourceFeasibility` (~76-83) sums `Status.Allocations.VirtualDrives` by type |
+## Source map
 
-## Detail docs (split out to stay navigable)
+| Source | Entry points |
+|---|---|
+| `internal/controllers/wekacluster/funcs_fd_planning.go` | Planning orchestration, `steadyStatePlan`, `summarizeDriveContainers` |
+| `internal/controllers/wekacluster/steps_planner_apply.go` | Mode detection, shared drive/compute create and growth paths |
+| `internal/capacityplanner/inventory/collect.go` | `Collector`, `NodeInventory`, `FullDrivesInventory`, `ExistingDrives`, `ExistingCompute`, `DriveContainerCapacities` |
+| `internal/capacityplanner/planner.go`, `autofulldrives.go` | `PlanCapacity`, `PlanAutoFullDrives` |
+| `internal/capacityplanner/cpu.go`, `cores.go`, `hugepages.go` | `CPURequestCores`, `RequiredComputeCores`, pod-resource formulas |
+| `internal/capacityplanner/infeasibility.go` | `InfeasibilityReport`, diagnostic fixes reused by events and CLI |
+| `internal/controllers/allocator/container_allocator.go` | `allocateSharedDrivesByCapacityWithTypes`, `buildDriveCapacityMap` |
+| `internal/controllers/wekacontainer/funcs_getters.go`, `funcs_drives.go` | `NeedsDrivesToAllocate`, `checkDriveResourceFeasibility` |
+| `cmd/weka-capacity/` | Inventory exploration and dry-run planning CLI |
 
-- [wekacluster-drive-colocation.md](wekacluster-drive-colocation.md) — TLC+QLC co-location + the
-  **INVARIANT** (no in-place add to an existing container unless `enableDynamicDriveScalingForSharedDrives`).
-- [wekacluster-drive-sizing.md](wekacluster-drive-sizing.md) — increase-path new-FD sizing (FEWEST FDs).
-- [wekacluster-drive-capacity-accounting.md](wekacluster-drive-capacity-accounting.md) — intent-vs-reality
-  + known accounting defect.
+## Details
+
+- [TLC/QLC co-location and in-place growth](wekacluster-drive-colocation.md).
+- [Increase-path sizing](wekacluster-drive-sizing.md).
+- [Capacity accounting caveat](wekacluster-drive-capacity-accounting.md).
+- Deployment modes and constraints: [cluster capacity](../../doc/operator/deployment/cluster-capacity.md), [auto full drives](../../doc/operator/deployment/act-as-daemonset.md).
+- [Validation](../config/validation.md) and [cluster reconciliation](wekacluster.md).

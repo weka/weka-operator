@@ -14,8 +14,5 @@ place at first feasible:
   `freshCountAtLeast` node scarcity.
 
 Deleting N FDs recreates as FEW as the per-FD ceiling allows, not N+ — e.g. delete 3×700
-(delta 2314 > maxPerFdCap 2239) → 2×1157. REPLACED the old even-split/uniform preference (count
-anchored on `CeilDiv(delta, T0)`); several increase-path tests now expect fewer/larger FDs
-(`Test_Grow_PartialInPlace…` 5×18→3×30, `…ExistingFewerThanMinFd…` 6×45→5×54,
-`…DynamicScalingDisabled…` 6×30→4×45). Grow (Step 5) is the fallback when no create-new `k` fits
+(delta 2314 > maxPerFdCap 2239) → 2×1157. Grow (Step 5) is the fallback when no create-new `k` fits
 (and only when `AllowInPlaceGrowth` — see the invariant in the co-location doc).

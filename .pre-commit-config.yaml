@@ -9,6 +9,14 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
+      - id: check-ainav
+        name: check-ainav
+        entry: python3 scripts/check-ainav.py
+        language: system
+        files: ^\.ainav/.*\.md$
+        pass_filenames: false
+        stages: [pre-commit]
+
   - repo: https://github.com/crate-ci/typos
     rev: v1.44.0
     hooks:

@@ -6,6 +6,7 @@ Entry point for AI navigation. Max 3 hops to any information.
 
 | Area | Entry File | When to Use |
 |------|-----------|-------------|
+| Capacity planning | [controllers/wekacluster-drive-planning.md](controllers/wekacluster-drive-planning.md) | Planner source map, co-location, sizing and accounting |
 | Controllers | [controllers/index.md](controllers/index.md) | Reconciliation logic, lifecycle management |
 | Operations | [operations/index.md](operations/index.md) | Manual ops, policies, CSI, drivers |
 | Config | [config/index.md](config/index.md) | Helm values, env vars, API types |
@@ -17,15 +18,8 @@ Entry point for AI navigation. Max 3 hops to any information.
 
 ```
 cmd/manager/main.go          # Operator entry point
-cmd/weka-capacity/           # Dry-run capacity-planner CLI (explore-nodes, plan);
-                             #   exec via opt-in toolbox pod (Helm deployCapacityPlanner=true) or run locally
-internal/capacityplanner/    # PURE planner: PlanCapacity + constraints + InfeasibilityReport/fix tips
-  compute_layout.go          # deriveComputeLayout + fit/ordering primitives shared by both planners
-  cores.go                   # drive/compute core arithmetic (FullDriveCores, RequiredComputeCores, ...)
-  hugepages.go               # hugepages formulas: DriveContainerHugepagesMiB, ComputeContainerHugepagesMiB
-  nodecapacity.go            # NodeCapacity + per-node CPU helpers
-  autofulldrives*.go         # PlanAutoFullDrives: daemonset (exclusive full-drives) planner
-  inventory/                 # k8s inventory collector; NodeInventory (clusterCapacity) vs FullDrivesInventory (daemonset)
+cmd/weka-capacity/           # Inventory exploration and dry-run planning CLI
+internal/capacityplanner/    # Pure capacity planners and Kubernetes inventory collection
 internal/controllers/        # All reconciliation logic
   wekacluster/              # Cluster lifecycle
   wekacontainer/            # Container lifecycle (MOST ACTIVE)
