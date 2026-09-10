@@ -2542,8 +2542,8 @@ async def create_container():
         NETWORK_DEVICE = ",".join(d['device'] for d in devices_info)
 
     if not NETWORK_DEVICE and SUBNETS:
-        devices = await get_devices_by_subnets(SUBNETS)
-        NETWORK_DEVICE = ",".join(devices)
+        device_subnet_pairs = await get_devices_by_subnets(SUBNETS)
+        NETWORK_DEVICE = ",".join(device for device, _ in device_subnet_pairs)
 
     if should_allocate_vf_per_ionode():
         devices = [dev.replace("vf_", "") for dev in NETWORK_DEVICE.split(",")]
@@ -2869,7 +2869,7 @@ async def reconcile_net_devices() -> bool:
         target_devices = set(d['device'] for d in devices_info)
         device_flags = {d['device']: d for d in devices_info}
     if SUBNETS:
-        target_devices = set(await get_devices_by_subnets(SUBNETS))
+        target_devices = set(device for device, _ in await get_devices_by_subnets(SUBNETS))
 
     resources = await get_weka_local_resources()
     net_device_names = set(dev['device'] for dev in resources['net_devices'])
@@ -4064,12 +4064,18 @@ async def wait_for_resources():
     await save_weka_ports_data()
 
 
-async def get_single_device_ip(device_name: str = "default") -> str:
+async def get_single_device_ip(device_name: str = "default", subnet: Optional[str] = None) -> str:
     if device_name == "default":
         if IS_IPV6:
             cmd = "ip -6 addr show $(ip -6 route show default | awk '{print $5}' | head -n1) | grep 'inet6 ' | grep global | awk '{print $2}' | cut -d/ -f1"
         else:
             cmd = "ip route show default | grep src | awk '/default/ {print $9}' | head -n1"
+    elif subnet:
+        # a device usually carries several addresses; only the one in the subnet it was
+        # selected by is meaningful, so it cannot be picked by position.
+        # parse before interpolating: subnet is unvalidated spec input going into a shell
+        network = ipaddress.ip_network(subnet, strict=False)
+        cmd = f"ip -o addr show dev {device_name} to {network} | head -n1 | awk '{{print $4}}' | cut -d/ -f1"
     else:
         if IS_IPV6:
             # use ULA/GUA address for ipv6 (WEKA does not support link-local addresses)
@@ -4097,9 +4103,9 @@ async def get_single_device_ip(device_name: str = "default") -> str:
     return ip
 
 
-async def get_devices_waiting_for_all_subnets_to_have_device(subnets: List[str], timeout: int = 300) -> List[str]:
+async def get_devices_waiting_for_all_subnets_to_have_device(subnets: List[str], timeout: int = 300) -> List[Tuple[str, str]]:
     """Waits for all subnets to have at least one device.
-    Returns a list of devices found in all subnets.
+    Returns a list of (device, subnet) pairs found in all subnets.
     Raises an exception if any subnet does not have a device after the timeout.
     """
     start_time = time.time()
@@ -4113,7 +4119,7 @@ async def get_devices_waiting_for_all_subnets_to_have_device(subnets: List[str],
                 logging.info(f"No devices found for subnet {subnet}, waiting...")
                 break
             else:
-                devices.extend(devices_for_subnet)
+                devices.extend((device, subnet) for device in devices_for_subnet)
 
         if all_devices_found:
             logging.info("All subnets have devices. Subnets: %s, Devices: %s", subnets, devices)
@@ -4159,7 +4165,7 @@ async def filter_out_missing_devices(device_names: List[str], rdma_only: bool = 
     return available_devices
 
 
-async def get_devices_by_subnets(subnets_str: str) -> List[str]:
+async def get_devices_by_subnets(subnets_str: str) -> List[Tuple[str, str]]:
     subnets = subnets_str.split(",")
     if not subnets:
         raise ValueError("No subnets provided or format is incorrect. Expected comma-separated list of subnets.")
@@ -4190,7 +4196,7 @@ async def get_devices_by_selectors(selectors_str: str) -> List[dict]:
             for device_name in device_names:
                 if device_name not in seen_devices:
                     seen_devices.add(device_name)
-                    devices.append({"device": device_name, "rdma_only": rdma_only, "disable_rdma": disable_rdma})
+                    devices.append({"device": device_name, "subnet": None, "rdma_only": rdma_only, "disable_rdma": disable_rdma})
 
             continue
 
@@ -4204,10 +4210,10 @@ async def get_devices_by_selectors(selectors_str: str) -> List[dict]:
         if max_devices > 0:
             subnet_devices = subnet_devices[:max_devices]
 
-        for device in subnet_devices:
+        for device, _ in subnet_devices:
             if device not in seen_devices:
                 seen_devices.add(device)
-                devices.append({"device": device, "rdma_only": rdma_only, "disable_rdma": disable_rdma})
+                devices.append({"device": device, "subnet": subnet, "rdma_only": rdma_only, "disable_rdma": disable_rdma})
 
     logging.info(f"Devices found by selectors: {devices}")
 
@@ -4226,21 +4232,21 @@ async def write_management_ips():
     elif MANAGEMENT_IPS_SELECTORS:
         devices_info = await get_devices_by_selectors(MANAGEMENT_IPS_SELECTORS)
         for d in devices_info:
-            ip = await get_single_device_ip(d['device'])
+            ip = await get_single_device_ip(d['device'], d.get('subnet'))
             ipAddresses.append(ip)
     elif not NETWORK_DEVICE and NETWORK_SELECTORS:
         all_devices = await get_devices_by_selectors(NETWORK_SELECTORS)
-        devices = [d['device'] for d in all_devices if not d.get('rdma_only')]
+        devices = [d for d in all_devices if not d.get('rdma_only')]
         if not devices:
             raise Exception("No non-rdma-only devices available for management IPs; "
                             "configure managementIpsSelectors separately")
-        for device in devices:
-            ip = await get_single_device_ip(device)
+        for d in devices:
+            ip = await get_single_device_ip(d['device'], d.get('subnet'))
             ipAddresses.append(ip)
     elif not NETWORK_DEVICE and SUBNETS:
-        devices = await get_devices_by_subnets(SUBNETS)
-        for device in devices:
-            ip = await get_single_device_ip(device)
+        device_subnet_pairs = await get_devices_by_subnets(SUBNETS)
+        for device, subnet in device_subnet_pairs:
+            ip = await get_single_device_ip(device, subnet)
             ipAddresses.append(ip)
     # default udp mode (if network device is not set explicitly)
     elif is_udp():
