@@ -3212,11 +3212,25 @@ async def configure_persistency():
             mount --make-rshared /opt/weka/external-mounts/shared-netns
         fi
 
-        if [ -f /var/run/secrets/weka-operator/wekahome-cacert/cert.pem ]; then
+        if [ -d /var/run/secrets/weka-operator/wekahome-cacert ]; then
             rm -rf /opt/weka/k8s-runtime/vars/wh-cacert
             mkdir -p /opt/weka/k8s-runtime/vars/wh-cacert/
-            cp /var/run/secrets/weka-operator/wekahome-cacert/cert.pem /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
-            chmod 400 /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
+            # Secret data-key names are arbitrary, so concatenate every mounted PEM rather
+            # than assuming one is named cert.pem (the glob skips the ..data/..2025_* dotfiles).
+            for f in /var/run/secrets/weka-operator/wekahome-cacert/*; do
+                [ -f "$f" ] || continue
+                cat "$f" >> /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
+                echo "" >> /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
+            done
+            # Test for actual PEM content, not file size: the separator above writes a newline
+            # per key, so a secret holding only empty or non-PEM values still yields a non-empty
+            # file. An explicit CA replaces the system trust store, so pointing
+            # weka_cloud_ca_cert_path at a certificate-less file breaks Weka Home silently.
+            if grep -q "BEGIN CERTIFICATE" /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem 2>/dev/null; then
+                chmod 400 /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
+            else
+                rm -rf /opt/weka/k8s-runtime/vars/wh-cacert
+            fi
         fi
 
         if [ -d /host-binds/shared-configs ]; then

@@ -10,6 +10,7 @@ Entry point for AI navigation. Max 3 hops to any information.
 | Controllers | [controllers/index.md](controllers/index.md) | Reconciliation logic, lifecycle management |
 | Operations | [operations/index.md](operations/index.md) | Manual ops, policies, CSI, drivers |
 | Config | [config/index.md](config/index.md) | Helm values, env vars, API types |
+| Validation | [config/validation.md](config/validation.md) | Admission validators, severity defaults |
 | Services | [services/index.md](services/index.md) | Weka API, K8s utils, node agent |
 | Examples | [examples/index.md](examples/index.md) | YAML examples for clusters, clients, policies |
 | **Tasks** | [tasks.md](tasks.md) | How to add/modify features |

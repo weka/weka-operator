@@ -19,6 +19,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/controllers/upgrade"
 	"github.com/weka/weka-operator/internal/controllers/utils"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
@@ -100,6 +102,15 @@ type UpdatableClusterSpec struct {
 	NfsHugepages              allocator.ContainerHugepages
 	DataServicesHugepages     allocator.ContainerHugepages
 	SmbwHugepages             allocator.ContainerHugepages
+	// ExtraVolumes is stored normalized (see resources.NormalizeExtraVolumes) so its bytes agree
+	// with ExtraVolumesDigest, which HandleSpecUpdates compares against instead of the struct.
+	ExtraVolumes            *runtime.RawExtension
+	ExtraVolumesDigest      string
+	ExtraVolumeMounts       []v1.VolumeMount
+	ExtraVolumeMountsDigest string
+	// WekaHomeCacertSecret is the resolved cacert secret (spec, else operator default) so a
+	// rotation reaches running containers; the factory only sets it on container create.
+	WekaHomeCacertSecret string
 }
 
 // forRole returns the role-specific values for a given container mode.
@@ -210,6 +221,11 @@ func NewUpdatableClusterSpec(ctx context.Context, k8sClient client.Client, spec 
 		RoleNetworkSelector:       spec.RoleNetworkSelector,
 		PvcConfig:                 resources.GetPvcConfig(spec.GlobalPVC),
 		TracesConfiguration:       spec.TracesConfiguration,
+		ExtraVolumes:              resources.NormalizeExtraVolumes(clusterForHp.GetRawExtraVolumes()),
+		ExtraVolumesDigest:        resources.ExtraVolumesDigest(clusterForHp.GetRawExtraVolumes()),
+		ExtraVolumeMounts:         clusterForHp.GetExtraVolumeMounts(),
+		ExtraVolumeMountsDigest:   resources.ExtraVolumeMountsDigest(clusterForHp.GetExtraVolumeMounts()),
+		WekaHomeCacertSecret:      domain.GetWekaHomeClusterCacertSecret(clusterForHp),
 		RoleCoreIds:               spec.RoleCoreIds,
 		RoleNonDatapathCoreIds:    spec.RoleNonDatapathCoreIds,
 		CpuPolicy:                 spec.CpuPolicy,
@@ -359,6 +375,20 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		if container.Spec.TracesConfiguration != updatableSpec.TracesConfiguration {
 			container.Spec.TracesConfiguration = updatableSpec.TracesConfiguration
+		}
+
+		// Compare digests, not the structs: HashStruct's gob encoding cannot see into a
+		// RawExtension's parsed contents, and gob refuses the maps a CSI volume reaches via
+		// volumeAttributes. DeepCopy and slices.Clone are nil-safe, so unset stays unset.
+		if resources.ExtraVolumesDigest(container.Spec.ExtraVolumes) != updatableSpec.ExtraVolumesDigest {
+			container.Spec.ExtraVolumes = updatableSpec.ExtraVolumes.DeepCopy()
+		}
+		if resources.ExtraVolumeMountsDigest(container.Spec.ExtraVolumeMounts) != updatableSpec.ExtraVolumeMountsDigest {
+			container.Spec.ExtraVolumeMounts = slices.Clone(updatableSpec.ExtraVolumeMounts)
+		}
+
+		if container.Spec.AdditionalSecrets["wekahome-cacert"] != updatableSpec.WekaHomeCacertSecret {
+			container.Spec.AdditionalSecrets = domain.WekaHomeAdditionalSecrets(updatableSpec.WekaHomeCacertSecret)
 		}
 
 		if container.IsDriveContainer() {

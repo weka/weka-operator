@@ -52,7 +52,7 @@ func TestUpdateContainerIfChanged_Numa(t *testing.T) {
 	ctx := context.Background()
 
 	// No numa set: container must stay nil after settle.
-	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient)); err != nil {
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
 		t.Fatalf("initial settle failed: %v", err)
 	}
 	if container.Spec.Numa != nil {
@@ -65,7 +65,7 @@ func TestUpdateContainerIfChanged_Numa(t *testing.T) {
 		Region: &region1,
 		Method: weka.WekaNumaMethodDevicePlugin,
 	}
-	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient)); err != nil {
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
 		t.Fatalf("set numa failed: %v", err)
 	}
 	if container.Spec.Numa == nil || !container.Spec.Numa.Single || container.Spec.Numa.Region == nil ||
@@ -75,7 +75,7 @@ func TestUpdateContainerIfChanged_Numa(t *testing.T) {
 
 	// Clear numa: must also propagate back to nil.
 	wekaClient.Spec.Numa = nil
-	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient)); err != nil {
+	if err := c.updateContainerIfChanged(ctx, container, NewUpdatableClientSpec(wekaClient, c.targetCluster)); err != nil {
 		t.Fatalf("clear numa failed: %v", err)
 	}
 	if container.Spec.Numa != nil {

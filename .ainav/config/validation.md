@@ -22,3 +22,7 @@ is used in `FormCluster` so validation and formation agree.
 Pod syntax rules live in `*_podspec_syntax.go` and shared `podspec_syntax.go`.
 Auto-full-drives feasibility, minimum nodes, sizing-mode transitions and core limits
 are mapped in `registry.go`; sizing terminology and ownership belong in `doc.go`.
+
+Extra-volumes validators (`extra_volumes.go` shared core + `cluster_extra_volumes.go` /
+`client_extra_volumes.go`) reject reserved names/paths and malformed `extraVolumes` JSON;
+`client_wekahome_cacert_unverifiable.go` warns when a Weka Home CA cert cannot be verified.
