@@ -59,6 +59,10 @@
     </file>
 
     <!-- Operator Networking -->
+    <file relpath="operator/networking/management-proxy.md">
+        <tags>management proxy, Envoy, EDS, endpoint selection, hostNetwork, readiness, health checks</tags>
+        <summary>Management proxy configuration and endpoint reload behavior, rollout strategy, host-port placement constraints, health-check thresholds and admin probe troubleshooting.</summary>
+    </file>
     <file relpath="operator/networking/network-configuration.md">
         <tags>network, deviceSubnets, ethDevice, ethDevices, udpMode, physical environment, cloud</tags>
         <summary>Networking configuration options for Weka clusters, detailing physical environment requirements, device selection methods, subnet configuration, UDP mode settings, and best practices for different deployment environments.</summary>

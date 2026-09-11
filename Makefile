@@ -139,7 +139,11 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: lint
-lint: lint-go lint-deadcode ## Run all linters (golangci-lint and deadcode).
+lint: check-ainav lint-go lint-deadcode ## Run navigation checks, golangci-lint, and deadcode.
+
+.PHONY: check-ainav
+check-ainav: ## Check navigation Markdown file size limits.
+	python3 scripts/check-ainav.py
 
 .PHONY: lint-go
 lint-go: ## Run golangci-lint against code.

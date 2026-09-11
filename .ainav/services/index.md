@@ -1,124 +1,23 @@
 # Services Navigation
 
-Weka API clients, Kubernetes utilities, and node agent.
+API clients, Kubernetes helpers, node-local services and shared domain types.
 
-## Weka API Client
+| Area | Source | Responsibility |
+|---|---|---|
+| Weka API | `internal/services/weka.go` | Cluster/container/drive operations and protocol configuration |
+| Weka helpers | `internal/services/weka_cluster.go`, `weka_container.go`, `cluster_join_ips.go`, `secrets.go` | Cluster and container operations, join addresses, credentials |
+| Kubernetes | `internal/services/kubernetes/` | `kubernetes.go`, `affinities.go`, `metricsservice.go` |
+| Pod execution | `internal/services/exec/` | Exec into pods |
+| Discovery | `internal/services/discovery/` | Service discovery and container operational checks |
+| SSD proxy | `internal/services/ssdproxy/` | Node-agent JSONRPC client for physical/virtual drives and node-agent pod/token lookup |
+| Node agent | `internal/node_agent/node_agent.go` | Drive discovery (`/findDrives`), local operations and JRPC forwarding |
+| Node metrics | `internal/node_agent/scrapper.go` | Metrics scraping |
+| NUMA device plugin | `internal/node_agent/deviceplugin/` | Discovery, kubelet plugin server and restart-aware registration; `NODE_AGENT_DEVICE_PLUGIN_ENABLED` |
+| Weka Home reporter | `internal/reporter/` | [Snapshot collection, identity and transport](reporter.md) |
+| Domain types | `internal/pkg/domain/` | `resources.go`, `allocations.go`, `auth.go`, `wekahome.go`, `api_extension.go`, `consts.go`, `hashes.go` |
+| Utilities | `pkg/util/` | Files, hashes, collections, IPs, tolerations, HTTP helpers; `kubernetes.go` event recording |
+| Shared constants | `internal/consts/` | `consts.go`: finalizers, drive annotations, extended resource names; `event_actions.go`: per-controller event action names |
+| Optional cluster API | `internal/rest_api/` | `router.go`, `cluster.go`, `password.go`; enabled with `ENABLE_CLUSTER_API` |
 
-**Path**: `internal/services/weka.go`
-
-Main interface to Weka cluster API:
-- Container management (add, remove, deactivate)
-- Drive operations
-- S3 operations
-- NFS configuration
-- Cluster status queries
-
-Related files:
-- `weka_cluster.go` - Cluster-specific operations
-- `weka_container.go` - Container-specific operations
-- `cluster_join_ips.go` - Join IP management
-- `secrets.go` - Credential handling
-
-## Kubernetes Utilities
-
-**Path**: `internal/services/kubernetes/`
-
-| File | Purpose |
-|------|---------|
-| `kubernetes.go` | Core K8s operations |
-| `affinities.go` | Affinity management |
-| `metricsservice.go` | Metrics service setup |
-
-**Path**: `internal/services/exec/`
-- Pod exec operations
-
-**Path**: `internal/services/discovery/`
-- Service discovery logic
-
-**Path**: `internal/services/ssdproxy/`
-- Reusable node-agent JSONRPC client for ssdproxy virtual drives (list physical/virtual drives, remove VID) + node-agent pod/token lookup.
-
-## Node Agent
-
-**Path**: `internal/node_agent/node_agent.go`
-
-HTTP server running on each node (via daemonset or pod):
-- Drive discovery endpoint (`/findDrives`)
-- Metrics scraping
-- Local operations execution
-- JRPC call forwarding
-
-Related:
-- `scrapper.go` - Metrics scraping logic
-- `deviceplugin/` - Kubelet device plugin (gRPC) advertising each NUMA region as extended resource `weka.io/numa-region-<N>`; discovery, plugin server, and restart-aware registration manager. Off by default (`NODE_AGENT_DEVICE_PLUGIN_ENABLED`).
-
-## Weka Home CR Reporter
-
-**Path**: `internal/reporter/`
-
-Periodically snapshots operator-managed objects (5 weka CRs, operator Deployment,
-DaemonSets, Pods, Node projection) to Weka Home as gzipped kind-tagged NDJSON
-(`POST /api/v4/operator/deployments/{id}/snapshot`). Enabled via
-`wekahome.reporter.enabled` (default on); identity = keypair+GUID Secret, RS256 SRT JWT.
-
-| File | Purpose |
-|------|---------|
-| `reporter.go` | Report loop, registration latch, `buildSnapshot` |
-| `collector.go` | CR-kind registry + Deployment/DaemonSet/Pod collectors |
-| `collector_nodes.go` | Node projection (weka.io-scoped labels/annotations) |
-| `collector_events.go` | Events List (uncached reader) + per-object `_events` index |
-| `serializer.go` | NDJSON envelope, strip, `_events` graft |
-| `identity.go` | Deployment identity + registration |
-| `transport.go` | TLS/proxy-aware HTTP client, gzipped send |
-
-Each object's JSON embeds its kubectl-describe Events section as a synthetic
-top-level `_events` array (all types, describe-like projection, sorted by last-seen).
-
-## Domain Types
-
-**Path**: `internal/pkg/domain/`
-
-| File | Contains |
-|------|---------|
-| `resources.go` | Resource allocation types |
-| `allocations.go` | Allocation structures |
-| `consts.go` | Domain constants |
-| `hashes.go` | Hash utilities |
-| `auth.go` | Auth types |
-| `wekahome.go` | Weka home integration |
-| `api_extension.go` | API extensions |
-
-## Utility Packages
-
-**Path**: `pkg/util/`
-
-General utilities: files, hashes, maps, slices, kubernetes helpers,
-IP handling, tolerations, HTTP client, etc.
-
-## Service Patterns
-
-- Weka API client wraps HTTP calls to Weka cluster
-- Node agent provides per-node HTTP endpoints
-- K8s utilities abstract controller-runtime operations
-- Domain types define shared data structures
-
-## Constants Package
-
-**Path**: `internal/consts/consts.go`
-
-Shared constants used across controllers:
-- `WekaFinalizer` - Kubernetes finalizer for Weka resources
-- Node annotations for drive management (WekaDrives, BlockedDrives, SharedDrives, DriveTypeOverrides)
-- Extended resource names (ResourceDrives, ResourceSharedDrivesCapacity)
-
-## REST API Server (Optional)
-
-**Path**: `internal/rest_api/`
-
-Optional HTTP API server for cluster operations (port 8082). Enabled via `ENABLE_CLUSTER_API` env var.
-
-| File | Purpose |
-|------|---------|
-| `router.go` | API server setup, route registration |
-| `cluster.go` | Cluster CRUD operations |
-| `password.go` | Password update endpoint |
+For callers, start with [controllers](../controllers/index.md) or
+[operations](../operations/index.md). Configuration lives in [config](../config/index.md).

@@ -1,86 +1,22 @@
 # Configuration Navigation
 
-Environment variables, Helm values, and API types.
+Use this map for operator settings, deployment templates and CRD definitions.
 
-## Environment Configuration
+| Area | Source | Detail |
+|---|---|---|
+| Environment and defaults | `internal/config/env.go` | Operator identity, images, feature flags, timeouts, observability and proxy settings |
+| Helm defaults | `charts/weka-operator/values.yaml` | User-facing configuration |
+| Environment wiring | `charts/weka-operator/templates/manager.yaml` | Operator deployment |
+| RBAC and priorities | `charts/weka-operator/templates/role.yaml`, `priority_classes.yaml` | Permissions and scheduling |
+| Runtime scripts | `charts/weka-operator/resources/` | `weka_runtime.py`, `run-weka-cli.sh` |
+| CRD types | `pkg/weka-k8s-api/api/v1alpha1/` | Cluster, container, client, policy and manual-operation specs/status |
+| Admission | [validation.md](validation.md) | Rule registry, shared helpers and severity defaults |
 
-**Path**: `internal/config/env.go`
+## Focused routes
 
-All operator configuration via environment variables.
-Set in Helm chart: `charts/weka-operator/templates/manager.yaml`
+- Capacity constraints: `CapacityPlannerConfig` is shared by both planners; `ClusterCapacityConfig` applies to clusterCapacity. `allocator.CapacityConstraintsFromConfig` wires them to the planner. See the [Helm constraints table](../../doc/operator/deployment/cluster-capacity.md) and [planner map](../controllers/wekacluster-drive-planning.md). `capacityPlannerConstraints` configures the algorithm; `capacityPlanner` configures the optional toolbox pod.
+- Pod security: `internal/controllers/resources/security_context.go` (`ApplySecurityProfile`, `mergePodSecurityContext`) applies `WEKA_POD_SECURITY_CONTEXT` / Helm `podSecurityContext`. Only supported fields are merged; inspect the helper before adding a field.
+- Management proxy: [management-proxy.md](../controllers/management-proxy.md).
+- Generated API reference: `doc/api_dump/` (do not edit); shared conditions live in `pkg/weka-k8s-api/api/v1alpha1/condition/conditions.go`.
 
-Key config categories:
-- Operator identity (namespace, pod UID, deployment name)
-- Image references (operator, CSI, drivers, node-agent)
-- Feature flags and timeouts
-- OTEL/observability settings
-- Priority class names
-- Proxy settings (HTTP/HTTPS)
-- Port allocation settings (starting port for cluster port ranges)
-- `ClusterCapacityConfig` — clusterCapacity-only pod-resource constraints (`TlcCapacityPerCoreGiB`, `QlcCapacityPerCoreGiB`, `ImbalanceFactor`); Helm names in `cluster-capacity.md` Helm constraints table. `Config.UnschedulablePlannerContainerGCTimeout` gates GC of long-unscheduled drive and compute containers; env var name (`UNSCHEDULABLE_DRIVE_CONTAINER_GC_TIMEOUT`) kept for backward compatibility.
-- `CapacityPlannerConfig` — shared by BOTH planners: `MaxCoresPerContainer` (drive *and* compute cap, default 19), `ComputeToTlcDriveCoreRatio` (1.0), `ComputeToQlcDriveCoreRatio` (0.0), `FullDrivesComputeToDriveCoreRatio` (2.0). Env `CAPACITY_*`, Helm block `capacityPlannerConstraints:` (distinct from the `capacityPlanner:` block, the opt-in toolbox pod's pod-spec), reaches the planners via `allocator.CapacityConstraintsFromConfig` → `capacityplanner.RequiredComputeCores`.
-- Stuck adhoc-op pod timeouts (`STUCK_ADHOC_POD_TIMEOUT`, `STUCK_ADHOC_POD_STARTING_TIMEOUT`) — used by `funcs_oneoff.go`
-- Pod-level securityContext injection (`WEKA_POD_SECURITY_CONTEXT` — JSON-encoded `corev1.PodSecurityContext`) — applied to every privileged/hostPath pod produced by the operator: WekaContainer pods (`pod.go`), CSI node DaemonSet, CSI controller, and prepull/trace/cleanup/pvc-migrate Jobs. Mgmt-proxy and metrics pods are excluded (non-privileged, no hostPath). Today only `appArmorProfile` is propagated (used to satisfy Kyverno `require-apparmor-on-privileged-or-hostpath`); other PodSecurityContext fields parse but `mergePodSecurityContext` ignores them — add a line there to support more. Helper: `internal/controllers/resources/security_context.go` (`ApplySecurityProfile` + `mergePodSecurityContext`). Helm value: `podSecurityContext` (default `{}`).
-
-## Helm Chart
-
-**Path**: `charts/weka-operator/`
-
-| File | Purpose |
-|------|---------|
-| `values.yaml` | Default configuration |
-| `templates/manager.yaml` | Operator deployment |
-| `templates/role.yaml` | RBAC permissions |
-| `templates/priority_classes.yaml` | Priority classes |
-| `templates/metrics_daemonset.yaml` | Metrics collection |
-| `resources/weka_runtime.py` | Python runtime for pods |
-| `resources/run-weka-cli.sh` | CLI wrapper script |
-
-Capacity-planner operator constraints — shared `capacityPlannerConstraints.*` (`maxCoresPerContainer`, `driveSharing.computeTo{Tlc,Qlc}DriveCoreRatio`, `fullDrives.computeToDriveCoreRatio`) and clusterCapacity-only `clusterCapacity.*` (`tlcCapacityPerCoreGiB`, `qlcCapacityPerCoreGiB`) — are documented in `doc/operator/deployment/cluster-capacity.md` (Helm constraints table).
-
-## API Types (CRDs)
-
-**Path**: `pkg/weka-k8s-api/api/v1alpha1/`
-
-| File | Defines |
-|------|---------|
-| `wekacluster_types.go` | WekaCluster spec/status |
-| `container_types.go` | WekaContainer spec/status |
-| `client_types.go` | WekaClient spec/status |
-| `wekapolicy_types.go` | WekaPolicy spec/status |
-| `wekamanualoperation_types.go` | WekaManualOp spec/status |
-| `driveclaims_types.go` | Drive claim types |
-| `instructions_type.go` | Stop/start instructions |
-| `metrics.go` | Metrics types |
-| `condition/conditions.go` | Status conditions |
-
-Generated docs: `doc/api_dump/*.md`
-
-## Validation & Admission
-
-**Path**: `internal/validation/` + `internal/admission/`
-
-Admission-webhook validators implement the `Validator` interface (`validator.go`), are
-listed per-CRD in `registry.go`, and get a default severity in `admission/defaults.go`.
-`doc.go` holds the sizing-mode glossary and the rule-ownership map — read it before adding a rule that
-touches drive counts, container counts, or core sizing, so one condition is not reported twice.
-Add a rule = implement + register + add to the defaults table. Reuse the shared helpers rather than
-re-deriving: `role_specs.go` (`rolesForTemplate` — the six per-role sizing fields, one table for every
-per-role validator), `template_cores.go` (`templateCoreSides` — drive/compute core totals plus the
-planner-managed exclusion), `drive_role_nodes.go` (`listDriveRoleNodes` / `driveRoleNodeInfos`).
-Pod-spec syntax validators (`*_podspec_syntax.go` + shared `podspec_syntax.go`): k8s pod-level syntax
-rules at WekaCluster/WekaClient admission (OP-361). clusterCapacity validators:
-`cluster_capacity_chunk_feasibility.go` (greenfield per-FD TLC share ≥ 384 GiB; skipped once the
-cluster has TLC-bearing drive containers) and `cluster_capacity_protection.go` (min SW≥3, RL≥2, HS≥0 /
-hotSpare optional — the `3+2+0` floor from `allocator.MinProtectionFloor`).
-Protection values are resolved via `DriveSharingConfig.EffectiveProtection` (env.go): a per-cluster
-spec field wins when non-zero (0 is treated as unset), else the Helm-level default (`PROTECTION_STRIPE_WIDTH` /
-`PROTECTION_REDUNDANCY_LEVEL` / `PROTECTION_HOT_SPARE`, values `protection.*`) fills it. Same helper
-is used in `FormCluster` so validation and formation agree.
-
-## Adding Configuration
-
-1. Add field to `internal/config/env.go`
-2. Set default in `charts/weka-operator/values.yaml`
-3. Wire into `templates/manager.yaml`
-4. See [tasks.md](../tasks.md) for detailed steps
+To add configuration, update `env.go`, Helm defaults and deployment wiring together; see [tasks.md](../tasks.md).

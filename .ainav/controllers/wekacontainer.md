@@ -33,13 +33,14 @@ Container states and their flow files:
 | `funcs_getters.go` | State getters |
 | `funcs_get_node_agent.go` | Node agent lookups |
 | `funcs_management_ips.go` | Management IP handling |
+| `funcs_validate_network.go` | Network configuration validation |
 | `funcs_resources_allocation.go` | Resource allocation |
+| `funcs_numa_dra.go` | NUMA confinement via DRA claims |
 | `funcs_handle_node_statuses.go` | Node status handling |
 | `funcs_status_updates.go` | Status field updates |
 | `funcs_events.go` | K8s event emission, routes through `util.RecordEvent` |
 | `funcs_migrations.go` | Data migrations |
 | `funcs_oneoff.go` | One-off operations, stuck adhoc-op reaping |
-| `funcs_not_used.go` | Deprecated/unused |
 
 ## CSI Integration
 
@@ -56,3 +57,7 @@ Container states and their flow files:
 - Communicates with Weka via `services/weka.go`
 - Coordinates with node-agent for local operations
 - Integrates with CSI for storage provisioning
+
+## Focused routes
+
+- [NUMA alignment](../../doc/operator/concepts/numa-alignment.md), [CPU policy](../../doc/operator/concepts/cpu-policy.md): `funcs_numa_dra.go` is the DRA method only; the device-plugin method lives in `node_agent/deviceplugin/`.
