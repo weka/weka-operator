@@ -1,28 +1,30 @@
 ---
 name: CI
 on:
+  pull_request:
   push:
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
-  optimize_ci:
+  # In a stack only the top layer runs CI: it contains every lower layer. Non-stacked
+  # PRs and pushes to main always run. Fork PRs are excluded because the jobs need secrets.
+  stack_gate:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       (github.event.pull_request.stack == null ||
+        github.event.pull_request.stack.position == github.event.pull_request.stack.size))
     runs-on: ubuntu-latest
-    outputs:
-      skip: ${{ steps.check_skip.outputs.skip }}
     steps:
-      - name: Optimize CI
-        id: check_skip
-        uses: withgraphite/graphite-ci-action@v0.0.9
-        with:
-          graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
+      - run: echo "stack=${{ toJson(github.event.pull_request.stack) }}"
 
   lint:
     name: Lint
+    needs: stack_gate
     runs-on: ubuntu-latest
-    needs: optimize_ci
-    if: needs.optimize_ci.outputs.skip == 'false'
     env:
       GOPRIVATE: github.com/weka
     steps:
@@ -59,9 +61,8 @@ jobs:
 
   static-checks:
     name: Static Checks (deadcode)
+    needs: stack_gate
     runs-on: ubuntu-latest
-    needs: optimize_ci
-    if: needs.optimize_ci.outputs.skip == 'false'
     env:
       GOPRIVATE: github.com/weka
     steps:
@@ -99,9 +100,8 @@ jobs:
 
   security:
     name: Security (govulncheck)
+    needs: stack_gate
     runs-on: ubuntu-latest
-    needs: optimize_ci
-    if: needs.optimize_ci.outputs.skip == 'false'
     env:
       GOPRIVATE: github.com/weka
     steps:
@@ -139,9 +139,8 @@ jobs:
 
   test:
     name: Test
+    needs: stack_gate
     runs-on: ubuntu-latest
-    needs: optimize_ci
-    if: needs.optimize_ci.outputs.skip == 'false'
     env:
       GOPRIVATE: github.com/weka
     steps:
@@ -184,9 +183,8 @@ jobs:
 
   build:
     name: Build
+    needs: stack_gate
     runs-on: ubuntu-latest
-    needs: optimize_ci
-    if: needs.optimize_ci.outputs.skip == 'false'
     env:
       GOPRIVATE: github.com/weka
     steps:
@@ -221,9 +219,8 @@ jobs:
 
   verify:
     name: Verify (mod tidy + generated code)
+    needs: stack_gate
     runs-on: ubuntu-latest
-    needs: optimize_ci
-    if: needs.optimize_ci.outputs.skip == 'false'
     env:
       GOPRIVATE: github.com/weka
     steps:
@@ -266,9 +263,8 @@ jobs:
 
   commitlint:
     name: Commitlint
+    needs: stack_gate
     runs-on: ubuntu-latest
-    needs: optimize_ci
-    if: needs.optimize_ci.outputs.skip == 'false'
     steps:
       - uses: actions/checkout@v6
 
@@ -277,9 +273,8 @@ jobs:
 
   secret-scan:
     name: Secret Scan (gitleaks)
+    needs: stack_gate
     runs-on: ubuntu-latest
-    needs: optimize_ci
-    if: needs.optimize_ci.outputs.skip == 'false'
     steps:
       - uses: actions/checkout@v6
         with:

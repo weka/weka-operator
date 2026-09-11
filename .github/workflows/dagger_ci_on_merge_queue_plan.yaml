@@ -4,7 +4,8 @@
 name: dagger_ci_on_merge_queue_plan
 on:
   pull_request:
-    types: [opened, synchronize, labeled, reopened]
+    # ready_for_review: drafts are skipped, so the check must re-run when a draft is promoted.
+    types: [opened, synchronize, labeled, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -20,26 +21,19 @@ env:
   NEW_WEKA_VERSION: "quay.io/weka.io/weka-in-container:5.1.20.7"
 
 jobs:
-  optimize_ci:
-    runs-on: ubuntu-latest
-    outputs:
-      skip: ${{ steps.check_skip.outputs.skip }}
-    steps:
-    - name: Optimize CI
-      id: check_skip
-      uses: withgraphite/graphite-ci-action@v0.0.9
-      with:
-        graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
-
   run_condition_check:
-    needs: optimize_ci
-    # Security: Only run for PRs from the same repo (not forks) to protect secrets
+    # The upgrade test runs before merge on every ready (non-draft) PR that is either
+    # not stacked or the top layer of its stack; the top layer contains every lower
+    # layer, so lower layers skip and rely on the top's result. The run label forces
+    # a run on any PR, the skip label suppresses it.
+    # Security: only same-repo PRs, to protect secrets.
     if: |
       github.event.pull_request.head.repo.full_name == github.repository &&
-      needs.optimize_ci.outputs.skip == 'false' &&
-      (startsWith(github.head_ref, 'gtmq_') ||
-      contains(github.event.pull_request.labels.*.name, 'run_ci_on_merge_queue_plan')) &&
-      !contains(github.event.pull_request.labels.*.name, 'skip_ci_on_merge_queue_plan')
+      !github.event.pull_request.draft &&
+      !contains(github.event.pull_request.labels.*.name, 'skip_ci_on_merge_queue_plan') &&
+      (contains(github.event.pull_request.labels.*.name, 'run_ci_on_merge_queue_plan') ||
+       github.event.pull_request.stack == null ||
+       github.event.pull_request.stack.position == github.event.pull_request.stack.size)
     runs-on: ubuntu-latest
     outputs:
       skip_upgrade_test: ${{ steps.check_commits.outputs.skip_upgrade_test }}
@@ -49,14 +43,15 @@ jobs:
           echo "PR branch: ${{ github.head_ref }}"
           echo "Target branch: ${{ github.base_ref }}"
           echo "Labels: ${{ toJson(github.event.pull_request.labels) }}"
+          echo "Stack: ${{ toJson(github.event.pull_request.stack) }}"
 
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Check if all commits are chore/docs
         id: check_commits
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           # If the label is set explicitly, always run the upgrade test regardless of commit messages
           if [[ "${{ contains(github.event.pull_request.labels.*.name, 'run_ci_on_merge_queue_plan') }}" == "true" ]]; then
@@ -65,10 +60,12 @@ jobs:
             exit 0
           fi
 
-          echo "Fetching commits for PR #${{ github.event.pull_request.number }}"
-
-          # Get all commit messages in this PR
-          commits=$(gh pr view ${{ github.event.pull_request.number }} --json commits -q '.commits[].messageHeadline')
+          # For the top of a stack the test covers every layer, so inspect all commits
+          # since the stack base (main), not just this PR's own layer. End at the PR head,
+          # not HEAD: checkout gives the synthetic "Merge X into Y" commit on pull_request.
+          range="origin/${{ github.event.pull_request.stack && github.event.pull_request.stack.base.ref || github.base_ref }}..${{ github.event.pull_request.head.sha }}"
+          echo "Checking commits in $range"
+          commits=$(git log --no-merges --format=%s "$range")
 
           echo "Commits in PR:"
           echo "$commits"
@@ -91,9 +88,8 @@ jobs:
           echo "skip_upgrade_test=$skip_upgrade_test" >> $GITHUB_OUTPUT
 
   upgrade_extended_test:
-    needs: [optimize_ci, run_condition_check]
+    needs: [run_condition_check]
     if: |
-      needs.optimize_ci.outputs.skip == 'false' &&
       needs.run_condition_check.result == 'success' &&
       needs.run_condition_check.outputs.skip_upgrade_test != 'true'
     env:
@@ -305,7 +301,7 @@ jobs:
           done
 
   clients_only_test:
-    needs: [optimize_ci, run_condition_check, upgrade_extended_test]
+    needs: [run_condition_check, upgrade_extended_test]
     if: |
       needs.run_condition_check.result == 'success' &&
       needs.run_condition_check.outputs.skip_upgrade_test != 'true' &&
@@ -459,6 +455,8 @@ jobs:
     steps:
       - name: Validate required workflow
         run: |
+          # A gate that errored (not skipped) must not pass the PR silently.
+          [[ "${{ needs.run_condition_check.result }}" == "failure" ]] && exit 1
           if [[ "${{ needs.run_condition_check.result }}" == "success" ]]; then
             # If all commits are chore/docs, upgrade test is skipped intentionally - that's OK
             if [[ "${{ needs.run_condition_check.outputs.skip_upgrade_test }}" == "true" ]]; then
