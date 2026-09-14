@@ -6,20 +6,11 @@ on:
       - main
 
 jobs:
-  optimize_ci:
-    runs-on: ubuntu-latest
-    outputs:
-      skip: ${{ steps.check_skip.outputs.skip }}
-    steps:
-      - name: Optimize CI
-        id: check_skip
-        uses: withgraphite/graphite-ci-action@main
-        with:
-          graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
-
   update-crds:
-    needs: optimize_ci
-    if: needs.optimize_ci.outputs.skip == 'false'
+    # In a stack only the top layer runs: it contains every lower layer.
+    if: >-
+      github.event.pull_request.stack == null ||
+      github.event.pull_request.stack.position == github.event.pull_request.stack.size
     runs-on: ubuntu-latest
     steps:
       - uses: actions/create-github-app-token@v1
