@@ -1,8 +1,9 @@
 # Required check `ci-gate` on main for GitHub native stacked PRs, no merge queue.
 #
 # `ci-gate` is a COMMIT STATUS posted by the `report_status` job, never a job name:
-# - a lower stack layer (where `gate` is skipped) gets no status, shows "Expected", and cannot
-#   be merged on its own;
+# - a lower stack layer gets no status, shows "Expected", and cannot be merged on its own,
+#   UNLESS its own commits need no test (all chore/docs, or label `skip_ci_gate`), in which
+#   case it passes itself and never waits for the layer above;
 # - the top of a stack (or any layer with label `run_ci_gate`) runs the tests, marks the
 #   layers below `pending` while it runs and `success` when it passes, so a human can merge the
 #   stack up to that layer with "Merge stack";
@@ -37,27 +38,25 @@ env:
 
 jobs:
   gate:
-    # Runs for ready (non-draft) same-repo PRs that are not stacked, are the top of their stack,
-    # or carry run_ci_gate / skip_ci_gate. Decides test vs skip and prepares the layers below.
-    # The same-repo clause comes first and is not overridable by any label: fork PRs never
-    # run the tests, never take the skip path, and never get an `ci-gate` status.
+    # Runs for every ready (non-draft) same-repo PR. Position in the stack decides the verdict
+    # (test / skip / blocked), not whether this job runs: a lower layer has to reach the decide
+    # step to find out whether its own commits need a test at all.
+    # The same-repo clause is not overridable by any label: fork PRs never run the tests, never
+    # take the skip path, and never get an `ci-gate` status.
     # A label event for any other label is a no-op: report_status is skipped along with gate,
-    # so the status already on the head SHA is left alone. Removing a gate label from a lower
-    # layer is likewise a no-op and leaves its green standing - see doc/dev/ci-gate.md.
+    # so the status already on the head SHA is left alone. A blocked layer posts nothing new
+    # either, except to reset a green it posted itself - see doc/dev/ci-gate.md.
     if: |
       github.event.pull_request.head.repo.full_name == github.repository &&
       !github.event.pull_request.draft &&
       (!github.event.label.name ||
        github.event.label.name == 'run_ci_gate' ||
-       github.event.label.name == 'skip_ci_gate') &&
-      (contains(github.event.pull_request.labels.*.name, 'run_ci_gate') ||
-       contains(github.event.pull_request.labels.*.name, 'skip_ci_gate') ||
-       github.event.pull_request.stack == null ||
-       github.event.pull_request.stack.position == github.event.pull_request.stack.size)
+       github.event.label.name == 'skip_ci_gate')
     runs-on: ubuntu-latest
     outputs:
       skip_test: ${{ steps.decide.outputs.skip_test }}
       skip_reason: ${{ steps.decide.outputs.skip_reason }}
+      blocked: ${{ steps.decide.outputs.blocked }}
       held_layers: ${{ steps.decide.outputs.held_layers }}
     steps:
       - name: Show PR Info
@@ -71,20 +70,25 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # Only commit subjects are read here; this job now runs on every layer of a stack.
+          filter: blob:none
+          fetch-tags: false
 
       # 1. Verdict for THIS PR:
-      #      skip_ci_gate label            -> skip (counts as a pass)
-      #      run_ci_gate label             -> test
+      #      skip_ci_gate label                 -> skip (counts as a pass)
+      #      run_ci_gate label                  -> test
+      #      lower layer, own commits chore/docs -> skip
+      #      lower layer, own commits need test -> blocked (no status, the top covers it)
       #      all commits since the stack base   -> skip
       #        (or base branch) are chore/docs
       #      otherwise                          -> test
       # 2. Layers below this PR in the stack (only when stacked), bottom to top:
-      #      verdict = skip: green a layer only if it is skippable on its own merits
-      #        (skip label, or its own commits are chore/docs); others are left untouched.
-      #      verdict = test: cancel the layer's own in-progress runs (redundant, this run covers
-      #        it), post `pending` unless it already has its own green result, and remember its
-      #        SHA in `held_layers` so report_status can mirror the pass onto exactly that SHA.
-      #        A layer carrying run_ci_gate is left alone: its own run is wanted.
+      #      a layer skippable on its own merits (skip label, or its own commits are chore/docs)
+      #        is greened right away under either verdict; a skip verdict leaves others untouched.
+      #      verdict = test: cancel the remaining layers' in-progress runs (redundant, this run
+      #        covers them), post `pending` unless one already has its own green result, and
+      #        remember its SHA in `held_layers` so report_status can mirror the pass onto exactly
+      #        that SHA. A layer carrying run_ci_gate is left alone: its own run is wanted.
       #    Statuses go on head SHAs, so a layer pushed later gets nothing and stays blocked.
       - name: Decide test vs skip, prepare lower layers
         id: decide
@@ -95,12 +99,15 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           STACK: ${{ github.event.pull_request.stack.number }}
           POS: ${{ github.event.pull_request.stack.position }}
+          SIZE: ${{ github.event.pull_request.stack.size }}
           STACK_BASE: ${{ github.event.pull_request.stack.base.ref }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           labels() { gh api "repos/$GITHUB_REPOSITORY/pulls/$1" --jq '.labels[].name'; }
-          # 0 when every non-merge commit in the range is chore/docs (nothing to test).
+          # 0 when every non-merge commit in the range is chore/docs (nothing to test). An empty
+          # range is NOT chore-only: for a stack top or non-stacked PR it means the range itself
+          # is wrong, and a test is the safe answer.
           chore_only() {
             local msgs; msgs=$(git log --no-merges --format=%s "$1")
             [[ -z "$msgs" ]] && return 1
@@ -109,22 +116,43 @@ jobs:
               [[ "$m" =~ ^(chore|docs)(\(|:|\!) ]] || return 1
             done <<< "$msgs"
           }
+          # Cancels a lower layer's own in-progress ci-gate runs: this run covers it, and a run
+          # this job cancels posts no status (report_status runs only when not cancelled), so it
+          # cannot write over what this run posts on that SHA.
+          cancel_runs() {  # sha num
+            for run in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$1&event=pull_request&per_page=20" \
+                --jq '.workflow_runs[]|select(.name=="ci-gate" and (.status=="in_progress" or .status=="queued" or .status=="waiting"))|.id'); do
+              gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$run/cancel" >/dev/null && echo "cancelled run $run of #$2"
+            done
+          }
           post() {  # sha state description
             gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$1" -f context=ci-gate \
               -f state="$2" -f target_url="$RUN_URL" -f description="$3" >/dev/null
             echo "ci-gate=$2 on ${1:0:7}: $3"
           }
 
-          # Without this, a rerun on the same SHA (label event, manual re-run) keeps the
-          # previous success as the latest status, so the PR reads as mergeable while it re-tests.
-          post "$HEAD_SHA" pending "ci-gate running on PR #$PR"
-
-          # ---- this PR: test, or skip (label / chore-docs only)?
+          # ---- this PR: test, skip (counts as a pass), or blocked (no status, the layer above
+          #      covers it)?
           my_labels=$(labels "$PR")
+          blocked=false
           if grep -qx skip_ci_gate <<< "$my_labels"; then
             skip=true; why="skipped: label skip_ci_gate on PR #$PR"
           elif grep -qx run_ci_gate <<< "$my_labels"; then
             skip=false; why="label run_ci_gate"
+          elif [[ -n "$STACK" && "$POS" != "$SIZE" ]]; then
+            # A lower layer never runs the stack's test - the top covers that - but it must not
+            # wait for the top when its own commits need no test. Its own range is
+            # base..head: in a stack, a PR's base ref IS the layer below it.
+            # The base is another PR's branch: fetch its current tip. It can be gone (the layer
+            # below merged and was deleted before this PR was retargeted); that must not fail
+            # the required check, so a missing base means blocked, never a job failure.
+            base=""
+            git fetch --no-tags --quiet origin "$BASE_REF" && base=$(git rev-parse FETCH_HEAD)
+            if [[ -n "$base" ]] && chore_only "$base..$HEAD_SHA"; then
+              skip=true; why="skipped: all commits since $BASE_REF are chore/docs"
+            else
+              blocked=true; skip=true; why="lower layer with code commits: covered by the stack top"
+            fi
           else
             # A stack top covers every layer: inspect all commits since the stack base, up to the
             # PR head (HEAD is the synthetic merge commit on pull_request events).
@@ -132,9 +160,30 @@ jobs:
             if chore_only "$range"; then skip=true; why="skipped: all commits since ${STACK_BASE:-$BASE_REF} are chore/docs"
             else skip=false; why="commits in $range need the upgrade test"; fi
           fi
-          echo "skip_test=$skip ($why)"
+          echo "skip_test=$skip blocked=$blocked ($why)"
+          echo "blocked=$blocked" >> "$GITHUB_OUTPUT"
           echo "skip_test=$skip" >> "$GITHUB_OUTPUT"
           echo "skip_reason=$why" >> "$GITHUB_OUTPUT"
+
+          # Blocked: post nothing new (report_status is skipped too), so the PR keeps showing
+          # "Expected" until the top's run greens it. Holding the layers below is the top's job.
+          # A skip-based green ("skipped...", posted by this layer or mirrored by a top) is stale
+          # once the layer is blocked - a skip_ci_gate label removed on the same SHA leaves one
+          # behind - and is reset to pending, or the layer would stay mergeable untested. A green
+          # from a passed test is left alone.
+          if [[ "$blocked" == "true" ]]; then
+            stale_skip=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" |
+              jq -r '.statuses[]|select(.context=="ci-gate" and .state=="success" and ((.description // "")|startswith("skipped")))|.state')
+            [[ -n "$stale_skip" ]] && post "$HEAD_SHA" pending "waiting for the stack top, on PR #$PR"
+            echo "#$PR is $why"
+            exit 0
+          fi
+
+          # Without this, a rerun on the same SHA (label event, manual re-run) keeps the previous
+          # success as the latest status, so the PR reads as mergeable while it re-tests. Not on a
+          # skip: report_status greens it moments later, and a stack top may already have greened
+          # and cancelled this run - a pending landing after that green would stick.
+          [[ "$skip" == "true" ]] || post "$HEAD_SHA" pending "ci-gate running on PR #$PR"
 
           # ---- layers below (bottom to top), only for stacked PRs
           held=""
@@ -147,26 +196,24 @@ jobs:
               # number goes through a real jq call instead of being spliced into the filter.
               own_green=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/status" |
                 jq -r --arg num "$num" '.statuses[]|select(.context=="ci-gate" and .state=="success" and ((.description // "")|endswith("on PR #" + $num)))|.state')
-              if [[ "$skip" == "true" ]]; then
-                # A skip only reaches a layer that is skippable on its own merits.
-                if grep -qx skip_ci_gate <<< "$lay_labels"; then
-                  post "$sha" success "skipped: label skip_ci_gate on PR #$num"
-                elif grep -qx run_ci_gate <<< "$lay_labels"; then
-                  echo "#$num has run_ci_gate: its own run decides"
-                elif chore_only "$prev..$sha"; then
-                  post "$sha" success "skipped: chore/docs only, via PR #$PR"
-                else
-                  echo "#$num is not skippable, left as is"
-                fi
-              elif grep -qx run_ci_gate <<< "$lay_labels"; then
-                echo "#$num has run_ci_gate: not held, not cancelled"
+              # A layer skippable on its own merits is greened here under either verdict, so its
+              # self-skip does not depend on which run finishes first. Its own run is cancelled
+              # first: it may be a real test from when that layer was briefly the stack top, and
+              # its later result must not land on top of this green.
+              if grep -qx run_ci_gate <<< "$lay_labels"; then
+                echo "#$num has run_ci_gate: its own run decides"
+              elif grep -qx skip_ci_gate <<< "$lay_labels"; then
+                cancel_runs "$sha" "$num"
+                post "$sha" success "skipped: label skip_ci_gate on PR #$num, via PR #$PR"
+              elif chore_only "$prev..$sha"; then
+                cancel_runs "$sha" "$num"
+                post "$sha" success "skipped: chore/docs only, via PR #$PR"
+              elif [[ "$skip" == "true" ]]; then
+                echo "#$num is not skippable, left as is"
               else
                 # Its own in-progress run (typically the first round after `gh stack submit`) is
                 # redundant: this run covers it. Its cancelled jobs stop their remote executions.
-                for run in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$sha&event=pull_request&per_page=20" \
-                    --jq '.workflow_runs[]|select(.name=="ci-gate" and (.status=="in_progress" or .status=="queued" or .status=="waiting"))|.id'); do
-                  gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$run/cancel" >/dev/null && echo "cancelled run $run of #$num"
-                done
+                cancel_runs "$sha" "$num"
                 if [[ -n "$own_green" ]]; then echo "#$num keeps its own green ci-gate"
                 else post "$sha" pending "waiting for the upgrade test on PR #$PR"; fi
                 held="$held $sha"
@@ -583,10 +630,13 @@ jobs:
 
   report_status:
     # Posts the required commit status `ci-gate`. Nothing is posted when `gate` was skipped
-    # (draft, fork, lower layer without run label): the PR shows "Expected" and stays blocked.
+    # (draft, fork) or reported `blocked` (a lower layer whose own commits need a test): the PR
+    # shows "Expected" and stays blocked until the stack top's run greens it.
     needs: [gate, upgrade_extended_test, clients_only_test]
     runs-on: ubuntu-latest
-    if: always() && needs.gate.result != 'skipped'
+    # Not on a cancelled run either: a run cancelled by a stack top's sweep has possibly never
+    # written `blocked`, and an `error` from it would land over the status the top just posted.
+    if: "!cancelled() && needs.gate.result != 'skipped' && needs.gate.outputs.blocked != 'true'"
     env:
       GH_TOKEN: ${{ github.token }}
       PR: ${{ github.event.pull_request.number }}
@@ -600,22 +650,19 @@ jobs:
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       # Turns the job results into one commit status on this PR's head SHA:
-      #   any job cancelled            -> error   (re-push or re-run to clear)
       #   gate failed                  -> failure
       #   gate said skip               -> success ("skipped: ..." says why)
       #   both tests passed            -> success
       #   otherwise                    -> failure (which test failed is in the description)
       # A success is also posted on every SHA in `held_layers` (the layers below that were held
       # pending at the start of this run), which is what lets "Merge stack" merge them together.
-      # Failures and errors are never mirrored: the held layers stay pending, i.e. blocked.
+      # Failures are never mirrored: the held layers stay pending, i.e. blocked.
       - name: Post ci-gate status
         run: |
           set -euo pipefail
           # A commit status, not a check run: the latest status per context wins and it is not
           # tied to a check suite (a second run on the same SHA opens a new suite without it).
-          if [[ "$GATE" == "cancelled" || "$UPGRADE" == "cancelled" || "$CLIENTS" == "cancelled" ]]; then
-            state=error; desc="cancelled on PR #$PR"
-          elif [[ "$GATE" != "success" ]]; then
+          if [[ "$GATE" != "success" ]]; then
             state=failure; desc="gate job failed on PR #$PR"
           elif [[ "$SKIP" == "true" ]]; then
             state=success; desc="${SKIP_REASON:-skipped} on PR #$PR"
