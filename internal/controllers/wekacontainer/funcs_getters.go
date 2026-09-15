@@ -63,6 +63,12 @@ func (r *containerReconcilerLoop) NodeIsSet() bool {
 	return r.node != nil
 }
 
+// NodeIsReadyOrUnset is true when the node has Ready=True or is not known yet (nil); a known node
+// whose Ready condition is False, Unknown or absent fails it.
+func (r *containerReconcilerLoop) NodeIsReadyOrUnset() bool {
+	return r.node == nil || NodeIsReady(r.node)
+}
+
 func (r *containerReconcilerLoop) PodNotRunning() bool {
 	return r.pod.Status.Phase != v1.PodRunning
 }

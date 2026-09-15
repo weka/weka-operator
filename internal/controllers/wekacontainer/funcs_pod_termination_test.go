@@ -1,11 +1,20 @@
 package wekacontainer
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/weka/go-steps-engine/lifecycle"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/weka/weka-operator/internal/config"
 )
 
 func mkNodeProvider(providerID string) *v1.Node {
@@ -48,5 +57,78 @@ func TestResolveDeactivationTimeout(t *testing.T) {
 				t.Fatalf("resolveDeactivationTimeout() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func newTerminationLoop(t *testing.T, node *v1.Node) *containerReconcilerLoop {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := weka.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	container := &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{Name: "drive-1", Namespace: "weka"},
+		Spec:       weka.WekaContainerSpec{Mode: weka.WekaContainerModeDrive},
+		Status:     weka.WekaContainerStatus{Status: weka.Running},
+	}
+	now := metav1.NewTime(time.Now())
+	return &containerReconcilerLoop{
+		Client:    fake.NewClientBuilder().WithScheme(scheme).WithObjects(container).WithStatusSubresource(container).Build(),
+		node:      node,
+		pod:       &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "drive-1", DeletionTimestamp: &now}},
+		container: container,
+	}
+}
+
+// The loop has no Manager or RestClient, so any exec path would panic: a WaitError proves they were skipped.
+func TestHandlePodTerminationNotReadyNodeSkipsExecKeepsStatus(t *testing.T) {
+	prev := config.Config.EvictContainerOnDeletion
+	config.Config.EvictContainerOnDeletion = false
+	t.Cleanup(func() { config.Config.EvictContainerOnDeletion = prev })
+
+	for name, overrides := range map[string]*weka.WekaContainerSpecOverrides{
+		"default":         nil,
+		"force replace":   {PodDeleteForceReplace: true},
+		"upgrade replace": {UpgradeForceReplace: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newTerminationLoop(t, nodeWithReady(v1.ConditionFalse))
+			r.container.Spec.Overrides = overrides
+			err := r.handlePodTermination(context.Background())
+			var wait *lifecycle.WaitError
+			if !errors.As(err, &wait) {
+				t.Fatalf("handlePodTermination() = %v, want WaitError", err)
+			}
+			got := &weka.WekaContainer{}
+			if err := r.Get(context.Background(), client.ObjectKeyFromObject(r.container), got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Status.Status != weka.PodTerminating {
+				t.Fatalf("status = %q, want %q", got.Status.Status, weka.PodTerminating)
+			}
+		})
+	}
+}
+
+func TestHandlePodTerminationNotReadyNodeStillEvicts(t *testing.T) {
+	prev := config.Config.EvictContainerOnDeletion
+	config.Config.EvictContainerOnDeletion = true
+	t.Cleanup(func() { config.Config.EvictContainerOnDeletion = prev })
+
+	r := newTerminationLoop(t, nodeWithReady(v1.ConditionFalse))
+	err := r.handlePodTermination(context.Background())
+	var wait *lifecycle.WaitError
+	if !errors.As(err, &wait) {
+		t.Fatalf("handlePodTermination() = %v, want WaitError", err)
+	}
+	got := &weka.WekaContainer{}
+	if err := r.Get(context.Background(), client.ObjectKeyFromObject(r.container), got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.State != weka.ContainerStateDeleting {
+		t.Fatalf("state = %q, want %q", got.Spec.State, weka.ContainerStateDeleting)
 	}
 }
