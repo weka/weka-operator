@@ -1,48 +1,70 @@
-# NOTE: This workflow is for WEKA internal CI/CD and requires access to internal infrastructure.
-# External contributors: Your PRs will be tested by WEKA maintainers using internal CI.
-# Security: This workflow only runs for PRs from the same repo (not forks) to protect secrets.
-name: dagger_ci_on_merge_queue_plan
+# Required check `ci-gate` on main for GitHub native stacked PRs, no merge queue.
+#
+# `ci-gate` is a COMMIT STATUS posted by the `report_status` job, never a job name:
+# - a lower stack layer (where `gate` is skipped) gets no status, shows "Expected", and cannot
+#   be merged on its own;
+# - the top of a stack (or any layer with label `run_ci_gate`) runs the tests, marks the
+#   layers below `pending` while it runs and `success` when it passes, so a human can merge the
+#   stack up to that layer with "Merge stack";
+# - label `skip_ci_gate`, or a PR whose commits are all chore/docs, counts as a pass for
+#   that PR; a lower layer inherits such a pass only if it is skippable itself (same label, or
+#   its own commits are all chore/docs).
+name: ci-gate
 on:
   pull_request:
     # ready_for_review: drafts are skipped, so the check must re-run when a draft is promoted.
-    types: [opened, synchronize, labeled, reopened, ready_for_review]
+    # labeled / unlabeled: run_ci_gate / skip_ci_gate added or removed.
+    types: [opened, synchronize, labeled, unlabeled, reopened, ready_for_review]
 
 permissions:
   contents: read
   pull-requests: read
+  statuses: write   # post the `ci-gate` status
+  actions: write    # wait step lists runs; gate cancels redundant lower-layer runs
 
-# make sure only one workflow is running at a time
+# One run at a time per PR: re-pushing a PR cancels its own stale run, so that run cannot mark
+# the layers below green after the newer run held them. Runs of other PRs are never cancelled.
+# Hardware serialization across PRs is the "Wait for the test hardware" step, not this group.
+# A label event for anything but the two gate labels parks itself in its own group: adding an
+# unrelated label must not cancel a running test.
 concurrency:
-  group: upgrade-test
-  cancel-in-progress: false
+  group: ci-gate-pr-${{ github.event.pull_request.number }}-${{ (!github.event.label.name || github.event.label.name == 'run_ci_gate' || github.event.label.name == 'skip_ci_gate') && 'gate' || github.event.label.name }}
+  cancel-in-progress: true
 
 env:
   INITIAL_WEKA_VERSION: "quay.io/weka.io/weka-in-container:4.4.23"
   NEW_WEKA_VERSION: "quay.io/weka.io/weka-in-container:5.1.20.7"
 
 jobs:
-  run_condition_check:
-    # The upgrade test runs before merge on every ready (non-draft) PR that is either
-    # not stacked or the top layer of its stack; the top layer contains every lower
-    # layer, so lower layers skip and rely on the top's result. The run label forces
-    # a run on any PR, the skip label suppresses it.
-    # Security: only same-repo PRs, to protect secrets.
+  gate:
+    # Runs for ready (non-draft) same-repo PRs that are not stacked, are the top of their stack,
+    # or carry run_ci_gate / skip_ci_gate. Decides test vs skip and prepares the layers below.
+    # The same-repo clause comes first and is not overridable by any label: fork PRs never
+    # run the tests, never take the skip path, and never get an `ci-gate` status.
+    # A label event for any other label is a no-op: report_status is skipped along with gate,
+    # so the status already on the head SHA is left alone. Removing a gate label from a lower
+    # layer is likewise a no-op and leaves its green standing - see doc/dev/ci-gate.md.
     if: |
       github.event.pull_request.head.repo.full_name == github.repository &&
       !github.event.pull_request.draft &&
-      !contains(github.event.pull_request.labels.*.name, 'skip_ci_on_merge_queue_plan') &&
-      (contains(github.event.pull_request.labels.*.name, 'run_ci_on_merge_queue_plan') ||
+      (!github.event.label.name ||
+       github.event.label.name == 'run_ci_gate' ||
+       github.event.label.name == 'skip_ci_gate') &&
+      (contains(github.event.pull_request.labels.*.name, 'run_ci_gate') ||
+       contains(github.event.pull_request.labels.*.name, 'skip_ci_gate') ||
        github.event.pull_request.stack == null ||
        github.event.pull_request.stack.position == github.event.pull_request.stack.size)
     runs-on: ubuntu-latest
     outputs:
-      skip_upgrade_test: ${{ steps.check_commits.outputs.skip_upgrade_test }}
+      skip_test: ${{ steps.decide.outputs.skip_test }}
+      skip_reason: ${{ steps.decide.outputs.skip_reason }}
+      held_layers: ${{ steps.decide.outputs.held_layers }}
     steps:
       - name: Show PR Info
         run: |
           echo "PR branch: ${{ github.head_ref }}"
           echo "Target branch: ${{ github.base_ref }}"
-          echo "Labels: ${{ toJson(github.event.pull_request.labels) }}"
+          echo "Labels: ${{ toJson(github.event.pull_request.labels.*.name) }}"
           echo "Stack: ${{ toJson(github.event.pull_request.stack) }}"
 
       - name: Checkout repository
@@ -50,48 +72,116 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check if all commits are chore/docs
-        id: check_commits
+      # 1. Verdict for THIS PR:
+      #      skip_ci_gate label            -> skip (counts as a pass)
+      #      run_ci_gate label             -> test
+      #      all commits since the stack base   -> skip
+      #        (or base branch) are chore/docs
+      #      otherwise                          -> test
+      # 2. Layers below this PR in the stack (only when stacked), bottom to top:
+      #      verdict = skip: green a layer only if it is skippable on its own merits
+      #        (skip label, or its own commits are chore/docs); others are left untouched.
+      #      verdict = test: cancel the layer's own in-progress runs (redundant, this run covers
+      #        it), post `pending` unless it already has its own green result, and remember its
+      #        SHA in `held_layers` so report_status can mirror the pass onto exactly that SHA.
+      #        A layer carrying run_ci_gate is left alone: its own run is wanted.
+      #    Statuses go on head SHAs, so a layer pushed later gets nothing and stays blocked.
+      - name: Decide test vs skip, prepare lower layers
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.base_ref }}
+          STACK: ${{ github.event.pull_request.stack.number }}
+          POS: ${{ github.event.pull_request.stack.position }}
+          STACK_BASE: ${{ github.event.pull_request.stack.base.ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          # If the label is set explicitly, always run the upgrade test regardless of commit messages
-          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'run_ci_on_merge_queue_plan') }}" == "true" ]]; then
-            echo "Label 'run_ci_on_merge_queue_plan' is set - skipping commit check, upgrade test will run"
-            echo "skip_upgrade_test=false" >> $GITHUB_OUTPUT
-            exit 0
+          set -euo pipefail
+          labels() { gh api "repos/$GITHUB_REPOSITORY/pulls/$1" --jq '.labels[].name'; }
+          # 0 when every non-merge commit in the range is chore/docs (nothing to test).
+          chore_only() {
+            local msgs; msgs=$(git log --no-merges --format=%s "$1")
+            [[ -z "$msgs" ]] && return 1
+            while IFS= read -r m; do
+              [[ -z "$m" ]] && continue
+              [[ "$m" =~ ^(chore|docs)(\(|:|\!) ]] || return 1
+            done <<< "$msgs"
+          }
+          post() {  # sha state description
+            gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$1" -f context=ci-gate \
+              -f state="$2" -f target_url="$RUN_URL" -f description="$3" >/dev/null
+            echo "ci-gate=$2 on ${1:0:7}: $3"
+          }
+
+          # Without this, a rerun on the same SHA (label event, manual re-run) keeps the
+          # previous success as the latest status, so the PR reads as mergeable while it re-tests.
+          post "$HEAD_SHA" pending "ci-gate running on PR #$PR"
+
+          # ---- this PR: test, or skip (label / chore-docs only)?
+          my_labels=$(labels "$PR")
+          if grep -qx skip_ci_gate <<< "$my_labels"; then
+            skip=true; why="skipped: label skip_ci_gate on PR #$PR"
+          elif grep -qx run_ci_gate <<< "$my_labels"; then
+            skip=false; why="label run_ci_gate"
+          else
+            # A stack top covers every layer: inspect all commits since the stack base, up to the
+            # PR head (HEAD is the synthetic merge commit on pull_request events).
+            range="origin/${STACK_BASE:-$BASE_REF}..$HEAD_SHA"
+            if chore_only "$range"; then skip=true; why="skipped: all commits since ${STACK_BASE:-$BASE_REF} are chore/docs"
+            else skip=false; why="commits in $range need the upgrade test"; fi
           fi
+          echo "skip_test=$skip ($why)"
+          echo "skip_test=$skip" >> "$GITHUB_OUTPUT"
+          echo "skip_reason=$why" >> "$GITHUB_OUTPUT"
 
-          # For the top of a stack the test covers every layer, so inspect all commits
-          # since the stack base (main), not just this PR's own layer. End at the PR head,
-          # not HEAD: checkout gives the synthetic "Merge X into Y" commit on pull_request.
-          range="origin/${{ github.event.pull_request.stack && github.event.pull_request.stack.base.ref || github.base_ref }}..${{ github.event.pull_request.head.sha }}"
-          echo "Checking commits in $range"
-          commits=$(git log --no-merges --format=%s "$range")
-
-          echo "Commits in PR:"
-          echo "$commits"
-
-          skip_upgrade_test="true"
-          while IFS= read -r msg; do
-            if [[ -z "$msg" ]]; then
-              continue
-            fi
-            # Check if commit starts with "chore" or "docs" (case insensitive)
-            if [[ ! "$msg" =~ ^(chore|docs)(\(|:|\!) ]]; then
-              echo "Commit '$msg' does NOT start with chore/docs - will run upgrade test"
-              skip_upgrade_test="false"
-              break
-            fi
-            echo "Commit '$msg' starts with chore/docs"
-          done <<< "$commits"
-
-          echo "skip_upgrade_test=$skip_upgrade_test"
-          echo "skip_upgrade_test=$skip_upgrade_test" >> $GITHUB_OUTPUT
+          # ---- layers below (bottom to top), only for stacked PRs
+          held=""
+          if [[ -n "$STACK" ]]; then
+            prev="origin/$STACK_BASE"
+            while read -r sha num; do
+              [[ -z "$sha" ]] && continue
+              lay_labels=$(labels "$num")
+              # Combined status: newest per context. `gh api --jq` takes no --arg, so the PR
+              # number goes through a real jq call instead of being spliced into the filter.
+              own_green=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/status" |
+                jq -r --arg num "$num" '.statuses[]|select(.context=="ci-gate" and .state=="success" and ((.description // "")|endswith("on PR #" + $num)))|.state')
+              if [[ "$skip" == "true" ]]; then
+                # A skip only reaches a layer that is skippable on its own merits.
+                if grep -qx skip_ci_gate <<< "$lay_labels"; then
+                  post "$sha" success "skipped: label skip_ci_gate on PR #$num"
+                elif grep -qx run_ci_gate <<< "$lay_labels"; then
+                  echo "#$num has run_ci_gate: its own run decides"
+                elif chore_only "$prev..$sha"; then
+                  post "$sha" success "skipped: chore/docs only, via PR #$PR"
+                else
+                  echo "#$num is not skippable, left as is"
+                fi
+              elif grep -qx run_ci_gate <<< "$lay_labels"; then
+                echo "#$num has run_ci_gate: not held, not cancelled"
+              else
+                # Its own in-progress run (typically the first round after `gh stack submit`) is
+                # redundant: this run covers it. Its cancelled jobs stop their remote executions.
+                for run in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$sha&event=pull_request&per_page=20" \
+                    --jq '.workflow_runs[]|select(.name=="ci-gate" and (.status=="in_progress" or .status=="queued" or .status=="waiting"))|.id'); do
+                  gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$run/cancel" >/dev/null && echo "cancelled run $run of #$num"
+                done
+                if [[ -n "$own_green" ]]; then echo "#$num keeps its own green ci-gate"
+                else post "$sha" pending "waiting for the upgrade test on PR #$PR"; fi
+                held="$held $sha"
+              fi
+              prev=$sha
+            done < <(gh api "repos/$GITHUB_REPOSITORY/stacks/$STACK" \
+              --jq ".pull_requests[:$((POS-1))][] | select(.state==\"open\") | \"\(.head.sha) \(.number)\"")
+          fi
+          echo "held_layers=${held# }" >> "$GITHUB_OUTPUT"
 
   upgrade_extended_test:
-    needs: [run_condition_check]
+    needs: [gate]
     if: |
-      needs.run_condition_check.result == 'success' &&
-      needs.run_condition_check.outputs.skip_upgrade_test != 'true'
+      needs.gate.result == 'success' &&
+      needs.gate.outputs.skip_test != 'true'
     env:
       GOPRIVATE: github.com/weka
     name: upgrade_extended_test
@@ -100,8 +190,19 @@ jobs:
       operator_helm_image: ${{ steps.set-operator-versions.outputs.operator_helm_image }}
     runs-on: scalar-runners
     steps:
+      - name: Wait for the test hardware
+        # One execution at a time on the lab cluster (operator-mq-ci), across all PRs. Newer runs
+        # wait for older in-progress runs of this workflow; nothing is dropped. (A global
+        # `concurrency` group would drop runs: GitHub keeps only one pending run per group.)
+        uses: softprops/turnstyle@v2
+        with:
+          same-branch-only: false
+          poll-interval-seconds: 30
+
       - name: Check Docker
+        # The dind sidecar of the ephemeral runner may still be starting up.
         run: |
+          for i in $(seq 30); do docker info >/dev/null 2>&1 && break; sleep 2; done
           docker version
           docker info
 
@@ -228,6 +329,10 @@ jobs:
             exit 1
           fi
           echo "::notice::Execution: ${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
+          # A file, not $GITHUB_ENV: env additions apply only once a step ends, and this step
+          # then polls for an hour. Cancellation lands mid-poll, which is exactly when the
+          # cleanup step below needs the id.
+          echo "$EXECUTION_ID" > "$RUNNER_TEMP/execution_id"
 
           # Send Slack notification with execution link
           EXECUTION_URL="${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
@@ -300,11 +405,23 @@ jobs:
             sleep "$SLEEP_SECONDS"
           done
 
+      - name: Stop remote execution if this job was cancelled
+        # Cancelling the GitHub job (newer push, or a stack top cancelling a redundant lower-layer
+        # run) does not stop the execution on the testing service; stop it so the hardware is free.
+        if: cancelled()
+        run: |
+          EXECUTION_ID=$(cat "$RUNNER_TEMP/execution_id" 2>/dev/null || true)
+          if [ -z "$EXECUTION_ID" ]; then echo "no execution to stop"; exit 0; fi
+          curl --fail --retry 3 --retry-delay 5 -sS -X POST \
+            "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions/$EXECUTION_ID/stop" \
+            -H "Content-Type: application/json" \
+            && echo "stopped execution $EXECUTION_ID" || echo "::warning::could not stop execution $EXECUTION_ID"
+
   clients_only_test:
-    needs: [run_condition_check, upgrade_extended_test]
+    needs: [gate, upgrade_extended_test]
     if: |
-      needs.run_condition_check.result == 'success' &&
-      needs.run_condition_check.outputs.skip_upgrade_test != 'true' &&
+      needs.gate.result == 'success' &&
+      needs.gate.outputs.skip_test != 'true' &&
       needs.upgrade_extended_test.result == 'success'
     runs-on: scalar-runners
     steps:
@@ -403,6 +520,10 @@ jobs:
             exit 1
           fi
           echo "::notice::Execution: ${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
+          # A file, not $GITHUB_ENV: env additions apply only once a step ends, and this step
+          # then polls for an hour. Cancellation lands mid-poll, which is exactly when the
+          # cleanup step below needs the id.
+          echo "$EXECUTION_ID" > "$RUNNER_TEMP/execution_id"
 
           SLEEP_SECONDS=60
           MAX_POLLS=60
@@ -448,20 +569,71 @@ jobs:
             sleep "$SLEEP_SECONDS"
           done
 
-  ci_on_merge_queue_required_status:
-    needs: [run_condition_check, upgrade_extended_test, clients_only_test]
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Validate required workflow
+      - name: Stop remote execution if this job was cancelled
+        # Cancelling the GitHub job (newer push, or a stack top cancelling a redundant lower-layer
+        # run) does not stop the execution on the testing service; stop it so the hardware is free.
+        if: cancelled()
         run: |
-          # A gate that errored (not skipped) must not pass the PR silently.
-          [[ "${{ needs.run_condition_check.result }}" == "failure" ]] && exit 1
-          if [[ "${{ needs.run_condition_check.result }}" == "success" ]]; then
-            # If all commits are chore/docs, upgrade test is skipped intentionally - that's OK
-            if [[ "${{ needs.run_condition_check.outputs.skip_upgrade_test }}" == "true" ]]; then
-              echo "Upgrade test skipped (all commits are chore/docs) - passing"
-              exit 0
-            fi
-            [[ "${{ needs.upgrade_extended_test.result }}" == "success" && "${{ needs.clients_only_test.result }}" == "success" ]] || exit 1
+          EXECUTION_ID=$(cat "$RUNNER_TEMP/execution_id" 2>/dev/null || true)
+          if [ -z "$EXECUTION_ID" ]; then echo "no execution to stop"; exit 0; fi
+          curl --fail --retry 3 --retry-delay 5 -sS -X POST \
+            "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions/$EXECUTION_ID/stop" \
+            -H "Content-Type: application/json" \
+            && echo "stopped execution $EXECUTION_ID" || echo "::warning::could not stop execution $EXECUTION_ID"
+
+  report_status:
+    # Posts the required commit status `ci-gate`. Nothing is posted when `gate` was skipped
+    # (draft, fork, lower layer without run label): the PR shows "Expected" and stays blocked.
+    needs: [gate, upgrade_extended_test, clients_only_test]
+    runs-on: ubuntu-latest
+    if: always() && needs.gate.result != 'skipped'
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      GATE: ${{ needs.gate.result }}
+      SKIP: ${{ needs.gate.outputs.skip_test }}
+      SKIP_REASON: ${{ needs.gate.outputs.skip_reason }}
+      UPGRADE: ${{ needs.upgrade_extended_test.result }}
+      CLIENTS: ${{ needs.clients_only_test.result }}
+      HELD: ${{ needs.gate.outputs.held_layers }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      # Turns the job results into one commit status on this PR's head SHA:
+      #   any job cancelled            -> error   (re-push or re-run to clear)
+      #   gate failed                  -> failure
+      #   gate said skip               -> success ("skipped: ..." says why)
+      #   both tests passed            -> success
+      #   otherwise                    -> failure (which test failed is in the description)
+      # A success is also posted on every SHA in `held_layers` (the layers below that were held
+      # pending at the start of this run), which is what lets "Merge stack" merge them together.
+      # Failures and errors are never mirrored: the held layers stay pending, i.e. blocked.
+      - name: Post ci-gate status
+        run: |
+          set -euo pipefail
+          # A commit status, not a check run: the latest status per context wins and it is not
+          # tied to a check suite (a second run on the same SHA opens a new suite without it).
+          if [[ "$GATE" == "cancelled" || "$UPGRADE" == "cancelled" || "$CLIENTS" == "cancelled" ]]; then
+            state=error; desc="cancelled on PR #$PR"
+          elif [[ "$GATE" != "success" ]]; then
+            state=failure; desc="gate job failed on PR #$PR"
+          elif [[ "$SKIP" == "true" ]]; then
+            state=success; desc="${SKIP_REASON:-skipped} on PR #$PR"
+          elif [[ "$UPGRADE" == "success" && "$CLIENTS" == "success" ]]; then
+            state=success; desc="upgrade-extended and clients-only passed on PR #$PR"
+          else
+            state=failure; desc="upgrade-extended=$UPGRADE clients-only=$CLIENTS on PR #$PR"
           fi
+          post() {
+            gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$1" -f context=ci-gate \
+              -f state="$state" -f target_url="$RUN_URL" -f description="$desc" >/dev/null
+            echo "ci-gate=$state on ${1:0:7}"
+          }
+          # Mirror a pass onto the layers held at the start of this run (never onto a layer
+          # pushed while the tests were running: its new SHA gets nothing and stays blocked).
+          # Mirrors first: a failing mirror must not leave the required head status green while
+          # a layer below is still pending.
+          if [[ "$state" == "success" ]]; then
+            for sha in $HELD; do post "$sha"; done
+          fi
+          post "$HEAD_SHA"
