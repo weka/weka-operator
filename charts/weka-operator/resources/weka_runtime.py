@@ -2411,9 +2411,11 @@ async def run_logrotate():
 
 
 async def write_logrotate_config():
+    # Paths must match the file() destinations in resources/syslog-ng.conf. A path that
+    # does not exist is skipped silently by missingok, so that file never rotates.
     with open("/etc/logrotate.conf", "w") as f:
         f.write(dedent("""
-            /var/log/syslog /var/log/errors {
+            /var/log/syslog /var/log/error {
                 size 1M
                 rotate 10
                 missingok
