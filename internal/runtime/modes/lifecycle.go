@@ -310,7 +310,7 @@ func isContainerRunning(name string, noAgentAsNotRunning bool) bool {
 // startAgentSupervisor creates a Supervisor with syslog and agent processes and starts it.
 func startAgentSupervisor(ctx context.Context, cfg *config.Config) {
 	sup := daemon.NewSupervisor()
-	syslog.AddToDaemon(sup, cfg)
+	syslog.AddToDaemon(ctx, sup, cfg)
 	agentCmd := agent.GetCmd(cfg)
 	sup.Add("agent", func() *exec.Cmd {
 		return exec.Command("sh", "-c", agentCmd) //nolint:gosec // agentCmd is operator-controlled, not user input

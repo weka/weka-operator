@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
 	"github.com/weka/weka-operator/internal/runtime/config"
 	"github.com/weka/weka-operator/internal/runtime/network"
 	"github.com/weka/weka-operator/internal/runtime/persistency"
@@ -38,11 +37,13 @@ func runTelemetry(ctx context.Context, cfg *config.Config) error {
 	if err := runAgent(ctx, cfg); err != nil {
 		return err
 	}
-	if err := weka.EnsureWekaVersion(ctx); err != nil {
+	if err := weka.EnsureWekaVersion(ctx, cfg); err != nil {
 		return err
 	}
 
-	if err := ensureTelemetryContainer(ctx); err != nil {
+	// Mirrors Python ensure_telemetry_container() at weka_runtime.py (f4d86aad).
+	// --not-dependent allows it to start without waiting for other containers.
+	if err := weka.EnsureManagedLocalContainer(ctx, "telemetry", "--not-dependent", "--no-start", "--disable"); err != nil {
 		return err
 	}
 	// Mirror Python: fatal on write_telemetry_config_override failure at weka_runtime.py:3408.
@@ -53,12 +54,4 @@ func runTelemetry(ctx context.Context, cfg *config.Config) error {
 
 	logger.Info("telemetry container ready; exiting — telemetry and agent continue independently")
 	return nil
-}
-
-// ensureTelemetryContainer creates the telemetry container if it does not already exist.
-// --not-dependent allows it to start without waiting for other containers.
-// Mirrors Python ensure_telemetry_container() at weka_runtime.py.
-func ensureTelemetryContainer(ctx context.Context) error {
-	return cmdutil.Run(ctx, "sh", "-c",
-		"weka local ps | grep -qw telemetry || weka local setup telemetry --not-dependent")
 }

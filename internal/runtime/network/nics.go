@@ -41,11 +41,15 @@ func AutodiscoverNetDevices(ctx context.Context, cfg *config.Config) error {
 		return nil
 	}
 	if len(cfg.Subnets) > 0 {
-		devs, err := getDevicesBySubnets(ctx, cfg.Subnets)
+		pairs, err := getDevicesBySubnets(ctx, cfg.Subnets)
 		if err != nil {
 			return fmt.Errorf("network: subnet discovery: %w", err)
 		}
-		cfg.NetworkDevice = strings.Join(devs, ",")
+		names := make([]string, len(pairs))
+		for i, p := range pairs {
+			names[i] = p.device
+		}
+		cfg.NetworkDevice = strings.Join(names, ",")
 	}
 	return nil
 }
@@ -112,7 +116,7 @@ func WriteManagementIPs(ctx context.Context, cfg *config.Config) error {
 			return fmt.Errorf("network.WriteManagementIPs selectors: %w", err)
 		}
 		for _, d := range devInfos {
-			ip, err := getSingleDeviceIP(ctx, d.device, cfg.IsIPv6)
+			ip, err := getSingleDeviceIP(ctx, d.device, d.subnet, cfg.IsIPv6)
 			if err != nil {
 				return err
 			}
@@ -129,7 +133,7 @@ func WriteManagementIPs(ctx context.Context, cfg *config.Config) error {
 			if d.rdmaOnly {
 				continue
 			}
-			ip, err := getSingleDeviceIP(ctx, d.device, cfg.IsIPv6)
+			ip, err := getSingleDeviceIP(ctx, d.device, d.subnet, cfg.IsIPv6)
 			if err != nil {
 				return err
 			}
@@ -140,12 +144,12 @@ func WriteManagementIPs(ctx context.Context, cfg *config.Config) error {
 		}
 
 	case cfg.NetworkDevice == "" && len(cfg.Subnets) > 0:
-		devs, err := getDevicesBySubnets(ctx, cfg.Subnets)
+		pairs, err := getDevicesBySubnets(ctx, cfg.Subnets)
 		if err != nil {
 			return err
 		}
-		for _, dev := range devs {
-			ip, err := getSingleDeviceIP(ctx, dev, cfg.IsIPv6)
+		for _, p := range pairs {
+			ip, err := getSingleDeviceIP(ctx, p.device, p.subnet, cfg.IsIPv6)
 			if err != nil {
 				return err
 			}
@@ -157,14 +161,14 @@ func WriteManagementIPs(ctx context.Context, cfg *config.Config) error {
 		if device == "udp" {
 			device = "default"
 		}
-		ip, err := getSingleDeviceIP(ctx, device, cfg.IsIPv6)
+		ip, err := getSingleDeviceIP(ctx, device, "", cfg.IsIPv6)
 		if err != nil {
 			return err
 		}
 		ipAddresses = []string{ip}
 
 	case !strings.Contains(cfg.NetworkDevice, ","):
-		ip, err := getSingleDeviceIP(ctx, cfg.NetworkDevice, cfg.IsIPv6)
+		ip, err := getSingleDeviceIP(ctx, cfg.NetworkDevice, "", cfg.IsIPv6)
 		if err != nil {
 			return err
 		}
@@ -174,7 +178,7 @@ func WriteManagementIPs(ctx context.Context, cfg *config.Config) error {
 		// Multiple NICs.
 		devices := strings.Split(cfg.NetworkDevice, ",")
 		for _, dev := range devices {
-			ip, err := getSingleDeviceIP(ctx, dev, cfg.IsIPv6)
+			ip, err := getSingleDeviceIP(ctx, dev, "", cfg.IsIPv6)
 			if err != nil {
 				return err
 			}
@@ -206,8 +210,16 @@ func WriteManagementIPs(ctx context.Context, cfg *config.Config) error {
 
 type deviceInfo struct {
 	device      string
+	subnet      string // empty when the device came from a deviceNames selector
 	rdmaOnly    bool
 	disableRDMA bool
+}
+
+// devSubnetPair is a (device, subnet) result from subnet-based discovery.
+// Mirrors the Python Tuple[str, str] return of get_devices_by_subnets().
+type devSubnetPair struct {
+	device string
+	subnet string
 }
 
 // getDevicesBySelectors filters devices from a JSON-encoded selector list.
@@ -264,31 +276,42 @@ func getDevicesBySelectors(ctx context.Context, selectorsJSON string) ([]deviceI
 		for _, name := range subnetDevs {
 			if _, ok := seen[name]; !ok {
 				seen[name] = struct{}{}
-				devices = append(devices, deviceInfo{device: name, rdmaOnly: sel.RdmaOnly, disableRDMA: sel.DisableRdma})
+				devices = append(devices, deviceInfo{device: name, subnet: sel.Subnet, rdmaOnly: sel.RdmaOnly, disableRDMA: sel.DisableRdma})
 			}
 		}
 	}
 	return devices, nil
 }
 
-// getDevicesBySubnets finds interfaces whose IP is in any of the given subnets.
-// Mirrors Python get_devices_by_subnets() / autodiscover_network_devices() at weka_runtime.py:3742 / 2217.
-func getDevicesBySubnets(ctx context.Context, subnets []string) ([]string, error) {
-	var result []string
-	seen := make(map[string]struct{})
-	for _, subnet := range subnets {
+// getDevicesBySubnets finds interfaces whose IP is in any of the given subnets,
+// paired with the subnet each was found in. Mirrors Python get_devices_by_subnets()
+// / get_devices_waiting_for_all_subnets_to_have_device() at weka_runtime.py:3742 / 3680.
+func getDevicesBySubnets(ctx context.Context, subnets []string) ([]devSubnetPair, error) {
+	perSubnetDevices := make([][]string, len(subnets))
+	for i, subnet := range subnets {
 		devs, err := waitForSubnet(ctx, subnet)
 		if err != nil {
 			return nil, err
 		}
-		for _, d := range devs {
+		perSubnetDevices[i] = devs
+	}
+	return pairDevicesBySubnet(subnets, perSubnetDevices), nil
+}
+
+// pairDevicesBySubnet dedups per-subnet device lists into (device, subnet) pairs, keeping each
+// device's first-seen subnet. Pure logic split out of getDevicesBySubnets for testability.
+func pairDevicesBySubnet(subnets []string, perSubnetDevices [][]string) []devSubnetPair {
+	var result []devSubnetPair
+	seen := make(map[string]struct{})
+	for i, subnet := range subnets {
+		for _, d := range perSubnetDevices[i] {
 			if _, ok := seen[d]; !ok {
 				seen[d] = struct{}{}
-				result = append(result, d)
+				result = append(result, devSubnetPair{device: d, subnet: subnet})
 			}
 		}
 	}
-	return result, nil
+	return result
 }
 
 // waitForSubnet polls ip -o addr until at least one device is in the subnet (up to 300s).
@@ -375,17 +398,27 @@ func autodiscoverInSubnet(ipNet *net.IPNet) ([]string, error) {
 	return filterDevicesInSubnet(out, ipNet), nil
 }
 
-// getSingleDeviceIP gets the primary IP of a network interface.
+// getSingleDeviceIP gets the primary IP of a network interface. When subnet is
+// non-empty, it picks the address in that subnet specifically, since a device
+// can carry several addresses and position alone cannot pick the right one.
 // Mirrors Python get_single_device_ip() at weka_runtime.py:3647.
-func getSingleDeviceIP(ctx context.Context, device string, isIPv6 bool) (string, error) {
+func getSingleDeviceIP(ctx context.Context, device, subnet string, isIPv6 bool) (string, error) {
 	var script string
-	if device == "" || device == "default" {
+	switch {
+	case device == "" || device == "default":
 		if isIPv6 {
 			script = "ip -6 addr show $(ip -6 route show default | awk '{print $5}' | head -n1) | grep 'inet6 ' | grep global | awk '{print $2}' | cut -d/ -f1"
 		} else {
 			script = "ip route show default | grep src | awk '/default/ {print $9}' | head -n1"
 		}
-	} else {
+	case subnet != "":
+		// Parse before interpolating: subnet is unvalidated spec input going into a shell.
+		_, ipNet, err := net.ParseCIDR(subnet)
+		if err != nil {
+			return "", fmt.Errorf("getSingleDeviceIP: invalid subnet %q: %w", subnet, err)
+		}
+		script = fmt.Sprintf("ip -o addr show dev %s to %s | head -n1 | awk '{print $4}' | cut -d/ -f1", device, ipNet.String())
+	default:
 		if isIPv6 {
 			script = fmt.Sprintf("ip -6 addr show dev %s | grep -E 'inet6 (fd|2)' | head -n1 | awk '{print $2}' | cut -d/ -f1", device)
 		} else {
@@ -424,7 +457,7 @@ func filterMissingDevices(ctx context.Context, names []string, rdmaOnly bool) []
 				available = append(available, name)
 			}
 		} else {
-			ip, err := getSingleDeviceIP(ctx, name, false)
+			ip, err := getSingleDeviceIP(ctx, name, "", false)
 			if err == nil && ip != "" {
 				available = append(available, name)
 			}

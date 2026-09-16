@@ -41,7 +41,7 @@ func runCompute(ctx context.Context, cfg *config.Config) error {
 	if err := runAgent(ctx, cfg); err != nil {
 		return err
 	}
-	if err := weka.EnsureWekaVersion(ctx); err != nil {
+	if err := weka.EnsureWekaVersion(ctx, cfg); err != nil {
 		return err
 	}
 	if err := weka.EnsureWekaContainer(ctx, cfg, res); err != nil {
