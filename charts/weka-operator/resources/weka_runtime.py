@@ -1,5 +1,6 @@
 import base64
 import fcntl
+import glob
 import ipaddress
 import json
 import logging
@@ -292,6 +293,22 @@ def use_go_syslog() -> bool:
 
     raise ValueError(f"Invalid SYSLOG_PACKAGE value: {syslog_package}. Expected 'auto', 'go-syslog', or 'syslog-ng'.")
 
+
+# syslog-ng auto-loads every module in its module path, and libafmongodb.so links
+# libmongoc, whose constructor orphans a deleted-but-open /dev/shm counters inode on
+# every reload. No destination here uses mongodb(), so the module is only a liability.
+def strip_syslog_ng_mongodb_module():
+    found = glob.glob("/usr/lib*/syslog-ng/*/libafmongodb.so")
+    if not found:
+        logging.warning("libafmongodb.so not found in syslog-ng module path, /dev/shm may accumulate mongoc segments")
+        return
+
+    for so in found:
+        try:
+            os.remove(so)
+            logging.info(f"removed unused syslog-ng module {so}")
+        except OSError as e:
+            logging.warning(f"could not remove {so}: {e}")
 
 
 class FeaturesFlags:
@@ -4445,6 +4462,7 @@ async def start_syslog():
     if use_go_syslog():
         syslog = Daemon("/usr/sbin/go-syslog", "go-syslog")
     else:
+        strip_syslog_ng_mongodb_module()
         syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf --pidfile /var/run/syslog-ng.pid",
                         "syslog")
 
