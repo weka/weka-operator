@@ -1518,10 +1518,12 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 	}
 
 	// Adhoc-op containers (sign-drives, discover-drives, force-resign-drives, umount, etc.)
-	// use minimal resources with no limits
+	// use minimal requests with generous headroom limits
 	if f.container.IsAdhocOpContainer() {
 		cpuRequestStr = "100m"
 		memRequest = "128Mi"
+		cpuLimitStr = "4"
+		memLimit = "16Gi"
 	}
 
 	if memLimit == "" {
@@ -1540,31 +1542,23 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 
 	// since this is HT, we are doubling num of cores on allocation
 	logger.SetValues("cpuRequestStr", cpuRequestStr, "cpuLimitStr", cpuLimitStr, "memRequest", memRequest, "hugePages", hgDetails.HugePagesStr)
-	if f.container.IsAdhocOpContainer() {
-		// Adhoc-op containers: minimal requests, no CPU/memory limits
-		pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
-			// TODO: set appropriate limits for adhoc-op containers
-			Limits: corev1.ResourceList{},
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
-				corev1.ResourceMemory:           resource.MustParse(memRequest),
-				corev1.ResourceEphemeralStorage: resource.MustParse(requestedEphemeralStorage),
-			},
-		}
-	} else {
-		pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
-			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:              resource.MustParse(cpuLimitStr),
-				hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
-				corev1.ResourceMemory:           resource.MustParse(memLimit),
-			},
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
-				hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
-				corev1.ResourceMemory:           resource.MustParse(memRequest),
-				corev1.ResourceEphemeralStorage: resource.MustParse(requestedEphemeralStorage),
-			},
-		}
+	pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(cpuLimitStr),
+			corev1.ResourceMemory: resource.MustParse(memLimit),
+		},
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
+			corev1.ResourceMemory:           resource.MustParse(memRequest),
+			corev1.ResourceEphemeralStorage: resource.MustParse(requestedEphemeralStorage),
+		},
+	}
+
+	// adhoc-op containers get no hugepages, matching the hugepages emptyDir guard above
+	if !f.container.IsAdhocOpContainer() {
+		res := &pod.Spec.Containers[0].Resources
+		res.Limits[hgDetails.HugePagesResourceName] = resource.MustParse(hgDetails.HugePagesStr)
+		res.Requests[hgDetails.HugePagesResourceName] = resource.MustParse(hgDetails.HugePagesStr)
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeDrive && !f.container.UsesDriveSharing() {
