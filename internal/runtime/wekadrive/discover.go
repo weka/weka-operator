@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/runtime/blockdev"
 	"github.com/weka/weka-operator/internal/runtime/cmdutil"
@@ -20,10 +21,22 @@ const (
 
 // FindWekaPartitions scans /dev/disk/by-id/ and /dev/disk/by-path/ for Weka-formatted partitions.
 // It checks partition GUID and reads the Weka magic to determine if the drive is signed.
-func FindWekaPartitions(ctx context.Context) ([]domain.DriveInfo, error) {
+//
+// useSignTool mirrors Python's find_weka_drives(use_sign_tool): when true, drive Type ("TLC"/"QLC")
+// is looked up via the sign tool; discover-drives passes true, ensure/shutdown paths pass false
+// because the sign tool binary is absent from the weka container image.
+func FindWekaPartitions(ctx context.Context, useSignTool bool) ([]domain.DriveInfo, error) {
 	partNames, err := collectPartNames(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	var driveTypes map[string]string
+	if useSignTool {
+		driveTypes, err = GetDriveTypesWithSignTool(ctx, false)
+		if err != nil {
+			return nil, fmt.Errorf("GetDriveTypesWithSignTool: %w", err)
+		}
 	}
 
 	var drives []domain.DriveInfo
@@ -64,12 +77,20 @@ func FindWekaPartitions(ctx context.Context) ([]domain.DriveInfo, error) {
 			serialID = ""
 		}
 
+		// A drive the sign tool does not enumerate (e.g. SCSI/SATA) stays untyped rather than
+		// failing discovery; consumers treat an empty type as unknown and keep the drive.
+		driveType := driveTypes[diskPath]
+		if driveType == "" && useSignTool {
+			instrumentation.CurrentSpanLogger(ctx).Warn("sign tool reported no drive type", "device", diskPath)
+		}
+
 		drives = append(drives, domain.DriveInfo{
 			SerialId:   serialID,
 			DevicePath: diskPath,
 			Partition:  "/dev/" + partName,
 			IsSigned:   isSigned,
 			WekaGuid:   wekaGUID,
+			Type:       driveType,
 		})
 	}
 	return drives, nil

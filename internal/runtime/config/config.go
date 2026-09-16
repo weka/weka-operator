@@ -50,6 +50,7 @@ type Config struct {
 	BindManagementAll     bool
 	ManagementIP          string
 	NetGateway            string
+	NetNetmask            int
 	NvidiaVFSingleIP      bool
 
 	// Runtime behaviour
@@ -63,6 +64,7 @@ type Config struct {
 	ImageName           string
 	TargetImageName     string
 	SyslogPackage       string
+	NoReserveSpace      bool
 
 	// Hugepages
 	COSAllowHugepageConfig    bool
@@ -81,6 +83,12 @@ type Config struct {
 	MaxTraceCapacityGB int
 	EnsureFreeSpaceGB  int
 	DebugSleep         int
+
+	// AWS IRSA (ensure-nics web-identity token streaming)
+	AWSRoleARN              string
+	AWSWebIdentityTokenFile string
+	AWSRegion               string
+	AWSDefaultRegion        string
 
 	// Ad-hoc operations
 	Instructions *v1alpha1.Instructions
@@ -127,7 +135,13 @@ func Load() *Config {
 	cfg.BindManagementAll = parseBool(os.Getenv("BIND_MANAGEMENT_ALL"))
 	cfg.ManagementIP = os.Getenv("MANAGEMENT_IP")
 	cfg.NetGateway = os.Getenv("NET_GATEWAY")
+	cfg.NetNetmask = parseInt(os.Getenv("NET_NETMASK"))
 	cfg.NvidiaVFSingleIP = parseBool(os.Getenv("NVIDIA_VF_SINGLE_IP"))
+
+	cfg.AWSRoleARN = os.Getenv("AWS_ROLE_ARN")
+	cfg.AWSWebIdentityTokenFile = os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
+	cfg.AWSRegion = os.Getenv("AWS_REGION")
+	cfg.AWSDefaultRegion = os.Getenv("AWS_DEFAULT_REGION")
 
 	cfg.DistService = os.Getenv("DIST_SERVICE")
 	cfg.DriversBuildID = os.Getenv("DRIVERS_BUILD_ID")
@@ -139,6 +153,7 @@ func Load() *Config {
 	cfg.ImageName = os.Getenv("IMAGE_NAME")
 	cfg.TargetImageName = os.Getenv("TARGET_IMAGE_NAME")
 	cfg.SyslogPackage = os.Getenv("SYSLOG_PACKAGE")
+	cfg.NoReserveSpace = parseBool(os.Getenv("NO_RESERVE_SPACE"))
 
 	cfg.COSAllowHugepageConfig = parseBool(os.Getenv("WEKA_COS_ALLOW_HUGEPAGE_CONFIG"))
 	cfg.COSAllowDisableDriverSign = parseBool(os.Getenv("WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING"))

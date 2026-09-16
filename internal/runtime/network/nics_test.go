@@ -2,6 +2,7 @@ package network
 
 import (
 	"net"
+	"reflect"
 	"testing"
 
 	"github.com/weka/weka-operator/internal/runtime/config"
@@ -142,6 +143,55 @@ func TestFilterDevicesInSubnet(t *testing.T) {
 				if got[i] != tt.want[i] {
 					t.Errorf("filterDevicesInSubnet(%q)[%d] = %q, want %q", tt.subnet, i, got[i], tt.want[i])
 				}
+			}
+		})
+	}
+}
+
+func TestPairDevicesBySubnet(t *testing.T) {
+	tests := []struct {
+		name             string
+		subnets          []string
+		perSubnetDevices [][]string
+		want             []devSubnetPair
+	}{
+		{
+			name:             "single subnet, single device",
+			subnets:          []string{"10.0.0.0/24"},
+			perSubnetDevices: [][]string{{"eth0"}},
+			want:             []devSubnetPair{{device: "eth0", subnet: "10.0.0.0/24"}},
+		},
+		{
+			name:             "distinct devices across subnets",
+			subnets:          []string{"10.0.0.0/24", "10.0.1.0/24"},
+			perSubnetDevices: [][]string{{"eth0"}, {"eth1"}},
+			want: []devSubnetPair{
+				{device: "eth0", subnet: "10.0.0.0/24"},
+				{device: "eth1", subnet: "10.0.1.0/24"},
+			},
+		},
+		{
+			name:             "device seen in a later subnet keeps its first subnet",
+			subnets:          []string{"10.0.0.0/24", "10.0.1.0/24"},
+			perSubnetDevices: [][]string{{"eth0"}, {"eth0", "eth1"}},
+			want: []devSubnetPair{
+				{device: "eth0", subnet: "10.0.0.0/24"},
+				{device: "eth1", subnet: "10.0.1.0/24"},
+			},
+		},
+		{
+			name:             "no devices in any subnet",
+			subnets:          []string{"10.0.0.0/24"},
+			perSubnetDevices: [][]string{nil},
+			want:             nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pairDevicesBySubnet(tt.subnets, tt.perSubnetDevices)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("pairDevicesBySubnet() = %+v, want %+v", got, tt.want)
 			}
 		})
 	}

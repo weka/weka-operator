@@ -71,3 +71,43 @@ func TestParseNonDatapathCoreIDs(t *testing.T) {
 		})
 	}
 }
+
+// ---- sortedNodeIDs tests ----
+
+func TestSortedNodeIDs(t *testing.T) {
+	tests := []struct {
+		name  string
+		nodes map[string]interface{}
+		want  []string
+	}{
+		{
+			name:  "numeric ids sorted ascending, not lexically",
+			nodes: map[string]interface{}{"10": nil, "2": nil, "1": nil, "0": nil},
+			want:  []string{"0", "1", "2", "10"},
+		},
+		{
+			name:  "non-numeric ids fall back to string order",
+			nodes: map[string]interface{}{"b": nil, "a": nil},
+			want:  []string{"a", "b"},
+		},
+		{
+			name:  "empty map",
+			nodes: map[string]interface{}{},
+			want:  []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sortedNodeIDs(tt.nodes)
+			if len(got) != len(tt.want) {
+				t.Fatalf("sortedNodeIDs(%v) = %v, want %v", tt.nodes, got, tt.want)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Errorf("sortedNodeIDs(%v)[%d] = %q, want %q", tt.nodes, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
