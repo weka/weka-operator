@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -61,6 +62,8 @@ type signDriveDevice struct {
 type signDriveHardware struct {
 	SerialNumber string `json:"serial_number"`
 	Path         string `json:"path"`
+	Model        string `json:"model"`
+	ModelNumber  string `json:"model_number"`
 	IuSize       int    `json:"iu_size"`
 	SizeBytes    int64  `json:"size_bytes"`
 }
@@ -70,35 +73,21 @@ type signDriveWekaInfo struct {
 	IsProxy     bool   `json:"is_proxy"`
 }
 
-// GetDrivesWithClusterGUID runs `weka-sign-drive list -j` and returns a map of serial → path
-// for drives that have a cluster_guid (i.e. are claimed by a Weka cluster).
-// If useProxySocket is true and the socket file exists, the proxy socket is used.
-func GetDrivesWithClusterGUID(ctx context.Context, useProxySocket bool) (map[string]string, error) {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetDrivesWithClusterGUID")
-	defer logger.End()
+// parseSignDriveListJSON is a thin helper that unmarshals raw JSON into a signDriveListOutput.
+// It is used by both the production callers and tests.
+func parseSignDriveListJSON(data []byte, out *signDriveListOutput) error {
+	return json.Unmarshal(data, out)
+}
 
-	args := []string{}
-	if useProxySocket {
-		if _, err := os.Stat(ssdProxySocketPath); err == nil {
-			logger.Info("using proxy socket", "socket", ssdProxySocketPath)
-			args = append(args, "--unix-socket", ssdProxySocketPath+":/api/v1")
-		}
-	}
-	args = append(args, "list", "-j")
-
-	out, err := cmdutil.Output(ctx, "/weka-sign-drive", args...)
-	if err != nil {
-		logger.Warn("list failed", "err", err)
-		return map[string]string{}, nil
-	}
-
-	var parsed signDriveListOutput
-	if jsonErr := json.Unmarshal(out, &parsed); jsonErr != nil {
-		return nil, fmt.Errorf("weka-sign-drive list: JSON parse: %w", jsonErr)
-	}
-
+// filterClusterGUIDDrives returns a serial→path map from a parsed list, keeping only devices
+// that have a non-empty WekaInfo.ClusterGUID.  Devices with empty serial, empty path, or nil
+// WekaInfo are skipped.  hardware.Path takes priority over the top-level path field.
+func filterClusterGUIDDrives(parsed signDriveListOutput) map[string]string {
 	result := make(map[string]string, len(parsed.Devices))
 	for _, dev := range parsed.Devices {
+		// M9 review: plan stated Python reads top-level device['serial'], but the actual
+		// Python code at weka_runtime.py:513-515 reads hardware.get('serial_number') —
+		// identical to dev.Hardware.SerialNumber here.  No change needed; already correct.
 		serial := dev.Hardware.SerialNumber
 		path := dev.Hardware.Path
 		if path == "" {
@@ -112,45 +101,17 @@ func GetDrivesWithClusterGUID(ctx context.Context, useProxySocket bool) (map[str
 		}
 		result[serial] = path
 	}
-	logger.Info("done", "count", len(result))
-	return result, nil
+	return result
 }
 
-// proxySignedGUID is the sentinel cluster_guid that weka-sign-drive assigns to
-// proxy-signed drives before they are added to a proxy cluster.
-const proxySignedGUID = "026938d8-a8a2-4ad4-a316-2f23358a1e7a"
-
-// ListAllProxyDrives runs `weka-sign-drive list -j` (using the proxy socket if available)
-// and returns SharedDriveInfo for every proxy-signed drive currently visible on the node.
-// Mirrors Python list_weka_proxy_drives_with_sign_tool().
-func ListAllProxyDrives(ctx context.Context) ([]domain.SharedDriveInfo, error) {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "ListAllProxyDrives")
-	defer logger.End()
-
-	args := []string{}
-	if _, err := os.Stat(ssdProxySocketPath); err == nil {
-		logger.Info("using proxy socket", "socket", ssdProxySocketPath)
-		args = append(args, "--unix-socket", ssdProxySocketPath+":/api/v1")
-	}
-	args = append(args, "list", "-j")
-
-	out, err := cmdutil.Output(ctx, "/weka-sign-drive", args...)
-	if err != nil {
-		return nil, fmt.Errorf("weka-sign-drive list: %w", err)
-	}
-
-	// Skip any non-JSON preamble (matches Python json_start = output_text.find('{'))
-	jsonStart := bytes.IndexByte(out, '{')
-	if jsonStart < 0 {
-		return nil, fmt.Errorf("weka-sign-drive list: no JSON in output")
-	}
-	out = out[jsonStart:]
-
-	var parsed signDriveListOutput
-	if jsonErr := json.Unmarshal(out, &parsed); jsonErr != nil {
-		return nil, fmt.Errorf("weka-sign-drive list: JSON parse: %w", jsonErr)
-	}
-
+// extractProxyDrives returns SharedDriveInfo for every proxy-signed drive in a parsed list.
+// A drive qualifies when:
+//   - status == "weka_formatted"
+//   - WekaInfo != nil AND (clusterGUID matches proxySignedGUID, or equals "proxy guid", or IsProxy)
+//   - PhysicalUUID is non-empty
+//   - SizeBytes > 0
+func extractProxyDrives(ctx context.Context, parsed signDriveListOutput) []domain.SharedDriveInfo {
+	logger := instrumentation.CurrentSpanLogger(ctx)
 	var drives []domain.SharedDriveInfo
 	for _, dev := range parsed.Devices {
 		if dev.Status != "weka_formatted" {
@@ -166,8 +127,11 @@ func ListAllProxyDrives(ctx context.Context) ([]domain.SharedDriveInfo, error) {
 		if dev.PhysicalUUID == "" {
 			continue
 		}
+		if dev.Hardware.Model == "" {
+			logger.Warn("proxy drive has empty model", "serial", dev.Hardware.SerialNumber, "path", dev.Path)
+		}
 		if dev.Hardware.SizeBytes <= 0 {
-			logger.Warn("skipping drive with zero size_bytes", "path", dev.Path)
+			logger.Error(fmt.Errorf("invalid size_bytes: %d", dev.Hardware.SizeBytes), "proxy drive has invalid size_bytes, skipping", "serial", dev.Hardware.SerialNumber, "path", dev.Path)
 			continue
 		}
 		drives = append(drives, domain.SharedDriveInfo{
@@ -175,10 +139,123 @@ func ListAllProxyDrives(ctx context.Context) ([]domain.SharedDriveInfo, error) {
 			Serial:       dev.Hardware.SerialNumber,
 			CapacityGiB:  int(dev.Hardware.SizeBytes / (1024 * 1024 * 1024)),
 			Type:         iuSizeToDriveType(dev.Hardware.IuSize),
+			Model:        blockdev.ResolveDriveModel(dev.Hardware.Model, dev.Hardware.ModelNumber, dev.Path),
 		})
 	}
+	return drives
+}
+
+// listDevicesWithSignTool runs `weka-sign-drive list -j` (using the proxy socket if requested and
+// present) and returns the parsed devices array. Mirrors Python _list_devices_with_sign_tool().
+func listDevicesWithSignTool(ctx context.Context, useProxySocket bool) ([]signDriveDevice, error) {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	args := []string{}
+	if useProxySocket {
+		if _, err := os.Stat(ssdProxySocketPath); err == nil {
+			logger.Info("using proxy socket", "socket", ssdProxySocketPath)
+			args = append(args, "--unix-socket", ssdProxySocketPath+":/api/v1")
+		}
+	}
+	args = append(args, "list", "-j")
+
+	out, err := cmdutil.Output(ctx, "/weka-sign-drive", args...)
+	if err != nil {
+		return nil, fmt.Errorf("weka-sign-drive list: %w", err)
+	}
+
+	// Skip any non-JSON preamble (matches Python json_start = output_text.find('{'))
+	jsonStart := bytes.IndexByte(out, '{')
+	if jsonStart < 0 {
+		return nil, fmt.Errorf("weka-sign-drive list: no JSON in output")
+	}
+
+	var parsed signDriveListOutput
+	if jsonErr := parseSignDriveListJSON(out[jsonStart:], &parsed); jsonErr != nil {
+		return nil, fmt.Errorf("weka-sign-drive list: JSON parse: %w", jsonErr)
+	}
+	return parsed.Devices, nil
+}
+
+// GetDrivesWithClusterGUID runs `weka-sign-drive list -j` and returns a map of serial → path
+// for drives that have a cluster_guid (i.e. are claimed by a Weka cluster).
+// If useProxySocket is true and the socket file exists, the proxy socket is used.
+func GetDrivesWithClusterGUID(ctx context.Context, useProxySocket bool) (map[string]string, error) {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetDrivesWithClusterGUID")
+	defer logger.End()
+
+	devices, err := listDevicesWithSignTool(ctx, useProxySocket)
+	if err != nil {
+		logger.Warn("list failed", "err", err)
+		return map[string]string{}, nil
+	}
+
+	result := filterClusterGUIDDrives(signDriveListOutput{Devices: devices})
+	logger.Info("done", "count", len(result))
+	return result, nil
+}
+
+// proxySignedGUID is the sentinel cluster_guid that weka-sign-drive assigns to
+// proxy-signed drives before they are added to a proxy cluster.
+const proxySignedGUID = "026938d8-a8a2-4ad4-a316-2f23358a1e7a"
+
+// ListAllProxyDrives runs `weka-sign-drive list -j` (using the proxy socket if available)
+// and returns SharedDriveInfo for every proxy-signed drive currently visible on the node.
+// Mirrors Python list_weka_proxy_drives_with_sign_tool().
+func ListAllProxyDrives(ctx context.Context) ([]domain.SharedDriveInfo, error) {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ListAllProxyDrives")
+	defer logger.End()
+
+	devices, err := listDevicesWithSignTool(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+
+	drives := extractProxyDrives(ctx, signDriveListOutput{Devices: devices})
 	logger.Info("done", "count", len(drives))
 	return drives, nil
+}
+
+// driveTypesFromDevices maps block device path (e.g. /dev/nvme0n1) to drive type ("TLC"/"QLC")
+// using each device's reported iu_size. Covers devices the tool could not open ("excluded"
+// status) since their hardware info still carries iu_size. Devices with no path or no iu_size
+// are skipped — their drive type is unknown.
+func driveTypesFromDevices(devices []signDriveDevice) map[string]string {
+	driveTypes := make(map[string]string, len(devices))
+	for i := range devices {
+		dev := &devices[i]
+		if dev.Path == "" || dev.Hardware.IuSize == 0 {
+			continue
+		}
+		driveTypes[dev.Path] = iuSizeToDriveType(dev.Hardware.IuSize)
+	}
+	return driveTypes
+}
+
+// GetDriveTypesWithSignTool maps block device path to drive type using the sign tool's reported
+// iu_size. Mirrors Python get_drive_types_with_sign_tool().
+func GetDriveTypesWithSignTool(ctx context.Context, useProxySocket bool) (map[string]string, error) {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetDriveTypesWithSignTool")
+	defer logger.End()
+
+	devices, err := listDevicesWithSignTool(ctx, useProxySocket)
+	if err != nil {
+		return nil, err
+	}
+
+	driveTypes := driveTypesFromDevices(devices)
+	logger.Info("drive types from sign tool", "count", len(driveTypes))
+	return driveTypes, nil
+}
+
+// runWithStderr runs a command and returns stdout, stderr, and any error.
+// Used when callers need to inspect stderr independently of the error value.
+func runWithStderr(ctx context.Context, name string, args ...string) (stdout, stderr []byte, err error) {
+	var stderrBuf bytes.Buffer
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // args are controlled by internal callers
+	cmd.Stderr = &stderrBuf
+	stdout, err = cmd.Output()
+	return stdout, stderrBuf.Bytes(), err
 }
 
 // SignBatch signs paths in a single batch invocation of weka-sign-drive.
@@ -252,8 +329,22 @@ func SignBatchProxy(ctx context.Context, paths []string, opts *SignOptions) ([]d
 	for _, p := range paths {
 		perArgs := append([]string{"sign", "proxy"}, flags...)
 		perArgs = append(perArgs, "--", p)
-		if _, perErr := cmdutil.Output(ctx, "/weka-sign-drive", perArgs...); perErr != nil {
-			logger.Error(perErr, "failed to sign device for proxy", "path", p)
+		_, perStderr, perErr := runWithStderr(ctx, "/weka-sign-drive", perArgs...)
+		if perErr != nil {
+			// Python sign_device_path_for_proxy (weka_runtime.py:559-581): if stderr contains
+			// "already a Weka partition" the drive is already proxy-signed — not an error.
+			// Read existing drive metadata and include the drive in the result set.
+			if strings.Contains(string(perStderr), "already a Weka partition") {
+				logger.Info("device already proxy-signed, reading existing metadata", "path", p)
+				info, infoErr := GetProxyDriveInfo(ctx, p)
+				if infoErr != nil {
+					logger.Warn("failed to get proxy drive info for already-signed device", "path", p, "err", infoErr)
+					continue
+				}
+				infos = append(infos, info)
+				continue
+			}
+			logger.Error(perErr, "failed to sign device for proxy", "path", p, "stderr", string(perStderr))
 			continue
 		}
 		info, infoErr := GetProxyDriveInfo(ctx, p)
@@ -285,6 +376,8 @@ type signDrivePartHeader struct {
 type signDriveShowHW struct {
 	SerialNumber string `json:"serial_number"`
 	Serial       string `json:"serial"`
+	Model        string `json:"model"`
+	ModelNumber  string `json:"model_number"`
 	IuSize       int    `json:"iu_size"`
 	SizeBytes    int64  `json:"size_bytes"`
 }
@@ -353,10 +446,17 @@ func GetProxyDriveInfo(ctx context.Context, path string) (domain.SharedDriveInfo
 		}
 	}
 
+	// Model: prefer hardware info, falling back to sysfs resolution.
+	model := blockdev.ResolveDriveModel(parsed.Hardware.Model, parsed.Hardware.ModelNumber, path)
+	if model == "" {
+		logger.Warn("could not determine model", "path", path)
+	}
+
 	return domain.SharedDriveInfo{
 		PhysicalUUID: physicalUUID,
 		Serial:       serial,
 		CapacityGiB:  capacityGiB,
 		Type:         iuSizeToDriveType(parsed.Hardware.IuSize),
+		Model:        model,
 	}, nil
 }

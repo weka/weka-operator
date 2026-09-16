@@ -14,3 +14,6 @@ umounted = "umounted"
 # "Hashi" is the vendor name in "HashiCorp Vault", surfaced in generated
 # doc/api_dump/ from the encryption field descriptions (not a typo for "Hash")
 Hashi = "Hashi"
+# SER is a serial-number prefix used in test fixtures (e.g. SER1, SER2 in
+# internal/runtime/wekadrive/sign_test.go); not a misspelling of "SET"
+SER = "SER"

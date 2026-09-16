@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weka/weka-operator/internal/pkg/domain"
 	v1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
 var version = "dev" // set via -ldflags at build time
@@ -25,13 +25,15 @@ type Config struct {
 	FailureDomain     string
 	MachineIdentifier string
 	Version           string
+	Drives            []string // populated at runtime from NodeResources
 
 	// Resource allocation
-	Cores         []int
-	CoreIDs       []int
-	CPUPolicy     string
-	Memory        string
-	DPDKBaseMemMB int
+	Cores              []int
+	CoreIDs            []int
+	NonDatapathCoreIDs string
+	CPUPolicy          string
+	Memory             string
+	DPDKBaseMemMB      int
 
 	// Network
 	NetworkDevice         string
@@ -48,6 +50,7 @@ type Config struct {
 	BindManagementAll     bool
 	ManagementIP          string
 	NetGateway            string
+	NetNetmask            int
 	NvidiaVFSingleIP      bool
 
 	// Runtime behaviour
@@ -61,6 +64,7 @@ type Config struct {
 	ImageName           string
 	TargetImageName     string
 	SyslogPackage       string
+	NoReserveSpace      bool
 
 	// Hugepages
 	COSAllowHugepageConfig    bool
@@ -80,6 +84,12 @@ type Config struct {
 	EnsureFreeSpaceGB  int
 	DebugSleep         int
 
+	// AWS IRSA (ensure-nics web-identity token streaming)
+	AWSRoleARN              string
+	AWSWebIdentityTokenFile string
+	AWSRegion               string
+	AWSDefaultRegion        string
+
 	// Ad-hoc operations
 	Instructions *v1alpha1.Instructions
 
@@ -91,63 +101,75 @@ func Load() *Config {
 	cfg := &Config{
 		Version: version,
 	}
-	cfg.Mode              = os.Getenv("MODE")
-	cfg.Name              = os.Getenv("NAME")
-	cfg.NodeName          = os.Getenv("NODE_NAME")
-	cfg.PodName           = os.Getenv("POD_NAME")
-	cfg.PodNamespace      = os.Getenv("POD_NAMESPACE")
-	cfg.PodID             = os.Getenv("POD_ID")
-	cfg.FailureDomain     = os.Getenv("FAILURE_DOMAIN")
+	cfg.Mode = os.Getenv("MODE")
+	cfg.Name = os.Getenv("NAME")
+	cfg.NodeName = os.Getenv("NODE_NAME")
+	cfg.PodName = os.Getenv("POD_NAME")
+	cfg.PodNamespace = os.Getenv("POD_NAMESPACE")
+	cfg.PodID = os.Getenv("POD_ID")
+	cfg.FailureDomain = os.Getenv("FAILURE_DOMAIN")
 	cfg.MachineIdentifier = os.Getenv("MACHINE_IDENTIFIER")
 
-	cfg.Cores     = parseIntSlice(os.Getenv("CORES"))
-	cfg.CoreIDs   = parseIntSlice(os.Getenv("CORE_IDS"))
+	cfg.Cores = parseIntSlice(os.Getenv("CORES"))
+	cfg.CoreIDs = parseIntSlice(os.Getenv("CORE_IDS"))
+	if v := os.Getenv("NON_DATAPATH_CORE_IDS"); v != "" {
+		cfg.NonDatapathCoreIDs = v
+	} else {
+		cfg.NonDatapathCoreIDs = "auto"
+	}
 	cfg.CPUPolicy = os.Getenv("CPU_POLICY")
-	cfg.Memory    = os.Getenv("MEMORY")
+	cfg.Memory = os.Getenv("MEMORY")
 	cfg.DPDKBaseMemMB = parseInt(os.Getenv("DPDK_BASE_MEMORY_MB"))
 
-	cfg.NetworkDevice         = os.Getenv("NETWORK_DEVICE")
-	cfg.Subnets               = parseStringSlice(os.Getenv("SUBNETS"))
-	cfg.NetworkSelectors      = parseStringSlice(os.Getenv("NETWORK_SELECTORS"))
+	cfg.NetworkDevice = os.Getenv("NETWORK_DEVICE")
+	cfg.Subnets = parseStringSlice(os.Getenv("SUBNETS"))
+	cfg.NetworkSelectors = parseStringSlice(os.Getenv("NETWORK_SELECTORS"))
 	cfg.ManagementIPSelectors = parseStringSlice(os.Getenv("MANAGEMENT_IPS_SELECTORS"))
-	cfg.Port      = parseInt(os.Getenv("PORT"))
+	cfg.Port = parseInt(os.Getenv("PORT"))
 	cfg.AgentPort = parseInt(os.Getenv("AGENT_PORT"))
-	cfg.BasePort  = parseInt(os.Getenv("BASE_PORT"))
+	cfg.BasePort = parseInt(os.Getenv("BASE_PORT"))
 	cfg.PortRange = parseInt(os.Getenv("PORT_RANGE"))
-	cfg.JoinIPs   = parseStringSlice(os.Getenv("JOIN_IPS"))
-	cfg.IsIPv6    = parseBool(os.Getenv("IS_IPV6"))
-	cfg.UDPMode   = parseBool(os.Getenv("UDP_MODE"))
+	cfg.JoinIPs = parseStringSlice(os.Getenv("JOIN_IPS"))
+	cfg.IsIPv6 = parseBool(os.Getenv("IS_IPV6"))
+	cfg.UDPMode = parseBool(os.Getenv("UDP_MODE"))
 	cfg.BindManagementAll = parseBool(os.Getenv("BIND_MANAGEMENT_ALL"))
 	cfg.ManagementIP = os.Getenv("MANAGEMENT_IP")
-	cfg.NetGateway   = os.Getenv("NET_GATEWAY")
+	cfg.NetGateway = os.Getenv("NET_GATEWAY")
+	cfg.NetNetmask = parseInt(os.Getenv("NET_NETMASK"))
 	cfg.NvidiaVFSingleIP = parseBool(os.Getenv("NVIDIA_VF_SINGLE_IP"))
 
-	cfg.DistService         = os.Getenv("DIST_SERVICE")
-	cfg.DriversBuildID      = os.Getenv("DRIVERS_BUILD_ID")
-	cfg.DumperConfigMode    = os.Getenv("DUMPER_CONFIG_MODE")
-	cfg.WekaContainerID     = os.Getenv("WEKA_CONTAINER_ID")
+	cfg.AWSRoleARN = os.Getenv("AWS_ROLE_ARN")
+	cfg.AWSWebIdentityTokenFile = os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
+	cfg.AWSRegion = os.Getenv("AWS_REGION")
+	cfg.AWSDefaultRegion = os.Getenv("AWS_DEFAULT_REGION")
+
+	cfg.DistService = os.Getenv("DIST_SERVICE")
+	cfg.DriversBuildID = os.Getenv("DRIVERS_BUILD_ID")
+	cfg.DumperConfigMode = os.Getenv("DUMPER_CONFIG_MODE")
+	cfg.WekaContainerID = os.Getenv("WEKA_CONTAINER_ID")
 	cfg.WekaPersistenceMode = os.Getenv("WEKA_PERSISTENCE_MODE")
-	cfg.AutoRemoveTimeout   = parseInt(os.Getenv("AUTO_REMOVE_TIMEOUT"))
-	cfg.PreRunScript        = os.Getenv("PRE_RUN_SCRIPT")
-	cfg.ImageName           = os.Getenv("IMAGE_NAME")
-	cfg.TargetImageName     = os.Getenv("TARGET_IMAGE_NAME")
-	cfg.SyslogPackage       = os.Getenv("SYSLOG_PACKAGE")
+	cfg.AutoRemoveTimeout = parseInt(os.Getenv("AUTO_REMOVE_TIMEOUT"))
+	cfg.PreRunScript = os.Getenv("PRE_RUN_SCRIPT")
+	cfg.ImageName = os.Getenv("IMAGE_NAME")
+	cfg.TargetImageName = os.Getenv("TARGET_IMAGE_NAME")
+	cfg.SyslogPackage = os.Getenv("SYSLOG_PACKAGE")
+	cfg.NoReserveSpace = parseBool(os.Getenv("NO_RESERVE_SPACE"))
 
-	cfg.COSAllowHugepageConfig    = parseBool(os.Getenv("WEKA_COS_ALLOW_HUGEPAGE_CONFIG"))
+	cfg.COSAllowHugepageConfig = parseBool(os.Getenv("WEKA_COS_ALLOW_HUGEPAGE_CONFIG"))
 	cfg.COSAllowDisableDriverSign = parseBool(os.Getenv("WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING"))
-	cfg.COSGlobalHugepageSize     = os.Getenv("WEKA_COS_GLOBAL_HUGEPAGE_SIZE")
-	cfg.COSGlobalHugepageCount    = parseInt(os.Getenv("WEKA_COS_GLOBAL_HUGEPAGE_COUNT"))
+	cfg.COSGlobalHugepageSize = os.Getenv("WEKA_COS_GLOBAL_HUGEPAGE_SIZE")
+	cfg.COSGlobalHugepageCount = parseInt(os.Getenv("WEKA_COS_GLOBAL_HUGEPAGE_COUNT"))
 
-	cfg.OtelEndpoint       = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	cfg.OtelLogsEndpoint   = os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
-	cfg.OtelHeaders        = os.Getenv("OTEL_EXPORTER_OTLP_HEADERS")
-	cfg.OtelLogsHeaders    = os.Getenv("OTEL_EXPORTER_OTLP_LOGS_HEADERS")
-	cfg.OtelServiceName    = os.Getenv("OTEL_SERVICE_NAME")
+	cfg.OtelEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	cfg.OtelLogsEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
+	cfg.OtelHeaders = os.Getenv("OTEL_EXPORTER_OTLP_HEADERS")
+	cfg.OtelLogsHeaders = os.Getenv("OTEL_EXPORTER_OTLP_LOGS_HEADERS")
+	cfg.OtelServiceName = os.Getenv("OTEL_SERVICE_NAME")
 	cfg.OtelServiceVersion = os.Getenv("OTEL_SERVICE_VERSION")
-	cfg.OtelLogsEnabled    = parseBool(os.Getenv("OTEL_LOGS_ENABLED"))
+	cfg.OtelLogsEnabled = parseBool(os.Getenv("OTEL_LOGS_ENABLED"))
 	cfg.MaxTraceCapacityGB = parseInt(os.Getenv("MAX_TRACE_CAPACITY_GB"))
-	cfg.EnsureFreeSpaceGB  = parseInt(os.Getenv("ENSURE_FREE_SPACE_GB"))
-	cfg.DebugSleep         = parseInt(os.Getenv("WEKA_OPERATOR_DEBUG_SLEEP"))
+	cfg.EnsureFreeSpaceGB = parseInt(os.Getenv("ENSURE_FREE_SPACE_GB"))
+	cfg.DebugSleep = parseInt(os.Getenv("WEKA_OPERATOR_DEBUG_SLEEP"))
 
 	if raw := os.Getenv("INSTRUCTIONS"); raw != "" {
 		var inst v1alpha1.Instructions
@@ -243,5 +265,7 @@ func featureFlagsFromBitmap(b64 string) domain.FeatureFlags {
 		SsdProxyIommuSupport:              active[7],
 		// bit 8 unused
 		SsdProxyIncludesDpdkMemory: active[9],
+		// bits 10, 11 unused
+		WekaManagesNonIonodeAffinity: active[12],
 	}
 }

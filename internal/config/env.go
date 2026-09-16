@@ -69,6 +69,7 @@ type GkeCompatibility struct {
 type Logging struct {
 	Level    int
 	TimeOnly bool
+	Format   string
 }
 
 type MaxWorkers struct {
@@ -609,6 +610,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DevMode = getBoolEnvOrDefault("OPERATOR_DEV_MODE", false)
 	// logging configuration
 	Config.Logging.Level = getIntEnvOrDefault("LOG_LEVEL", 0)
+	Config.Logging.Format = getEnvOrDefault("LOG_FORMAT", "raw")
 	Config.Logging.TimeOnly = getBoolEnvOrDefault("LOG_TIME_ONLY", true)
 	// max workers configuration
 	Config.MaxWorkers.WekaCluster = getIntEnvOrDefault("MAX_WORKERS_WEKACLUSTER", 1)
