@@ -37,6 +37,11 @@ func resolveDeactivationTimeout(node *v1.Node, override *metav1.Duration, global
 	return globalDefault
 }
 
+// nodeNotReadyWait ends the pass at the point where the pod exec would start.
+func nodeNotReadyWait(node *v1.Node) error {
+	return lifecycle.NewWaitErrorWithDuration(errors.Errorf("node %s is not ready, skipping pod termination handling", node.Name), 15*time.Second)
+}
+
 func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
@@ -61,6 +66,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 	if r.node == nil {
 		return nil
 	}
+	notReady := !NodeIsReady(node)
 
 	if container.Spec.Image != container.Status.LastAppliedImage && container.Status.LastAppliedImage != "" {
 		wekaPodContainer, podContainerErr := resources.GetWekaPodContainer(pod)
@@ -73,16 +79,13 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 		}
 	}
 
-	if r.container.Spec.GetOverrides().PodDeleteForceReplace {
+	overrides := r.container.Spec.GetOverrides()
+	if overrides.PodDeleteForceReplace || (overrides.UpgradeForceReplace && upgradeRunning) {
+		if notReady {
+			return nodeNotReadyWait(node)
+		}
 		_ = r.writeAllowForceStopInstruction(ctx, pod, skipExec) //nolint:errcheck // error return value intentionally not checked
 		return r.runWekaLocalStop(ctx, pod, true)
-	}
-
-	if r.container.Spec.GetOverrides().UpgradeForceReplace {
-		if upgradeRunning {
-			_ = r.writeAllowForceStopInstruction(ctx, pod, skipExec) //nolint:errcheck // error return value intentionally not checked
-			return r.runWekaLocalStop(ctx, pod, true)
-		}
 	}
 
 	if container.IsBackend() && config.Config.EvictContainerOnDeletion && (!container.IsComputeContainer() || !container.Spec.GetOverrides().UpgradePreventEviction) && !container.IsProtocolContainer() {
@@ -94,6 +97,11 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 			return err
 		}
 		return lifecycle.NewWaitError(errors.New("evicting container on pod deletion"))
+	}
+
+	// everything below execs into the pod or calls the node-agent, neither reachable while the node is NotReady
+	if notReady {
+		return nodeNotReadyWait(node)
 	}
 
 	if container.HasFrontend() {
