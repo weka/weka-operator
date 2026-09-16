@@ -49,7 +49,7 @@ func EnsureWekaContainer(ctx context.Context, cfg *config.Config, res *resources
 		return fmt.Errorf("EnsureWekaContainer mkdir: %w", err)
 	}
 
-	containers, err := getContainers(ctx)
+	containers, err := GetContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("EnsureWekaContainer: list containers: %w", err)
 	}
@@ -80,7 +80,7 @@ func EnsureWekaContainer(ctx context.Context, cfg *config.Config, res *resources
 			}
 			return fmt.Errorf("EnsureWekaContainer: container with name %q not found; existing: %v", cfg.Name, names)
 		}
-		if handleErr := handleExistingContainer(ctx, cfg, found, resourcesDir); handleErr != nil {
+		if handleErr := HandleExistingContainer(ctx, cfg, found, resourcesDir); handleErr != nil {
 			return handleErr
 		}
 	}
@@ -94,7 +94,7 @@ func EnsureWekaContainer(ctx context.Context, cfg *config.Config, res *resources
 		return fmt.Errorf("EnsureWekaContainer: find full cores: %w", err)
 	}
 
-	localRes, err = getWekaLocalResources(ctx, cfg.Name)
+	localRes, err = GetWekaLocalResources(ctx, cfg.Name)
 	if err != nil {
 		if cfg.Mode == "client" && strings.Contains(err.Error(), "resources.json.staging: No such file or directory") {
 			logger.Warn("client container corrupted state, recreating", "err", err)
@@ -107,7 +107,7 @@ func EnsureWekaContainer(ctx context.Context, cfg *config.Config, res *resources
 			if err2 := createContainer(ctx, cfg); err2 != nil {
 				return err2
 			}
-			localRes, err = getWekaLocalResources(ctx, cfg.Name)
+			localRes, err = GetWekaLocalResources(ctx, cfg.Name)
 			if err != nil {
 				return fmt.Errorf("EnsureWekaContainer: get resources after recreate: %w", err)
 			}
@@ -133,7 +133,7 @@ func EnsureWekaContainer(ctx context.Context, cfg *config.Config, res *resources
 		if createErr := createContainer(ctx, cfg); createErr != nil {
 			return createErr
 		}
-		localRes, err = getWekaLocalResources(ctx, cfg.Name)
+		localRes, err = GetWekaLocalResources(ctx, cfg.Name)
 		if err != nil {
 			return fmt.Errorf("EnsureWekaContainer: get resources after client recreate: %w", err)
 		}
@@ -164,7 +164,7 @@ func EnsureWekaContainer(ctx context.Context, cfg *config.Config, res *resources
 	}
 
 	// Re-fetch after potential core change.
-	localRes, err = getWekaLocalResources(ctx, cfg.Name)
+	localRes, err = GetWekaLocalResources(ctx, cfg.Name)
 	if err != nil {
 		return fmt.Errorf("EnsureWekaContainer: re-fetch resources after core change: %w", err)
 	}
@@ -176,7 +176,7 @@ func EnsureWekaContainer(ctx context.Context, cfg *config.Config, res *resources
 	localRes["reserve_1g_hugepages"] = false
 	localRes["excluded_drivers"] = []string{"igb_uio"}
 	if cfg.Memory != "" {
-		if memBytes, memErr := convertToBytes(cfg.Memory); memErr == nil {
+		if memBytes, memErr := ConvertToBytes(cfg.Memory); memErr == nil {
 			localRes["memory"] = memBytes
 		} else {
 			logger.Warn("failed to parse memory value, skipping", "memory", cfg.Memory, "err", memErr)
@@ -246,37 +246,53 @@ func EnsureWekaContainer(ctx context.Context, cfg *config.Config, res *resources
 	// NVIDIA VF single IP.
 	localRes["nvidia_vf_single_ip"] = cfg.NvidiaVFSingleIP
 
-	// Net gateway.
-	if cfg.NetGateway != "" && !isUDP(cfg) {
-		netDevs, ok := localRes["net_devices"].([]interface{})
-		if ok && len(netDevs) == 1 {
-			if devMap, ok := netDevs[0].(map[string]interface{}); ok {
+	// Net gateway/netmask. Mirrors Python ensure_weka_container() at weka_runtime.py:3047-3059.
+	if cfg.NetGateway != "" || cfg.NetNetmask != 0 {
+		if isUDP(cfg) {
+			logger.Warn("Ignoring gateway/netmask: not applicable in UDP mode",
+				"gateway", cfg.NetGateway, "netmask", cfg.NetNetmask)
+		} else {
+			netDevs, ok := localRes["net_devices"].([]interface{})
+			if !ok || len(netDevs) != 1 {
+				return fmt.Errorf("gateway/netmask configuration is not supported with multiple or zero NICs")
+			}
+			devMap, ok := netDevs[0].(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("EnsureWekaContainer: net_devices[0] is not an object")
+			}
+			if cfg.NetGateway != "" {
 				devMap["gateway"] = cfg.NetGateway
+			}
+			if cfg.NetNetmask != 0 {
+				devMap["netmask"] = cfg.NetNetmask
 			}
 		}
 	}
 
-	// Assign core IDs to nodes.
+	// Assign core IDs to nodes, in ascending node-id order (matches Python's iteration over
+	// json-ordered resources['nodes'].items(), where ids are numeric strings) so core_id
+	// assignment is deterministic instead of depending on Go map iteration order.
 	nodes, nodesOK := localRes["nodes"].(map[string]interface{})
-	coresCursor := 0
 	if nodesOK {
-		for _, nodeVal := range nodes {
-			node, ok := nodeVal.(map[string]interface{})
+		nodeIDs := sortedNodeIDs(nodes)
+
+		needCores := 0
+		for _, id := range nodeIDs {
+			if node, ok := nodes[id].(map[string]interface{}); ok && !isManagementNode(node) {
+				needCores++
+			}
+		}
+		if needCores > len(fullCores) {
+			return fmt.Errorf("not enough cores: %d nodes need a core, %d cores allocated", needCores, len(fullCores))
+		}
+
+		coresCursor := 0
+		for _, id := range nodeIDs {
+			node, ok := nodes[id].(map[string]interface{})
 			if !ok {
 				continue
 			}
-			roles, rolesOK := node["roles"].([]interface{})
-			isManagement := false
-			if rolesOK {
-				for _, r := range roles {
-					s, ok := r.(string)
-					if ok && s == "MANAGEMENT" {
-						isManagement = true
-						break
-					}
-				}
-			}
-			if isManagement {
+			if isManagementNode(node) {
 				continue
 			}
 			if cfg.CPUPolicy == "shared" {
@@ -285,15 +301,13 @@ func EnsureWekaContainer(ctx context.Context, cfg *config.Config, res *resources
 			} else {
 				node["dedicate_core"] = true
 			}
-			if coresCursor < len(fullCores) {
-				coreID, coreIDErr := strconv.Atoi(fullCores[coresCursor])
-				if coreIDErr != nil {
-					logger.Warn("invalid core ID, skipping", "coreID", fullCores[coresCursor], "err", coreIDErr)
-				} else {
-					node["core_id"] = coreID
-				}
-				coresCursor++
+			coreID, coreIDErr := strconv.Atoi(fullCores[coresCursor])
+			if coreIDErr != nil {
+				logger.Warn("invalid core ID, skipping", "coreID", fullCores[coresCursor], "err", coreIDErr)
+			} else {
+				node["core_id"] = coreID
 			}
+			coresCursor++
 		}
 	}
 
@@ -308,7 +322,7 @@ func EnsureWekaContainer(ctx context.Context, cfg *config.Config, res *resources
 	if err := os.WriteFile(resourceFile, data, 0o644); err != nil {
 		return fmt.Errorf("EnsureWekaContainer: write resources: %w", err)
 	}
-	if err := linkResourcesFile(ctx, fileName, resourcesDir); err != nil {
+	if err := LinkResourcesFile(ctx, fileName, resourcesDir); err != nil {
 		return err
 	}
 
@@ -321,16 +335,59 @@ func EnsureWekaContainer(ctx context.Context, cfg *config.Config, res *resources
 	return nil
 }
 
+// sortedNodeIDs returns the keys of a decoded resources["nodes"] map in ascending numeric
+// order (ids are numeric strings, e.g. "0", "1", ...), falling back to string order for any
+// non-numeric id.
+func sortedNodeIDs(nodes map[string]interface{}) []string {
+	ids := make([]string, 0, len(nodes))
+	for id := range nodes {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		ni, iErr := strconv.Atoi(ids[i])
+		nj, jErr := strconv.Atoi(ids[j])
+		if iErr == nil && jErr == nil {
+			return ni < nj
+		}
+		return ids[i] < ids[j]
+	})
+	return ids
+}
+
+// isManagementNode reports whether a decoded node object has the MANAGEMENT role.
+func isManagementNode(node map[string]interface{}) bool {
+	roles, ok := node["roles"].([]interface{})
+	if !ok {
+		return false
+	}
+	for _, r := range roles {
+		if s, ok := r.(string); ok && s == "MANAGEMENT" {
+			return true
+		}
+	}
+	return false
+}
+
 // EnsureWekaVersion sets the active Weka version if not already set.
-// Mirrors Python ensure_weka_version() at weka_runtime.py:2913.
-func EnsureWekaVersion(ctx context.Context) error {
+// Mirrors Python ensure_weka_version(force_set=False) at weka_runtime.py:3291.
+func EnsureWekaVersion(ctx context.Context, cfg *config.Config) error {
+	if cfg.Features.WekactlAsDefault {
+		// wekactl's `weka version -J` emits objects (not strings) and marks the active
+		// version via a "current" field instead of the legacy '*' marker.
+		return cmdutil.Run(ctx, "sh", "-c",
+			`weka version -J | jq -e 'any(.[]; .current)' >/dev/null || weka version set $(weka version -J | jq -r '.[0].version')`)
+	}
 	return cmdutil.Run(ctx, "sh", "-c", "weka version | grep '*' || weka version set $(weka version)")
 }
 
 // ForceSetWekaVersion unconditionally pins the active Weka version.
 // Used by ssdproxy mode (force_set=True) after creating the proxy container.
-func ForceSetWekaVersion(ctx context.Context) error {
-	return cmdutil.Run(ctx, "sh", "-c", "weka version set $(weka version)")
+// Mirrors Python ensure_weka_version(force_set=True) at weka_runtime.py:3291.
+func ForceSetWekaVersion(ctx context.Context, cfg *config.Config) error {
+	if cfg.Features.WekactlAsDefault {
+		return cmdutil.Run(ctx, "sh", "-c", `weka version set $(weka version -J | jq -r '.[0].version')`)
+	}
+	return cmdutil.Run(ctx, "sh", "-c", "weka version set $(weka version -J | jq -r '.[0]')")
 }
 
 // WriteFeatureFlagsJSON atomically writes feature flags to /opt/weka/k8s-runtime/feature_flags.json.
@@ -426,31 +483,31 @@ func StartContainer(ctx context.Context, name string) error {
 
 // ---- unexported helpers ----------------------------------------------------------------
 
-// getContainers runs "weka local ps --json" and returns the parsed array.
-func getContainers(ctx context.Context) ([]map[string]interface{}, error) {
+// GetContainers runs "weka local ps --json" and returns the parsed array.
+func GetContainers(ctx context.Context) ([]map[string]interface{}, error) {
 	out, err := cmdutil.Output(ctx, "weka", "local", "ps", "--json")
 	if err != nil {
-		return nil, fmt.Errorf("getContainers: %w", err)
+		return nil, fmt.Errorf("GetContainers: %w", err)
 	}
 	var result []map[string]interface{}
 	if err := json.Unmarshal(out, &result); err != nil {
-		return nil, fmt.Errorf("getContainers: parse JSON: %w", err)
+		return nil, fmt.Errorf("GetContainers: parse JSON: %w", err)
 	}
 	return result, nil
 }
 
-// getWekaLocalResources runs "weka local resources -C name --json" and returns the parsed map.
-func getWekaLocalResources(ctx context.Context, name string) (map[string]interface{}, error) {
+// GetWekaLocalResources runs "weka local resources -C name --json" and returns the parsed map.
+func GetWekaLocalResources(ctx context.Context, name string) (map[string]interface{}, error) {
 	// Python passes log_output=False here (weka_runtime.py:2557) to skip logging the large JSON
 	// body, but still logs the command's execution. Go never logs stdout bodies, so a plain
 	// Output already matches: it logs the command, not the JSON.
 	out, err := cmdutil.Output(ctx, "weka", "local", "resources", "-C", name, "--json")
 	if err != nil {
-		return nil, fmt.Errorf("getWekaLocalResources(%s): %w", name, err)
+		return nil, fmt.Errorf("GetWekaLocalResources(%s): %w", name, err)
 	}
 	var result map[string]interface{}
 	if err := json.Unmarshal(out, &result); err != nil {
-		return nil, fmt.Errorf("getWekaLocalResources(%s): parse JSON: %w", name, err)
+		return nil, fmt.Errorf("GetWekaLocalResources(%s): parse JSON: %w", name, err)
 	}
 	return result, nil
 }
@@ -479,9 +536,9 @@ func shouldRecreateClientContainer(cfg *config.Config, res map[string]interface{
 	return restricted != expectedRestricted
 }
 
-// handleExistingContainer handles a container that already exists.
+// HandleExistingContainer handles a container that already exists.
 // Mirrors Python handle_existing_container() at weka_runtime.py:2571.
-func handleExistingContainer(ctx context.Context, cfg *config.Config, container map[string]interface{}, resourcesDir string) error {
+func HandleExistingContainer(ctx context.Context, cfg *config.Config, container map[string]interface{}, resourcesDir string) error {
 	running, runningOK := container["isRunning"].(bool)
 	if runningOK && running {
 		return nil
@@ -543,12 +600,12 @@ func checkResourcesJSON(ctx context.Context, cfg *config.Config, resourcesDir st
 			}
 		}
 	}
-	return linkResourcesFile(ctx, latest, resourcesDir)
+	return LinkResourcesFile(ctx, latest, resourcesDir)
 }
 
-// linkResourcesFile creates the standard symlinks for a resource file.
+// LinkResourcesFile creates the standard symlinks for a resource file.
 // Mirrors Python link_resources_file() at weka_runtime.py:2581.
-func linkResourcesFile(_ context.Context, fileName, resourcesDir string) error {
+func LinkResourcesFile(_ context.Context, fileName, resourcesDir string) error {
 	script := fmt.Sprintf(`
 ln -sf %s %s/resources.json
 ln -sf %s %s/resources.json.stable
@@ -698,9 +755,9 @@ func parseNonDatapathCoreIDs(s string) ([]int, error) {
 	return result, nil
 }
 
-// convertToBytes parses a human-readable size string like "1GiB", "512MiB" into bytes.
+// ConvertToBytes parses a human-readable size string like "1GiB", "512MiB" into bytes.
 // Mirrors Python convert_to_bytes() at weka_runtime.py:2511.
-func convertToBytes(memory string) (int64, error) {
+func ConvertToBytes(memory string) (int64, error) {
 	upper := strings.ToUpper(strings.TrimSpace(memory))
 	re := regexp.MustCompile(`^(\d+)([KMGTPE]I?B?)$`)
 	matches := re.FindStringSubmatch(upper)
@@ -709,7 +766,7 @@ func convertToBytes(memory string) (int64, error) {
 	}
 	size, parseErr := strconv.ParseInt(matches[1], 10, 64)
 	if parseErr != nil {
-		return 0, fmt.Errorf("convertToBytes: parse size %q: %w", matches[1], parseErr)
+		return 0, fmt.Errorf("ConvertToBytes: parse size %q: %w", matches[1], parseErr)
 	}
 	multipliers := map[string]int64{
 		"B":  1,

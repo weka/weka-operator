@@ -209,6 +209,17 @@ func loadDriversNew(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("loadDriversNew: weka driver install: %w", err)
 	}
 
+	// The rmmod unload steps above are non-fatal on purpose (needed for the normal
+	// same-version force-reload path), so "weka driver install" can report success
+	// while the old modules are still resident. Confirm the requested version is
+	// actually ready before declaring victory.
+	readyCmd := fmt.Sprintf("weka driver ready --without-agent --version %s", version)
+	if readyErr := cmdutil.Run(ctx, "sh", "-c", readyCmd); readyErr != nil {
+		return fmt.Errorf("loadDriversNew: drivers for version %s did not become ready after install "+
+			"(this usually means the previous driver failed to unload, most often because remnant "+
+			"wekafs mounts on the host are still holding the old module resident): %w", version, readyErr)
+	}
+
 	nodeInfo, err := osinfo.Load()
 	isCOS := err == nil && nodeInfo != nil && nodeInfo.IsCos()
 	// Mirror Python should_skip_uio_pci_generic() at weka_runtime.py:1418.

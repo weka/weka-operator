@@ -1,6 +1,7 @@
 package wekadrive
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -325,7 +326,7 @@ func TestFilterClusterGUIDDrives(t *testing.T) {
 func TestExtractProxyDrives(t *testing.T) {
 	t.Run("real fixture — no proxy drives — empty slice", func(t *testing.T) {
 		parsed := mustParseSignDriveList(t, realSignDriveListJSON)
-		got := extractProxyDrives(parsed)
+		got := extractProxyDrives(context.Background(), parsed)
 		if len(got) != 0 {
 			t.Errorf("expected empty slice, got %v", got)
 		}
@@ -350,7 +351,7 @@ func TestExtractProxyDrives(t *testing.T) {
     }`
 		// 17179869184 = 16 * 1024 * 1024 * 1024 = 16 GiB
 		parsed := mustParseSignDriveList(t, json)
-		got := extractProxyDrives(parsed)
+		got := extractProxyDrives(context.Background(), parsed)
 		if len(got) != 1 {
 			t.Fatalf("expected 1 drive, got %d: %v", len(got), got)
 		}
@@ -382,7 +383,7 @@ func TestExtractProxyDrives(t *testing.T) {
       ]
     }`
 		parsed := mustParseSignDriveList(t, json)
-		got := extractProxyDrives(parsed)
+		got := extractProxyDrives(context.Background(), parsed)
 		if len(got) != 1 {
 			t.Fatalf("expected 1 drive, got %d: %v", len(got), got)
 		}
@@ -408,7 +409,7 @@ func TestExtractProxyDrives(t *testing.T) {
       ]
     }`
 		parsed := mustParseSignDriveList(t, json)
-		got := extractProxyDrives(parsed)
+		got := extractProxyDrives(context.Background(), parsed)
 		if len(got) != 1 {
 			t.Fatalf("expected 1 drive for proxySignedGUID sentinel, got %d: %v", len(got), got)
 		}
@@ -431,7 +432,7 @@ func TestExtractProxyDrives(t *testing.T) {
       ]
     }`
 		parsed := mustParseSignDriveList(t, json)
-		got := extractProxyDrives(parsed)
+		got := extractProxyDrives(context.Background(), parsed)
 		if len(got) != 1 {
 			t.Fatalf("expected 1 drive for 'proxy guid' sentinel, got %d: %v", len(got), got)
 		}
@@ -450,7 +451,7 @@ func TestExtractProxyDrives(t *testing.T) {
       ]
     }`
 		parsed := mustParseSignDriveList(t, json)
-		got := extractProxyDrives(parsed)
+		got := extractProxyDrives(context.Background(), parsed)
 		if len(got) != 0 {
 			t.Errorf("expected empty for non-weka_formatted status, got %v", got)
 		}
@@ -469,7 +470,7 @@ func TestExtractProxyDrives(t *testing.T) {
       ]
     }`
 		parsed := mustParseSignDriveList(t, json)
-		got := extractProxyDrives(parsed)
+		got := extractProxyDrives(context.Background(), parsed)
 		if len(got) != 0 {
 			t.Errorf("expected empty for nil weka_info, got %v", got)
 		}
@@ -488,7 +489,7 @@ func TestExtractProxyDrives(t *testing.T) {
       ]
     }`
 		parsed := mustParseSignDriveList(t, json)
-		got := extractProxyDrives(parsed)
+		got := extractProxyDrives(context.Background(), parsed)
 		if len(got) != 0 {
 			t.Errorf("expected empty for empty physical_uuid, got %v", got)
 		}
@@ -507,9 +508,43 @@ func TestExtractProxyDrives(t *testing.T) {
       ]
     }`
 		parsed := mustParseSignDriveList(t, json)
-		got := extractProxyDrives(parsed)
+		got := extractProxyDrives(context.Background(), parsed)
 		if len(got) != 0 {
 			t.Errorf("expected empty for zero size_bytes, got %v", got)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// driveTypesFromDevices
+// ---------------------------------------------------------------------------
+
+func TestDriveTypesFromDevices(t *testing.T) {
+	t.Run("real fixture — every device typed by path", func(t *testing.T) {
+		parsed := mustParseSignDriveList(t, realSignDriveListJSON)
+		got := driveTypesFromDevices(parsed.Devices)
+		if len(got) != len(parsed.Devices) {
+			t.Errorf("expected one entry per device (%d), got %d: %v", len(parsed.Devices), len(got), got)
+		}
+	})
+
+	t.Run("QLC and TLC classified by iu_size, missing path/iu_size skipped", func(t *testing.T) {
+		const listJSON = `{
+      "devices": [
+        {"path": "/dev/nvme0n1", "hardware": {"iu_size": 16384}},
+        {"path": "/dev/nvme1n1", "hardware": {"iu_size": 4096}},
+        {"path": "", "hardware": {"iu_size": 16384}},
+        {"path": "/dev/nvme2n1", "hardware": {"iu_size": 0}}
+      ]
+    }`
+		parsed := mustParseSignDriveList(t, listJSON)
+		got := driveTypesFromDevices(parsed.Devices)
+		want := map[string]string{
+			"/dev/nvme0n1": "QLC",
+			"/dev/nvme1n1": "TLC",
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v; want %v", got, want)
 		}
 	})
 }

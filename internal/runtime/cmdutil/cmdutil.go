@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"time"
@@ -33,6 +34,16 @@ func PollUntil(ctx context.Context, interval time.Duration, fn func() bool) erro
 // run_command (weka_runtime.py:2224-2235).
 // Stderr is captured: logged as a warning when non-empty and appended to any error.
 func Output(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return outputWithStdin(ctx, nil, name, args...)
+}
+
+// OutputWithStdin is Output but pipes stdin into the subprocess. Used for streaming secrets
+// (e.g. an AWS IRSA web-identity token) into a nested command without an intermediate shell pipe.
+func OutputWithStdin(ctx context.Context, stdin io.Reader, name string, args ...string) ([]byte, error) {
+	return outputWithStdin(ctx, stdin, name, args...)
+}
+
+func outputWithStdin(ctx context.Context, stdin io.Reader, name string, args ...string) ([]byte, error) {
 	fullCmd := name + " " + strings.Join(args, " ")
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "cmd", "command", fullCmd)
 	defer logger.End()
@@ -42,6 +53,7 @@ func Output(ctx context.Context, name string, args ...string) ([]byte, error) {
 	var stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // args are controlled by internal callers
 	cmd.Stderr = &stderr
+	cmd.Stdin = stdin
 
 	out, err := cmd.Output()
 	if stderr.Len() > 0 {

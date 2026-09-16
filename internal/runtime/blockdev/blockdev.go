@@ -182,6 +182,70 @@ func GetCapacityGiB(ctx context.Context, devicePath string) (int, error) {
 	return int(sizeBytes / (1024 * 1024 * 1024)), nil
 }
 
+// sysClassBlockRoot is a package var so tests can point it at a temp dir mimicking
+// /sys/class/block's layout instead of the real sysfs.
+var sysClassBlockRoot = "/sys/class/block"
+
+// ResolveBlockDeviceSysfsPath resolves a block device name (e.g. nvme0n1, sda, nvme0n1p1) to its
+// canonical path under /sys/class/block. Mirrors Python _resolve_block_device_sysfs_path()
+// (os.path.realpath), which does not require the target to exist; EvalSymlinks does, so on error
+// this falls back to the unresolved path and lets the caller treat a missing model as unknown.
+func ResolveBlockDeviceSysfsPath(deviceName string) string {
+	path := filepath.Join(sysClassBlockRoot, deviceName)
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+	return resolved
+}
+
+// GetDeviceModel returns the device model string for a block device or one of its partitions.
+// Supports NVMe (e.g. nvme0n1, nvme0n1p1) and SCSI/SATA (e.g. sda, sda1). Mirrors Python
+// get_device_model(); callers decide how to log/handle a missing model.
+func GetDeviceModel(devicePath string) (string, error) {
+	deviceName := filepath.Base(devicePath)
+	sysfsPath := ResolveBlockDeviceSysfsPath(deviceName)
+
+	// A partition's sysfs dir is nested inside the whole-device dir and has a "partition"
+	// marker file; step up so resolution below is device-agnostic.
+	if _, err := os.Stat(filepath.Join(sysfsPath, "partition")); err == nil {
+		sysfsPath = filepath.Dir(sysfsPath)
+	}
+
+	var modelPath string
+	if strings.Contains(strings.ToLower(deviceName), "nvme") {
+		// NVMe: model lives on the controller dir, one level above the namespace dir.
+		modelPath = filepath.Join(filepath.Dir(sysfsPath), "model")
+	} else {
+		// SCSI/SATA: model lives at <whole-device>/device/model
+		modelPath = filepath.Join(sysfsPath, "device", "model")
+	}
+
+	data, err := os.ReadFile(modelPath)
+	if err != nil {
+		return "", fmt.Errorf("reading model at %s: %w", modelPath, err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// ResolveDriveModel prefers the model reported in hardware info (hardwareModel, then
+// hardwareModelNumber) and falls back to sysfs-based resolution via GetDeviceModel. Returns ""
+// if neither source has one. Mirrors Python resolve_drive_model().
+func ResolveDriveModel(hardwareModel, hardwareModelNumber, devicePath string) string {
+	model := strings.TrimSpace(hardwareModel)
+	if model == "" {
+		model = strings.TrimSpace(hardwareModelNumber)
+	}
+	if model != "" {
+		return model
+	}
+	if devicePath == "" {
+		return ""
+	}
+	model, _ = GetDeviceModel(devicePath) //nolint:errcheck // best-effort, mirrors Python's broad except+warn-in-caller
+	return model
+}
+
 // GetDevicePathBySerial resolves a drive serial to a /dev/ path by searching /dev/disk/by-id/.
 // It finds the first symlink whose name contains the serial string, then resolves it to the
 // canonical /dev/ device path.

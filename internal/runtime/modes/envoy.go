@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
 	"github.com/weka/weka-operator/internal/runtime/config"
 	"github.com/weka/weka-operator/internal/runtime/network"
 	"github.com/weka/weka-operator/internal/runtime/persistency"
@@ -40,21 +39,15 @@ func runEnvoy(ctx context.Context, cfg *config.Config) error {
 	if err := runAgent(ctx, cfg); err != nil {
 		return err
 	}
-	if err := weka.EnsureWekaVersion(ctx); err != nil {
+	if err := weka.EnsureWekaVersion(ctx, cfg); err != nil {
 		return err
 	}
 
-	if err := ensureEnvoyContainer(ctx); err != nil {
+	// Mirrors Python ensure_envoy_container() at weka_runtime.py (f4d86aad).
+	if err := weka.EnsureManagedLocalContainer(ctx, "envoy", "--no-start", "--disable"); err != nil {
 		return err
 	}
 
 	logger.Info("envoy container ready; exiting — envoy and agent continue independently")
 	return nil
-}
-
-// ensureEnvoyContainer creates the envoy container if it does not already exist.
-// Mirrors Python ensure_envoy_container() at weka_runtime.py.
-func ensureEnvoyContainer(ctx context.Context) error {
-	return cmdutil.Run(ctx, "sh", "-c",
-		"weka local ps | grep -qw envoy || weka local setup envoy")
 }

@@ -26,7 +26,9 @@ func EnsureDrives(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	sysDrives, err := FindWekaPartitions(ctx)
+	// use_sign_tool=false: the sign tool binary is absent from the weka container image, and
+	// drives are matched by serial here, not by type. Mirrors weka_runtime.py:4360.
+	sysDrives, err := FindWekaPartitions(ctx, false)
 	if err != nil {
 		return fmt.Errorf("EnsureDrives: find partitions: %w", err)
 	}

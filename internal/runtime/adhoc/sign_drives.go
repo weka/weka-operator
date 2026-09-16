@@ -66,6 +66,21 @@ func RunSignDrives(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 
+	// Full-drives mode has no QLC accounting (capacity, drive cores and hugepages are all
+	// computed as TLC), so QLC drives must never be signed for it. Proxy mode supports QLC.
+	if !payload.Shared {
+		driveTypes, dtErr := wekadrive.GetDriveTypesWithSignTool(ctx, false)
+		if dtErr != nil {
+			return fmt.Errorf("sign-drives: GetDriveTypesWithSignTool: %w", dtErr)
+		}
+		for path, driveType := range driveTypes {
+			if driveType == "QLC" {
+				excludedPaths[path] = struct{}{}
+				logger.Info("sign-drives: excluding QLC drive from full-drives signing", "path", path)
+			}
+		}
+	}
+
 	// 5. Enumerate device paths by payload type
 	paths, pathErr := enumerateDevicePaths(ctx, &payload)
 	if pathErr != nil {

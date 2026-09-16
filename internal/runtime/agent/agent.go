@@ -17,6 +17,14 @@ import (
 	"github.com/weka/weka-operator/internal/runtime/drivers"
 )
 
+// agentPortScript rewrites the port key under the [agent] section only, then verifies
+// the rewrite landed. sed exits 0 on no-match, and Go's cmdutil does not run scripts
+// under "set -e" (unlike Python's run_command), so the verification failure is made
+// explicit here rather than relying on shell abort semantics.
+const agentPortScript = `sed -i "/^\[agent\]/,/^\[/ s/^port=.*/port=%d/" /etc/wekaio/service.conf
+sed -n "/^\[agent\]/,/^\[/p" /etc/wekaio/service.conf | grep -qx "port=%d" || { echo "agent port rewrite verification failed" >&2; exit 1; }
+`
+
 // Configure patches /etc/wekaio/service.conf and writes /etc/wekaio/service.json.
 // handleDrivers=false means agent should NOT handle drivers (compute/drive/client pass false).
 // Mirrors Python configure_agent() at weka_runtime.py:2924.
@@ -37,6 +45,20 @@ func Configure(ctx context.Context, cfg *config.Config, handleDrivers bool) erro
 	skipEnvoySetup := ""
 	if cfg.Mode == "s3" {
 		skipEnvoySetup = "sed -i 's/skip_envoy_setup=.*/skip_envoy_setup=true/g' /etc/wekaio/service.conf || true"
+	}
+
+	// weka images do not always ship a [mounts] section, so create it before setting the key.
+	// Mirrors Python configure_agent() no_reserve_space_cmd at weka_runtime.py:3327.
+	noReserveSpaceCmd := ""
+	if cfg.NoReserveSpace {
+		noReserveSpaceCmd = `
+grep -q "^\[mounts\]" /etc/wekaio/service.conf || printf '\n[mounts]\n' >> /etc/wekaio/service.conf
+if grep -qE "^[[:space:]]*allocate_reserved_space[[:space:]]*=" /etc/wekaio/service.conf; then
+    sed -i -E "s/^[[:space:]]*allocate_reserved_space[[:space:]]*=.*/allocate_reserved_space=false/g" /etc/wekaio/service.conf
+else
+    sed -i "/^\[mounts\]/a allocate_reserved_space=false" /etc/wekaio/service.conf
+fi
+`
 	}
 
 	// M5: Envoy agent env vars.
@@ -74,15 +96,16 @@ sed -i "s/ignore_driver_spec=.*/ignore_driver_spec=%s/g" /etc/wekaio/service.con
 sed -i "s@external_mounts=.*@external_mounts=/opt/weka/external-mounts@g" /etc/wekaio/service.conf || true
 sed -i "s@conditional_mounts_ids=.*@conditional_mounts_ids=kube-serviceaccount,etc-hosts,etc-resolv%s@g" /etc/wekaio/service.conf || true
 %s
+%s
 sed -i 's/cgroups_mode=auto/cgroups_mode=none/g' /etc/wekaio/service.conf || true
 sed -i 's/override_core_pattern=true/override_core_pattern=false/g' /etc/wekaio/service.conf || true
-sed -i "s/port=14100/port=%d/g" /etc/wekaio/service.conf || true
-echo '{"agent": {"port": "%d"}}' > /etc/wekaio/service.json
+%s
+echo '{"agent": {"port": %d}}' > /etc/wekaio/service.json
 `,
 		envoyEnvExports,
 		ignoreDriverFlag, ignoreDriverFlag, ignoreDriverFlag, ignoreDriverFlag,
-		expandConditionMounts, skipEnvoySetup,
-		cfg.AgentPort, cfg.AgentPort,
+		expandConditionMounts, skipEnvoySetup, noReserveSpaceCmd,
+		fmt.Sprintf(agentPortScript, cfg.AgentPort, cfg.AgentPort), cfg.AgentPort,
 	)
 
 	if err := cmdutil.Run(ctx, "sh", "-c", script); err != nil {

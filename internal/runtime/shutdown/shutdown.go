@@ -12,12 +12,17 @@ import (
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/runtime/wekadrive"
 )
 
 // Test seams for WaitForDriveRelease; default to the real implementation and cadence.
 var (
-	findWekaPartitionsFn     = wekadrive.FindWekaPartitions
+	// use_sign_tool=false: mirrors Python shutdown() calling find_weka_drives(use_sign_tool=False)
+	// at weka_runtime.py:5050 — the sign tool binary is absent from the weka container image.
+	findWekaPartitionsFn = func(ctx context.Context) ([]domain.DriveInfo, error) {
+		return wekadrive.FindWekaPartitions(ctx, false)
+	}
 	driveReleasePollInterval = 300 * time.Millisecond
 )
 
