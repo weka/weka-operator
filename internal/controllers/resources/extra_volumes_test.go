@@ -61,11 +61,11 @@ func createTestPodOnNode(t *testing.T, mode string, nodeInfo *discovery.Discover
 }
 
 func TestApplyExtraVolumes_AppendedAfterBaseVolumesAndMainContainerOnly(t *testing.T) {
-	// Force an init container (otel-packages-installer) into the pod so we can assert extras
+	// Force an init container (weka-pod-runtime-installer) into the pod so we can assert extras
 	// never leak into it.
-	original := config.Config.Otel.PythonPackagesInstallerImage
-	config.Config.Otel.PythonPackagesInstallerImage = "otel-installer:latest"
-	defer func() { config.Config.Otel.PythonPackagesInstallerImage = original }()
+	original := config.Config.WekaPodRuntimeImage
+	config.Config.WekaPodRuntimeImage = "weka-pod-runtime:latest"
+	defer func() { config.Config.WekaPodRuntimeImage = original }()
 
 	pod, err := createTestPod(t, weka.WekaContainerModeCompute, func(spec *weka.WekaContainerSpec) {
 		spec.ExtraVolumes = rawVolumes(t, []corev1.Volume{
@@ -80,7 +80,7 @@ func TestApplyExtraVolumes_AppendedAfterBaseVolumesAndMainContainerOnly(t *testi
 	}
 
 	if len(pod.Spec.InitContainers) == 0 {
-		t.Fatalf("expected at least one init container (otel-packages-installer) in this fixture")
+		t.Fatalf("expected at least one init container (weka-pod-runtime-installer) in this fixture")
 	}
 
 	lastVolume := pod.Spec.Volumes[len(pod.Spec.Volumes)-1]
