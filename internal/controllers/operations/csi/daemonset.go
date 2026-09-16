@@ -271,10 +271,13 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 				MountPath: "/etc/selinux/config",
 				ReadOnly:  true,
 			},
+			// selinuxfs has to be writable: applying an fscontext= mount option canonicalizes the
+			// context by writing to /sys/fs/selinux/context. Mounted read-only that write returns
+			// EROFS, the mount then succeeds with fscontext= absent from the resulting superblock,
+			// and volumes come up unlabeled_t instead of wekafs_t.
 			corev1.VolumeMount{
 				Name:      "selinux-fs",
 				MountPath: "/sys/fs/selinux",
-				ReadOnly:  true,
 			},
 		)
 	}
