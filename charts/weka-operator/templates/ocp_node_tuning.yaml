@@ -12,7 +12,8 @@ metadata:
   name: worker-hugepages-settings
 spec:
   kernelArguments:
-    - hugepagesz={{.Values.ocpCompatibility.hugepageConfiguration.hugepageSize }} hugepages={{ .Values.ocpCompatibility.hugepageConfiguration.hugepagesCount }}
+    - hugepagesz={{ .Values.ocpCompatibility.hugepageConfiguration.hugepageSize }}
+    - hugepages={{ .Values.ocpCompatibility.hugepageConfiguration.hugepagesCount }}
 
 ...
 
