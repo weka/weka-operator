@@ -559,6 +559,35 @@
         "WekaCluster"
       ]
     },
+    "ConfigurationPayload": {
+      "kind": "struct",
+      "description": "ConfigurationPayload defines the parameters for the configuration policy: operator-wide settings",
+      "fields": [
+        {
+          "name": "Csi",
+          "jsonName": "csi",
+          "type": {
+            "$ref": "#/definitions/CsiSpec"
+          },
+          "description": "Csi configures the embedded CSI deployment.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Drivers",
+          "jsonName": "drivers",
+          "type": {
+            "$ref": "#/definitions/DriversSpec"
+          },
+          "description": "Drivers configures the drivers build and distribution.",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
+      ]
+    },
     "ContainerAllocations": {
       "kind": "struct",
       "fields": [
@@ -842,6 +871,31 @@
       ],
       "usedBy": [
         "WekaCluster"
+      ]
+    },
+    "CsiSpec": {
+      "kind": "struct",
+      "description": "CsiSpec groups settings of the embedded CSI deployment",
+      "fields": [
+        {
+          "name": "MetricsEnabled",
+          "jsonName": "metricsEnabled",
+          "type": "bool",
+          "description": "MetricsEnabled controls the Prometheus metrics endpoints of the CSI controller, the CSI node\nplugin and the controller sidecars. Enabled by default.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "FsGroupPolicy",
+          "jsonName": "fsGroupPolicy",
+          "type": "string",
+          "description": "FsGroupPolicy sets fsGroupPolicy on the CSIDriver object, which decides whether Kubernetes\nreapplies a pod's fsGroup to the volume. Default value is File.",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
       ]
     },
     "DataServicesConfig": {
@@ -1198,6 +1252,23 @@
     },
     "DriverSpec": {
       "kind": "struct"
+    },
+    "DriversSpec": {
+      "kind": "struct",
+      "description": "DriversSpec groups settings of the drivers build and distribution",
+      "fields": [
+        {
+          "name": "ForceBuilderCli",
+          "jsonName": "forceBuilderCli",
+          "type": "bool",
+          "description": "ForceBuilderCli makes the drivers-builder init containers take the weka CLI from the builder\nimage instead of the cluster image. False by default.",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
+      ]
     },
     "DumperConfigMode": {
       "kind": "enum",
@@ -2122,6 +2193,15 @@
           "jsonName": "cleanStaleVirtualDrivesPayload",
           "type": {
             "$ref": "#/definitions/CleanStaleVirtualDrivesPayload"
+          },
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Configuration",
+          "jsonName": "configurationPayload",
+          "type": {
+            "$ref": "#/definitions/ConfigurationPayload"
           },
           "optional": true,
           "pointer": true
@@ -6134,7 +6214,7 @@
           "type": {
             "$ref": "#/definitions/WekaPolicyType"
           },
-          "optional": false
+          "optional": true
         },
         {
           "name": "Payload",

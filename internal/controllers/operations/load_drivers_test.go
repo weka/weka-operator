@@ -66,6 +66,14 @@ var _ = Describe("LoadDrivers CreateContainer", func() {
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		Expect(weka.AddToScheme(scheme)).To(Succeed())
 
+		// CreateContainer reads the operator-wide settings, and GetSettings blocks until they
+		// have been resolved. RunSettings does that at startup in the operator; seed the
+		// equivalent here so specs that do not care resolve to the built-in defaults.
+		previousNamespace := config.Config.OperatorPodNamespace
+		config.Config.OperatorPodNamespace = "weka-operator-system"
+		DeferCleanup(func() { config.Config.OperatorPodNamespace = previousNamespace })
+		services.RefreshSettings(ctx, fake.NewClientBuilder().WithScheme(scheme).Build())
+
 		node = &corev1.Node{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "test-node",
@@ -89,7 +97,7 @@ var _ = Describe("LoadDrivers CreateContainer", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		// Verify GetLoaderImageForNode returns the cluster image
-		loaderImage := drivers.GetLoaderImageForNode(ctx, node, clusterImage)
+		loaderImage := drivers.GetLoaderImageForNode(ctx, node, clusterImage, false)
 		Expect(loaderImage).To(Equal(clusterImage),
 			"When WekaGetCopyLocalDriverFiles is true, loader image should be the cluster image")
 
@@ -130,12 +138,72 @@ var _ = Describe("LoadDrivers CreateContainer", func() {
 			"loader should carry the boot id it was created for")
 	})
 
+	It("should force the builder image when the configuration policy sets forceBuilderCli, even with the flag on", func() {
+		// Same scenario as the first test - WekaGetCopyLocalDriverFiles is true for this image, so
+		// without the override the loader would take the CLI from the cluster image.
+		flags := &domain.FeatureFlags{
+			WekaGetCopyLocalDriverFiles: true,
+		}
+		Expect(services.SetFeatureFlags(ctx, clusterImage, flags)).To(Succeed())
+
+		// The operator resolves forceBuilderCli from a configuration WekaPolicy in its own
+		// namespace, through the package-level settings service.
+		previousNamespace := config.Config.OperatorPodNamespace
+		config.Config.OperatorPodNamespace = "weka-operator-system"
+		DeferCleanup(func() { config.Config.OperatorPodNamespace = previousNamespace })
+
+		forceBuilderCli := true
+		policy := &weka.WekaPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "operator-configuration", Namespace: "weka-operator-system"},
+			Spec: weka.WekaPolicySpec{
+				Payload: weka.PolicyPayload{
+					Configuration: &weka.ConfigurationPayload{
+						Drivers: &weka.DriversSpec{ForceBuilderCli: &forceBuilderCli},
+					},
+				},
+			},
+		}
+
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy).Build()
+		services.RefreshSettings(ctx, fakeClient)
+
+		loadDrivers := &LoadDrivers{
+			client:    fakeClient,
+			scheme:    scheme,
+			node:      node,
+			namespace: "default",
+			priority:  2,
+			containerDetails: weka.WekaOwnerDetails{
+				Image: clusterImage,
+			},
+		}
+
+		Expect(loadDrivers.CreateContainer(ctx)).To(Succeed())
+		Expect(loadDrivers.container).NotTo(BeNil())
+
+		expectedBuilderImage := "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
+		Expect(loadDrivers.container.Spec.Image).To(Equal(clusterImage),
+			"Spec.Image should always be the cluster image")
+		Expect(loadDrivers.container.Spec.DriversLoaderImage).To(Equal(expectedBuilderImage),
+			"forceBuilderCli must override WekaGetCopyLocalDriverFiles")
+
+		// Because the loader image now differs from the cluster image, the CLI has to be staged
+		// out of band, so the copy instruction must be emitted.
+		Expect(loadDrivers.container.Spec.Instructions).NotTo(BeNil(),
+			"Instructions should be set when the loader image differs from the cluster image")
+		Expect(loadDrivers.container.Spec.Instructions.Type).To(Equal(weka.InstructionCopyWekaFilesToDriverLoader))
+		var payload map[string]string
+		Expect(json.Unmarshal([]byte(loadDrivers.container.Spec.Instructions.Payload), &payload)).To(Succeed())
+		Expect(payload["targetImage"]).To(Equal(clusterImage))
+		Expect(payload["cliImage"]).To(Equal(expectedBuilderImage))
+	})
+
 	It("should set DriversLoaderImage to builder image and set Instructions when images differ", func() {
 		// Use a different image that is NOT in the feature flags cache
 		uncachedImage := "quay.io/weka.io/weka-in-container:4.4.0.50-uncached-for-test"
 
 		// Verify GetLoaderImageForNode returns the builder image (not the cluster image)
-		loaderImage := drivers.GetLoaderImageForNode(ctx, node, uncachedImage)
+		loaderImage := drivers.GetLoaderImageForNode(ctx, node, uncachedImage, false)
 		expectedBuilderImage := "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
 		Expect(loaderImage).To(Equal(expectedBuilderImage),
 			"When feature flags are not cached, loader image should be the builder image")

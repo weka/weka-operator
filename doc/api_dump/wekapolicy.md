@@ -15,12 +15,15 @@
 - [DriverDistPayload](#driverdistpayload)
 - [RemoteTracesSessionConfig](#remotetracessessionconfig)
 - [CleanStaleVirtualDrivesPayload](#cleanstalevirtualdrivespayload)
+- [ConfigurationPayload](#configurationpayload)
 - [DistServiceStatus](#distservicestatus)
 - [PCIDevices](#pcidevices)
 - [SignOptions](#signoptions)
 - [DriveTypeOverrides](#drivetypeoverrides)
 - [PodResourcesSpec](#podresourcesspec)
 - [ObjectReference](#objectreference)
+- [CsiSpec](#csispec)
+- [DriversSpec](#driversspec)
 - [DriveTypeOverrideRule](#drivetypeoverriderule)
 - [PodResources](#podresources)
 
@@ -79,6 +82,7 @@
 | driverDistPayload | *DriverDistPayload |  |
 | remoteTracesSessionPayload | *RemoteTracesSessionConfig |  |
 | cleanStaleVirtualDrivesPayload | *CleanStaleVirtualDrivesPayload |  |
+| configurationPayload | *ConfigurationPayload |  |
 | interval | metav1.Duration |  |
 | waitForPolicies | []string |  |
 
@@ -169,6 +173,15 @@
 
 ---
 
+## ConfigurationPayload
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| csi | *CsiSpec | Csi configures the embedded CSI deployment. |
+| drivers | *DriversSpec | Drivers configures the drivers build and distribution. |
+
+---
+
 ## DistServiceStatus
 
 | JSON Field | Type | Description |
@@ -220,6 +233,23 @@
 |------------|------|-------------|
 | name | string |  |
 | namespace | string |  |
+
+---
+
+## CsiSpec
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| metricsEnabled | *bool | MetricsEnabled controls the Prometheus metrics endpoints of the CSI controller, the CSI node<br>plugin and the controller sidecars. Enabled by default. |
+| fsGroupPolicy | *string | FsGroupPolicy sets fsGroupPolicy on the CSIDriver object, which decides whether Kubernetes<br>reapplies a pod's fsGroup to the volume. Default value is File. |
+
+---
+
+## DriversSpec
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| forceBuilderCli | *bool | ForceBuilderCli makes the drivers-builder init containers take the weka CLI from the builder<br>image instead of the cluster image. False by default. |
 
 ---
 

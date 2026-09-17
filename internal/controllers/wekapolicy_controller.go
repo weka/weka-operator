@@ -13,15 +13,18 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -70,12 +73,35 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("WekaPolicy resource not found. Ignoring since object must be deleted")
+			// The deleted object may have been the configuration policy. Pods keep the value
+			// they were created with, so a stale read here outlives the refresh window.
+			//
+			// Read uncached: the informer can still hold the object we were just told is gone,
+			// and resolving from that would re-apply the settings we are trying to drop.
+			_ = services.RefreshSettings(ctx, r.Mgr.GetAPIReader()) //nolint:errcheck // logged by the resolver
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Failed to get WekaPolicy")
 		return ctrl.Result{}, err
 	}
 	logger.Info("Reconciling WekaPolicy", "type", wekaPolicy.Spec.Type)
+
+	// spec.type is optional: the type is derived from the payload when it is unset, and an
+	// unusable payload combination is rejected here rather than guessed at.
+	policyType, isConfiguration, typeErr := wekaPolicy.GetType()
+	if typeErr != nil {
+		// Recorded on the object rather than returned: only an edit can fix a payload the
+		// resolver rejects, and that edit reconciles on its own.
+		r.reportPolicyFailure(ctx, wekaPolicy, typeErr)
+		return ctrl.Result{}, nil
+	}
+
+	// A configuration policy carries operator-wide settings that other reconcilers read on demand.
+	// There is no run to schedule, so it branches out before the interval gate and the
+	// Running/Done status machinery below.
+	if isConfiguration {
+		return r.reconcileConfiguration(ctx, wekaPolicy)
+	}
 
 	loop := &policyLoop{
 		Policy: wekaPolicy,
@@ -134,7 +160,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		ServiceAccountName: wekaPolicy.Spec.ServiceAccountName,
 	})
 
-	switch wekaPolicy.Spec.Type {
+	switch policyType {
 	case weka.WekaPolicyTypeSignDrives:
 		signDrivesOp := operations.NewSignDrivesOperation(
 			r.Mgr,
@@ -211,7 +237,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		)
 		loop.Op = staleVidsOp
 	default:
-		return ctrl.Result{}, fmt.Errorf("unknown policy type: %s", wekaPolicy.Spec.Type)
+		return ctrl.Result{}, fmt.Errorf("unknown policy type: %s", policyType)
 	}
 
 	steps := loop.Op.GetSteps()
@@ -252,6 +278,36 @@ func (r *policyLoop) DurationTillNext() time.Duration {
 func (r *WekaPolicyReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconcile reconcile.Reconciler) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&weka.WekaPolicy{}).
+		// Configuration policies decide one outcome between them, so one changing can change
+		// whether the others are in effect. Without this, a policy that was Active before a
+		// second one appeared keeps saying so while nothing is applied.
+		Watches(&weka.WekaPolicy{}, handler.EnqueueRequestsFromMapFunc(r.siblingConfigurationPolicies)).
 		WithOptions(controller.Options{MaxConcurrentReconciles: config.Config.MaxWorkers.WekaPolicy}).
 		Complete(wrappedReconcile)
+}
+
+// siblingConfigurationPolicies maps a configuration policy event onto every other configuration
+// policy in the same namespace, so their statuses are re-evaluated together.
+func (r *WekaPolicyReconciler) siblingConfigurationPolicies(ctx context.Context, obj client.Object) []reconcile.Request {
+	policy, ok := obj.(*weka.WekaPolicy)
+	if !ok || policy.Spec.Payload.Configuration == nil {
+		return nil
+	}
+
+	policyList := &weka.WekaPolicyList{}
+	if err := r.List(ctx, policyList, &client.ListOptions{Namespace: policy.Namespace}); err != nil {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for i := range policyList.Items {
+		sibling := &policyList.Items[i]
+		if sibling.Name == policy.Name || sibling.Spec.Payload.Configuration == nil {
+			continue
+		}
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: sibling.Name, Namespace: sibling.Namespace},
+		})
+	}
+	return requests
 }

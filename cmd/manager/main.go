@@ -62,6 +62,7 @@ import (
 	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/internal/node_agent/deviceplugin"
 	"github.com/weka/weka-operator/internal/reporter"
+	"github.com/weka/weka-operator/internal/services"
 )
 
 var scheme = runtime.NewScheme()
@@ -395,6 +396,17 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 	} else {
 		logger.Info("Weka Home reporter is disabled")
 	}
+
+	// Operator-wide configuration must be resolvable before reconcilers can make progress:
+	// services.GetSettings blocks until it is. Started after cache sync so the first resolution
+	// reads through the manager's cache like every later one.
+	go func() {
+		if !mgr.GetCache().WaitForCacheSync(ctx) {
+			logger.Info("Operator configuration watcher not started: cache sync did not complete (context cancelled)")
+			return
+		}
+		services.RunSettings(ctx, mgr.GetClient())
+	}()
 
 	logger.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
