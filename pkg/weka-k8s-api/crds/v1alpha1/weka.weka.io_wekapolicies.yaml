@@ -106,6 +106,43 @@ spec:
                           when pairing with deletion.
                         type: boolean
                     type: object
+                  configurationPayload:
+                    description: 'ConfigurationPayload defines the parameters for
+                      the configuration policy: operator-wide settings'
+                    properties:
+                      csi:
+                        description: Csi configures the embedded CSI deployment.
+                        properties:
+                          fsGroupPolicy:
+                            description: |-
+                              FsGroupPolicy sets fsGroupPolicy on the CSIDriver object, which decides whether Kubernetes
+                              reapplies a pod's fsGroup to the volume. Default value is File.
+                            enum:
+                            - File
+                            - None
+                            - ReadWriteOnceWithFSType
+                            type: string
+                          metricsEnabled:
+                            description: |-
+                              MetricsEnabled controls the Prometheus metrics endpoints of the CSI controller, the CSI node
+                              plugin and the controller sidecars. Enabled by default.
+                            type: boolean
+                          skipGarbageCollection:
+                            description: |-
+                              SkipGarbageCollection stops the CSI controller from reclaiming deleted volume directories in
+                              the background. False by default.
+                            type: boolean
+                        type: object
+                      drivers:
+                        description: Drivers configures the drivers build and distribution.
+                        properties:
+                          forceBuilderCli:
+                            description: |-
+                              ForceBuilderCli makes the drivers-builder init containers take the weka CLI from the builder
+                              image instead of the cluster image. False by default.
+                            type: boolean
+                        type: object
+                    type: object
                   discoverDrivesPayload:
                     properties:
                       nodeSelector:
@@ -423,9 +460,10 @@ spec:
                     operator:
                       description: |-
                         Operator represents a key's relationship to the value.
-                        Valid operators are Exists and Equal. Defaults to Equal.
+                        Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
                         Exists is equivalent to wildcard for value, so that a pod can
                         tolerate all taints of a particular category.
+                        Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
                       type: string
                     tolerationSeconds:
                       description: |-
@@ -454,7 +492,6 @@ spec:
                 type: string
             required:
             - payload
-            - type
             type: object
           status:
             description: WekaPolicyStatus defines the observed state of WekaPolicy
