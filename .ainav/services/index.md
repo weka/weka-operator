@@ -6,6 +6,7 @@ API clients, Kubernetes helpers, node-local services and shared domain types.
 |---|---|---|
 | Weka API | `internal/services/weka.go` | Cluster/container/drive operations and protocol configuration |
 | Weka helpers | `internal/services/weka_cluster.go`, `weka_container.go`, `cluster_join_ips.go`, `secrets.go` | Cluster and container operations, join addresses, credentials |
+| Operator configuration | `internal/services/configuration_policy_cache.go` | `ConfigurationCache`: operator-wide settings from the configuration WekaPolicy, 30s TTL |
 | Kubernetes | `internal/services/kubernetes/` | `kubernetes.go`, `affinities.go`, `metricsservice.go` |
 | Pod execution | `internal/services/exec/` | Exec into pods |
 | Discovery | `internal/services/discovery/` | Service discovery and container operational checks |

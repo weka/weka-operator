@@ -201,8 +201,13 @@ func ResolveDriversDistService(ctx context.Context, c client.Client, namespace, 
 	if err := c.List(ctx, policyList, &client.ListOptions{Namespace: namespace}); err == nil {
 		for i := range policyList.Items {
 			policy := &policyList.Items[i]
-			if policy.Spec.Type == weka.WekaPolicyTypeEnableLocalDriversDistribution &&
-				policy.Status.TypedStatus != nil &&
+			// go through GetType rather than reading spec.type: it is optional, so a policy
+			// carrying only driverDistPayload has an empty type yet still runs the service
+			policyType, _, typeErr := policy.GetType()
+			if typeErr != nil || policyType != weka.WekaPolicyTypeEnableLocalDriversDistribution {
+				continue
+			}
+			if policy.Status.TypedStatus != nil &&
 				policy.Status.TypedStatus.DistService != nil &&
 				policy.Status.TypedStatus.DistService.ServiceUrl != "" {
 				matches = append(matches, policy.Status.TypedStatus.DistService.ServiceUrl)

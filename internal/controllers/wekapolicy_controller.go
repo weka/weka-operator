@@ -77,6 +77,24 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	logger.Info("Reconciling WekaPolicy", "type", wekaPolicy.Spec.Type)
 
+	// spec.type is optional: the type is derived from the payload when it is unset, and an
+	// unusable payload combination is rejected here rather than guessed at.
+	policyType, isConfiguration, typeErr := wekaPolicy.GetType()
+	if typeErr != nil {
+		// GetType is the only gate on the spec.type/payload contract, so this is the error a user
+		// is most likely to hit. Report it on the object: returning it alone only reaches the
+		// operator log, leaving kubectl showing a blank status.
+		r.reportPolicyFailure(ctx, wekaPolicy, typeErr)
+		return ctrl.Result{}, typeErr
+	}
+
+	// A configuration policy carries operator-wide settings that other reconcilers read on demand.
+	// There is no run to schedule, so it branches out before the interval gate and the
+	// Running/Done status machinery below.
+	if isConfiguration {
+		return r.reconcileConfiguration(ctx, wekaPolicy)
+	}
+
 	loop := &policyLoop{
 		Policy: wekaPolicy,
 		Client: r.Client,
@@ -134,7 +152,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		ServiceAccountName: wekaPolicy.Spec.ServiceAccountName,
 	})
 
-	switch wekaPolicy.Spec.Type {
+	switch policyType {
 	case weka.WekaPolicyTypeSignDrives:
 		signDrivesOp := operations.NewSignDrivesOperation(
 			r.Mgr,
@@ -211,7 +229,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		)
 		loop.Op = staleVidsOp
 	default:
-		return ctrl.Result{}, fmt.Errorf("unknown policy type: %s", wekaPolicy.Spec.Type)
+		return ctrl.Result{}, fmt.Errorf("unknown policy type: %s", policyType)
 	}
 
 	steps := loop.Op.GetSteps()

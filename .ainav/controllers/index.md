@@ -8,7 +8,7 @@ predicates and status transitions.
 | WekaCluster | `wekacluster/controller.go` | [Cluster lifecycle](wekacluster.md) |
 | WekaContainer | `wekacontainer/controller.go` | [Container lifecycle](wekacontainer.md) |
 | WekaClient | `wekaclient/client_controller.go` | [Client lifecycle](wekaclient.md) |
-| WekaPolicy | `wekapolicy_controller.go` | [Operations](../operations/index.md) |
+| WekaPolicy | `wekapolicy_controller.go`, `wekapolicy_configuration.go` | [Operations](../operations/index.md) |
 | WekaManualOperation | `wekamanualoperation_controller.go` | [Operations](../operations/index.md) |
 
 Focused routes: [capacity planning](wekacluster-drive-planning.md),

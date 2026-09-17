@@ -135,7 +135,7 @@ var _ = Describe("Driver Image Selection", func() {
 			err := services.SetFeatureFlags(ctx, clusterImage, flags)
 			Expect(err).NotTo(HaveOccurred())
 
-			loaderImage := GetLoaderImageForNode(ctx, node, clusterImage)
+			loaderImage := GetLoaderImageForNode(ctx, node, clusterImage, false)
 
 			Expect(loaderImage).To(Equal(clusterImage))
 		})
@@ -151,10 +151,47 @@ var _ = Describe("Driver Image Selection", func() {
 				},
 			}
 
-			loaderImage := GetLoaderImageForNode(ctx, node, clusterImage)
+			loaderImage := GetLoaderImageForNode(ctx, node, clusterImage, false)
 
 			// Should fall back to builder image since flags are not cached
 			Expect(loaderImage).To(Equal("quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"))
+		})
+
+		It("should return the builder image when forceBuilderCli is set, even with the flag on", func() {
+			clusterImage := "quay.io/weka.io/weka-in-container:4.5.0.101"
+			node := &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Ubuntu 22.04.5 LTS",
+					},
+				},
+			}
+
+			flags := &domain.FeatureFlags{
+				WekaGetCopyLocalDriverFiles: true,
+			}
+			err := services.SetFeatureFlags(ctx, clusterImage, flags)
+			Expect(err).NotTo(HaveOccurred())
+
+			loaderImage := GetLoaderImageForNode(ctx, node, clusterImage, true)
+
+			Expect(loaderImage).To(Equal("quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"),
+				"forceBuilderCli must override the feature flag")
+		})
+
+		It("should return the builder image when forceBuilderCli is set and flags are not cached", func() {
+			clusterImage := "quay.io/weka.io/weka-in-container:4.4.0.51-uncached"
+			node := &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Ubuntu 24.04.3 LTS",
+					},
+				},
+			}
+
+			loaderImage := GetLoaderImageForNode(ctx, node, clusterImage, true)
+
+			Expect(loaderImage).To(Equal("quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24"))
 		})
 	})
 })
