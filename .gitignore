@@ -64,3 +64,9 @@ manager
 .temp
 .worktrees
 .work/
+
+# The release build writes a token-bearing .netrc into the Docker build context
+# (see .github/workflows/package.yaml); never commit it. Note dockerfile_files/.gitconfig
+# is tracked and is overwritten with a token-bearing copy by that same step, so it
+# cannot be protected here.
+dockerfile_files/.netrc

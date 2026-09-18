@@ -10,3 +10,27 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
+
+  - package-ecosystem: "gomod"
+    directories:
+      - "/"
+      - "/pkg/weka-k8s-api"
+      - "/pkg/go-steps-engine"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      gomod:
+        patterns: ["*"]
+
+  # Base images in image.Dockerfile and build/taskmon/Dockerfile.
+  - package-ecosystem: "docker"
+    directories:
+      - "/"
+      - "/build/taskmon"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      docker:
+        patterns: ["*"]

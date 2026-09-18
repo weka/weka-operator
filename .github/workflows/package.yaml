@@ -23,9 +23,6 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
-  statuses: write
-  discussions: write
-  checks: write
 
 
 jobs:
@@ -73,6 +70,31 @@ jobs:
         with:
           node-version: 'lts/jod'
           cache: 'npm'
+      - name: Configure git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+      - name: Install dependencies
+        if: github.event_name != 'workflow_dispatch'
+        run: npm ci
+      - name: Generating version
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run release -- --dry-run
+      - name: Read VERSION from inputs
+        id: version_input
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version-name }}
+        run: echo "VERSION=$VERSION_INPUT" >> $GITHUB_ENV
+      - name: Read VERSION file
+        id: version
+        if: github.event_name != 'workflow_dispatch'
+        run: echo "VERSION=$(cat .VERSION)" >> $GITHUB_ENV
+      # Registry auth is established here, immediately before the push, so the quay
+      # credentials are not left in ~/.docker/config.json and the helm registry config
+      # while the npm dependency tree is installed and executed above.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - name: Docker login
@@ -90,28 +112,6 @@ jobs:
           QUAY_USERNAME: ${{ secrets.QuayUsername }}
           QUAY_PASSWORD: ${{ secrets.QuayPassword }}
         run: helm registry login quay.io/weka.io --username "$QUAY_USERNAME" --password "$QUAY_PASSWORD"
-      - name: Configure git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-      - name: Install dependencies
-        if: github.event_name != 'workflow_dispatch'
-        run: npm install
-      - name: Generating version
-        if: github.event_name != 'workflow_dispatch'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release -- --dry-run
-      - name: Read VERSION from inputs
-        id: version_input
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          VERSION_INPUT: ${{ github.event.inputs.version-name }}
-        run: echo "VERSION=$VERSION_INPUT" >> $GITHUB_ENV
-      - name: Read VERSION file
-        id: version
-        if: github.event_name != 'workflow_dispatch'
-        run: echo "VERSION=$(cat .VERSION)" >> $GITHUB_ENV
       - name: build version
         if: ${{ env.VERSION != '' }}
         env:
