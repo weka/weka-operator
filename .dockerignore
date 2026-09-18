@@ -11,3 +11,6 @@ packer
 ansible
 .github
 doc
+# Holds git credentials on release builds; excluded so `COPY ./ /workspace` cannot
+# bake them into a layer. image.Dockerfile mounts them as build secrets instead.
+dockerfile_files

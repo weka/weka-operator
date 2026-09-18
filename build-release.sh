@@ -69,13 +69,32 @@ if [ -n "$GITHUB_ACTIONS" ]; then
   CACHE_ARGS="--cache-from type=gha --cache-to type=gha,mode=max"
 fi
 
+# Git credentials for private module fetch, passed as build secrets so they stay out of
+# image layers and out of the cache exported by --cache-to mode=max. In CI the release job
+# writes token-bearing copies to the home dir; locally the committed gitconfig rewrites
+# fetches to SSH so that the agent forwarded by --ssh is used instead.
+SECRET_ARGS=""
+if [ -n "$GITHUB_ACTIONS" ]; then
+  GITCONFIG_SRC="$HOME/.gitconfig"
+else
+  GITCONFIG_SRC="dockerfile_files/.gitconfig"
+fi
+if [ -f "$GITCONFIG_SRC" ]; then
+  SECRET_ARGS="$SECRET_ARGS --secret id=gitconfig,src=$GITCONFIG_SRC"
+else
+  echo "WARNING: no gitconfig at $GITCONFIG_SRC, private module fetch may fail"
+fi
+if [ -f "$HOME/.netrc" ]; then
+  SECRET_ARGS="$SECRET_ARGS --secret id=netrc,src=$HOME/.netrc"
+fi
+
 # Check if SSH_AUTH_SOCK is available, if not, build without SSH
 if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
   echo "No SSH agent available, building without SSH"
-  docker buildx build --platform linux/amd64,linux/arm64 --tag $REPO:v$VERSION --push $CACHE_ARGS -f image.Dockerfile . || { echo "docker build failed, ensure login and re-run whole flow"; exit 1; }
+  docker buildx build --platform linux/amd64,linux/arm64 --tag $REPO:v$VERSION --push $CACHE_ARGS $SECRET_ARGS -f image.Dockerfile . || { echo "docker build failed, ensure login and re-run whole flow"; exit 1; }
 else
   echo "SSH agent available, building with SSH"
-  docker buildx build --ssh default --platform linux/amd64,linux/arm64 --tag $REPO:v$VERSION --push $CACHE_ARGS -f image.Dockerfile . || { echo "docker build failed, ensure login and re-run whole flow"; exit 1; }
+  docker buildx build --ssh default --platform linux/amd64,linux/arm64 --tag $REPO:v$VERSION --push $CACHE_ARGS $SECRET_ARGS -f image.Dockerfile . || { echo "docker build failed, ensure login and re-run whole flow"; exit 1; }
 fi
 
 # helm chart push

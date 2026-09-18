@@ -51,11 +51,6 @@ jobs:
           submodules: recursive
           token: ${{ steps.app-token.outputs.token }}
 
-      # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#using-multiple-deploy-keys-inside-docker-builds
-      - name: Collect Git files in a directory that is part of the Docker build context
-        run: |
-          mkdir -p dockerfile_files
-          cp -r ~/.gitconfig ~/.netrc dockerfile_files/
       - name: Setup Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
