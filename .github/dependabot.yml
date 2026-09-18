@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Keeps SHA-pinned actions in .github/workflows/ from ossifying: Dependabot
+  # bumps the SHA and the trailing version comment when upstream releases.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      github-actions:
+        patterns: ["*"]
