@@ -21,6 +21,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/drivers"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
@@ -492,7 +493,8 @@ func (o *LoadDrivers) HasNotContainer() bool {
 func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	serviceAccountName := config.Config.MaintenanceSaName
 	name := o.getContainerName()
-	loaderImage := drivers.GetLoaderImageForNode(ctx, o.node, o.containerDetails.Image)
+	forceBuilderCli := services.ConfigurationCache.GetSettings(ctx, o.client).Drivers.ForceBuilderCli
+	loaderImage := drivers.GetLoaderImageForNode(ctx, o.node, o.containerDetails.Image, forceBuilderCli)
 
 	labels := map[string]string{
 		"weka.io/mode":      weka.WekaContainerModeDriversLoader, // need to make this somehow more generic and not per place
