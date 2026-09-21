@@ -27,10 +27,7 @@ var (
 )
 
 // ShutdownInstructions holds the controller-written instructions for this pod.
-type ShutdownInstructions struct {
-	AllowStop      bool `json:"allow_stop"`
-	AllowForceStop bool `json:"allow_force_stop"`
-}
+type ShutdownInstructions = domain.ShutdownInstructions
 
 // GetBootID reads the kernel boot_id.
 func GetBootID() string {

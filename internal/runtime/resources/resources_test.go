@@ -2,10 +2,14 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 func TestWaitAndLoad_AbortsOnShutdown(t *testing.T) {
@@ -35,5 +39,33 @@ func TestWaitAndLoad_CtxCancel(t *testing.T) {
 	_, err := WaitAndLoad(ctx, func() bool { return false })
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
+	}
+}
+
+// TestNodeResourcesIsContainerAllocations pins the producer/consumer contract: the
+// operator marshals weka.ContainerAllocations and the runtime must decode the exact
+// same wire shape via NodeResources, with no field drift or tag fork.
+func TestNodeResourcesIsContainerAllocations(t *testing.T) {
+	fd := "fd-1"
+	produced := weka.ContainerAllocations{
+		Drives:            []string{"drive-1", "drive-2"},
+		WekaPort:          14000,
+		AgentPort:         15000,
+		FailureDomain:     &fd,
+		MachineIdentifier: "machine-1",
+		NetDevices:        []string{"eth0", "eth1"},
+	}
+	data, err := json.Marshal(produced)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var consumed NodeResources
+	if err := json.Unmarshal(data, &consumed); err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(consumed, produced) {
+		t.Fatalf("round trip mismatch: got %+v, want %+v", consumed, produced)
 	}
 }
