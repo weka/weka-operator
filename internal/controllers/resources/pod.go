@@ -80,10 +80,7 @@ type WekaDriveResponse struct {
 	HostId string `json:"host_id"`
 }
 
-type ShutdownInstructions struct {
-	AllowStop      bool `json:"allow_stop"`
-	AllowForceStop bool `json:"allow_force_stop"`
-}
+type ShutdownInstructions = domain.ShutdownInstructions
 
 const globalPersistenceMountPath = "/opt/weka-global-persistence"
 

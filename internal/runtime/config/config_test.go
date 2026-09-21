@@ -181,10 +181,13 @@ func TestFeatureFlagsFromBitmap(t *testing.T) {
 		ssdProxyIommuSupport         bool
 		ssdProxyIncludesDpdk         bool
 		wekaManagesNonIonodeAffinity bool
+		wekactlAsDefault             bool
+		wantErr                      bool
 	}{
 		{
-			name:   "invalid base64 returns all false",
-			bitmap: "not-valid-base64!!!",
+			name:    "invalid base64 returns error and all false",
+			bitmap:  "not-valid-base64!!!",
+			wantErr: true,
 		},
 		{
 			name:   "all-zero byte returns all false",
@@ -254,11 +257,23 @@ func TestFeatureFlagsFromBitmap(t *testing.T) {
 			bitmap:               "AAI=",
 			ssdProxyIncludesDpdk: true,
 		},
+		{
+			name:             "bit 14 sets WekactlAsDefault only",
+			bitmap:           "AEA=", // byte[0]=0x00, byte[1]=0x40 → bit 14 set
+			wekactlAsDefault: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := featureFlagsFromBitmap(tt.bitmap)
+			got, err := featureFlagsFromBitmap(tt.bitmap)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("featureFlagsFromBitmap(%q): expected error, got nil", tt.bitmap)
+				}
+			} else if err != nil {
+				t.Fatalf("featureFlagsFromBitmap(%q): unexpected error: %v", tt.bitmap, err)
+			}
 
 			check := func(field string, got, want bool) {
 				t.Helper()
@@ -277,6 +292,7 @@ func TestFeatureFlagsFromBitmap(t *testing.T) {
 			check("SsdProxyIommuSupport", got.SsdProxyIommuSupport, tt.ssdProxyIommuSupport)
 			check("SsdProxyIncludesDpdkMemory", got.SsdProxyIncludesDpdkMemory, tt.ssdProxyIncludesDpdk)
 			check("WekaManagesNonIonodeAffinity", got.WekaManagesNonIonodeAffinity, tt.wekaManagesNonIonodeAffinity)
+			check("WekactlAsDefault", got.WekactlAsDefault, tt.wekactlAsDefault)
 		})
 	}
 }

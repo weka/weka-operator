@@ -61,7 +61,7 @@ func TestUpdateCfgFromResources(t *testing.T) {
 
 	t.Run("failure domain and machine identifier override when non-empty", func(t *testing.T) {
 		cfg := &config.Config{Mode: "compute", FailureDomain: "old-fd", MachineIdentifier: "old-mid"}
-		res := &resources.NodeResources{FailureDomain: "new-fd", MachineIdentifier: "new-mid"}
+		res := &resources.NodeResources{FailureDomain: strPtr("new-fd"), MachineIdentifier: "new-mid"}
 		updateCfgFromResources(cfg, res)
 		if cfg.FailureDomain != "new-fd" {
 			t.Errorf("FailureDomain = %q, want %q", cfg.FailureDomain, "new-fd")
@@ -71,7 +71,7 @@ func TestUpdateCfgFromResources(t *testing.T) {
 		}
 	})
 
-	t.Run("empty failure domain and machine identifier do not override", func(t *testing.T) {
+	t.Run("omitted failure domain and machine identifier do not override", func(t *testing.T) {
 		cfg := &config.Config{Mode: "compute", FailureDomain: "old-fd", MachineIdentifier: "old-mid"}
 		res := &resources.NodeResources{}
 		updateCfgFromResources(cfg, res)
@@ -82,7 +82,18 @@ func TestUpdateCfgFromResources(t *testing.T) {
 			t.Errorf("MachineIdentifier = %q, want %q", cfg.MachineIdentifier, "old-mid")
 		}
 	})
+
+	t.Run("present-empty failure domain clears cfg value", func(t *testing.T) {
+		cfg := &config.Config{Mode: "compute", FailureDomain: "old-fd"}
+		res := &resources.NodeResources{FailureDomain: strPtr("")}
+		updateCfgFromResources(cfg, res)
+		if cfg.FailureDomain != "" {
+			t.Errorf("FailureDomain = %q, want empty", cfg.FailureDomain)
+		}
+	})
 }
+
+func strPtr(s string) *string { return &s }
 
 // TestComputeStopFlag pins the Python force_stop decision at weka_runtime.py:4544–4551.
 // client always force-stops; the graceful-eligible modes use "-g" only when neither
