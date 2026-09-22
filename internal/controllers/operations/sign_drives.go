@@ -34,12 +34,6 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-type SignedDrivesExtendedPayload struct {
-	weka.SignDrivesPayload
-	ExcludedSerialIds     []string `json:"excludedSerialIds,omitempty"`
-	SsdProxyContainerUuid string   `json:"ssd_proxy_container_uuid,omitempty"`
-}
-
 type SignDrivesOperation struct {
 	client          client.Client
 	kubeService     kubernetes.KubeService
@@ -195,7 +189,7 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 
 		// Create a copy of the original payload to avoid modifying it; a fresh copy per node so
 		// one node's exclusions/ssdproxy UUID can't leak into the next node's instructions.
-		extendedPayload := SignedDrivesExtendedPayload{
+		extendedPayload := domain.SignedDrivesExtendedPayload{
 			SignDrivesPayload: *o.payload,
 		}
 
@@ -672,12 +666,9 @@ func anyDriveHasModel(drives []domain.SharedDriveInfo) bool {
 // processResults (i.e. updateNodeAnnotations). Deleting before this condition is set
 // causes node annotations to never be written.
 func isResultsProcessed(container *weka.WekaContainer) bool {
-	for _, c := range container.Status.Conditions {
-		if c.Type == condition.CondResultsProcessed && c.Status == metav1.ConditionTrue {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(container.Status.Conditions, func(c metav1.Condition) bool {
+		return c.Type == condition.CondResultsProcessed && c.Status == metav1.ConditionTrue
+	})
 }
 
 func (o *SignDrivesOperation) PollResults(ctx context.Context) error {
@@ -733,12 +724,12 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 		}
 		if nodeResults.Err != nil {
 			if len(errs) < maxErrors {
-				errs = append(errs, nodeResults.Err.Error())
+				errs = append(errs, *nodeResults.Err)
 			}
 		}
 	}
 
-	ret := map[string]interface{}{}
+	ret := map[string]any{}
 	if len(drivesByNode) > 0 {
 		ret["results"] = drivesByNode
 		ret["message"] = fmt.Sprintf("Signed %d drives on %d nodes", total, len(o.results.Results))
@@ -832,7 +823,7 @@ func getAlreadySignedDrives(node *v1.Node) []string {
 	return alreadySignedDrives
 }
 
-func (o *SignDrivesOperation) createInstructions(extendedPayload *SignedDrivesExtendedPayload) (*weka.Instructions, error) {
+func (o *SignDrivesOperation) createInstructions(extendedPayload *domain.SignedDrivesExtendedPayload) (*weka.Instructions, error) {
 	// Marshal the extended payload
 	payloadBytes, err := json.Marshal(extendedPayload)
 	if err != nil {

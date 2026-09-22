@@ -391,6 +391,9 @@ var Config struct {
 	Webhook           WebhookConfig
 	AdmissionControl  AdmissionControlConfig
 	AdmissionPolicies AdmissionPoliciesConfig
+
+	WekaPodRuntimeImage string
+	UsePythonFallback   bool
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -750,6 +753,9 @@ func ConfigureEnv(ctx context.Context) {
 	Config.AdmissionPolicies.Overrides = loadAdmissionPolicyOverrides(
 		getEnvOrDefault("ADMISSION_POLICIES_OVERRIDES", ""),
 	)
+
+	Config.WekaPodRuntimeImage = os.Getenv("WEKA_POD_RUNTIME_IMAGE") // No default - opt-in only
+	Config.UsePythonFallback = getBoolEnvOrDefault("WEKA_USE_PYTHON_FALLBACK", false)
 }
 
 // loadAdmissionPolicyOverrides parses ADMISSION_POLICIES_OVERRIDES (a JSON
