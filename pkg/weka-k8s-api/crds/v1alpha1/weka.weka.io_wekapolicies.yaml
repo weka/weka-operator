@@ -127,11 +127,6 @@ spec:
                               MetricsEnabled controls the Prometheus metrics endpoints of the CSI controller, the CSI node
                               plugin and the controller sidecars. Enabled by default.
                             type: boolean
-                          skipGarbageCollection:
-                            description: |-
-                              SkipGarbageCollection stops the CSI controller from reclaiming deleted volume directories in
-                              the background. False by default.
-                            type: boolean
                         type: object
                       drivers:
                         description: Drivers configures the drivers build and distribution.

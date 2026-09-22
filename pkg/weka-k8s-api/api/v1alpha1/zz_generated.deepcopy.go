@@ -426,11 +426,6 @@ func (in *CsiSpec) DeepCopyInto(out *CsiSpec) {
 		*out = new(bool)
 		**out = **in
 	}
-	if in.SkipGarbageCollection != nil {
-		in, out := &in.SkipGarbageCollection, &out.SkipGarbageCollection
-		*out = new(bool)
-		**out = **in
-	}
 	if in.FsGroupPolicy != nil {
 		in, out := &in.FsGroupPolicy, &out.FsGroupPolicy
 		*out = new(string)
