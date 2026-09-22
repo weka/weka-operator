@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
@@ -41,7 +42,7 @@ func (clusterSizingModeFlip) ValidateUpdate(ctx context.Context, c client.Client
 	if oldMode == newMode {
 		return nil
 	}
-	if modeSwitchSupported(oldMode, newMode) {
+	if modeSwitchSupported(oldMode, newMode, newCluster) {
 		return nil
 	}
 	// Note the ordering: nothing above this point touches the API server, so an unchanged mode — the
@@ -72,9 +73,12 @@ func (clusterSizingModeFlip) ValidateUpdate(ctx context.Context, c client.Client
 			"so the operator would start planning the running drive containers under different rules: "+
 			"%s. Once drive containers exist the only supported switches are unsetting both "+
 			"spec.dynamicTemplate.computeContainers and spec.dynamicTemplate.driveContainers, which "+
-			"adopts the daemonset mode by growing the existing drive containers in place, and moving a "+
-			"drive-sharing cluster to spec.dynamicTemplate.clusterCapacity.",
+			"adopts the daemonset mode by growing the existing drive containers in place; moving a "+
+			"drive-sharing cluster to spec.dynamicTemplate.clusterCapacity; and moving an explicit-counts "+
+			"cluster to drive-sharing with annotation %s: %s set on this update, for the "+
+			"migrate-to-drive-sharing operation.",
 		oldMode, newMode, sizingModeFields, modeFlipConsequence(oldMode, newMode),
+		consts.AnnotationSizingModeMigration, consts.SizingModeMigrationDriveSharing,
 	)
 	return field.ErrorList{
 		field.Forbidden(field.NewPath("spec", "dynamicTemplate"), detail),
@@ -110,7 +114,7 @@ func derivedSizingMode(d *weka.WekaClusterTemplate) string {
 // containers, because the new mode's planner can carry the running containers over. Every other pair
 // is rejected: without adoption, and with no scale-down path anywhere in the operator, the two sizing
 // regimes end up planning the same drives under different rules.
-func modeSwitchSupported(oldMode, newMode string) bool {
+func modeSwitchSupported(oldMode, newMode string, newCluster *weka.WekaCluster) bool {
 	switch {
 	case oldMode == sizingModeCounts && newMode == sizingModeAutoFullDrives:
 		// Both are exclusive full-drives modes over the same physical drives. The auto-full-drives
@@ -124,6 +128,10 @@ func modeSwitchSupported(oldMode, newMode string) bool {
 		// virtual drives, and inventory.DriveContainerCapacities reads containerCapacity and
 		// driveCapacity alike, so the planner grows from the running set instead of planning a fresh one.
 		return true
+	case oldMode == sizingModeCounts && newMode == sizingModeDriveSharing:
+		// Explicit opt-in for the migrate-to-drive-sharing operation: it drains and re-signs each
+		// drive container itself, so the flip alone must not start planning fresh sharing containers.
+		return newCluster.Annotations[consts.AnnotationSizingModeMigration] == consts.SizingModeMigrationDriveSharing
 	}
 	return false
 }

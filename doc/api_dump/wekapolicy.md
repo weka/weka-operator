@@ -103,6 +103,7 @@
 | type | string |  |
 | nodeSelector | map[string]string |  |
 | devicePaths | []string |  |
+| deviceSerials | []string | DeviceSerials sign drives by serial ID. Used with type device-serials. |
 | pciDevices | *PCIDevices | PCI vendor and device IDs of the drives to sign.<br>To get the values for VendorId and DeviceId:<br>1. Run the following command to list all PCI devices on your system:<br>```bash<br>lspci -nn<br>```<br>2. Find the relevant PCI device in the output, which will display both the<br>vendor and device IDs in square brackets in the format [vendorId:deviceId].<br>For example:<br>```<br>00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01]<br>``` |
 | options | *SignOptions |  |
 | shared | bool | Shared enables shared drive signing for proxy mode (defaults to false).<br>When enabled:<br>- Drives are signed for proxy using 'weka-sign-drive sign proxy' command<br>- Drives are signed with a proxy system GUID<br>- Results are stored in weka.io/shared-drives annotation (instead of weka.io/weka-drives)<br>- Physical UUIDs, serial IDs, and capacities are captured<br>- Enables multi-tenant drive sharing via SSD proxy |

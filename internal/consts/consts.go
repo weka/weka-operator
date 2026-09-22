@@ -65,6 +65,17 @@ const (
 	AnnotationSignDrivesHash = "weka.io/sign-drives-hash"
 )
 
+// WekaCluster annotation keys.
+const (
+	// AnnotationSizingModeMigration opts a WekaCluster into a sizing-mode switch that the validator
+	// otherwise rejects while drive containers exist. Value is one of the SizingModeMigration* consts.
+	AnnotationSizingModeMigration = "weka.io/sizing-mode-migration"
+
+	// SizingModeMigrationDriveSharing is the AnnotationSizingModeMigration value that permits the
+	// explicit-counts -> drive-sharing switch, for the migrate-to-drive-sharing operation.
+	SizingModeMigrationDriveSharing = "drive-sharing"
+)
+
 // PodConfigVersionAnnotation is the annotation key set on pods at creation time
 // to record which pod config version the pod was created with.
 const PodConfigVersionAnnotation = "weka.io/pod-config-version"

@@ -14,7 +14,6 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/config"
@@ -459,16 +458,6 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		logger.Info("Blocking missing drive", "serial_id", s)
 	}
 
-	availableDrives := 0
-	for _, entry := range updatedDrivesList {
-		if !slices.Contains(blockedDrives, entry.Serial) {
-			availableDrives++
-		}
-	}
-
-	// Update weka.io/drives extended resource
-	node.Status.Capacity[consts.ResourceDrives] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
-	node.Status.Allocatable[consts.ResourceDrives] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
 	// marshal blocked drives back and update annotation
 	blockedDrivesStr, err := json.Marshal(blockedDrives)
 	if err != nil {

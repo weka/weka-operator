@@ -13,6 +13,9 @@ the health of every cluster that depends on it. It is **`WekaManualOperation`-on
 `WekaPolicy` form is intentionally not offered; this is a one-shot campaign you start on purpose for
 a specific image.
 
+(Moving an existing exclusive full-drives cluster onto drive sharing in the first place is a
+different operation — see [Migrate to Drive Sharing](migrate-to-drive-sharing.md).)
+
 ## API
 
 ```yaml

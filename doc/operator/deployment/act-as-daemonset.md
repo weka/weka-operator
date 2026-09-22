@@ -614,15 +614,16 @@ Because the mode is implicit, adding or removing `computeContainers`/`driveConta
 cluster silently changes what the operator is trying to build. An update whose **derived mode changes
 while drive containers exist** is therefore **rejected** by the `cluster_sizing_mode_flip` policy — an
 **error in both strict and relaxed mode** — unless the operator can carry the running containers over
-into the new mode. Exactly two switches can be:
+into the new mode. Exactly three switches can be:
 
 | Transition | On a live cluster |
 |---|---|
 | explicit container counts → daemonset | **allowed** — containers are adopted and grown in place |
 | drive-sharing → `clusterCapacity` | **allowed** — see [Cluster Capacity](cluster-capacity.md#migrating-from-containercapacity) |
+| explicit container counts → drive-sharing | **allowed, but only** with annotation `weka.io/sizing-mode-migration: "drive-sharing"` present on the cluster when the flip is applied (set it earlier or in the same update) — the plain flip alone is rejected. The annotation opts into the [`migrate-to-drive-sharing`](../operations/migrate-to-drive-sharing.md) operation, which drains and re-signs each existing container itself; without it the running containers would just report no capacity to the sharing planner. |
 | daemonset → explicit container counts | rejected |
 | `clusterCapacity` / `containerCapacity` / `driveCapacity` ↔ daemonset | rejected, both directions |
-| explicit container counts ↔ any capacity mode | rejected, both directions |
+| explicit container counts ↔ any capacity mode, other than the annotation-gated drive-sharing switch above | rejected |
 
 Before any drive container exists the mode is still free to change however you like — that is what
 makes fixing a mistyped spec possible.
@@ -942,7 +943,7 @@ one that also needs the old spec, which is why it can catch a transition at all.
 | `cluster_cores_per_container_limit` | Error / Warn | create + update | A pinned `driveCores`/`computeCores` above [19](#per-container-core-limit) |
 | `cluster_cores_available` | Warn / Warn | create + update | A pinned `driveCores`/`computeCores` larger than the smallest matched node's allocatable CPU |
 | `cluster_hugepages_available` | Warn / Warn | create + update | A pinned `driveHugepages`/`computeHugepages` larger than the smallest matched node's allocatable hugepages-2Mi — see [the override caveat](#hugepages-budget) |
-| `cluster_sizing_mode_flip` | Error / Error | **update** | A change that flips the derived sizing mode while drive containers exist, other than the two supported switches; see [above](#changing-sizing-mode-on-a-live-cluster) |
+| `cluster_sizing_mode_flip` | Error / Error | **update** | A change that flips the derived sizing mode while drive containers exist, other than the three supported switches; see [above](#changing-sizing-mode-on-a-live-cluster) |
 
 Only `min_nodes` and the CEL rule are guarantees. The rest project from node state that can still be
 changing underneath them — most importantly the drive annotations, which the

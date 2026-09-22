@@ -125,6 +125,10 @@
         <tags>rotate-ssdproxy, ssdproxy rotation, ssd proxy upgrade, drive sharing, WekaManualOperation, rotateSsdProxyPayload, targetImage, nodeSelector, paused, cross-cluster disruption gate, proxy_disruption_gate, EvaluateNodeDisruption, VerifyNodeRecovered, ClusterVerdict, fail-closed, blocked, stuck, parking, node-scoped drive verification, SsdProxyRotationStarted, SsdProxyRotationBlocked, SsdProxyRotationStalled, SsdProxyRotationNodeComplete, SsdProxyRotationCampaignComplete, previousImage, rolling upgrade, nodeSelector park</tags>
         <summary>One-shot, WekaManualOperation-only rolling rotation of ssdproxy WekaContainer images, one node at a time, replacing the previously fully-manual per-node hotfix procedure.</summary>
     </file>
+    <file relpath="operator/operations/migrate-to-drive-sharing.md">
+        <tags>migrate-to-drive-sharing, drive sharing migration, full-drives to drive-sharing, exclusive to shared drives, WekaManualOperation, migrateToDriveSharingPayload, cluster, nodeSelector, paused, signOptions, driveTypeOverrides, sizing-mode-migration annotation, weka.io/sizing-mode-migration, cluster_sizing_mode_flip, Gate, Draining, Signing, Proxy, Rejoining, skipDrivesForceResign, sign-drives device-serials, weka-full-drives, weka-shared-drives, RemoveFullDrivesFromNode, capacityChecked, capacitySource, DriveSharingMigrationStarted, DriveSharingMigrationBlocked, DriveSharingMigrationStalled, DriveSharingMigrationNodeComplete, DriveSharingMigrationCampaignComplete, no rebuild from OBS</tags>
+        <summary>One-shot, WekaManualOperation-only in-place migration of an existing exclusive full-drives WekaCluster onto drive sharing, one drive container at a time (drain, re-sign shared, rejoin), without a rebuild from object storage.</summary>
+    </file>
 
     <!-- Operator Clients -->
     <file relpath="operator/clients/wekaclient-and-workload.md">

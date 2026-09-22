@@ -15,6 +15,7 @@
 - [RemoteTracesSessionConfig](#remotetracessessionconfig)
 - [CleanStaleVirtualDrivesPayload](#cleanstalevirtualdrivespayload)
 - [RotateSsdProxyPayload](#rotatessdproxypayload)
+- [MigrateToDriveSharingPayload](#migratetodrivesharingpayload)
 - [PCIDevices](#pcidevices)
 - [SignOptions](#signoptions)
 - [DriveTypeOverrides](#drivetypeoverrides)
@@ -76,6 +77,7 @@
 | remoteTracesSessionPayload | *RemoteTracesSessionConfig |  |
 | cleanStaleVirtualDrivesPayload | *CleanStaleVirtualDrivesPayload |  |
 | rotateSsdProxyPayload | *RotateSsdProxyPayload |  |
+| migrateToDriveSharingPayload | *MigrateToDriveSharingPayload |  |
 
 ---
 
@@ -86,6 +88,7 @@
 | type | string |  |
 | nodeSelector | map[string]string |  |
 | devicePaths | []string |  |
+| deviceSerials | []string | DeviceSerials sign drives by serial ID. Used with type device-serials. |
 | pciDevices | *PCIDevices | PCI vendor and device IDs of the drives to sign.<br>To get the values for VendorId and DeviceId:<br>1. Run the following command to list all PCI devices on your system:<br>```bash<br>lspci -nn<br>```<br>2. Find the relevant PCI device in the output, which will display both the<br>vendor and device IDs in square brackets in the format [vendorId:deviceId].<br>For example:<br>```<br>00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01]<br>``` |
 | options | *SignOptions |  |
 | shared | bool | Shared enables shared drive signing for proxy mode (defaults to false).<br>When enabled:<br>- Drives are signed for proxy using 'weka-sign-drive sign proxy' command<br>- Drives are signed with a proxy system GUID<br>- Results are stored in weka.io/shared-drives annotation (instead of weka.io/weka-drives)<br>- Physical UUIDs, serial IDs, and capacities are captured<br>- Enables multi-tenant drive sharing via SSD proxy |
@@ -164,6 +167,18 @@
 | targetImage | string | TargetImage is the image to roll out. Empty means fall back to helm |
 | nodeSelector | map[string]string | NodeSelector restricts rotation to a subset of nodes. Empty = all nodes that have an ssdproxy. |
 | paused | bool | Paused stops starting new nodes; an in-flight node finishes. |
+
+---
+
+## MigrateToDriveSharingPayload
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| cluster | ObjectReference | Cluster to migrate. |
+| nodeSelector | map[string]string | NodeSelector restricts the campaign to drive containers on nodes matching these labels.<br>Empty = all. |
+| paused | bool | Paused stops starting new containers; an in-flight one finishes. |
+| signOptions | *SignOptions | SignOptions for the shared re-sign; allowEraseWekaPartitions is always forced on. |
+| driveTypeOverrides | *DriveTypeOverrides |  |
 
 ---
 
