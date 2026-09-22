@@ -8,6 +8,7 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	storagev1 "k8s.io/api/storage/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/pkg/util"
@@ -33,11 +34,26 @@ type DriversSettings struct {
 	ForceBuilderCli bool
 }
 
+// CsiSettings holds the operator-wide settings for the embedded CSI deployment.
+//
+// Garbage collection is deliberately absent: it is already configurable per client through
+// spec.csiConfig.advanced.skipGarbageCollection, and duplicating it here would mean two sources
+// for one behaviour.
+type CsiSettings struct {
+	// MetricsEnabled turns the Prometheus endpoints of the controller, the node plugin and the
+	// controller sidecars on or off, along with the ports they bind.
+	MetricsEnabled bool
+	// FsGroupPolicy is written to the CSIDriver object. Immutable in Kubernetes, so it only takes
+	// effect on an install whose CSIDriver has been removed.
+	FsGroupPolicy storagev1.FSGroupPolicy
+}
+
 // ConfigurationSettings is the effective operator-wide configuration: built-in defaults with any
 // configuration WekaPolicy applied over them. Every field is a resolved value, never a pointer, so
 // callers never repeat the nil-means-default decision.
 type ConfigurationSettings struct {
 	Drivers DriversSettings
+	Csi     CsiSettings
 }
 
 // DefaultConfigurationSettings returns the built-in defaults, which apply when no configuration
@@ -46,6 +62,10 @@ func DefaultConfigurationSettings() ConfigurationSettings {
 	return ConfigurationSettings{
 		Drivers: DriversSettings{
 			ForceBuilderCli: false,
+		},
+		Csi: CsiSettings{
+			MetricsEnabled: true,
+			FsGroupPolicy:  storagev1.FileFSGroupPolicy,
 		},
 	}
 }
@@ -61,6 +81,15 @@ func SettingsFromPayload(payload *weka.ConfigurationPayload) ConfigurationSettin
 
 	if payload.Drivers != nil && payload.Drivers.ForceBuilderCli != nil {
 		resolved.Drivers.ForceBuilderCli = *payload.Drivers.ForceBuilderCli
+	}
+
+	if payload.Csi != nil {
+		if payload.Csi.MetricsEnabled != nil {
+			resolved.Csi.MetricsEnabled = *payload.Csi.MetricsEnabled
+		}
+		if payload.Csi.FsGroupPolicy != nil {
+			resolved.Csi.FsGroupPolicy = storagev1.FSGroupPolicy(*payload.Csi.FsGroupPolicy)
+		}
 	}
 
 	return resolved

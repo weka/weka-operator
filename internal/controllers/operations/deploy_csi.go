@@ -21,6 +21,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -32,6 +33,8 @@ type DeployCsiOperation struct {
 	csiGroupName  string
 	csiDriverName string
 	undeploy      bool
+	// effective CSI settings, resolved once per run from the operator-defaults policy
+	settings services.CsiSettings
 	// existing resources
 	csiDriverExists     bool
 	storageClassesExist bool
@@ -145,7 +148,7 @@ func (o *DeployCsiOperation) deployCsiDriver(ctx context.Context) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "deployCsiDriver")
 	defer logger.End()
 
-	err := o.client.Create(ctx, csi.NewCsiDriver(o.csiDriverName))
+	err := o.client.Create(ctx, csi.NewCsiDriver(o.csiDriverName, o.settings.FsGroupPolicy))
 	if err != nil {
 		return fmt.Errorf("failed to create CSI driver: %w", err)
 	}
@@ -234,7 +237,7 @@ func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "deployCsiController")
 	defer logger.End()
 
-	deploymentSpec, err := csi.NewCsiControllerDeployment(ctx, o.csiGroupName, o.wekaClient)
+	deploymentSpec, err := csi.NewCsiControllerDeployment(ctx, o.csiGroupName, o.wekaClient, o.settings)
 	if err != nil {
 		return err
 	}
@@ -278,6 +281,8 @@ func (o *DeployCsiOperation) getExistingCsiResources(ctx context.Context) error 
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "getExistingCsiResources")
 	defer logger.End()
 
+	o.settings = services.GetSettings(ctx).Csi
+
 	// Get existing CSIDriver
 	listOpts := []client.ListOption{
 		client.MatchingLabels(csi.GetCsiLabels(o.csiDriverName, csi.CSIDriver, nil, nil)),
@@ -290,6 +295,14 @@ func (o *DeployCsiOperation) getExistingCsiResources(ctx context.Context) error 
 	if len(existingList.Items) > 0 {
 		o.csiDriverExists = true
 		logger.Debug("Found existing CSIDriver", "name", existingList.Items[0].Name)
+
+		// fsGroupPolicy is immutable in Kubernetes and the CSIDriver is never updated in place, so
+		// an override that arrives after installation is inert. Say so rather than failing silently.
+		existing := existingList.Items[0]
+		if existing.Spec.FSGroupPolicy != nil && *existing.Spec.FSGroupPolicy != o.settings.FsGroupPolicy {
+			logger.Warn("Existing CSIDriver fsGroupPolicy differs from the configured one and cannot be changed in place; recreate the CSI installation to apply it",
+				"name", existing.Name, "existing", *existing.Spec.FSGroupPolicy, "configured", o.settings.FsGroupPolicy)
+		}
 	}
 
 	// Get existing StorageClasses
