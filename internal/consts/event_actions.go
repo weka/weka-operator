@@ -41,4 +41,5 @@ const (
 	ActionApplyDriveTypeOverrides = "ApplyDriveTypeOverrides"
 	ActionRotateSsdProxy          = "RotateSsdProxy"
 	ActionCleanStaleVirtualDrives = "CleanStaleVirtualDrives"
+	ActionMigrateToDriveSharing   = "MigrateToDriveSharing"
 )

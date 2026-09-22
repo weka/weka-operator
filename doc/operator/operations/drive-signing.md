@@ -18,6 +18,20 @@ spec:
     signDrivesPayload:
       type: "all-not-root"
 ```
+
+To target specific drives by serial instead of a discovery rule, use `type: device-serials` with
+`deviceSerials`:
+
+```yaml
+      type: device-serials
+      deviceSerials:
+        - "233447E40E3C"
+        - "233447E40CFD"
+```
+
+Every listed serial must resolve to a drive on a matched node; a serial that doesn't resolve is an
+error for that operation rather than being silently skipped.
+
 It is also possible to sign drives using WekaManualOperation with signDrivesPayload
 In both cases, manual operation and policy,  - spec.image should not be specified as this is not same image as weka containers
 The only cases when spec.image might be specified - is when there is specific need to use different signing image, like local distribution or hotfix-version, in such cases it will be instructed specifically

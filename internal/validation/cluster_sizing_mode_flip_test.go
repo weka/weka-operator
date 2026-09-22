@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
@@ -288,6 +289,48 @@ func TestSizingModeFlip_ListFailureIrrelevantWhenModeUnchanged(t *testing.T) {
 
 	if errs := v.ValidateUpdate(ctx, c, old, updated); len(errs) != 0 {
 		t.Errorf("a same-mode edit must not touch the API server at all, got %v", errs)
+	}
+}
+
+// TestSizingModeFlip_CountsToDriveSharing_AnnotationGated covers the migrate-to-drive-sharing opt-in:
+// counts -> drive-sharing is rejected like any other unsupported pair unless the new object carries the
+// migration annotation with the exact expected value.
+func TestSizingModeFlip_CountsToDriveSharing_AnnotationGated(t *testing.T) {
+	v := &clusterSizingModeFlip{}
+	ctx := context.Background()
+	c := modeFlipClient(t, 3)
+
+	counts := &weka.WekaClusterTemplate{ComputeContainers: 6, DriveContainers: 6}
+	sharing := &weka.WekaClusterTemplate{ContainerCapacity: 6000, DriveContainers: 6, ComputeContainers: 6}
+
+	cases := map[string]struct {
+		annotations map[string]string
+		wantErr     bool
+	}{
+		"no annotation":  {nil, true},
+		"wrong value":    {map[string]string{consts.AnnotationSizingModeMigration: "something-else"}, true},
+		"annotation set": {map[string]string{consts.AnnotationSizingModeMigration: consts.SizingModeMigrationDriveSharing}, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			old := modeFlipCluster(counts)
+			updated := modeFlipCluster(sharing)
+			updated.Annotations = tc.annotations
+
+			errs := v.ValidateUpdate(ctx, c, old, updated)
+			if !tc.wantErr {
+				if len(errs) != 0 {
+					t.Errorf("expected the annotated switch to be admitted, got %v", errs)
+				}
+				return
+			}
+			if len(errs) != 1 {
+				t.Fatalf("expected exactly one violation, got %v", errs)
+			}
+			if !strings.Contains(errs[0].Detail, consts.AnnotationSizingModeMigration) {
+				t.Errorf("expected message to mention the migration annotation, got: %s", errs[0].Detail)
+			}
+		})
 	}
 }
 

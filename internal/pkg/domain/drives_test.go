@@ -346,3 +346,59 @@ func TestSortDriveEntriesDesc(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoveDriveSerials(t *testing.T) {
+	entries := []DriveEntry{
+		{Serial: "SN001", CapacityGiB: 1024},
+		{Serial: "SN002", CapacityGiB: 2048},
+		{Serial: "SN003", CapacityGiB: 512},
+	}
+
+	tests := []struct {
+		name        string
+		serials     []string
+		expected    []DriveEntry
+		wantRemoved bool
+	}{
+		{
+			name:        "no serials is a no-op",
+			serials:     nil,
+			expected:    entries,
+			wantRemoved: false,
+		},
+		{
+			name:        "serial not present is a no-op",
+			serials:     []string{"SN999"},
+			expected:    []DriveEntry{entries[0], entries[1], entries[2]},
+			wantRemoved: false,
+		},
+		{
+			name:        "removes matching serial",
+			serials:     []string{"SN002"},
+			expected:    []DriveEntry{entries[0], entries[2]},
+			wantRemoved: true,
+		},
+		{
+			name:        "removes multiple matching serials",
+			serials:     []string{"SN001", "SN003"},
+			expected:    []DriveEntry{entries[1]},
+			wantRemoved: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := make([]DriveEntry, len(entries))
+			copy(input, entries)
+
+			remaining, removed := RemoveDriveSerials(input, tt.serials)
+
+			if removed != tt.wantRemoved {
+				t.Errorf("removed = %v, want %v", removed, tt.wantRemoved)
+			}
+			if !deepEqualDriveEntries(remaining, tt.expected) {
+				t.Errorf("remaining mismatch\nexpected: %#v\ngot:      %#v", tt.expected, remaining)
+			}
+		})
+	}
+}

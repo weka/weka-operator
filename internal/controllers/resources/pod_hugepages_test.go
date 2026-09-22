@@ -4,11 +4,48 @@ import (
 	"testing"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
+
+// TestHugepagesRequest covers the two resource names a pod factory can put into requests/limits.
+func TestHugepagesRequest(t *testing.T) {
+	cases := []struct {
+		name       string
+		container  *weka.WekaContainer
+		wantName   corev1.ResourceName
+		wantString string
+	}{
+		{
+			name:       "2Mi",
+			container:  &weka.WekaContainer{Spec: weka.WekaContainerSpec{Hugepages: 4000, HugepagesSize: "2Mi"}},
+			wantName:   "hugepages-2Mi",
+			wantString: "4000Mi",
+		},
+		{
+			name:       "1Gi",
+			container:  &weka.WekaContainer{Spec: weka.WekaContainerSpec{Hugepages: 4000, HugepagesSize: "1Gi"}},
+			wantName:   "hugepages-1Gi",
+			wantString: "4Gi",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotName, gotQty := HugepagesRequest(tc.container)
+			if gotName != tc.wantName {
+				t.Errorf("name = %q, want %q", gotName, tc.wantName)
+			}
+			if want := resource.MustParse(tc.wantString); gotQty.Cmp(want) != 0 {
+				t.Errorf("quantity = %s, want %s", gotQty.String(), tc.wantString)
+			}
+		})
+	}
+}
 
 // TestGetHugePagesDetails verifies --memory calculation for SSD proxy containers
 // under each feature-flag state, and for non-SSDProxy and legacy containers.

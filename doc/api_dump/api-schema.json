@@ -1709,6 +1709,70 @@
           },
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "MigrateToDriveSharing",
+          "jsonName": "migrateToDriveSharingPayload",
+          "type": {
+            "$ref": "#/definitions/MigrateToDriveSharingPayload"
+          },
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation"
+      ]
+    },
+    "MigrateToDriveSharingPayload": {
+      "kind": "struct",
+      "description": "MigrateToDriveSharingPayload configures the migrate-to-drive-sharing operation, which rolls a\nWekaCluster's exclusive drive containers over to drive sharing one node at a time.",
+      "fields": [
+        {
+          "name": "Cluster",
+          "jsonName": "cluster",
+          "type": {
+            "$ref": "#/definitions/ObjectReference"
+          },
+          "description": "Cluster to migrate.",
+          "optional": false
+        },
+        {
+          "name": "NodeSelector",
+          "jsonName": "nodeSelector",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "NodeSelector restricts the campaign to drive containers on nodes matching these labels.\nEmpty = all.",
+          "optional": true
+        },
+        {
+          "name": "Paused",
+          "jsonName": "paused",
+          "type": "bool",
+          "description": "Paused stops starting new containers; an in-flight one finishes.",
+          "optional": true
+        },
+        {
+          "name": "SignOptions",
+          "jsonName": "signOptions",
+          "type": {
+            "$ref": "#/definitions/SignOptions"
+          },
+          "description": "SignOptions for the shared re-sign; allowEraseWekaPartitions is always forced on.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DriveTypeOverrides",
+          "jsonName": "driveTypeOverrides",
+          "type": {
+            "$ref": "#/definitions/DriveTypeOverrides"
+          },
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -2864,6 +2928,16 @@
             "type": "array",
             "items": "string"
           },
+          "optional": true
+        },
+        {
+          "name": "DeviceSerials",
+          "jsonName": "deviceSerials",
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "description": "DeviceSerials sign drives by serial ID. Used with type device-serials.",
           "optional": true
         },
         {
@@ -5933,7 +6007,8 @@
         "ensure-nics",
         "remote-traces-session",
         "clean-stale-virtual-drives",
-        "rotate-ssdproxy"
+        "rotate-ssdproxy",
+        "migrate-to-drive-sharing"
       ],
       "baseType": "string",
       "usedBy": [

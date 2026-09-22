@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 
 	corev1 "k8s.io/api/core/v1"
@@ -39,6 +40,15 @@ func SortDriveEntriesDesc(entries []DriveEntry) []DriveEntry {
 		return out[i].Serial < out[j].Serial
 	})
 	return out
+}
+
+// RemoveDriveSerials returns entries without any whose Serial is in serials, plus whether anything
+// was actually removed. Used to drop drives migrating to another mode (e.g. drive sharing) from the
+// non-proxy full-drives bookkeeping.
+func RemoveDriveSerials(entries []DriveEntry, serials []string) (remaining []DriveEntry, removed bool) {
+	remaining = slices.DeleteFunc(slices.Clone(entries), func(e DriveEntry) bool { return slices.Contains(serials, e.Serial) })
+	removed = len(remaining) != len(entries)
+	return remaining, removed
 }
 
 // ReadDriveAnnotations reads drive entries from the weka.io/weka-full-drives annotation, filtering out
