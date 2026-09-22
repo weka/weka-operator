@@ -45,6 +45,27 @@ func (d *lsblkDevice) hasMountpoint() bool {
 	return false
 }
 
+// disksFromLsblk parses raw lsblk JSON output and returns Disk entries for every
+// device whose Type=="disk". Per-device I/O (serial, capacity) is NOT done here.
+func disksFromLsblk(out []byte) ([]Disk, error) {
+	var parsed lsblkOutput
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		return nil, fmt.Errorf("lsblk JSON parse: %w", err)
+	}
+	var disks []Disk
+	for i := range parsed.BlockDevices {
+		dev := &parsed.BlockDevices[i]
+		if dev.Type != "disk" {
+			continue
+		}
+		disks = append(disks, Disk{
+			Path:      dev.Name,
+			IsMounted: dev.hasMountpoint(),
+		})
+	}
+	return disks, nil
+}
+
 // FindDisks enumerates all disk-type block devices visible from the host PID namespace.
 func FindDisks(ctx context.Context) ([]Disk, error) {
 	out, err := cmdutil.Output(ctx,
@@ -55,34 +76,29 @@ func FindDisks(ctx context.Context) ([]Disk, error) {
 		return nil, fmt.Errorf("lsblk: %w", err)
 	}
 
-	var parsed lsblkOutput
-	if err := json.Unmarshal(out, &parsed); err != nil {
-		return nil, fmt.Errorf("lsblk JSON parse: %w", err)
+	disks, err := disksFromLsblk(out)
+	if err != nil {
+		return nil, err
 	}
 
-	var disks []Disk
-	for i := range parsed.BlockDevices {
-		dev := &parsed.BlockDevices[i]
-		if dev.Type != "disk" {
-			continue
-		}
-		isMounted := dev.hasMountpoint()
-		serialID, err := GetDeviceSerialID(ctx, dev.Name)
+	var result []Disk
+	for _, d := range disks {
+		serialID, err := GetDeviceSerialID(ctx, d.Path)
 		if err != nil {
 			serialID = ""
 		}
-		devCap, err := GetCapacityGiB(ctx, dev.Name)
+		devCap, err := GetCapacityGiB(ctx, d.Path)
 		if err != nil || devCap == 0 {
 			continue
 		}
-		disks = append(disks, Disk{
-			Path:        dev.Name,
-			IsMounted:   isMounted,
+		result = append(result, Disk{
+			Path:        d.Path,
+			IsMounted:   d.IsMounted,
 			SerialID:    serialID,
 			CapacityGiB: devCap,
 		})
 	}
-	return disks, nil
+	return result, nil
 }
 
 // GetDeviceSerialID returns the serial ID for the given block device path.
@@ -123,12 +139,31 @@ func GetDeviceSerialID(ctx context.Context, devicePath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("reading udev data %s: %w", udevPath, err)
 	}
+	return parseUdevSerial(data), nil
+}
+
+// parseUdevSerial finds the first line containing the substring "ID_SERIAL=" and
+// returns the text after the first "=" on that line, trimmed. This matches the
+// Python original (grep 'ID_SERIAL=' | cut -d= -f2-).
+//
+// Bug fix: the previous Go code used strings.CutPrefix(line, "ID_SERIAL="), which
+// only matched lines *starting* with "ID_SERIAL=". Real udev data lines are
+// "E:"-prefixed (e.g. "E:ID_SERIAL=Samsung_SSD_970"), so the old code always
+// returned "" for real SATA/SCSI drives. Note that "ID_SERIAL_SHORT=" does NOT
+// contain the substring "ID_SERIAL=" so it is correctly excluded.
+func parseUdevSerial(data []byte) string {
 	for _, line := range strings.Split(string(data), "\n") {
-		if after, ok := strings.CutPrefix(line, "ID_SERIAL="); ok {
-			return after, nil
+		if !strings.Contains(line, "ID_SERIAL=") {
+			continue
 		}
+		// Return everything after the first "=" on this line, trimmed.
+		idx := strings.Index(line, "=")
+		if idx < 0 {
+			continue
+		}
+		return strings.TrimSpace(line[idx+1:])
 	}
-	return "", nil
+	return ""
 }
 
 // GetCapacityGiB returns the capacity of a block device in GiB.
@@ -145,6 +180,70 @@ func GetCapacityGiB(ctx context.Context, devicePath string) (int, error) {
 		return 0, nil
 	}
 	return int(sizeBytes / (1024 * 1024 * 1024)), nil
+}
+
+// sysClassBlockRoot is a package var so tests can point it at a temp dir mimicking
+// /sys/class/block's layout instead of the real sysfs.
+var sysClassBlockRoot = "/sys/class/block"
+
+// ResolveBlockDeviceSysfsPath resolves a block device name (e.g. nvme0n1, sda, nvme0n1p1) to its
+// canonical path under /sys/class/block. Mirrors Python _resolve_block_device_sysfs_path()
+// (os.path.realpath), which does not require the target to exist; EvalSymlinks does, so on error
+// this falls back to the unresolved path and lets the caller treat a missing model as unknown.
+func ResolveBlockDeviceSysfsPath(deviceName string) string {
+	path := filepath.Join(sysClassBlockRoot, deviceName)
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+	return resolved
+}
+
+// GetDeviceModel returns the device model string for a block device or one of its partitions.
+// Supports NVMe (e.g. nvme0n1, nvme0n1p1) and SCSI/SATA (e.g. sda, sda1). Mirrors Python
+// get_device_model(); callers decide how to log/handle a missing model.
+func GetDeviceModel(devicePath string) (string, error) {
+	deviceName := filepath.Base(devicePath)
+	sysfsPath := ResolveBlockDeviceSysfsPath(deviceName)
+
+	// A partition's sysfs dir is nested inside the whole-device dir and has a "partition"
+	// marker file; step up so resolution below is device-agnostic.
+	if _, err := os.Stat(filepath.Join(sysfsPath, "partition")); err == nil {
+		sysfsPath = filepath.Dir(sysfsPath)
+	}
+
+	var modelPath string
+	if strings.Contains(strings.ToLower(deviceName), "nvme") {
+		// NVMe: model lives on the controller dir, one level above the namespace dir.
+		modelPath = filepath.Join(filepath.Dir(sysfsPath), "model")
+	} else {
+		// SCSI/SATA: model lives at <whole-device>/device/model
+		modelPath = filepath.Join(sysfsPath, "device", "model")
+	}
+
+	data, err := os.ReadFile(modelPath)
+	if err != nil {
+		return "", fmt.Errorf("reading model at %s: %w", modelPath, err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// ResolveDriveModel prefers the model reported in hardware info (hardwareModel, then
+// hardwareModelNumber) and falls back to sysfs-based resolution via GetDeviceModel. Returns ""
+// if neither source has one. Mirrors Python resolve_drive_model().
+func ResolveDriveModel(hardwareModel, hardwareModelNumber, devicePath string) string {
+	model := strings.TrimSpace(hardwareModel)
+	if model == "" {
+		model = strings.TrimSpace(hardwareModelNumber)
+	}
+	if model != "" {
+		return model
+	}
+	if devicePath == "" {
+		return ""
+	}
+	model, _ = GetDeviceModel(devicePath) //nolint:errcheck // best-effort, mirrors Python's broad except+warn-in-caller
+	return model
 }
 
 // GetDevicePathBySerial resolves a drive serial to a /dev/ path by searching /dev/disk/by-id/.

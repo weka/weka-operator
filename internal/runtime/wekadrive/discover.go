@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/runtime/blockdev"
 	"github.com/weka/weka-operator/internal/runtime/cmdutil"
@@ -20,10 +21,22 @@ const (
 
 // FindWekaPartitions scans /dev/disk/by-id/ and /dev/disk/by-path/ for Weka-formatted partitions.
 // It checks partition GUID and reads the Weka magic to determine if the drive is signed.
-func FindWekaPartitions(ctx context.Context) ([]domain.DriveInfo, error) {
+//
+// useSignTool mirrors Python's find_weka_drives(use_sign_tool): when true, drive Type ("TLC"/"QLC")
+// is looked up via the sign tool; discover-drives passes true, ensure/shutdown paths pass false
+// because the sign tool binary is absent from the weka container image.
+func FindWekaPartitions(ctx context.Context, useSignTool bool) ([]domain.DriveInfo, error) {
 	partNames, err := collectPartNames(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	var driveTypes map[string]string
+	if useSignTool {
+		driveTypes, err = GetDriveTypesWithSignTool(ctx, false)
+		if err != nil {
+			return nil, fmt.Errorf("GetDriveTypesWithSignTool: %w", err)
+		}
 	}
 
 	var drives []domain.DriveInfo
@@ -48,12 +61,7 @@ func FindWekaPartitions(ctx context.Context) ([]domain.DriveInfo, error) {
 			signature = ""
 		}
 
-		isSigned := signature != "" && signature != unsignedDriveSignature
-		wekaGUID := ""
-		if isSigned && len(signature) == 32 {
-			wekaGUID = fmt.Sprintf("%s-%s-%s-%s-%s",
-				signature[0:8], signature[8:12], signature[12:16], signature[16:20], signature[20:32])
-		}
+		isSigned, wekaGUID := driveSignatureInfo(signature)
 
 		// Resolve partition block device to its parent disk
 		pciDevPath, err := filepath.EvalSymlinks(fmt.Sprintf("/sys/class/block/%s", partName))
@@ -69,15 +77,35 @@ func FindWekaPartitions(ctx context.Context) ([]domain.DriveInfo, error) {
 			serialID = ""
 		}
 
+		// A drive the sign tool does not enumerate (e.g. SCSI/SATA) stays untyped rather than
+		// failing discovery; consumers treat an empty type as unknown and keep the drive.
+		driveType := driveTypes[diskPath]
+		if driveType == "" && useSignTool {
+			instrumentation.CurrentSpanLogger(ctx).Warn("sign tool reported no drive type", "device", diskPath)
+		}
+
 		drives = append(drives, domain.DriveInfo{
 			SerialId:   serialID,
 			DevicePath: diskPath,
 			Partition:  "/dev/" + partName,
 			IsSigned:   isSigned,
 			WekaGuid:   wekaGUID,
+			Type:       driveType,
 		})
 	}
 	return drives, nil
+}
+
+// driveSignatureInfo interprets a raw drive signature string and returns whether the drive is
+// signed and (for valid 32-hex-char signatures) the Weka GUID in dashed 8-4-4-4-12 UUID form.
+// An empty string or the unsignedDriveSignature constant means the drive is unsigned.
+func driveSignatureInfo(signature string) (isSigned bool, wekaGUID string) {
+	isSigned = signature != "" && signature != unsignedDriveSignature
+	if isSigned && len(signature) == 32 {
+		wekaGUID = fmt.Sprintf("%s-%s-%s-%s-%s",
+			signature[0:8], signature[8:12], signature[12:16], signature[16:20], signature[20:32])
+	}
+	return isSigned, wekaGUID
 }
 
 // collectPartNames collects unique partition names from /dev/disk/by-path/ and /dev/disk/by-id/.

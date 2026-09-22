@@ -16,31 +16,18 @@ func RunDiscoverDrives(ctx context.Context, _ *config.Config) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "RunDiscoverDrives")
 	defer logger.End()
 
-	drives, err := wekadrive.FindWekaPartitions(ctx)
+	// use_sign_tool=true: mirrors Python discover_drives() calling find_weka_drives() with its
+	// default, so drive Type ("TLC"/"QLC") is populated for the operator's capacity accounting.
+	drives, err := wekadrive.FindWekaPartitions(ctx, true)
 	if err != nil {
 		logger.Info("FindWekaPartitions failed, continuing with empty drives list", "err", err.Error())
 		drives = nil
 	}
 
-	rawDisks, err := blockdev.FindDisks(ctx)
-	if err != nil {
-		logger.Info("FindDisks failed, continuing with empty raw_drives", "err", err.Error())
-		rawDisks = nil
-	}
-
-	rawDrives := make([]domain.DriveRawInfo, 0, len(rawDisks))
-	for _, d := range rawDisks {
-		rawDrives = append(rawDrives, domain.DriveRawInfo{
-			SerialId:    d.SerialID,
-			Path:        d.Path,
-			IsMounted:   d.IsMounted,
-			CapacityGiB: d.CapacityGiB,
-		})
-	}
-
 	return results.Write(domain.DriveNodeResults{
-		Err:       nil,
-		Drives:    drives,
-		RawDrives: rawDrives,
+		Err:                nil,
+		Drives:             drives,
+		RawDrives:          collectRawDrives(ctx),
+		KernelViewComplete: blockdev.IsKernelViewComplete(ctx),
 	})
 }

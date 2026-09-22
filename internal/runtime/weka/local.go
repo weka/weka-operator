@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/runtime/cmdutil"
 	"github.com/weka/weka-operator/internal/runtime/config"
 )
@@ -26,6 +27,54 @@ weka local ps | grep %s || weka local setup container --name %s --net udp --base
 	return cmdutil.Run(ctx, "sh", "-c", script)
 }
 
+// localContainer is the subset of `weka local ps --json` container fields needed for lookups.
+type localContainer struct {
+	Name string `json:"name"`
+}
+
+// FindLocalContainer returns true if a container with the exact given name exists.
+// Mirrors Python find_local_container() at weka_runtime.py.
+func FindLocalContainer(ctx context.Context, name string) (bool, error) {
+	out, err := cmdutil.Output(ctx, "weka", "local", "ps", "--json")
+	if err != nil {
+		return false, fmt.Errorf("weka local ps --json: %w", err)
+	}
+	return containsContainerName(out, name)
+}
+
+// containsContainerName parses `weka local ps --json` output and reports whether it
+// contains a container with the exact given name. Split out from FindLocalContainer for
+// testing without mocking exec.
+func containsContainerName(psJSON []byte, name string) (bool, error) {
+	var containers []localContainer
+	if err := json.Unmarshal(psJSON, &containers); err != nil {
+		return false, fmt.Errorf("parse weka local ps --json: %w", err)
+	}
+	for _, c := range containers {
+		if c.Name == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// EnsureManagedLocalContainer creates the named container with setupArgs if it doesn't already
+// exist, then always (re)starts it via "weka local start".
+// Mirrors Python ensure_managed_local_container() at weka_runtime.py.
+func EnsureManagedLocalContainer(ctx context.Context, name string, setupArgs ...string) error {
+	found, err := FindLocalContainer(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !found {
+		args := append([]string{"local", "setup", name}, setupArgs...)
+		if err := cmdutil.Run(ctx, "weka", args...); err != nil {
+			return fmt.Errorf("setup container %q: %w", name, err)
+		}
+	}
+	return cmdutil.Run(ctx, "weka", "local", "start")
+}
+
 // StartStemContainer starts the stem container by running "weka local start" detached.
 // weka local start does not return, so it must run as a background process.
 // Mirrors Python start_stem_container() at weka_runtime.py:3041.
@@ -35,22 +84,31 @@ func StartStemContainer(_ context.Context) error {
 }
 
 // EnsureContainerExec polls until the named container accepts exec commands.
-// Polls every 1s with a 300s total timeout.
+// Polls every 2s with a 300s total timeout, matching Python asyncio.sleep(2) at weka_runtime.py:3055.
 // Mirrors Python ensure_container_exec() at weka_runtime.py:3055.
 func EnsureContainerExec(ctx context.Context, name string) error {
+	_, logger := instrumentation.CreateLogSpan(ctx, "weka.EnsureContainerExec", "container", name)
+	defer logger.End()
+
+	// Mirror Python: logging.info("ensuring container exec") at weka_runtime.py:3145
+	logger.Info("ensuring container exec")
+
 	deadline := time.Now().Add(300 * time.Second)
 	for {
 		err := cmdutil.Run(ctx, "weka", "local", "exec", "--container", name, "--", "ls")
 		if err == nil {
+			// Mirror Python: logging.info("container exec ensured") at weka_runtime.py:3154
+			logger.Info("container exec ensured")
 			return nil
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("container %q not exec-ready after 5 minutes: %w", name, err)
 		}
+		logger.Info("waiting for container exec to become ready", "container", name)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(1 * time.Second):
+		case <-time.After(2 * time.Second):
 		}
 	}
 }
@@ -68,20 +126,20 @@ func ConfigureTraces(ctx context.Context, cfg *config.Config, name string) error
 	}
 
 	const (
-		oldFullLocation    = "/data/reserved_space/dumper_config.json.override"
-		legacyPartialLoc   = "/data/reserved_space/dumper_config_overrides.json"
-		newPartialLoc      = "/traces/config_overrides.json"
-		stagingPath        = "/opt/weka/k8s-scripts/dumper_config.json.override"
+		oldFullLocation  = "/data/reserved_space/dumper_config.json.override"
+		legacyPartialLoc = "/data/reserved_space/dumper_config_overrides.json"
+		newPartialLoc    = "/traces/config_overrides.json"
+		stagingPath      = "/opt/weka/k8s-scripts/dumper_config.json.override"
 	)
 
 	switch mode {
 	case "override":
 		data := map[string]interface{}{
-			"enabled":               true,
+			"enabled":                 true,
 			"ensure_free_space_bytes": cfg.EnsureFreeSpaceGB * 1024 * 1024 * 1024,
-			"retention_bytes":       cfg.MaxTraceCapacityGB * 1024 * 1024 * 1024,
-			"retention_type":        "BYTES",
-			"version":               1,
+			"retention_bytes":         cfg.MaxTraceCapacityGB * 1024 * 1024 * 1024,
+			"retention_type":          "BYTES",
+			"version":                 1,
 			"freeze_period": map[string]interface{}{
 				"start_time": "0001-01-01T00:00:00+00:00",
 				"end_time":   "0001-01-01T00:00:00+00:00",
@@ -93,8 +151,8 @@ func ConfigureTraces(ctx context.Context, cfg *config.Config, name string) error
 	case "partial-override":
 		data := map[string]interface{}{
 			"ensure_free_space_bytes": cfg.EnsureFreeSpaceGB * 1024 * 1024 * 1024,
-			"retention_bytes":       cfg.MaxTraceCapacityGB * 1024 * 1024 * 1024,
-			"retention_type":        "BYTES",
+			"retention_bytes":         cfg.MaxTraceCapacityGB * 1024 * 1024 * 1024,
+			"retention_type":          "BYTES",
 		}
 		dest := legacyPartialLoc
 		if cfg.Features.TracesOverrideInSlashTraces {
@@ -121,7 +179,7 @@ func ConfigureTraces(ctx context.Context, cfg *config.Config, name string) error
 			ensureFreeBytes = cfg.EnsureFreeSpaceGB * 1024 * 1024 * 1024
 		}
 		ssdCfg := map[string]interface{}{
-			"enabled":               true,
+			"enabled":                 true,
 			"ensure_free_space_bytes": ensureFreeBytes,
 			"freeze_period": map[string]interface{}{
 				"comment":    "",
