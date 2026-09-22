@@ -249,6 +249,22 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			onFailure,
 		)
 		loop.Op = rotateSsdProxyOp
+	case weka.WekaManualOperationActionMigrateToDriveSharing:
+		// execSvc is built lazily inside the case for the same reason as rotate-ssdproxy above.
+		execSvc := exec.NewExecService(r.RestClient, r.Mgr.GetConfig())
+		migrateOp := operations.NewMigrateToDriveSharingOperation(
+			r.Mgr,
+			execSvc,
+			wekaManualOperation.Spec.Payload.MigrateToDriveSharing,
+			wekaManualOperation,
+			r.Recorder,
+			onProgress,
+			onSuccess,
+			// Wired for the single terminal error — a payload with no cluster name, which no wait can
+			// clear; every other failure mode parks.
+			onFailure,
+		)
+		loop.Op = migrateOp
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown operation type: %s", wekaManualOperation.Spec.Action)
 	}

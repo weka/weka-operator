@@ -1046,6 +1046,11 @@ level — grep the `planClusterCapacity` span to see why capacity did or didn't 
 An existing `containerCapacity` cluster can migrate to `clusterCapacity` **in place — no containers
 are recreated**.
 
+(A cluster still in **exclusive full-drives** mode migrates to `containerCapacity`/`driveCapacity`
+first, via a different, drive-draining operation — see
+[Migrate to Drive Sharing](../operations/migrate-to-drive-sharing.md) — then can follow this same
+procedure afterward.)
+
 **Prerequisite — the cluster must already have protection.** `stripeWidth`, `redundancyLevel`, and
 `hotSpare` must already be set on the WekaCluster (`spec`-level, matching the protection the cluster
 was formed with) **before** you migrate. `clusterCapacity` derives `minFdNum` and the failure-domain

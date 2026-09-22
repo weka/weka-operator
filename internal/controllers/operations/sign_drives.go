@@ -155,10 +155,14 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
-	matchingNodes, err := o.kubeService.GetNodes(ctx, o.payload.NodeSelector)
+	// Uncached: the exclusions and sign hash below are built from node annotations, and a caller
+	// that just rewrote them (migrate-to-drive-sharing) must not be answered from a stale cache.
+	nodeList := &v1.NodeList{}
+	err := o.reader().List(ctx, nodeList, client.MatchingLabels(o.payload.NodeSelector))
 	if err != nil {
 		return err
 	}
+	matchingNodes := nodeList.Items
 
 	// filter out nodes that are not ready
 	readyNodes := []v1.Node{}

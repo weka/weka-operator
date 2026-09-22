@@ -27,6 +27,9 @@ Manual operations, policies, CSI, and driver management.
 | `stale_virtual_drives.go` | Stale virtual drives detection + gated cleanup. |
 | `rotate_ssdproxy.go` | Rolling ssdproxy image rotation, one node at a time |
 | `proxy_disruption_gate.go` | Health gate before disrupting a shared proxy node |
+| `migrate_drive_sharing.go` | `migrate-to-drive-sharing`: per-cluster full-drives → drive-sharing campaign, one drive container at a time. See [doc](../../doc/operator/operations/migrate-to-drive-sharing.md) |
+| `migrate_drive_sharing_types.go` | `migrate-to-drive-sharing` campaign state (phases, sub-phases, `status.result` shape) |
+| `full_drives.go` | `RemoveFullDrivesFromNode`: drops serials from `weka.io/weka-full-drives` on a node |
 
 ## Driver Operations
 

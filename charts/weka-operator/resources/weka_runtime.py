@@ -1052,6 +1052,9 @@ async def sign_drives(instruction: dict):
             return await sign_not_mounted_for_proxy(options)
         elif type == "device-paths":
             return await sign_device_paths_for_proxy(instruction['devicePaths'], options)
+        elif type == "device-serials":
+            device_paths = await resolve_device_paths_by_serials(instruction['deviceSerials'])
+            return await sign_device_paths_for_proxy(device_paths, options)
         else:
             raise ValueError(f"Proxy signing not supported for instruction type: {type}")
 
@@ -1078,8 +1081,22 @@ async def sign_drives(instruction: dict):
         return await sign_not_mounted(options)
     elif type == "device-paths":
         return await sign_device_paths(instruction['devicePaths'], options)
+    elif type == "device-serials":
+        device_paths = await resolve_device_paths_by_serials(instruction['deviceSerials'])
+        return await sign_device_paths(device_paths, options)
     else:
         raise ValueError(f"Unknown instruction type: {type}")
+
+
+async def resolve_device_paths_by_serials(serials: List[str]) -> List[str]:
+    """Resolve serials to block device paths, raising on any serial that doesn't resolve."""
+    device_paths = []
+    for serial in serials:
+        device_path = await get_block_device_path_by_serial(serial)
+        if not device_path:
+            raise ValueError(f"Could not resolve device path for serial: {serial}")
+        device_paths.append(device_path)
+    return device_paths
 
 
 async def force_resign_drives_by_paths(devices_paths: List[str]):
@@ -1104,13 +1121,15 @@ async def force_resign_drives_by_serials(serials: List[str]):
 
 async def get_block_device_path_by_serial(serial: str):
     logging.info(f"Getting block device path by serial {serial}")
-    stdout, stderr, ec = await run_command(
-        "lsblk -dpno NAME | grep -w $(basename $(ls -la /dev/disk/by-id/ | grep -m 1 " + serial + " | awk '{print $NF}'))")
+    stdout, stderr, ec = await run_command("lsblk -dpno NAME")
     if ec != 0:
-        logging.error(f"Failed to get block device path by serial {serial}: {stderr}")
+        logging.error(f"Failed to list block devices: {stderr}")
         return None
-    device_path = stdout.decode().strip()
-    return device_path
+    for device_path in stdout.decode().split():
+        if await get_device_serial_id(device_path) == serial:
+            return device_path
+    logging.error(f"No block device with serial {serial}")
+    return None
 
 
 def is_kernel_view_complete() -> bool:
