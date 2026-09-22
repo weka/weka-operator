@@ -13,4 +13,5 @@ const (
 	opEnableLocalDriversDist  = "enable-local-drivers-distribution"
 	opCleanStaleVirtualDrives = "clean-stale-virtual-drives"
 	opRotateSsdProxy          = "rotate-ssdproxy"
+	opMigrateToDriveSharing   = "migrate-to-drive-sharing"
 )

@@ -18,11 +18,23 @@ const (
 	WekaManualOperationActionRemoteTracesSession     WekaManualOperationAction = opRemoteTracesSession
 	WekaManualOperationActionCleanStaleVirtualDrives WekaManualOperationAction = opCleanStaleVirtualDrives
 	WekaManualOperationActionRotateSsdProxy          WekaManualOperationAction = opRotateSsdProxy
+	WekaManualOperationActionMigrateToDriveSharing   WekaManualOperationAction = opMigrateToDriveSharing
+)
+
+// SignDrivesPayload.Type values. Must match the Enum marker on SignDrivesPayload.Type.
+const (
+	SignDrivesTypeAllNotRoot        = "all-not-root"       // every non-root block device on the node
+	SignDrivesTypeAwsAll            = "aws-all"            // AWS NVMe instance store by PCI vendor/device id
+	SignDrivesTypeGcpAll            = "gcp-all"            // GCP local SSD by PCI vendor/device id
+	SignDrivesTypeDevicePaths       = "device-paths"       // SignDrivesPayload.DevicePaths
+	SignDrivesTypeDeviceIdentifiers = "device-identifiers" // SignDrivesPayload.PCIDevices (a PCI model, not a drive)
+	// SignDrivesTypeDeviceSerials is the only selector stable across reboots, since device paths move.
+	SignDrivesTypeDeviceSerials = "device-serials" // SignDrivesPayload.DeviceSerials
 )
 
 // WekaManualOperationSpec defines the desired state of WekaManualOperation
 type WekaManualOperationSpec struct {
-	// +kubebuilder:validation:Enum=sign-drives;discover-drives;force-resign-drives;block-drives;unblock-drives;ensure-nics;remote-traces-session;clean-stale-virtual-drives;rotate-ssdproxy
+	// +kubebuilder:validation:Enum=sign-drives;discover-drives;force-resign-drives;block-drives;unblock-drives;ensure-nics;remote-traces-session;clean-stale-virtual-drives;rotate-ssdproxy;migrate-to-drive-sharing
 	Action             WekaManualOperationAction `json:"action"`
 	Payload            ManualOperatorPayload     `json:"payload"`
 	Image              *string                   `json:"image,omitempty"`
@@ -78,6 +90,7 @@ type ManualOperatorPayload struct {
 	RemoteTracesSessionConfig *RemoteTracesSessionConfig      `json:"remoteTracesSessionPayload,omitempty"`
 	CleanStaleVirtualDrives   *CleanStaleVirtualDrivesPayload `json:"cleanStaleVirtualDrivesPayload,omitempty"`
 	RotateSsdProxy            *RotateSsdProxyPayload          `json:"rotateSsdProxyPayload,omitempty"`
+	MigrateToDriveSharing     *MigrateToDriveSharingPayload   `json:"migrateToDriveSharingPayload,omitempty"`
 }
 
 type PCIDevices struct {
@@ -105,10 +118,12 @@ type EnsureNICsPayload struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypeOverrides) || (has(self.shared) && self.shared)",message="driveTypeOverrides is only supported when shared is true"
 type SignDrivesPayload struct {
-	// +kubebuilder:validation:Enum=aws-all;gcp-all;device-identifiers;device-paths;all-not-root
+	// +kubebuilder:validation:Enum=aws-all;gcp-all;device-identifiers;device-paths;device-serials;all-not-root
 	Type         string            `json:"type"`
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	DevicePaths  []string          `json:"devicePaths,omitempty"`
+	// DeviceSerials sign drives by serial ID. Used with type device-serials.
+	DeviceSerials []string `json:"deviceSerials,omitempty"`
 	// PCI vendor and device IDs of the drives to sign.
 	// To get the values for VendorId and DeviceId:
 	// 1. Run the following command to list all PCI devices on your system:
@@ -240,6 +255,21 @@ type RotateSsdProxyPayload struct {
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	// Paused stops starting new nodes; an in-flight node finishes.
 	Paused bool `json:"paused,omitempty"`
+}
+
+// MigrateToDriveSharingPayload configures the migrate-to-drive-sharing operation, which rolls a
+// WekaCluster's exclusive drive containers over to drive sharing one node at a time.
+type MigrateToDriveSharingPayload struct {
+	// Cluster to migrate.
+	Cluster ObjectReference `json:"cluster"`
+	// NodeSelector restricts the campaign to drive containers on nodes matching these labels.
+	// Empty = all.
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// Paused stops starting new containers; an in-flight one finishes.
+	Paused bool `json:"paused,omitempty"`
+	// SignOptions for the shared re-sign; allowEraseWekaPartitions is always forced on.
+	SignOptions        *SignOptions        `json:"signOptions,omitempty"`
+	DriveTypeOverrides *DriveTypeOverrides `json:"driveTypeOverrides,omitempty"`
 }
 
 // StaleVirtualDriveInfo describes a single stale virtual drive detected on a proxy.
