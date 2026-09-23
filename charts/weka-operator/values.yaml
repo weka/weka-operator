@@ -15,6 +15,10 @@ kubeProxyImage: "quay.io/brancz/kube-rbac-proxy:v0.21.0"
 builderImages:
   default: "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22-v1"
   ubuntu24: "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24-v1"
+  # NixOS builder images, keyed by the gcc major of the NixOS kernel they're built for
+  # (a node's os is reported by discovery as "nixos-gcc<major>").
+  nixos:
+    gcc15: "quay.io/weka.io/weka-drivers-build-images:builder-nixos-gcc15-v2"
 
 # -- optional: name of an existing imagePullSecret to attach to operator pods
 imagePullSecret: ""

@@ -120,7 +120,10 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 			if getErr := r.Get(ctx, client.ObjectKey{Name: string(nodeAffinity)}, node); getErr != nil {
 				return errors.Wrap(getErr, "failed to get target node for drivers-builder")
 			}
-			image = drivers.GetBuilderImageForNode(node)
+			image, err = drivers.GetBuilderImageForNode(node)
+			if err != nil {
+				return errors.Wrap(err, "failed to pick drivers-builder image")
+			}
 		}
 
 		forceBuilderCli := services.GetSettings(ctx).Drivers.ForceBuilderCli

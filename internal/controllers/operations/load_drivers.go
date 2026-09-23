@@ -494,7 +494,10 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	serviceAccountName := config.Config.MaintenanceSaName
 	name := o.getContainerName()
 	forceBuilderCli := services.GetSettings(ctx).Drivers.ForceBuilderCli
-	loaderImage := drivers.GetLoaderImageForNode(ctx, o.node, o.containerDetails.Image, forceBuilderCli)
+	loaderImage, err := drivers.GetLoaderImageForNode(ctx, o.node, o.containerDetails.Image, forceBuilderCli)
+	if err != nil {
+		return errors.Wrap(err, "failed to pick drivers-loader image")
+	}
 
 	labels := map[string]string{
 		"weka.io/mode":      weka.WekaContainerModeDriversLoader, // need to make this somehow more generic and not per place
@@ -539,7 +542,7 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 		},
 	}
 
-	err := o.client.Create(ctx, loaderContainer)
+	err = o.client.Create(ctx, loaderContainer)
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			// another WekaContainer created the loader first; requeue so the next

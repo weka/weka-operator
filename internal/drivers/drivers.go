@@ -9,6 +9,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
+	"github.com/weka/weka-operator/internal/services/discovery"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -16,6 +17,7 @@ var (
 	ubuntuRe = regexp.MustCompile(`(?i)ubuntu\s+(\d+)\.(\d+)`)
 	rhelRe   = regexp.MustCompile(`(?i)(?:rhel|red\s+hat\s+enterprise\s+linux)\s*(\d+)`)
 	rockyRe  = regexp.MustCompile(`(?i)rocky(?:\s+linux)?\s*(\d+)`)
+	nixosRe  = regexp.MustCompile(`(?i)nixos\s+(\d+)\.(\d+)`)
 )
 
 // NormalizeOSImageName converts OS image names into short, DNS-1123 compliant canonical IDs.
@@ -26,6 +28,7 @@ var (
 //	"RHEL 9.4"                            -> "rhel09"
 //	"Red Hat Enterprise Linux 9.7 (Plow)" -> "rhel09"
 //	"Rocky Linux 8.10"                    -> "rocky08"
+//	"NixOS 26.05 (Yarara)"                -> "nixos-26-05"
 func NormalizeOSImageName(input string) string {
 	s := strings.TrimSpace(input)
 
@@ -52,26 +55,51 @@ func NormalizeOSImageName(input string) string {
 		return fmt.Sprintf("rocky%02s", m[1])
 	}
 
+	// NixOS
+	if m := nixosRe.FindStringSubmatch(s); m != nil {
+		return fmt.Sprintf("nixos-%s-%s", m[1], m[2])
+	}
+
 	return "unknown-os"
 }
 
-func GetBuilderImageForNode(node *v1.Node) string {
+// GetBuilderImageForNode picks the drivers-builder/loader image for node. For NixOS, the image
+// is selected by the node's discovered os string ("nixos-gcc<major>"), since a driver built with
+// the wrong gcc major won't load against the host kernel; discovery must have already classified
+// the node, and there is no generic NixOS fallback image to fall back to.
+func GetBuilderImageForNode(node *v1.Node) (string, error) {
 	osImage := node.Status.NodeInfo.OSImage
 	switch {
 	case strings.Contains(osImage, "Ubuntu 24.04"):
-		return config.Config.BuilderImages.Ubuntu24
+		return config.Config.BuilderImages.Ubuntu24, nil
+	case strings.HasPrefix(strings.ToLower(osImage), "nixos"):
+		info, ok := discovery.NodeInfoFromAnnotation(node)
+		if !ok || !info.IsNixos() {
+			return "", fmt.Errorf("node %s is NixOS but discovery has not classified it yet", node.Name)
+		}
+		image, ok := config.Config.BuilderImages.Nixos[info.Os]
+		if !ok {
+			return "", fmt.Errorf("no NixOS builder image for %s on node %s (kernel: %s); set builderImages.nixos.%s",
+				info.Os, node.Name, info.ProcVersion, strings.TrimPrefix(info.Os, "nixos-"))
+		}
+		return image, nil
 	default:
-		return config.Config.BuilderImages.Default
+		return config.Config.BuilderImages.Default, nil
 	}
 }
 
-func GetLoaderImageForNode(ctx context.Context, node *v1.Node, image string, forceBuilderCli bool) string {
+func GetLoaderImageForNode(ctx context.Context, node *v1.Node, image string, forceBuilderCli bool) (string, error) {
 	flags, err := services.GetFeatureFlags(ctx, image)
 	if err != nil {
 		flags = nil
 	}
 
-	return GetBuilderCliImage(flags, image, GetBuilderImageForNode(node), forceBuilderCli)
+	builderImage, err := GetBuilderImageForNode(node)
+	if err != nil {
+		return "", err
+	}
+
+	return GetBuilderCliImage(flags, image, builderImage, forceBuilderCli), nil
 }
 
 // GetBuilderCliImage picks the image that supplies the weka CLI staged for the

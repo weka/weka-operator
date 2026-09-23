@@ -104,6 +104,7 @@ KUBERNETES_DISTRO_GKE = "gke"
 OS_NAME_GOOGLE_COS = "cos"
 OS_NAME_REDHAT_COREOS = "rhcos"
 OS_NAME_UBUNTU = "ubuntu"
+OS_NAME_NIXOS_PREFIX = "nixos"
 
 UBUNTU24_BUILD_ID = "ubuntu24.04"
 
@@ -435,7 +436,7 @@ async def find_disks() -> List[Disk]:
     logging.info("Finding disks and checking mount status")
     # Use -J for JSON output, -p for full paths, -o to specify columns
     # TODO: We are dependant on lsblk here on host here. Is it a problem? potentially
-    cmd = "nsenter --mount --pid --target 1 -- lsblk -p -J -o NAME,TYPE,MOUNTPOINT,SERIAL"
+    cmd = f"{host_nsenter()}lsblk -p -J -o NAME,TYPE,MOUNTPOINT,SERIAL"
     stdout, stderr, ec = await run_command(cmd, capture_stdout=True)
     if ec != 0:
         logging.error(f"Failed to execute lsblk: {stderr.decode()}")
@@ -1415,6 +1416,33 @@ def is_ubuntu():
     return OS_DISTRO == OS_NAME_UBUNTU
 
 
+def is_nixos():
+    return OS_DISTRO.startswith(OS_NAME_NIXOS_PREFIX)
+
+
+def kernel_gcc_major() -> str:
+    """Returns the major version of the gcc that built the running kernel, parsed from
+    /proc/version (e.g. "gcc (GCC) 15.2.0" -> "15"). /proc/version reflects the host kernel
+    in any container on the node, so no host mount is needed to read it."""
+    with open("/proc/version") as f:
+        proc_version = f.read().strip()
+    match = re.search(r"gcc \(GCC\) (\d+)\.", proc_version) or re.search(r"gcc version (\d+)\.", proc_version)
+    if not match:
+        raise Exception(f"could not parse gcc major version from /proc/version: {proc_version}")
+    return match.group(1)
+
+
+def host_nsenter() -> str:
+    """Command prefix to run a binary in the host's mount+pid namespace. On NixOS the host's
+    /usr/bin has only `env` (everything else lives under /run/current-system/sw/bin, not on a
+    standard PATH), so route through env with an explicit PATH; other distros have a normal
+    /usr/bin on the host and need no extra PATH."""
+    if is_nixos():
+        return ("nsenter --mount --pid --target 1 -- /usr/bin/env "
+                 "PATH=/run/current-system/sw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin ")
+    return "nsenter --mount --pid --target 1 -- "
+
+
 def get_ubuntu_major_version():
     """Returns the major version number (e.g., 22 or 24) if Ubuntu, otherwise None"""
     if not is_ubuntu() or not OS_BUILD_ID:
@@ -1723,6 +1751,8 @@ async def load_drivers():
             kernelBuildIdArg = f"--kernel-build-id {OS_BUILD_ID}"
         elif is_ubuntu_24() and weka_dist_service():
             kernelBuildIdArg = f"--kernel-build-id {UBUNTU24_BUILD_ID}"
+        elif is_nixos():
+            kernelBuildIdArg = f"--kernel-build-id {OS_BUILD_ID}"
 
         # When TARGET_IMAGE_NAME differs from IMAGE_NAME, weka files are copied
         # from cluster image to /shared-weka-version/ via init container
@@ -1915,6 +1945,91 @@ async def cos_build_drivers():
     logging.info("Done building drivers")
 
 
+async def nixos_prepare_host_kernel():
+    """Wires kbuild and modprobe, inside the NixOS builder image, to the host's kernel headers
+    and in-tree modules exposed by setDriverDependencies under /host/: /host/current-system is
+    the host's /run/current-system (headers at sw/lib/modules/<kver>/build from kernel.dev in the
+    system profile, modules at kernel-modules/lib/modules/<kver>), /host/nix/store its store.
+    Unions the host store under the image's own store so both symlink farms resolve at their
+    canonical /nix/store paths, then links /lib/modules/$(uname -r) from them so kbuild and
+    modprobe find them without the host's /run/*-system trees mounted at their own paths."""
+    # the NixOS builder image's PATH lacks /usr/bin, where the operator stages the weka CLI as
+    # /usr/bin/weka via a subPath mount; child processes must still find it
+    for p in ("/usr/local/bin", "/usr/bin"):
+        path_entries = os.environ.get("PATH", "").split(":")
+        if p not in path_entries:
+            os.environ["PATH"] = f"{p}:{os.environ.get('PATH', '')}"
+
+    kver = os.uname().release
+    headers = f"/host/current-system/sw/lib/modules/{kver}/build"
+    modules = f"/host/current-system/kernel-modules/lib/modules/{kver}"
+
+    # A driver built with a different gcc major than the one that built the running kernel
+    # won't load: NixOS builder images are pinned to a single gcc major, so catch the mismatch
+    # here rather than failing later at module load time.
+    stdout, stderr, ec = await run_command("gcc -dumpversion", log_execution=False)
+    if ec != 0:
+        raise Exception(f"failed to determine builder image gcc version: {stderr.decode('utf-8')}")
+    img = stdout.decode("utf-8").strip().split(".")[0]
+    kern = kernel_gcc_major()
+    if img != kern:
+        with open("/proc/version") as f:
+            proc_version = f.read().strip()
+        raise Exception(f"builder image gcc {img} does not match kernel gcc {kern} ({proc_version}); use the builder image for {OS_DISTRO}")
+
+    async def run_step(cmd, desc):
+        logging.info(f"NixOS host kernel prep step: {desc}")
+        stdout, stderr, ec = await run_command(cmd)
+        if ec != 0:
+            raise Exception(f"Failed to prepare NixOS host kernel ({desc}): {stderr.decode('utf-8')}")
+
+    await run_step(
+        'for m in /host/nix/store /host/current-system; do '
+        '[ -e "$m" ] || { echo "missing host mount: $m" >&2; exit 1; }; done',
+        "checking NixOS host mounts are present",
+    )
+
+    await run_step(
+        # image paths win: a plain bind of the host store would hide the image's own store
+        # paths that the builder's helper binaries need
+        'if ! mountpoint -q /tmp/nix-store-union; then '
+        'mkdir -p /tmp/nix-store-union && '
+        'mount -t overlay overlay -o lowerdir=/nix/store:/host/nix/store /tmp/nix-store-union && '
+        'mount --bind /tmp/nix-store-union /nix/store; fi',
+        "unioning host nix store under the image store",
+    )
+
+    # both host trees are symlink farms into /nix/store, so they resolve only after the union
+    await run_step(
+        f'[ -f "{headers}/Makefile" ] || {{ echo "no kernel headers for running kernel {kver} at {headers}: '
+        f'host needs environment.systemPackages = [ kernel.dev ], or a reboot after a kernel change" >&2; exit 1; }}',
+        f"validating host kernel headers for running kernel {kver}",
+    )
+    await run_step(
+        f'[ -d "{modules}" ] || {{ echo "no module tree for running kernel {kver} at {modules}" >&2; exit 1; }}',
+        f"validating host module tree for running kernel {kver}",
+    )
+
+    # kbuild must be invoked at the canonical store path the headers were generated at, not the
+    # mount path
+    await run_step(
+        f'mkdir -p /lib/modules/{kver} && ln -sfn "$(readlink -f "{headers}")" /lib/modules/{kver}/build',
+        "linking kernel headers into /lib/modules",
+    )
+
+    await run_step(
+        # in-tree modules (uio etc.) for modprobe dependency resolution; resolved to their store
+        # targets so they work without /run/current-system mounted at its host path
+        f'for e in "{modules}"/*; do b=$(basename "$e"); '
+        f'[ -e "/lib/modules/{kver}/$b" ] || ln -s "$(readlink -f "$e")" "/lib/modules/{kver}/$b"; done',
+        "linking in-tree kernel modules into /lib/modules",
+    )
+
+    await run_step(f'depmod -a "{kver}"', "running depmod")
+
+    logging.info("NixOS host kernel prepared")
+
+
 def parse_cpu_allowed_list(path="/proc/1/status"):
     with open(path) as file:
         for line in file:
@@ -1955,6 +2070,9 @@ class HostInfo:
     def is_ubuntu(self):
         return self.os == OS_NAME_UBUNTU
 
+    def is_nixos(self):
+        return self.os.startswith(OS_NAME_NIXOS_PREFIX)
+
 
 def get_host_info():
     raw_data = {}
@@ -1980,6 +2098,13 @@ def get_host_info():
 
     elif ret.is_ubuntu():
         ret.os_build_id = raw_data.get("VERSION_ID", "")
+
+    elif ret.is_nixos():
+        # NixOS nodes are identified by the gcc that built the running kernel: drivers are built
+        # against host headers with the builder image's own toolchain, so a mismatched gcc major
+        # produces a kernel module the running kernel won't load.
+        ret.os = f"{OS_NAME_NIXOS_PREFIX}-gcc{kernel_gcc_major()}"
+        ret.os_build_id = ret.os
     return ret
 
 
@@ -3536,11 +3661,15 @@ async def discovery():
         logging.info(f"[discovery] cpu0 sibling read failed: {e}")
     logging.info(f"[discovery] is_ht={is_ht}")
 
+    with open("/proc/version") as f:
+        proc_version = f.read().strip()
+
     data = dict(
         is_ht=is_ht,
         kubernetes_distro=host_info.kubernetes_distro,
         os=host_info.os,
         os_build_id=host_info.os_build_id,
+        proc_version=proc_version,
         schema=DISCOVERY_SCHEMA,
     )
     write_results(data)
@@ -4467,7 +4596,7 @@ async def run_prerun_script():
 async def umount_drivers():
     # TODO: Should support specific container id
     logging.info("Umounting driver")
-    find_mounts_cmd = "nsenter --mount --pid --target 1 -- mount -t wekafs | awk '{print $3}'"
+    find_mounts_cmd = f"{host_nsenter()}mount -t wekafs | awk '{{print $3}}'"
     stdout, stderr, ec = await run_command(find_mounts_cmd)
     if ec != 0:
         logging.info(f"Failed to find weka mounts: {stderr} {stdout}")
@@ -4478,7 +4607,7 @@ async def umount_drivers():
     for mount in stdout.decode('utf-8').split("\n"):
         if not mount:
             continue
-        umount_cmd = f"nsenter --mount --pid --target 1 -- umount {mount}"
+        umount_cmd = f"{host_nsenter()}umount {mount}"
         stdout, stderr, ec = await run_command(umount_cmd)
         errs.append(stderr)
         if ec != 0:
@@ -4535,6 +4664,8 @@ async def main():
         return
 
     if MODE in ["drivers-builder"]:
+        if is_nixos():
+            await nixos_prepare_host_kernel()
         await run_prerun_script()
         # Default version from IMAGE_NAME
         version = await get_weka_version()
@@ -4549,6 +4680,9 @@ async def main():
         kernel_arg = ""
         if is_ubuntu_24():
             kernel_build_id = UBUNTU24_BUILD_ID
+        elif is_nixos():
+            kernel_build_id = OS_BUILD_ID
+        if kernel_build_id:
             kernel_arg = f"--kernel-build-id {kernel_build_id}"
         stdout, stderr, ec = await run_command(f"weka driver pack --without-agent --version {version} {kernel_arg}")
         if ec != 0:
@@ -4609,6 +4743,8 @@ async def main():
 
     if MODE == "drivers-loader":
         # self signal to exit
+        if is_nixos():
+            await nixos_prepare_host_kernel()
         await override_dependencies_flag()
         # 2 minutes timeout for driver loading
         end_time = time.time() + 120

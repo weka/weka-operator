@@ -97,7 +97,8 @@ var _ = Describe("LoadDrivers CreateContainer", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		// Verify GetLoaderImageForNode returns the cluster image
-		loaderImage := drivers.GetLoaderImageForNode(ctx, node, clusterImage, false)
+		loaderImage, err := drivers.GetLoaderImageForNode(ctx, node, clusterImage, false)
+		Expect(err).NotTo(HaveOccurred())
 		Expect(loaderImage).To(Equal(clusterImage),
 			"When WekaGetCopyLocalDriverFiles is true, loader image should be the cluster image")
 
@@ -203,7 +204,8 @@ var _ = Describe("LoadDrivers CreateContainer", func() {
 		uncachedImage := "quay.io/weka.io/weka-in-container:4.4.0.50-uncached-for-test"
 
 		// Verify GetLoaderImageForNode returns the builder image (not the cluster image)
-		loaderImage := drivers.GetLoaderImageForNode(ctx, node, uncachedImage, false)
+		loaderImage, err := drivers.GetLoaderImageForNode(ctx, node, uncachedImage, false)
+		Expect(err).NotTo(HaveOccurred())
 		expectedBuilderImage := "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
 		Expect(loaderImage).To(Equal(expectedBuilderImage),
 			"When feature flags are not cached, loader image should be the builder image")
@@ -223,7 +225,7 @@ var _ = Describe("LoadDrivers CreateContainer", func() {
 		}
 
 		// Execute CreateContainer
-		err := loadDrivers.CreateContainer(ctx)
+		err = loadDrivers.CreateContainer(ctx)
 		Expect(err).NotTo(HaveOccurred())
 
 		// Verify the created container specs

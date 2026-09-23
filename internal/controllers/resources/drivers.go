@@ -76,6 +76,46 @@ func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
 				Value: "/var/secrets/google/service-account.json",
 			})
 		}
+	} else if f.nodeInfo.IsNixos() {
+		// NixOS has no FHS /lib/modules or /usr/src. The host's system profile carries the
+		// kernel headers (environment.systemPackages = [ kernel.dev ]) at
+		// sw/lib/modules/$(uname -r)/build, the same shape as a distro's /lib/modules, and the
+		// in-tree modules at kernel-modules/lib/modules; both are symlink farms into /nix/store.
+		// The builder image's runtime unions the host store under the image store and links
+		// /lib/modules/$(uname -r) from these mounts (see nixos_prepare_host_kernel in
+		// weka_runtime.py). Mounting /run/current-system at its host path would make NixOS's
+		// modprobe ignore /lib/modules, hence the /host/ prefix.
+		pod.Spec.Volumes = append(pod.Spec.Volumes,
+			corev1.Volume{
+				Name: "nix-store",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/nix/store",
+						Type: &[]corev1.HostPathType{corev1.HostPathDirectory}[0],
+					},
+				},
+			},
+			corev1.Volume{
+				Name: "nix-current-system",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/run/current-system",
+					},
+				},
+			},
+		)
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts,
+			corev1.VolumeMount{
+				Name:      "nix-store",
+				MountPath: "/host/nix/store",
+				ReadOnly:  true,
+			},
+			corev1.VolumeMount{
+				Name:      "nix-current-system",
+				MountPath: "/host/current-system",
+				ReadOnly:  true,
+			},
+		)
 	} else {
 		libModulesPath := "/lib/modules"
 		usrSrcPath := "/usr/src"

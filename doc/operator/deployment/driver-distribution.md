@@ -141,6 +141,54 @@ Dist container can be found by:
 
 Policies `status.status` will be set to Done once completed
 
+## NixOS nodes
+
+NixOS is not FHS-compliant: hosts have no `/lib/modules` or `/usr/src`, everything lives under
+`/nix/store`. This needs a NixOS host prerequisite, a dedicated builder image, and host mounts
+in place of the generic host-mount path used for other distros.
+
+Host prerequisite: the running kernel's headers package in the system profile, which places
+them at `/run/current-system/sw/lib/modules/$(uname -r)/build`, the same shape as a distro's
+`/lib/modules/$(uname -r)/build`:
+```
+environment.systemPackages = [ config.boot.kernelPackages.kernel.dev ];
+```
+
+The builder image is chosen by the gcc major that built the node's running kernel: discovery
+reads `/proc/version` and reports the node's os as `nixos-gcc<major>` (e.g. `nixos-gcc15`), and
+the operator looks up a builder image pinned to that same gcc major. Configure one entry per
+gcc major you need to support:
+```yaml
+builderImages:
+  nixos:
+    gcc15: "quay.io/weka.io/weka-drivers-build-images:builder-nixos-gcc15-v2"
+```
+
+A node whose gcc major has no configured entry fails builder/loader pod creation with an
+explicit error rather than falling back to another image, since a driver built with the wrong
+gcc major won't load against the running kernel.
+
+drivers-builder/drivers-loader pods on NixOS nodes mount, read-only:
+- host `/nix/store` -> `/host/nix/store`
+- host `/run/current-system` -> `/host/current-system` (headers at `sw/lib/modules/$(uname -r)/build`, in-tree modules at `kernel-modules/lib/modules/$(uname -r)`)
+
+Only the builder image's `wekactl` understands this layout, and the loader also runs in the
+builder image, so a configuration WekaPolicy enabling `forceBuilderCli` is required:
+```yaml
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaPolicy
+metadata:
+  name: weka-drivers-config
+  namespace: weka-operator-system
+spec:
+  payload:
+    configurationPayload:
+      drivers:
+        forceBuilderCli: true
+```
+
+Both the builder (`weka driver pack`) and the loader (`weka driver download` / `weka driver install`) pass `--kernel-build-id nixos-gcc<major>` (e.g. `--kernel-build-id nixos-gcc15`), so NixOS drivers never collide with another distro's build, or another gcc major's build, at the same upstream kernel version.
+
 ## See also
 
 Distribution produces and serves the driver files. For how the operator then loads those
