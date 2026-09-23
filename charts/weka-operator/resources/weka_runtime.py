@@ -1196,6 +1196,34 @@ async def discover_ssdproxy_drives():
     ))
 
 
+async def kernelize_drives():
+    """
+    Run weka-sign-drive kernelize on this node. Recovers NVMe devices left bound to igb_uio by a
+    hard-killed ssdproxy; requires hostPID to see other tenants' /proc/*/fd and skip drives that
+    are actually in use.
+    """
+    stdout, stderr, ec = await run_command("/weka-sign-drive kernelize -J")
+    try:
+        parsed = json.loads(stdout)
+    except json.JSONDecodeError as e:
+        # always write a result: without results.json the operator can't tell a failure from a slow run
+        err = stderr.decode('utf-8') if stderr else f"exit code {ec}"
+        write_results(dict(err=f"failed to parse kernelize output: {e}; {err}"))
+        return
+    # -J output: {"results": [{pci_address, previous_driver, reason, success, message}, ...],
+    #             "summary": {total_candidates, filtered_out_in_use, recovered, failed}}
+    summary = parsed.get('summary') or {}
+    write_results(dict(
+        # non-zero exit with parseable JSON means some devices failed; counts still apply
+        err=None if ec == 0 else f"weka-sign-drive kernelize exited with code {ec}",
+        raw=parsed,
+        candidates=summary.get('total_candidates', 0),
+        filtered_out_in_use=summary.get('filtered_out_in_use', 0),
+        recovered=summary.get('recovered', 0),
+        failed=summary.get('failed', 0),
+    ))
+
+
 async def list_weka_proxy_drives_with_sign_tool():
     """
     List drives using weka-sign-drive list command and return simplified drive information.
@@ -3867,10 +3895,6 @@ async def ensure_ssdproxy_container():
         os.symlink("/opt/weka/dist/extracted/weka-sign-drive", "/usr/bin/weka-sign-drive")
         logging.info("Created symlink /usr/bin/weka-sign-drive -> /opt/weka/dist/extracted/weka-sign-drive")
 
-    _, stderr, ec = await run_command("weka-sign-drive kernelize")
-    if ec != 0:
-        logging.warning(f"weka-sign-drive kernelize failed (continuing)")
-
     # create-if-missing / handle-existing, reusing the regular container helpers
     current_containers = await get_containers()
     container = next((c for c in current_containers if c['name'] == NAME), None)
@@ -4726,6 +4750,9 @@ async def main():
         elif instruction.get('type') and instruction['type'] == 'umount':
             logging.info(f"umounting wekafs mounts")
             await umount_drivers()
+        elif instruction.get('type') and instruction['type'] == 'kernelize':
+            logging.info(f"kernelize instruction: {instruction}")
+            await kernelize_drives()
         else:
             raise ValueError(f"Unsupported instruction: {INSTRUCTIONS}")
         return
@@ -4738,7 +4765,7 @@ async def main():
         await assert_ssdproxy_iommu_supported()
         # force weka version set first so the dist (incl. weka-sign-drive under
         # /opt/weka/dist/extracted) is laid down before ensure_ssdproxy_container's
-        # symlink + kernelize step needs it
+        # symlink step needs it
         await ensure_weka_version(force_set=True)
         await ensure_ssdproxy_container()
         await configure_traces() # TODO: fragile code, we are entering configure_traces into multiple places, re-write in go and using our API will be more suitable
