@@ -308,6 +308,12 @@ spec:
                         items:
                           type: string
                         type: array
+                      deviceSerials:
+                        description: DeviceSerials sign drives by serial ID. Used
+                          with type device-serials.
+                        items:
+                          type: string
+                        type: array
                       driveTypeOverrides:
                         description: |-
                           DriveTypeOverrides forces the reported TLC/QLC type for matching drives instead of
@@ -419,6 +425,7 @@ spec:
                         - gcp-all
                         - device-identifiers
                         - device-paths
+                        - device-serials
                         - all-not-root
                         type: string
                     required:
