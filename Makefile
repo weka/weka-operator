@@ -168,7 +168,7 @@ test: ## Run tests.
 .PHONY: test-e2e
 test-e2e: ## Run e2e tests.
 	# WEKA_IMAGE and CLUSTER_NAME must be set in the environment.
-	go test -v ./test -run TestHappyPath -weka-image "${WEKA_IMAGE}" -cluster-name ${CLUSTER_NAME} -debug -timeout 30m -cleanup=false
+	go test -v -tags e2e ./test -run TestHappyPath -weka-image "${WEKA_IMAGE}" -cluster-name ${CLUSTER_NAME} -debug -timeout 30m -cleanup=false
 
 CLUSTER_SAMPLE=config/samples/weka_v1alpha1_cluster.yaml
 .PHONY: cluster-sample
