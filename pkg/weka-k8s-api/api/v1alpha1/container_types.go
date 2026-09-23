@@ -105,6 +105,10 @@ const (
 	PersistencePathBaseRhCos        = "/root/k8s-weka"
 	OsNameOpenshift                 = "rhcos"
 	OsNameCos                       = "cos"
+	// OsNameNixosPrefix matches discovery's "nixos-gcc<major>" os string: the gcc major that
+	// built the running kernel is part of the identity, since drivers are built against host
+	// headers using the builder image's own toolchain.
+	OsNameNixosPrefix = "nixos"
 	// Static is fine, since we will not rely on host network here
 	StaticPortAdhocyWCOperations      = 60040
 	StaticPortAdhocyWCOperationsAgent = 60039
