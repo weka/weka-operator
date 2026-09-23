@@ -7,6 +7,7 @@ import (
 	"time"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -248,4 +249,42 @@ func TestGetSettingsRecoversAfterTransientFailure(t *testing.T) {
 	if got := svc.get(context.Background()).Drivers.ForceBuilderCli; !got {
 		t.Error("a later successful resolution must unblock callers")
 	}
+}
+
+func TestSettingsFromPayloadCsi(t *testing.T) {
+	defaults := DefaultConfigurationSettings().Csi
+
+	t.Run("nil payload, nil csi block and nil fields keep the defaults", func(t *testing.T) {
+		for name, payload := range map[string]*weka.ConfigurationPayload{
+			"nil payload":   nil,
+			"nil csi block": {},
+			"nil fields":    {Csi: &weka.CsiSpec{}},
+		} {
+			if got := SettingsFromPayload(payload).Csi; got != defaults {
+				t.Errorf("%s: got %+v, want %+v", name, got, defaults)
+			}
+		}
+	})
+
+	t.Run("explicit false beats the default true", func(t *testing.T) {
+		got := SettingsFromPayload(&weka.ConfigurationPayload{
+			Csi: &weka.CsiSpec{MetricsEnabled: boolPtr(false)},
+		}).Csi
+		if got.MetricsEnabled {
+			t.Error("MetricsEnabled = true, want the explicit false to win")
+		}
+		if got.FsGroupPolicy != defaults.FsGroupPolicy {
+			t.Error("an unset sibling must keep its default")
+		}
+	})
+
+	t.Run("fsGroupPolicy override applies", func(t *testing.T) {
+		none := "None"
+		got := SettingsFromPayload(&weka.ConfigurationPayload{
+			Csi: &weka.CsiSpec{FsGroupPolicy: &none},
+		}).Csi
+		if got.FsGroupPolicy != storagev1.NoneFSGroupPolicy {
+			t.Errorf("FsGroupPolicy = %q, want %q", got.FsGroupPolicy, storagev1.NoneFSGroupPolicy)
+		}
+	})
 }

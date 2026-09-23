@@ -17,6 +17,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	util2 "github.com/weka/weka-operator/pkg/util"
 )
@@ -41,6 +42,7 @@ type CsiNodeHashableSpec struct {
 	KubeletPath               string
 	HostNetwork               bool
 	PlacementScheme           string
+	MetricsEnabled            bool
 }
 
 // csiNodePlacementScheme identifies how csi-node placement is expressed in the rendered pod spec.
@@ -51,7 +53,7 @@ const csiNodePlacementScheme = "node-affinity-with-retain-v1"
 
 // GetCsiNodeDaemonSetHash generates a hash for the CSI Node DaemonSet
 // that includes only the fields that are relevant for updates
-func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, clientName, clientNamespace string) (string, error) {
+func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, clientName, clientNamespace string, settings services.CsiSettings) (string, error) {
 	csiDriverName := GetCsiDriverName(csiGroupName)
 	// CSI node plugins are infrastructure components and must run on all nodes
 	tolerations := []corev1.Toleration{
@@ -97,6 +99,7 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, c
 		KubeletPath:               config.Config.Csi.KubeletPath,
 		HostNetwork:               config.Config.Csi.HostNetwork,
 		PlacementScheme:           csiNodePlacementScheme,
+		MetricsEnabled:            settings.MetricsEnabled,
 	}
 
 	return util2.HashStruct(spec)
@@ -168,7 +171,7 @@ func buildCsiNodeAffinity(nodeSelector map[string]string, retainLabel string) *c
 	}
 }
 
-func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient, clientName, clientNamespace string, nodes []corev1.Node) (*appsv1.DaemonSet, error) {
+func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient, clientName, clientNamespace string, nodes []corev1.Node, settings services.CsiSettings) (*appsv1.DaemonSet, error) {
 	_, logger := instrumentation.CreateLogSpan(ctx, "NewCsiNodeDaemonSet")
 	defer logger.End()
 
@@ -192,7 +195,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 	}
 	labels := GetCsiLabels(csiDriverName, CSINode, wekaClient.Labels, csiLabels)
 
-	targetHash, err := GetCsiNodeDaemonSetHash(csiGroupName, wekaClient, clientName, clientNamespace)
+	targetHash, err := GetCsiNodeDaemonSetHash(csiGroupName, wekaClient, clientName, clientNamespace, settings)
 	if err != nil {
 		logger.Error(err, "Failed to get CSI node daemonset hash")
 		return nil, fmt.Errorf("failed to get CSI node daemonset hash: %w", err)
@@ -214,8 +217,6 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		"--newvolumeprefix=csivol-",
 		"--newsnapshotprefix=csisnp-",
 		"--seedsnapshotprefix=csisnp-seed-",
-		"--enablemetrics",
-		"--metricsport=9094",
 		"--mutuallyexclusivemountoptions=readcache,writecache,coherent,forcedirect",
 		"--mutuallyexclusivemountoptions=sync,async",
 		"--mutuallyexclusivemountoptions=ro,rw",
@@ -224,6 +225,10 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		"--concurrency.nodePublishVolume=5",
 		"--concurrency.nodeUnpublishVolume=5",
 		"--nfsprotocolversion=4.1",
+	}
+
+	if settings.MetricsEnabled {
+		args = append(args, "--enablemetrics", fmt.Sprintf("--metricsport=%d", NodeMetricsPort))
 	}
 
 	if !enforceTrustedHttps {
@@ -314,6 +319,32 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		)
 	}
 
+	podAnnotations := map[string]string{
+		"weka.io/csi-node-hash": targetHash,
+		// link the daemonset to the client for easier identification of "owner"
+		// NOTE: we cannot use owner references because the client and node are in different namespaces
+		"weka.io/csi-node-owner":           string(wekaClient.GetUID()),
+		"weka.io/csi-node-owner-name":      wekaClient.Name,
+		"weka.io/csi-node-owner-namespace": wekaClient.Namespace,
+	}
+
+	wekafsPorts := []corev1.ContainerPort{
+		{
+			ContainerPort: 9899,
+			Name:          "healthz",
+			Protocol:      corev1.ProtocolTCP,
+		},
+	}
+
+	if settings.MetricsEnabled {
+		// Under hostNetwork this binds a host port, so the port, the scrape annotations and the
+		// flags that open them are all gated together.
+		podAnnotations["prometheus.io/scrape"] = "true"
+		podAnnotations["prometheus.io/path"] = "/metrics"
+		podAnnotations["prometheus.io/port"] = strconv.Itoa(NodeMetricsPort)
+		wekafsPorts = append(wekafsPorts, metricsContainerPort(NodeMetricsPort, "metrics"))
+	}
+
 	return &appsv1.DaemonSet{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "DaemonSet",
@@ -337,17 +368,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 						"app":       name,
 						"component": name,
 					},
-					Annotations: map[string]string{
-						"prometheus.io/scrape":  "true",
-						"prometheus.io/path":    "/metrics",
-						"prometheus.io/port":    "9094",
-						"weka.io/csi-node-hash": targetHash,
-						// link the daemonset to the client for easier identification of "owner"
-						// NOTE: we cannot use owner references because the client and node are in different namespaces
-						"weka.io/csi-node-owner":           string(wekaClient.GetUID()),
-						"weka.io/csi-node-owner-name":      wekaClient.Name,
-						"weka.io/csi-node-owner-namespace": wekaClient.Namespace,
-					},
+					Annotations: podAnnotations,
 				},
 				Spec: corev1.PodSpec{
 					SecurityContext:    resources.GetSecurityProfile(),
@@ -365,18 +386,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args:            args,
 							Resources:       toK8sResourceRequirements(config.Config.Csi.NodeResources.Wekafs),
-							Ports: []corev1.ContainerPort{
-								{
-									ContainerPort: 9899,
-									Name:          "healthz",
-									Protocol:      corev1.ProtocolTCP,
-								},
-								{
-									ContainerPort: 9094,
-									Name:          "metrics",
-									Protocol:      corev1.ProtocolTCP,
-								},
-							},
+							Ports:           wekafsPorts,
 							LivenessProbe: &corev1.Probe{
 								FailureThreshold: 10,
 								ProbeHandler: corev1.ProbeHandler{

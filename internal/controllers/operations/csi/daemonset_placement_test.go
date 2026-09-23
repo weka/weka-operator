@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/services"
 )
 
 // An empty selector means "run everywhere" today. A retain-only term would narrow that to "retained
@@ -96,12 +97,12 @@ func TestGetCsiNodeDaemonSetHash_StableAcrossIterations(t *testing.T) {
 		"kubernetes.io/arch":       "amd64",
 	})
 
-	first, err := GetCsiNodeDaemonSetHash("csi", wekaClient, "clients", "default")
+	first, err := GetCsiNodeDaemonSetHash("csi", wekaClient, "clients", "default", services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	for i := 0; i < 200; i++ {
-		got, err := GetCsiNodeDaemonSetHash("csi", wekaClient, "clients", "default")
+		got, err := GetCsiNodeDaemonSetHash("csi", wekaClient, "clients", "default", services.DefaultConfigurationSettings().Csi)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -114,11 +115,11 @@ func TestGetCsiNodeDaemonSetHash_StableAcrossIterations(t *testing.T) {
 func TestGetCsiNodeDaemonSetHash_ChangesWithSelector(t *testing.T) {
 	config.Config.Csi.WekafsImage = "test-csi-image"
 
-	withSelector, err := GetCsiNodeDaemonSetHash("csi", testWekaClient(map[string]string{"weka.io/supports-clients": "true"}), "clients", "default")
+	withSelector, err := GetCsiNodeDaemonSetHash("csi", testWekaClient(map[string]string{"weka.io/supports-clients": "true"}), "clients", "default", services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	empty, err := GetCsiNodeDaemonSetHash("csi", testWekaClient(nil), "clients", "default")
+	empty, err := GetCsiNodeDaemonSetHash("csi", testWekaClient(nil), "clients", "default", services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -133,7 +134,7 @@ func TestNewCsiNodeDaemonSet_PlacementOnlyInAffinity(t *testing.T) {
 	config.Config.Csi.WekafsImage = "test-csi-image"
 	wekaClient := testWekaClient(map[string]string{"weka.io/supports-clients": "true"})
 
-	ds, err := NewCsiNodeDaemonSet(t.Context(), "csi", wekaClient, "clients", "default", nil)
+	ds, err := NewCsiNodeDaemonSet(t.Context(), "csi", wekaClient, "clients", "default", nil, services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

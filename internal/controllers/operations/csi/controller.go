@@ -17,6 +17,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/services"
 	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
@@ -40,11 +41,12 @@ type CsiControllerHashableSpec struct {
 	SelinuxSupport        string
 	KubeletPath           string
 	HostNetwork           bool
+	MetricsEnabled        bool
 }
 
 // GetCsiControllerDeploymentHash generates a hash for the CSI Controller Deployment
 // that includes only the fields that are relevant for updates
-func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaClient) (string, error) {
+func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaClient, settings services.CsiSettings) (string, error) {
 	csiDriverName := GetCsiDriverName(csiGroupName)
 	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 
@@ -87,6 +89,7 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		SelinuxSupport:        config.Config.Csi.SelinuxSupport,
 		KubeletPath:           config.Config.Csi.KubeletPath,
 		HostNetwork:           config.Config.Csi.HostNetwork,
+		MetricsEnabled:        settings.MetricsEnabled,
 	}
 
 	return util2.HashStruct(spec)
@@ -100,7 +103,7 @@ func GetCsiDriverName(csiGroup string) string {
 	return fmt.Sprintf("%s.weka.io", csiGroup)
 }
 
-func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient) (*appsv1.Deployment, error) {
+func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient, settings services.CsiSettings) (*appsv1.Deployment, error) {
 	_, logger := instrumentation.CreateLogSpan(ctx, "NewCsiControllerDeployment")
 	defer logger.End()
 
@@ -120,7 +123,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 	}
 	labels := GetCsiLabels(csiDriverName, CSIController, wekaClient.Labels, csiLabels)
 
-	targetHash, err := GetCsiControllerDeploymentHash(csiGroupName, wekaClient)
+	targetHash, err := GetCsiControllerDeploymentHash(csiGroupName, wekaClient, settings)
 	if err != nil {
 		logger.Error(err, "Failed to get CSI controller deployment hash")
 		return nil, fmt.Errorf("failed to get CSI controller deployment hash: %w", err)
@@ -147,8 +150,6 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 		"--seedsnapshotprefix=csisnp-seed-",
 		"--allowautofscreation",
 		"--allowautofsexpansion",
-		"--enablemetrics",
-		"--metricsport=9090",
 		"--mutuallyexclusivemountoptions=readcache,writecache,coherent,forcedirect",
 		"--mutuallyexclusivemountoptions=sync,async",
 		"--mutuallyexclusivemountoptions=ro,rw",
@@ -160,6 +161,10 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 		"--concurrency.createSnapshot=5",
 		"--concurrency.deleteSnapshot=5",
 		"--nfsprotocolversion=4.1",
+	}
+
+	if settings.MetricsEnabled {
+		args = append(args, "--enablemetrics", fmt.Sprintf("--metricsport=%d", ControllerMetricsPort))
 	}
 
 	if !enforceTrustedHttps {
@@ -178,6 +183,83 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 	tracingFlag := GetTracingFlag()
 	if tracingFlag != "" {
 		args = append(args, tracingFlag)
+	}
+
+	podAnnotations := map[string]string{
+		"weka.io/csi-controller-hash": targetHash,
+		// link the deployment to the client for easier identification of "owner"
+		// NOTE: we cannot use owner references because the client and controller are in different namespaces
+		"weka.io/csi-controller-owner":           string(wekaClient.GetUID()),
+		"weka.io/csi-controller-owner-name":      wekaClient.Name,
+		"weka.io/csi-controller-owner-namespace": wekaClient.Namespace,
+	}
+
+	wekafsPorts := []corev1.ContainerPort{
+		{
+			ContainerPort: 8081,
+			Name:          "healthz",
+			Protocol:      corev1.ProtocolTCP,
+		},
+	}
+
+	attacherArgs := []string{
+		"/csi-attacher",
+		"--csi-address=$(ADDRESS)",
+		"--v=$(LOG_LEVEL)",
+		"--timeout=60s",
+		"--worker-threads=5",
+	}
+	provisionerArgs := []string{
+		"/csi-provisioner",
+		"--v=$(LOG_LEVEL)",
+		"--csi-address=$(ADDRESS)",
+		"--feature-gates=Topology=true",
+		"--extra-create-metadata=true",
+		"--timeout=60s",
+		"--prevent-volume-mode-conversion",
+		"--worker-threads=5",
+		"--retry-interval-start=10s",
+	}
+	resizerArgs := []string{
+		"/csi-resizer",
+		"--v=$(LOG_LEVEL)",
+		"--csi-address=$(ADDRESS)",
+		"--timeout=60s",
+		"--workers=5",
+		"--retry-interval-start=10s",
+	}
+	snapshotterArgs := []string{
+		"/csi-snapshotter",
+		"--v=$(LOG_LEVEL)",
+		"--csi-address=$(ADDRESS)",
+		"--timeout=60s",
+		"--worker-threads=5",
+		"--retry-interval-start=10s",
+	}
+	var attacherPorts, provisionerPorts, resizerPorts, snapshotterPorts []corev1.ContainerPort
+
+	if settings.MetricsEnabled {
+		// Under hostNetwork these bind host ports, so the ports, the scrape annotations and the
+		// flags that open them are all gated together.
+		podAnnotations["prometheus.io/scrape"] = "true"
+		podAnnotations["prometheus.io/path"] = "/metrics"
+		podAnnotations["prometheus.io/port"] = strings.Join([]string{
+			strconv.Itoa(ControllerMetricsPort),
+			strconv.Itoa(ProvisionerMetricsPort),
+			strconv.Itoa(ResizerMetricsPort),
+			strconv.Itoa(SnapshotterMetricsPort),
+			strconv.Itoa(AttacherMetricsPort),
+		}, ",")
+
+		wekafsPorts = append(wekafsPorts, metricsContainerPort(ControllerMetricsPort, "metrics"))
+		attacherArgs = append(attacherArgs, httpEndpointArg(AttacherMetricsPort))
+		provisionerArgs = append(provisionerArgs, httpEndpointArg(ProvisionerMetricsPort))
+		resizerArgs = append(resizerArgs, httpEndpointArg(ResizerMetricsPort))
+		snapshotterArgs = append(snapshotterArgs, httpEndpointArg(SnapshotterMetricsPort))
+		attacherPorts = []corev1.ContainerPort{metricsContainerPort(AttacherMetricsPort, "pr-metrics")}
+		provisionerPorts = []corev1.ContainerPort{metricsContainerPort(ProvisionerMetricsPort, "pr-metrics")}
+		resizerPorts = []corev1.ContainerPort{metricsContainerPort(ResizerMetricsPort, "rs-metrics")}
+		snapshotterPorts = []corev1.ContainerPort{metricsContainerPort(SnapshotterMetricsPort, "sn-metrics")}
 	}
 
 	return &appsv1.Deployment{
@@ -204,17 +286,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 						"app":       name,
 						"component": name,
 					},
-					Annotations: map[string]string{
-						"prometheus.io/scrape":        "true",
-						"prometheus.io/path":          "/metrics",
-						"prometheus.io/port":          "9090,9091,9092,9093,9095",
-						"weka.io/csi-controller-hash": targetHash,
-						// link the deployment to the client for easier identification of "owner"
-						// NOTE: we cannot use owner references because the client and controller are in different namespaces
-						"weka.io/csi-controller-owner":           string(wekaClient.GetUID()),
-						"weka.io/csi-controller-owner-name":      wekaClient.Name,
-						"weka.io/csi-controller-owner-namespace": wekaClient.Namespace,
-					},
+					Annotations: podAnnotations,
 				},
 				Spec: corev1.PodSpec{
 					SecurityContext:    resources.GetSecurityProfile(),
@@ -245,18 +317,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args:            args,
 							Resources:       toK8sResourceRequirements(config.Config.Csi.ControllerResources.Wekafs),
-							Ports: []corev1.ContainerPort{
-								{
-									ContainerPort: 8081,
-									Name:          "healthz",
-									Protocol:      corev1.ProtocolTCP,
-								},
-								{
-									ContainerPort: 9090,
-									Name:          "metrics",
-									Protocol:      corev1.ProtocolTCP,
-								},
-							},
+							Ports:           wekafsPorts,
 							LivenessProbe: &corev1.Probe{
 								FailureThreshold:    10,
 								InitialDelaySeconds: 10,
@@ -364,14 +425,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 								Privileged: &privileged,
 							},
 							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiAttacher),
-							Args: []string{
-								"/csi-attacher",
-								"--csi-address=$(ADDRESS)",
-								"--v=$(LOG_LEVEL)",
-								"--timeout=60s",
-								"--worker-threads=5",
-								"--http-endpoint=:9095",
-							},
+							Args:      attacherArgs,
 							Env: []corev1.EnvVar{
 								{
 									Name:  "ADDRESS",
@@ -397,31 +451,14 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									MountPath: "/shared",
 								},
 							},
-							Ports: []corev1.ContainerPort{
-								{
-									ContainerPort: 9095,
-									Name:          "pr-metrics",
-									Protocol:      corev1.ProtocolTCP,
-								},
-							},
+							Ports: attacherPorts,
 						},
 						{
 							Name:      "csi-provisioner",
 							Image:     config.Config.Csi.ProvisionerImage,
 							Command:   []string{"/shared/wait-for-leader"},
 							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiProvisioner),
-							Args: []string{
-								"/csi-provisioner",
-								"--v=$(LOG_LEVEL)",
-								"--csi-address=$(ADDRESS)",
-								"--feature-gates=Topology=true",
-								"--extra-create-metadata=true",
-								"--timeout=60s",
-								"--prevent-volume-mode-conversion",
-								"--worker-threads=5",
-								"--retry-interval-start=10s",
-								"--http-endpoint=:9091",
-							},
+							Args:      provisionerArgs,
 							Env: []corev1.EnvVar{
 								{
 									Name:  "ADDRESS",
@@ -447,28 +484,14 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									MountPath: "/shared",
 								},
 							},
-							Ports: []corev1.ContainerPort{
-								{
-									ContainerPort: 9091,
-									Name:          "pr-metrics",
-									Protocol:      corev1.ProtocolTCP,
-								},
-							},
+							Ports: provisionerPorts,
 						},
 						{
 							Name:      "csi-resizer",
 							Image:     config.Config.Csi.ResizerImage,
 							Command:   []string{"/shared/wait-for-leader"},
 							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiResizer),
-							Args: []string{
-								"/csi-resizer",
-								"--v=$(LOG_LEVEL)",
-								"--csi-address=$(ADDRESS)",
-								"--timeout=60s",
-								"--http-endpoint=:9092",
-								"--workers=5",
-								"--retry-interval-start=10s",
-							},
+							Args:      resizerArgs,
 							Env: []corev1.EnvVar{
 								{
 									Name:  "ADDRESS",
@@ -494,35 +517,15 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									MountPath: "/shared",
 								},
 							},
-							Ports: []corev1.ContainerPort{
-								{
-									ContainerPort: 9092,
-									Name:          "rs-metrics",
-									Protocol:      corev1.ProtocolTCP,
-								},
-							},
+							Ports: resizerPorts,
 						},
 						{
 							Name:      "csi-snapshotter",
 							Image:     config.Config.Csi.SnapshotterImage,
 							Command:   []string{"/shared/wait-for-leader"},
 							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiSnapshotter),
-							Args: []string{
-								"/csi-snapshotter",
-								"--v=$(LOG_LEVEL)",
-								"--csi-address=$(ADDRESS)",
-								"--timeout=60s",
-								"--worker-threads=5",
-								"--retry-interval-start=10s",
-								"--http-endpoint=:9093",
-							},
-							Ports: []corev1.ContainerPort{
-								{
-									ContainerPort: 9093,
-									Name:          "sn-metrics",
-									Protocol:      corev1.ProtocolTCP,
-								},
-							},
+							Args:      snapshotterArgs,
+							Ports:     snapshotterPorts,
 							Env: []corev1.EnvVar{
 								{
 									Name:  "ADDRESS",

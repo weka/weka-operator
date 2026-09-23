@@ -1453,7 +1453,7 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 		return nil
 	}
 
-	targetDeployment, err := csi.NewCsiControllerDeployment(ctx, c.GetCSIGroup(), c.wekaClient)
+	targetDeployment, err := csi.NewCsiControllerDeployment(ctx, c.GetCSIGroup(), c.wekaClient, services.GetSettings(ctx).Csi)
 	if err != nil {
 		return err
 	}
@@ -1655,7 +1655,7 @@ func (c *clientReconcilerLoop) DeployCsiNodeDaemonSetForClient(ctx context.Conte
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "DeployCsiNodeDaemonSetForClient")
 	defer logger.End()
 
-	daemonSetSpec, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient, c.wekaClient.Name, c.wekaClient.Namespace, c.nodes)
+	daemonSetSpec, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient, c.wekaClient.Name, c.wekaClient.Namespace, c.nodes, services.GetSettings(ctx).Csi)
 	if err != nil {
 		return err
 	}
@@ -1744,7 +1744,7 @@ func (c *clientReconcilerLoop) UpdateCsiNodeDaemonSet(ctx context.Context) error
 		return nil
 	}
 
-	targetDaemonSet, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient, c.wekaClient.Name, c.wekaClient.Namespace, c.nodes)
+	targetDaemonSet, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient, c.wekaClient.Name, c.wekaClient.Namespace, c.nodes, services.GetSettings(ctx).Csi)
 	if err != nil {
 		return err
 	}
