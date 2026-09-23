@@ -34,6 +34,7 @@ require (
 	github.com/prometheus/common v0.67.5
 	github.com/rs/zerolog v1.34.0
 	github.com/sethvargo/go-password v0.3.1
+	github.com/stretchr/testify v1.11.1
 	github.com/thessem/zap-prettyconsole v0.5.2
 	github.com/weka/go-lib v0.0.0-20250813155110-01f071a2760a
 	github.com/weka/go-steps-engine v0.0.0

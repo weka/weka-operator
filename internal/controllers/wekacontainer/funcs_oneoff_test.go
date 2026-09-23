@@ -16,7 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/weka/weka-operator/internal/consts"
-	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
@@ -31,8 +30,8 @@ func newTestPod(creationTime metav1.Time, phase v1.PodPhase) *v1.Pod {
 
 func TestAppendMissingDrivesToBlocked(t *testing.T) {
 	t.Run("defers when kernel view is incomplete", func(t *testing.T) {
-		op := &operations.DriveNodeResults{
-			RawDrives:          []operations.DriveRawInfo{{SerialId: "B1"}},
+		op := &domain.DriveNodeResults{
+			RawDrives:          []domain.DriveRawInfo{{SerialId: "B1"}},
 			KernelViewComplete: false,
 		}
 		blocked, missing := appendMissingDrivesToBlocked([]string{"A1", "A2"}, op, []string{"X"})
@@ -45,8 +44,8 @@ func TestAppendMissingDrivesToBlocked(t *testing.T) {
 	})
 
 	t.Run("blocks missing serials when kernel view is complete", func(t *testing.T) {
-		op := &operations.DriveNodeResults{
-			RawDrives: []operations.DriveRawInfo{
+		op := &domain.DriveNodeResults{
+			RawDrives: []domain.DriveRawInfo{
 				{SerialId: "B1"},
 				{SerialId: "B2"},
 			},
@@ -64,8 +63,8 @@ func TestAppendMissingDrivesToBlocked(t *testing.T) {
 	})
 
 	t.Run("no-op when all annotation serials are kernel-visible", func(t *testing.T) {
-		op := &operations.DriveNodeResults{
-			RawDrives: []operations.DriveRawInfo{
+		op := &domain.DriveNodeResults{
+			RawDrives: []domain.DriveRawInfo{
 				{SerialId: "A1"},
 				{SerialId: "A2"},
 			},
@@ -81,8 +80,8 @@ func TestAppendMissingDrivesToBlocked(t *testing.T) {
 	})
 
 	t.Run("dedupes against existing blocked serials", func(t *testing.T) {
-		op := &operations.DriveNodeResults{
-			RawDrives:          []operations.DriveRawInfo{{SerialId: "B1"}},
+		op := &domain.DriveNodeResults{
+			RawDrives:          []domain.DriveRawInfo{{SerialId: "B1"}},
 			KernelViewComplete: true,
 		}
 		blocked, missing := appendMissingDrivesToBlocked([]string{"A1", "A2"}, op, []string{"A1"})
@@ -96,8 +95,8 @@ func TestAppendMissingDrivesToBlocked(t *testing.T) {
 	})
 
 	t.Run("ignores empty serials in input", func(t *testing.T) {
-		op := &operations.DriveNodeResults{
-			RawDrives:          []operations.DriveRawInfo{{SerialId: ""}, {SerialId: "B1"}},
+		op := &domain.DriveNodeResults{
+			RawDrives:          []domain.DriveRawInfo{{SerialId: ""}, {SerialId: "B1"}},
 			KernelViewComplete: true,
 		}
 		blocked, missing := appendMissingDrivesToBlocked([]string{"", "A1"}, op, nil)
@@ -110,7 +109,7 @@ func TestAppendMissingDrivesToBlocked(t *testing.T) {
 	})
 
 	t.Run("empty inputs", func(t *testing.T) {
-		op := &operations.DriveNodeResults{}
+		op := &domain.DriveNodeResults{}
 		blocked, missing := appendMissingDrivesToBlocked(nil, op, nil)
 		if len(missing) != 0 || len(blocked) != 0 {
 			t.Fatalf("expected empty outputs, got blocked=%v missing=%v", blocked, missing)
@@ -468,9 +467,9 @@ func TestUpdateProxyModeAnnotations_BlockedDrivesExcludedFromCapacity(t *testing
 	}
 	r, c := newProxyModeTestLoop(t, node)
 
-	opResult := &operations.DriveNodeResults{
+	opResult := &domain.DriveNodeResults{
 		KernelViewComplete: true,
-		RawDrives: []operations.DriveRawInfo{
+		RawDrives: []domain.DriveRawInfo{
 			{SerialId: "SN1"}, {SerialId: "SN2"}, {SerialId: "SN3"},
 		},
 		ProxyDrives: []domain.SharedDriveInfo{
@@ -513,9 +512,9 @@ func TestUpdateProxyModeAnnotations_ReAppliesPersistedOverrides(t *testing.T) {
 	r, c := newProxyModeTestLoop(t, node)
 
 	// The agent re-reports SN1 with its IU-derived TLC, plus a newly discovered SN2 of the same model.
-	opResult := &operations.DriveNodeResults{
+	opResult := &domain.DriveNodeResults{
 		KernelViewComplete: true,
-		RawDrives:          []operations.DriveRawInfo{{SerialId: "SN1"}, {SerialId: "SN2"}},
+		RawDrives:          []domain.DriveRawInfo{{SerialId: "SN1"}, {SerialId: "SN2"}},
 		ProxyDrives: []domain.SharedDriveInfo{
 			{Serial: "SN1", PhysicalUUID: "u1", CapacityGiB: 100, Type: "TLC", Model: "M1"},
 			{Serial: "SN2", PhysicalUUID: "u2", CapacityGiB: 300, Type: "TLC", Model: "M1"},
@@ -554,9 +553,9 @@ func TestUpdateProxyModeAnnotations_MergePreservesModel(t *testing.T) {
 	}
 	r, c := newProxyModeTestLoop(t, node)
 
-	opResult := &operations.DriveNodeResults{
+	opResult := &domain.DriveNodeResults{
 		KernelViewComplete: true,
-		RawDrives:          []operations.DriveRawInfo{{SerialId: "SN1"}},
+		RawDrives:          []domain.DriveRawInfo{{SerialId: "SN1"}},
 		// Model omitted, as an older node-agent or a failed sysfs lookup would report it.
 		ProxyDrives: []domain.SharedDriveInfo{
 			{Serial: "SN1", PhysicalUUID: "u1", CapacityGiB: 100, Type: "TLC"},
