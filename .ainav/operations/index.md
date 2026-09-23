@@ -21,11 +21,12 @@ Manual operations, policies, CSI, and driver management.
 | File | Purpose |
 |------|---------|
 | `sign_drives.go` | Drive signing for weka use; TLC/QLC type overrides |
-| `block_drives.go` | block-drives/unblock-drives: serial, physical UUID (evicts every VID on that physical), and virtual UUID (evicts one VID only, no capacity recompute) |
+| `block_drives.go` | block-drives/unblock-drives by serial, physical UUID, or virtual UUID |
 | `discover_drives.go` | Drive discovery. Runs on `SIGN_DRIVES_IMAGE` (needs `weka-sign-drive` for TLC/QLC typing) |
 | `resign_drives.go` | Force drive re-signing |
 | `stale_virtual_drives.go` | Stale virtual drives detection + gated cleanup. |
 | `rotate_ssdproxy.go` | Rolling ssdproxy image rotation, one node at a time |
+| `kernelize.go` | Ad-hoc hostPID kernelize container before proxy pod (re)creation. See [doc](../../doc/operator/operations/drive-sharing.md) |
 | `proxy_disruption_gate.go` | Health gate before disrupting a shared proxy node |
 | `migrate_drive_sharing.go` | `migrate-to-drive-sharing`: per-cluster full-drives → drive-sharing campaign, one drive container at a time. See [doc](../../doc/operator/operations/migrate-to-drive-sharing.md) |
 | `migrate_drive_sharing_types.go` | `migrate-to-drive-sharing` campaign state (phases, sub-phases, `status.result` shape) |
