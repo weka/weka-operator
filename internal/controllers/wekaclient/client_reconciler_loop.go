@@ -610,6 +610,10 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	updatableSpec := NewUpdatableClientSpec(c.wekaClient, c.targetCluster)
+	// resolve the same way container creation does: with the spec value left empty for
+	// auto-resolution, the raw value would overwrite the containers' resolved policy URL
+	// with "" and the drivers-loader would run with no distribution server
+	updatableSpec.DriversDistService, _ = utils.ResolveDriversDistService(ctx, c.Client, c.wekaClient.Namespace, c.wekaClient.Spec.DriversDistService)
 	specHash, err := util2.HashStruct(updatableSpec)
 	if err != nil {
 		return err

@@ -24,7 +24,7 @@ import (
 const (
 	DiscoveryAnnotation            = "weka.io/discovery.json"
 	PodDiscoverySnapshotAnnotation = "weka.io/discovery-snapshot"
-	DiscoveryTargetSchema          = 3
+	DiscoveryTargetSchema          = 4
 	ocpDriverToolkitMapName        = "ocp-driver-toolkit-images"
 )
 
@@ -106,10 +106,12 @@ func IsKarpenterManagedNode(node *corev1.Node) bool {
 }
 
 type DiscoveryNodeInfo struct {
-	IsHt               bool     `json:"is_ht"`
-	KubernetesDistro   string   `json:"kubernetes_distro,omitempty"`
-	Os                 string   `json:"os,omitempty"`
-	OsBuildId          string   `json:"os_build_id,omitempty"`
+	IsHt             bool   `json:"is_ht"`
+	KubernetesDistro string `json:"kubernetes_distro,omitempty"`
+	Os               string `json:"os,omitempty"`
+	OsBuildId        string `json:"os_build_id,omitempty"`
+	// ProcVersion is the raw /proc/version contents, recording the kernel's compiler.
+	ProcVersion        string   `json:"proc_version,omitempty"`
 	BootID             string   `json:"boot_id,omitempty"`
 	Schema             int      `json:"schema,omitempty"`
 	InitContainerImage string   `json:"init_container_image,omitempty"`
@@ -181,6 +183,10 @@ func AnyNodeHasSelinux(nodes []corev1.Node) bool {
 
 func (nodeInfo *DiscoveryNodeInfo) IsCos() bool {
 	return nodeInfo.Os == weka.OsNameCos
+}
+
+func (nodeInfo *DiscoveryNodeInfo) IsNixos() bool {
+	return strings.HasPrefix(nodeInfo.Os, weka.OsNameNixosPrefix)
 }
 
 func (d *DiscoveryNodeInfo) GetHostsidePersistenceBaseLocation() string {

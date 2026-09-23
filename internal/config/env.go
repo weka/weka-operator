@@ -274,6 +274,9 @@ type AdmissionPoliciesConfig struct {
 type BuilderImagesConfig struct {
 	Default  string
 	Ubuntu24 string
+	// Nixos maps a discovery os string ("nixos-gcc<major>") to the builder image pinned to that
+	// gcc major; there is no single default image because NixOS builder images are per-gcc.
+	Nixos map[string]string
 }
 
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
@@ -719,6 +722,7 @@ func ConfigureEnv(ctx context.Context) {
 	// Builder images configuration
 	Config.BuilderImages.Default = getEnvOrDefault("BUILDER_IMAGE_DEFAULT", "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22")
 	Config.BuilderImages.Ubuntu24 = getEnvOrDefault("BUILDER_IMAGE_UBUNTU24", "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24")
+	Config.BuilderImages.Nixos = loadNixosBuilderImages()
 
 	// Port allocation configuration
 	Config.PortAllocation.StartingPort = getIntEnvOrDefault("PORT_ALLOCATION_STARTING_PORT", 35000)
@@ -785,6 +789,27 @@ func getEnvOrDefault(envKey, defaultVal string) string {
 		return defaultVal
 	}
 	return val
+}
+
+// loadNixosBuilderImages starts from the built-in default and overlays every
+// BUILDER_IMAGE_NIXOS_GCC<n> environment variable, keyed by "nixos-gcc<n>" to match the os
+// string discovery reports for NixOS nodes.
+func loadNixosBuilderImages() map[string]string {
+	images := map[string]string{
+		"nixos-gcc15": "quay.io/weka.io/weka-drivers-build-images:builder-nixos-gcc15-v2",
+	}
+	for _, kv := range os.Environ() {
+		key, val, found := strings.Cut(kv, "=")
+		if !found {
+			continue
+		}
+		gcc, ok := strings.CutPrefix(key, "BUILDER_IMAGE_NIXOS_GCC")
+		if !ok {
+			continue
+		}
+		images["nixos-gcc"+strings.ToLower(gcc)] = val
+	}
+	return images
 }
 
 func getStringSlice(envKey string) []string {

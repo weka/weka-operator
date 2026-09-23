@@ -112,6 +112,11 @@ func (f *PodFactory) copyWekaVersionToContainer(pod *v1.Pod) {
 						CLI=$(readlink -f -- /usr/bin/weka)
 					fi
 					if [ -z "$CLI" ] || [ ! -f "$CLI" ]; then
+						# builder images with no /opt/weka/dist/image or /usr/bin/weka (e.g. NixOS)
+						# ship only a standalone wekactl on PATH
+						CLI=$(command -v wekactl 2>/dev/null || true)
+					fi
+					if [ -z "$CLI" ] || [ ! -f "$CLI" ]; then
 						echo "ERROR: no weka CLI found to stage" >&2
 						exit 1
 					fi

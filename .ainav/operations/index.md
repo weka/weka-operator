@@ -39,6 +39,8 @@ Manual operations, policies, CSI, and driver management.
 | `load_drivers.go` | Driver loading orchestration |
 | `enable_local_drivers_distribution.go` | Local driver dist |
 
+See [driver-distribution.md](../../doc/operator/deployment/driver-distribution.md) for NixOS node support.
+
 ## Other Operations
 
 | File | Purpose |
