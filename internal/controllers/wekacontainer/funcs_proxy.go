@@ -19,6 +19,7 @@ import (
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
+	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
@@ -299,6 +300,21 @@ func (r *containerReconcilerLoop) reconcileProxyHugepagesSpec(ctx context.Contex
 		fmt.Sprintf("ssdproxy hugepages increased from %dMiB (offset %dMiB) to %dMiB (offset %dMiB); the pod must be manually recreated to apply the new hugepages/memory",
 			oldHugepages, oldOffset, desiredHugepages, desiredOffset))
 	return nil
+}
+
+// runKernelizeBeforeProxyPod runs kernelize in a short-lived hostPID ad-hoc WekaContainer on the
+// proxy's node, before the proxy pod is created. This recovers NVMe devices left in igb_uio by a
+// hard-killed proxy, without granting the proxy pod itself the host PID namespace.
+func (r *containerReconcilerLoop) runKernelizeBeforeProxyPod(ctx context.Context) error {
+	nodeName := r.container.GetNodeAffinity()
+	kernelize := operations.NewKernelizeOperation(r.Manager, r.Recorder, r.container, nodeName)
+	return operations.ExecuteOperation(ctx, kernelize)
+}
+
+// finalizeKernelizeAfterProxyPod marks the kernelize result as used by the now-existing proxy pod and
+// removes the ad-hoc container once its retention expires.
+func (r *containerReconcilerLoop) finalizeKernelizeAfterProxyPod(ctx context.Context) error {
+	return operations.FinalizeKernelize(ctx, r.Manager.GetClient(), r.container, r.container.GetNodeAffinity())
 }
 
 // findSSDProxyOnNode finds the ssdproxy container on the same node as the current drive container

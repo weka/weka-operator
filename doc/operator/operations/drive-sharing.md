@@ -30,6 +30,21 @@ Physical Drive (3840 GiB)
 └── Available: 1340 GiB
 ```
 
+### Kernelize Before Proxy Pod (Re)Creation
+
+Before every (re)creation of a proxy pod (not on in-place restarts inside an existing pod), the
+operator runs `weka-sign-drive kernelize` in a short-lived, node-pinned, hostPID ad-hoc
+WekaContainer named `weka-kernelize-<node>`, owned by the proxy WekaContainer. It recovers
+NVMe devices left bound to `igb_uio` by a hard-killed proxy — those are otherwise only released by
+the proxy's own cleanup scripts, which are lost once its persistent dir is removed. It needs
+`hostPID` to see other tenants' `/proc/*/fd` and skip drives that are actually in use; the proxy
+pod itself never runs with `hostPID`. Look for the `Kernelized` (Normal, with candidate/filtered/
+recovered/failed counts) or `KernelizeFailed` (Warning) event on the proxy WekaContainer — a
+failure or timeout only logs a warning and never blocks proxy pod creation; an unset
+`SIGN_DRIVES_IMAGE` does block it. The container is kept for 5 minutes after the proxy pod is
+created, so its result and pod logs can be inspected; retries of a pending pod creation reuse its
+result, and any later pod (re)creation runs kernelize afresh.
+
 ## Configuration Guide
 
 ### Step 1: Sign Drives for Proxy Mode

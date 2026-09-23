@@ -42,4 +42,5 @@ const (
 	ActionRotateSsdProxy          = "RotateSsdProxy"
 	ActionCleanStaleVirtualDrives = "CleanStaleVirtualDrives"
 	ActionMigrateToDriveSharing   = "MigrateToDriveSharing"
+	ActionKernelize               = "Kernelize"
 )
