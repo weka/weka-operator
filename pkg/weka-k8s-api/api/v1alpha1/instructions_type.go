@@ -15,4 +15,5 @@ const (
 	InstructionCopyWekaFilesToDriverLoader InstructionType = "copy-weka-files-to-driver-loader"
 	InstructionTypeFeatureFlagsUpdate      InstructionType = "feature-flags-update"
 	InstructionTypeUmount                  InstructionType = "umount"
+	InstructionTypeKernelize               InstructionType = "kernelize"
 )
