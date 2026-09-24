@@ -56,7 +56,8 @@ func (r *containerReconcilerLoop) fetchResults(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) error {
-	if r.container.IsDriversBuilder() || r.isSignOrDiscoverDrivesOperation(ctx) {
+	// kernelize runs with hostPID: drop its pod once the result is processed, keep the container for inspection
+	if r.container.IsDriversBuilder() || r.isSignOrDiscoverDrivesOperation(ctx) || r.isKernelizeOperation() {
 		if r.pod != nil {
 			return r.Delete(ctx, r.pod)
 		}
@@ -85,6 +86,12 @@ func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) err
 	}
 
 	return nil
+}
+
+func (r *containerReconcilerLoop) isKernelizeOperation() bool {
+	return r.container.Spec.Mode == weka.WekaContainerModeAdhocOp &&
+		r.container.Spec.Instructions != nil &&
+		r.container.Spec.Instructions.Type == weka.InstructionTypeKernelize
 }
 
 func (r *containerReconcilerLoop) isFeatureFlagsOperation() bool {

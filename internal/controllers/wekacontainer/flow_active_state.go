@@ -317,12 +317,34 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.PodNotSet,
 			},
 		},
+		// Recover NVMe devices orphaned by a hard-killed proxy before (re)creating its pod. Runs
+		// before every pod (re)creation; retries of a pending creation reuse the result. In-place
+		// restarts inside an existing pod don't trigger it, since the weka agent replays the
+		// cleanup scripts there.
+		&lifecycle.SimpleStep{
+			Run: r.runKernelizeBeforeProxyPod,
+			Predicates: lifecycle.Predicates{
+				r.container.IsSSDProxyContainer,
+				r.PodNotSet,
+				r.HasNodeAffinity,
+				lifecycle.IsNotFunc(r.container.IsMarkedForDeletion),
+			},
+		},
 		&lifecycle.SimpleStep{
 			Run: r.ensurePod,
 			Predicates: lifecycle.Predicates{
 				r.PodNotSet,
 			},
 			OnFail: r.setErrorStatus,
+		},
+		&lifecycle.SimpleStep{
+			Run: r.finalizeKernelizeAfterProxyPod,
+			Predicates: lifecycle.Predicates{
+				r.container.IsSSDProxyContainer,
+				lifecycle.IsNotFunc(r.PodNotSet),
+				r.HasNodeAffinity,
+			},
+			ContinueOnError: true,
 		},
 		&lifecycle.SimpleStep{
 			Run: r.deletePodIfUnschedulable,

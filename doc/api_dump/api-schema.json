@@ -1559,7 +1559,8 @@
         "load-drivers",
         "copy-weka-files-to-driver-loader",
         "feature-flags-update",
-        "umount"
+        "umount",
+        "kernelize"
       ],
       "baseType": "string",
       "usedBy": [

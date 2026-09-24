@@ -1,0 +1,28 @@
+{
+  "err": null,
+  "raw": {
+    "command": "kernelize",
+    "timestamp": "2026-09-23T19:36:37Z",
+    "dry_run": false,
+    "forced": false,
+    "results": [
+      {
+        "pci_address": "0000:bd:00.0",
+        "previous_driver": "igb_uio",
+        "reason": "bound to igb_uio",
+        "success": true
+      }
+    ],
+    "summary": {
+      "total_candidates": 4,
+      "filtered_out_in_use": 3,
+      "recovered": 1,
+      "failed": 0,
+      "skipped_healthy": 0
+    }
+  },
+  "candidates": 4,
+  "filtered_out_in_use": 3,
+  "recovered": 1,
+  "failed": 0
+}
