@@ -46,6 +46,7 @@ const (
 	migrateDriveSharingEventReasonNodeComplete         = "DriveSharingMigrationNodeComplete"
 	migrateDriveSharingEventReasonCampaignComplete     = "DriveSharingMigrationCampaignComplete"
 	migrateDriveSharingEventReasonReplacementElsewhere = "DriveSharingMigrationReplacementElsewhere"
+	migrateDriveSharingEventReasonCapacityShrinks      = "DriveSharingMigrationCapacityShrinks"
 
 	gibBytes = int64(1) << 30
 	// Kubernetes object names are capped at 63 characters; a hash replaces the tail of a longer one.
@@ -627,7 +628,7 @@ func (o *MigrateToDriveSharingOperation) checkCapacity(ctx context.Context, clus
 	}
 	o.results.CapacityChecked = true
 	if newTotal < oldTotal {
-		util.RecordEvent(o.recorder, o.ownerRef, corev1.EventTypeWarning, migrateDriveSharingEventReasonBlocked,
+		util.RecordEvent(o.recorder, o.ownerRef, corev1.EventTypeWarning, migrateDriveSharingEventReasonCapacityShrinks,
 			consts.ActionMigrateToDriveSharing, fmt.Sprintf(
 				"drive-sharing migration of cluster %s shrinks total raw capacity from %d to %d bytes; it still "+
 					"covers the %d raw bytes provisioned today", o.results.Cluster, oldTotal, newTotal, provisioned))

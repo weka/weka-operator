@@ -329,6 +329,7 @@ so check the drain's real progress via cluster rebuild status before treating it
 | `DriveSharingMigrationBlocked` | Warning | A `Pending` container blocked past the threshold above | Operation |
 | `DriveSharingMigrationStalled` | Warning | An `InFlight` container hasn't finished past the threshold above; message names the current `subPhase` | Operation |
 | `DriveSharingMigrationReplacementElsewhere` | Warning | The verified replacement landed on a different node than the one drained; message names both nodes | Operation and `WekaCluster` |
+| `DriveSharingMigrationCapacityShrinks` | Warning | Once, from the [capacity sanity](#what-each-run-does) check: the new total capacity is less than the old one but still covers what is provisioned. Informational; the campaign proceeds | Operation |
 
 ## Escape hatches
 

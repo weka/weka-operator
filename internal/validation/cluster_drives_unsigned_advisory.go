@@ -77,6 +77,12 @@ func (clusterDrivesUnsignedAdvisory) Validate(ctx context.Context, c client.Clie
 		formatNodeNames(nodes), wantMode,
 	)
 	if otherModeNodes > 0 {
+		// Full-drives-signed nodes are the expected state mid-migration: the migrate-to-drive-sharing
+		// campaign re-signs each node's drives as it drains them, so re-signing up front would be wrong.
+		if cluster.IsDriveSharing() &&
+			cluster.Annotations[consts.AnnotationSizingModeMigration] == consts.SizingModeMigrationDriveSharing {
+			return nil
+		}
 		detail = fmt.Sprintf(
 			"%d of the %d node(s) matching the drive-role nodeSelector (%s) are signed in %s mode "+
 				"(%s), but this cluster is %s mode and consumes %s — the two are disjoint, so those "+
