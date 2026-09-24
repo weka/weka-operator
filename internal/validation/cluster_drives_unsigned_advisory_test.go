@@ -143,6 +143,21 @@ func TestClusterDrivesUnsignedAdvisory(t *testing.T) {
 		}
 	})
 
+	// Mid-migration the nodes are still full-drives-signed; the campaign re-signs them node by node.
+	t.Run("full-signed nodes silent for a drive-sharing cluster being migrated", func(t *testing.T) {
+		c := fakeClientWithNodes(t, driveRoleNode(t, "n1", labels, []int{1000}))
+		cluster := withSelector(&weka.WekaClusterTemplate{DriveContainers: 2, ContainerCapacity: 5000}, 0)
+		cluster.Annotations = map[string]string{consts.AnnotationSizingModeMigration: consts.SizingModeMigrationDriveSharing}
+		if errs := v.Validate(ctx, c, cluster); len(errs) != 0 {
+			t.Errorf("expected no advisory during migration, got %v", errs)
+		}
+		// Unsigned nodes are not the migration's expected state and still warn.
+		c = fakeClientWithNodes(t, driveRoleNode(t, "n1", labels, nil))
+		if errs := v.Validate(ctx, c, cluster); len(errs) != 1 {
+			t.Errorf("expected 1 advisory for unsigned nodes during migration, got %v", errs)
+		}
+	})
+
 	t.Run("drive-sharing cluster with fully unsigned nodes warns", func(t *testing.T) {
 		c := fakeClientWithNodes(t, driveRoleNode(t, "n1", labels, nil))
 		errs := v.Validate(ctx, c, withSelector(sharing, 0))

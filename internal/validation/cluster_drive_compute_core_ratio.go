@@ -67,7 +67,7 @@ func (clusterDriveComputeCoreRatio) Validate(_ context.Context, _ client.Client,
 	n, m := reduceRatio(driveSide, computeSide)
 	actualRatio := fmt.Sprintf("%d:%d", n, m)
 	detail := fmt.Sprintf(
-		"drive:compute core ratio is below the recommended 1:%g (total drive cores: %d, total compute "+
+		"drive:compute core ratio exceeds the recommended maximum of 1:%g (total drive cores: %d, total compute "+
 			"cores: %d, actual ratio: %s). Adjust driveContainers/driveCores or computeContainers/computeCores "+
 			"to restore a ratio closer to recommended.",
 		ratio, driveSide, computeSide, actualRatio,
