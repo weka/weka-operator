@@ -160,8 +160,7 @@ kubectl delete pod <weka-pod> -n <namespace>
 
 The replacement pod is built from the updated WekaContainer spec and carries
 the new volumes and mounts. Pods created after the change pick it up without
-any action. Weka pods ignore SIGTERM and carry a long termination grace
-period, so use `--grace-period=0 --force` if a deletion hangs.
+any action.
 
 ## Worked examples
 

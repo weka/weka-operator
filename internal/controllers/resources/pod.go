@@ -1207,6 +1207,37 @@ func AlignMemoryToHugepageBoundary(memoryMiB, numCores int) int {
 	return (memoryMiB / alignmentMiB) * alignmentMiB
 }
 
+// hugepagesMiB resolves the container's effective hugepages size in MiB. spec.resources
+// hugepages-2Mi stands in for spec.hugepages, so a container with no hugepages sizing of its own
+// (drivers-dist) can still request them; it only applies on a 2Mi-paged container.
+func hugepagesMiB(container *weka.WekaContainer) int {
+	mib := container.Spec.Hugepages
+	if container.Spec.HugepagesSize != "1Gi" {
+		if named, ok := container.Spec.NamedHugepages2MiMiB(); ok {
+			mib = named
+		}
+	}
+	return mib
+}
+
+// HugepagesRequest returns the hugepages resource name and quantity a pod factory puts into the
+// pod's requests/limits for container, matching Spec.Hugepages / Spec.HugepagesSize.
+func HugepagesRequest(container *weka.WekaContainer) (corev1.ResourceName, resource.Quantity) {
+	mib := hugepagesMiB(container)
+
+	// Named 2Mi resource is a DIFFERENT resource than the 1Gi one, so applyResourcesOverride adds
+	// it alongside rather than replacing this one.
+	var suffix, str string
+	if container.Spec.HugepagesSize == "1Gi" {
+		suffix = container.Spec.HugepagesSize
+		str = fmt.Sprintf("%dGi", mib/1000)
+	} else {
+		suffix = "2Mi"
+		str = fmt.Sprintf("%dMi", mib)
+	}
+	return corev1.ResourceName(corev1.ResourceHugePagesPrefix + suffix), resource.MustParse(str)
+}
+
 // GetHugePagesDetails returns hugepages details for a container based on its spec.
 // ff is optional; for SSD proxy containers it controls DPDK memory accounting:
 //   - without SsdProxyIncludesDpdkMemory: DPDK memory (config.Consts.SsdProxyDpdkMemoryMiB) is excluded
@@ -1214,28 +1245,20 @@ func AlignMemoryToHugepageBoundary(memoryMiB, numCores int) int {
 //   - with SsdProxyIncludesDpdkMemory: DPDK is accounted through weka, only the hugepages
 //     offset buffer (HugepagesOffset) is subtracted from --memory
 func GetHugePagesDetails(container *weka.WekaContainer, ff *domain.FeatureFlags) HugePagesDetails {
-	var hugePagesStr, hugePagesK8sSuffix, wekaMemoryString string
-
-	// spec.resources hugepages-2Mi stands in for spec.hugepages, so a container with no hugepages
-	// sizing of its own (drivers-dist) can still request them. Only on a 2Mi-paged container: it
-	// names one specific resource, so against a 1Gi container it is a DIFFERENT resource and
-	// applyResourcesOverride adds it alongside rather than replacing this one.
-	hugepagesMiB := container.Spec.Hugepages
-	if container.Spec.HugepagesSize != "1Gi" {
-		if named, ok := container.Spec.NamedHugepages2MiMiB(); ok {
-			hugepagesMiB = named
-		}
+	hugePagesName, quantity := HugepagesRequest(container)
+	hugePagesStr := quantity.String()
+	hugePagesK8sSuffix := "2Mi"
+	if container.Spec.HugepagesSize == "1Gi" {
+		hugePagesK8sSuffix = "1Gi"
 	}
 
-	if container.Spec.HugepagesSize == "1Gi" {
-		hugePagesK8sSuffix = container.Spec.HugepagesSize
-		hugePagesStr = fmt.Sprintf("%dGi", hugepagesMiB/1000)
-		wekaMemoryString = fmt.Sprintf("%dGiB", hugepagesMiB/1000)
-	} else {
-		hugePagesStr = fmt.Sprintf("%dMi", hugepagesMiB)
-		hugePagesK8sSuffix = "2Mi"
-		offset := GetHugePagesOffset(container)
+	mib := hugepagesMiB(container)
 
+	var wekaMemoryString string
+	if container.Spec.HugepagesSize == "1Gi" {
+		wekaMemoryString = fmt.Sprintf("%dGiB", mib/1000)
+	} else {
+		offset := GetHugePagesOffset(container)
 		if container.Spec.Mode == weka.WekaContainerModeSSDProxy {
 			if ff == nil || !ff.SsdProxyIncludesDpdkMemory {
 				// DPDK memory is managed externally; exclude it from weka's --memory
@@ -1244,18 +1267,16 @@ func GetHugePagesDetails(container *weka.WekaContainer, ff *domain.FeatureFlags)
 			// with SsdProxyIncludesDpdkMemory: ssdproxy accounts for DPDK through weka,
 			// subtract only the hugepages offset buffer
 		}
-		memoryMiB := AlignMemoryToHugepageBoundary(hugepagesMiB-offset, container.Spec.NumCores)
+		memoryMiB := AlignMemoryToHugepageBoundary(mib-offset, container.Spec.NumCores)
 		wekaMemoryString = fmt.Sprintf("%dMiB", memoryMiB)
 	}
-
-	hugePagesName := corev1.ResourceName(corev1.ResourceHugePagesPrefix + hugePagesK8sSuffix)
 
 	return HugePagesDetails{
 		HugePagesStr:          hugePagesStr,
 		HugePagesK8sSuffix:    hugePagesK8sSuffix,
 		WekaMemoryString:      wekaMemoryString,
 		HugePagesResourceName: hugePagesName,
-		HugePagesMb:           hugepagesMiB,
+		HugePagesMb:           mib,
 	}
 }
 

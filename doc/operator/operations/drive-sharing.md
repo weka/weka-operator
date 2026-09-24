@@ -791,6 +791,19 @@ parking/warning model, events, and recommended usage on a live fleet.
 
 ---
 
+## Migrating an existing full-drives cluster
+
+A `WekaCluster` currently running in exclusive full-drives mode can be moved onto drive sharing
+**in place** — no rebuild from external object storage — by draining and re-signing one drive
+container at a time while the rest of the cluster keeps serving. This is a separate
+`WekaManualOperation` (`migrate-to-drive-sharing`), gated by the same annotation the sizing-mode
+validator requires for this specific switch.
+
+See [Migrate to Drive Sharing](migrate-to-drive-sharing.md) for the full procedure, payload fields,
+per-container sub-phases, and events.
+
+---
+
 ## Capacity Management
 
 ### Hugepages reservation for `numDrives` + `driveCapacity`
@@ -906,6 +919,7 @@ sizing, validation), events, and constraints are documented in full in the dedic
 - [Block Drives](block-drives.md) - Blocking/unblocking drives by serial, physical UUID, or virtual UUID
 - [Virtual Drive Replacement](virtual-drive-replacement.md) - Replacing a single faulted VID without disturbing other tenants on the same physical
 - [Drive Signing](drive-signing.md) - Standard (exclusive) drive signing for single-cluster deployments
+- [Migrate to Drive Sharing](migrate-to-drive-sharing.md) - In-place migration of an existing full-drives cluster onto drive sharing, one container at a time
 - [Cluster Provisioning](../deployment/cluster-provisioning.md) - General cluster configuration
 - [WekaCluster API Reference](../../api_dump/wekacluster.md) - Complete field reference
 - [WekaManualOperation API Reference](../../api_dump/wekamanualoperation.md) - Manual operation details
