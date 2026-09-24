@@ -10,6 +10,7 @@ import (
 	v1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -183,6 +184,18 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 							Command:      []string{"sh", "-c"},
 							Args:         []string{o.getRmCommand(containerDataPath)},
 							VolumeMounts: volumeMounts,
+							// matches adhoc-op pods: minimal requests with generous headroom limits
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("4"),
+									corev1.ResourceMemory: resource.MustParse("16Gi"),
+								},
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:              resource.MustParse("100m"),
+									corev1.ResourceMemory:           resource.MustParse("128Mi"),
+									corev1.ResourceEphemeralStorage: resource.MustParse("100Mi"),
+								},
+							},
 						},
 					},
 					RestartPolicy: corev1.RestartPolicyOnFailure,
