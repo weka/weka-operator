@@ -298,6 +298,8 @@ func (r *containerReconcilerLoop) processResults(ctx context.Context) error {
 		return r.UploadBuiltDrivers(ctx)
 	case r.isSignOrDiscoverDrivesOperation(ctx):
 		return r.updateNodeAnnotations(ctx)
+	case r.isKernelizeOperation():
+		return r.updateContainerStatusIfNotEquals(ctx, weka.Completed)
 	default:
 		return nil
 	}
