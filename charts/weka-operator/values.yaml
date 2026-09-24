@@ -243,7 +243,7 @@ removeFailedDrives: false
 # in case of multiple clusters upgrades need to be synchronized/keep spares for per-node eviction
 allowMultipleProtocolsPerNode: false
 
-signDrivesImage: quay.io/weka.io/weka-sign-tool:fd1f7ec2e5fc947e9cdff9d7f6a7821149c68c26-multiarch  # +multiarch build
+signDrivesImage: quay.io/weka.io/weka-sign-tool:cfbc60804cb627bcd3b7fde8e9c5e82f6f24c0be-multiarch  # +multiarch build
 
 taskmon:
   defaultImage: quay.io/weka.io/taskmon:92b35aa657e9aba4782b4530b81107fff4c19847_x86_64
