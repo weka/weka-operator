@@ -1,0 +1,248 @@
+name: Slack CI thread
+description: >-
+  Keeps one Slack thread per pull request: finds or creates the parent message, and posts
+  replies under it. Slack problems only ever warn, so no CI verdict depends on Slack.
+
+inputs:
+  mode:
+    description: >-
+      ensure - find this PR's thread or start one, and output its ts.
+      reply  - post `text` under an existing thread.
+      report - post a test's verdict under an existing thread, with the investigation on failure.
+    required: true
+  bot-token:
+    description: Slack bot token. Empty disables every mode.
+    required: false
+    default: ''
+  channel:
+    description: Slack channel id. Empty disables every mode.
+    required: false
+    default: ''
+  marker:
+    description: >-
+      Unique per-PR string carried in the parent's fallback text (ensure). conversations.history
+      returns that text, and Slack does not render it, so it is how later runs recognise the thread.
+    required: false
+    default: ''
+  text:
+    description: mrkdwn body, for ensure and reply.
+    required: false
+    default: ''
+  thread-ts:
+    description: Parent message ts, for reply and report.
+    required: false
+    default: ''
+  test-name:
+    description: Test name used in the verdict line, for report.
+    required: false
+    default: ''
+  outcome:
+    description: Outcome of the step that ran the test - success, failure or cancelled.
+    required: false
+    default: ''
+  job-status:
+    description: >-
+      job.status, for report. Decides the verdict when the job died before the test step ran,
+      which leaves the step outcome `skipped` for both a cancellation and an earlier failure.
+    required: false
+    default: ''
+  execution-id:
+    description: Testing service execution id, for report.
+    required: false
+    default: ''
+  service-url:
+    description: Testing service base URL, for report.
+    required: false
+    default: ''
+
+outputs:
+  thread-ts:
+    description: ts of this PR's parent message. Empty when Slack is not configured.
+    value: ${{ steps.slack.outputs.thread-ts }}
+
+runs:
+  using: composite
+  steps:
+    - id: slack
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        SLACK_BOT_TOKEN: ${{ inputs.bot-token }}
+        CHANNEL: ${{ inputs.channel }}
+        MARKER: ${{ inputs.marker }}
+        TEXT: ${{ inputs.text }}
+        THREAD_TS: ${{ inputs.thread-ts }}
+        TEST_NAME: ${{ inputs.test-name }}
+        OUTCOME: ${{ inputs.outcome }}
+        JOB_STATUS: ${{ inputs.job-status }}
+        EXECUTION_ID: ${{ inputs.execution-id }}
+        SERVICE_URL: ${{ inputs.service-url }}
+      run: |
+        # Composite steps default to `bash -eo pipefail`; that would turn any Slack or testing
+        # service hiccup into a failed job.
+        set +e +o pipefail
+
+        if [ -z "$SLACK_BOT_TOKEN" ] || [ -z "$CHANNEL" ]; then
+          echo "slack is not configured (needs SLACK_BOT_TOKEN and SLACK_CHANNEL_ID); skipping"
+          exit 0
+        fi
+
+        section() { jq -n --arg t "$1" '{type: "section", text: {type: "mrkdwn", text: $t}}'; }
+
+        # Sets POSTED_TS on success. The ts cannot be returned on stdout: ::warning:: lines have
+        # to go to stdout too, and would be captured along with it.
+        POSTED_TS=""
+        post_blocks() {  # blocks, fallback text, optional thread ts
+          local payload response
+          payload=$(jq -n \
+            --arg channel "$CHANNEL" \
+            --arg text "$2" \
+            --arg ts "${3:-}" \
+            --argjson blocks "$1" \
+            '{channel: $channel, text: $text, blocks: $blocks}
+             + (if $ts == "" then {} else {thread_ts: $ts} end)')
+          response=$(echo "$payload" | curl -sS -X POST "https://slack.com/api/chat.postMessage" \
+            --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data-binary @-)
+          if [ "$(echo "$response" | jq -r '.ok // false' 2>/dev/null)" != "true" ]; then
+            echo "::warning::slack chat.postMessage failed: $(echo "$response" | jq -r '.error // "unknown"' 2>/dev/null)"
+            return 1
+          fi
+          POSTED_TS=$(echo "$response" | jq -r '.ts // empty')
+          return 0
+        }
+
+        case "$MODE" in
+          ensure)
+            # A re-run, or a new push to the same PR, joins the thread already on the channel
+            # instead of starting a second one.
+            found=""
+            cursor=""
+            for _ in 1 2 3 4 5; do
+              history=$(curl -sS -G "https://slack.com/api/conversations.history" \
+                --connect-timeout 10 --max-time 30 \
+                -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+                --data-urlencode "channel=$CHANNEL" \
+                --data-urlencode "limit=200" \
+                ${cursor:+--data-urlencode "cursor=$cursor"})
+              if [ "$(echo "$history" | jq -r '.ok // false' 2>/dev/null)" != "true" ]; then
+                echo "::warning::slack conversations.history failed: $(echo "$history" | jq -r '.error // "unknown"' 2>/dev/null)"
+                break
+              fi
+              found=$(echo "$history" | jq -r --arg m "$MARKER" \
+                'first(.messages[] | select((.text // "") | contains($m)) | .ts) // empty' 2>/dev/null)
+              if [ -n "$found" ]; then break; fi
+              cursor=$(echo "$history" | jq -r '.response_metadata.next_cursor // empty' 2>/dev/null)
+              if [ -z "$cursor" ]; then break; fi
+            done
+
+            if [ -n "$found" ]; then
+              echo "reusing thread $found"
+              echo "thread-ts=$found" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if post_blocks "$(jq -n --argjson s "$(section "$TEXT")" '[$s]')" "$TEXT $MARKER"; then
+              echo "started thread $POSTED_TS"
+              echo "thread-ts=$POSTED_TS" >> "$GITHUB_OUTPUT"
+            fi
+            ;;
+
+          reply)
+            if [ -z "$THREAD_TS" ]; then echo "no thread to reply to"; exit 0; fi
+            post_blocks "$(jq -n --argjson s "$(section "$TEXT")" '[$s]')" "$TEXT" "$THREAD_TS"
+            ;;
+
+          report)
+            if [ -z "$THREAD_TS" ]; then echo "no thread to reply to"; exit 0; fi
+            verdict="failed"
+            case "$OUTCOME" in
+              success)   verdict="passed" ;;
+              cancelled) verdict="cancelled" ;;
+              # The test step never ran: a cancellation and an earlier step's failure both land
+              # here, and only the job status tells them apart.
+              skipped|"") [ "$JOB_STATUS" = "cancelled" ] && verdict="cancelled" ;;
+            esac
+            case "$verdict" in
+              passed)    header=":white_check_mark: *$TEST_NAME passed*" ;;
+              cancelled) header=":no_entry_sign: *$TEST_NAME cancelled*" ;;
+              *)         header=":x: *$TEST_NAME failed*" ;;
+            esac
+
+            execution_url="$SERVICE_URL/execution/$EXECUTION_ID"
+            summary="$header"
+            if [ -n "$EXECUTION_ID" ]; then
+              status=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sS \
+                --connect-timeout 10 --max-time 30 \
+                "$SERVICE_URL/api/executions/$EXECUTION_ID" -H "Content-Type: application/json" 2>/dev/null \
+                | jq -r '.status // empty' 2>/dev/null)
+              if [ -n "$status" ]; then summary="$summary"$'\n'"*Status:* \`$status\`"; fi
+              summary="$summary"$'\n'"*<$execution_url|Execution Link>*"
+            fi
+
+            analysis=""
+            note=""
+            if [ "$verdict" = "failed" ] && [ -n "$EXECUTION_ID" ]; then
+              # The testing service investigates a failed execution by itself, so wait for the
+              # verdict rather than asking for one. It 404s until the record exists. The window
+              # only just covers that service's own 5m investigation timeout: this step runs on
+              # the lab runner, which stays reserved for as long as it polls.
+              max_polls=17
+              for ((i=1; i<=max_polls; i++)); do
+                inv=$(curl -sS --connect-timeout 10 --max-time 30 \
+                  "$SERVICE_URL/api/executions/$EXECUTION_ID/investigation" \
+                  -H "Content-Type: application/json" 2>/dev/null)
+                inv_status=$(echo "$inv" | jq -r '.status // empty' 2>/dev/null)
+                echo "[$i/$max_polls] investigation: ${inv_status:-<none>}"
+                if [ "$inv_status" = "succeeded" ]; then
+                  analysis=$(echo "$inv" | jq -r '.analysis // empty' 2>/dev/null)
+                  break
+                fi
+                if [ "$inv_status" = "failed" ]; then
+                  note="_Investigation failed: $(echo "$inv" | jq -r '.error // "unknown"' 2>/dev/null)_"
+                  break
+                fi
+                if [ "$i" -lt "$max_polls" ]; then sleep 20; fi
+              done
+              if [ -z "$analysis" ] && [ -z "$note" ]; then
+                note="_No investigation available; it did not finish in time._"
+              fi
+            fi
+
+            blocks=$(jq -n --argjson s "$(section "$summary")" '[$s]')
+            if [ -n "$analysis" ]; then
+              work=$(mktemp -d)
+              # **bold** is GitHub markdown, not Slack mrkdwn.
+              printf '%s' "$analysis" | sed -E 's/\*\*([^*]+)\*\*/*\1*/g' > "$work/analysis"
+              # A section caps at 3000 chars, so a long analysis spans several. jq slices strings
+              # by codepoint, so no chunk ends mid-character; the analysis is prose and routinely
+              # carries multi-byte punctuation. It has to come in by --rawfile: jq's raw stdin
+              # reader (-R) mangles a codepoint on every 8KiB buffer boundary.
+              with_analysis=$(jq -n --argjson blocks "$blocks" --arg url "$execution_url" \
+                --rawfile analysis "$work/analysis" \
+                '[range(0; ($analysis | length); 2900) as $i | $analysis[$i:$i+2900]] as $parts
+                 | $blocks
+                   + [{type: "section", text: {type: "mrkdwn", text: "*Investigation*"}}]
+                   + ($parts[0:4] | map({type: "section", text: {type: "mrkdwn", text: .}}))
+                   + (if ($parts | length) > 4
+                      then [{type: "section", text: {type: "mrkdwn", text: ("_Analysis truncated; full text on <" + $url + "|the execution page>._")}}]
+                      else [] end)')
+              # Keep the bare verdict rather than lose the reply if rendering the analysis failed.
+              if [ -n "$with_analysis" ]; then blocks="$with_analysis"; fi
+            elif [ -n "$note" ]; then
+              blocks=$(echo "$blocks" | jq --argjson s "$(section "$note")" '. + [$s]')
+            fi
+
+            post_blocks "$blocks" "$TEST_NAME $verdict" "$THREAD_TS"
+            ;;
+
+          *)
+            echo "::warning::unknown slack-ci-thread mode: $MODE"
+            ;;
+        esac
+
+        # `set +e` keeps the script running past a Slack error, but the step would still exit
+        # with the status of the last command - a post_blocks failure would fail the job.
+        exit 0
