@@ -1,11 +1,21 @@
 package wekacontainer
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/weka/go-steps-engine/lifecycle"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 )
 
 func mkNodeProvider(providerID string) *v1.Node {
@@ -48,5 +58,91 @@ func TestResolveDeactivationTimeout(t *testing.T) {
 				t.Fatalf("resolveDeactivationTimeout() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// setup runs before the fake client is built: a status update writes the stored object back over
+// r.container, so spec fields set afterwards would be lost.
+func newTerminationLoop(t *testing.T, node *v1.Node, setup func(c *weka.WekaContainer, p *v1.Pod)) *containerReconcilerLoop {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := weka.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	container := &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{Name: "drive-1", Namespace: "weka"},
+		Spec:       weka.WekaContainerSpec{Mode: weka.WekaContainerModeDrive},
+		Status:     weka.WekaContainerStatus{Status: weka.Running},
+	}
+	now := metav1.NewTime(time.Now())
+	pod := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "drive-1", DeletionTimestamp: &now}}
+	if setup != nil {
+		setup(container, pod)
+	}
+	return &containerReconcilerLoop{
+		Client:    fake.NewClientBuilder().WithScheme(scheme).WithObjects(container).WithStatusSubresource(container).Build(),
+		node:      node,
+		pod:       pod,
+		container: container,
+	}
+}
+
+// The loop has no Manager or RestClient, so any exec path would panic: a WaitError proves they were skipped.
+func TestHandlePodTerminationNotReadyNodeSkipsExecKeepsStatus(t *testing.T) {
+	prev := config.Config.EvictContainerOnDeletion
+	config.Config.EvictContainerOnDeletion = false
+	t.Cleanup(func() { config.Config.EvictContainerOnDeletion = prev })
+
+	for name, setup := range map[string]func(c *weka.WekaContainer, p *v1.Pod){
+		"default": nil,
+		"force replace": func(c *weka.WekaContainer, _ *v1.Pod) {
+			c.Spec.Overrides = &weka.WekaContainerSpecOverrides{PodDeleteForceReplace: true}
+		},
+		// image changed since the pod was created, so upgradeRunning is true and the force-replace branch is taken
+		"upgrade replace": func(c *weka.WekaContainer, p *v1.Pod) {
+			c.Spec.Overrides = &weka.WekaContainerSpecOverrides{UpgradeForceReplace: true}
+			c.Spec.Image = "weka:new"
+			c.Status.LastAppliedImage = "weka:old"
+			p.Spec.Containers = []v1.Container{{Name: consts.WekaContainerName, Image: "weka:old"}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newTerminationLoop(t, nodeWithReady(v1.ConditionFalse), setup)
+			err := r.handlePodTermination(context.Background())
+			var wait *lifecycle.WaitError
+			if !errors.As(err, &wait) {
+				t.Fatalf("handlePodTermination() = %v, want WaitError", err)
+			}
+			got := &weka.WekaContainer{}
+			if err := r.Get(context.Background(), client.ObjectKeyFromObject(r.container), got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Status.Status != weka.PodTerminating {
+				t.Fatalf("status = %q, want %q", got.Status.Status, weka.PodTerminating)
+			}
+		})
+	}
+}
+
+func TestHandlePodTerminationNotReadyNodeStillEvicts(t *testing.T) {
+	prev := config.Config.EvictContainerOnDeletion
+	config.Config.EvictContainerOnDeletion = true
+	t.Cleanup(func() { config.Config.EvictContainerOnDeletion = prev })
+
+	r := newTerminationLoop(t, nodeWithReady(v1.ConditionFalse), nil)
+	err := r.handlePodTermination(context.Background())
+	var wait *lifecycle.WaitError
+	if !errors.As(err, &wait) {
+		t.Fatalf("handlePodTermination() = %v, want WaitError", err)
+	}
+	got := &weka.WekaContainer{}
+	if err := r.Get(context.Background(), client.ObjectKeyFromObject(r.container), got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.State != weka.ContainerStateDeleting {
+		t.Fatalf("state = %q, want %q", got.Spec.State, weka.ContainerStateDeleting)
 	}
 }
