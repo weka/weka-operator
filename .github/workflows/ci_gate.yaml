@@ -58,6 +58,7 @@ jobs:
       skip_reason: ${{ steps.decide.outputs.skip_reason }}
       blocked: ${{ steps.decide.outputs.blocked }}
       held_layers: ${{ steps.decide.outputs.held_layers }}
+      slack_ts: ${{ steps.slack_thread.outputs.thread-ts }}
     steps:
       - name: Show PR Info
         run: |
@@ -224,6 +225,25 @@ jobs:
           fi
           echo "held_layers=${held# }" >> "$GITHUB_OUTPUT"
 
+      - name: Open or reuse the PR's Slack thread
+        # Only when this run actually tests: a skipped or blocked layer has nothing to report.
+        # The run link belongs on the per-test replies, not here - this message is reused by
+        # every later run on the PR and would keep pointing at the first one.
+        id: slack_thread
+        if: steps.decide.outputs.skip_test != 'true'
+        uses: ./.github/actions/slack-ci-thread
+        with:
+          mode: ensure
+          bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          channel: ${{ vars.SLACK_CHANNEL_ID }}
+          # Bracketed so the number is terminated: a bare `#12` is a substring of `#123`, and
+          # the lookup matches on `contains`.
+          marker: "[ci-gate ${{ github.repository }}#${{ github.event.pull_request.number }}]"
+          text: |-
+            :rocket: *CI started*
+            *PR:* <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ github.event.pull_request.title }}>
+            *Target:* `${{ github.base_ref }}`
+
   upgrade_extended_test:
     needs: [gate]
     if: |
@@ -237,6 +257,23 @@ jobs:
       operator_helm_image: ${{ steps.set-operator-versions.outputs.operator_helm_image }}
     runs-on: scalar-runners
     steps:
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        id: app-token
+        with:
+          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
+          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout operator repository
+        # Before everything else: the `always()` Slack step at the end of the job runs a local
+        # action out of this checkout, and has to report failures that happen this early too
+        # (dind still down, an unset variable).
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: operator
+          submodules: true
+          token: ${{ steps.app-token.outputs.token }}
+
       - name: Wait for the test hardware
         # One execution at a time on the lab cluster (operator-mq-ci), across all PRs. Newer runs
         # wait for older in-progress runs of this workflow; nothing is dropped. (A global
@@ -249,7 +286,7 @@ jobs:
       - name: Check Docker
         # The dind sidecar of the ephemeral runner may still be starting up.
         run: |
-          for i in $(seq 30); do docker info >/dev/null 2>&1 && break; sleep 2; done
+          for i in $(seq 90); do docker info >/dev/null 2>&1 && break; sleep 2; done
           docker version
           docker info
 
@@ -270,20 +307,6 @@ jobs:
           echo "CI_OPERATOR_REPO is set to: ${{ vars.CI_OPERATOR_REPO }}"
           echo "CI_HELM_REPO is set to: ${{ vars.CI_HELM_REPO }}"
           echo "WEKA_TESTING_SERVICE_URL is set to: ${{ vars.WEKA_TESTING_SERVICE_URL }}"
-
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
-        id: app-token
-        with:
-          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
-          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
- 
-      - name: Checkout operator repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          path: operator
-          submodules: true
-          token: ${{ steps.app-token.outputs.token }}
 
       - name: Publish Operator
         uses: dagger/dagger-for-github@d913e70051faf3b907d4dd96ef1161083c88c644 # v8.2.0
@@ -323,10 +346,8 @@ jobs:
           echo "operator_image=$operator_image" >> $GITHUB_OUTPUT
           echo "operator_helm_image=$operator_helm_image" >> $GITHUB_OUTPUT
 
-      - name: Run Upgrade-extended Test via Testing Service
-        env:
-          # Passed via env (not inline ${{ }}) to avoid shell injection from a user-controlled PR title.
-          PR_TITLE: ${{ github.event.pull_request.title }}
+      - name: Create upgrade-extended execution
+        id: create_execution
         run: |
           OPERATOR_VERSION=$(echo "${{ env.operator_image }}" | sed 's/.*://')
           OPERATOR_IMAGE_REPO=$(echo "${{ env.operator_image }}" | sed 's/:.*//')
@@ -376,38 +397,24 @@ jobs:
             exit 1
           fi
           echo "::notice::Execution: ${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
-          # A file, not $GITHUB_ENV: env additions apply only once a step ends, and this step
-          # then polls for an hour. Cancellation lands mid-poll, which is exactly when the
-          # cleanup step below needs the id.
-          echo "$EXECUTION_ID" > "$RUNNER_TEMP/execution_id"
+          echo "execution_id=$EXECUTION_ID" >> "$GITHUB_OUTPUT"
 
-          # Send Slack notification with execution link
-          EXECUTION_URL="${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
-          SLACK_PAYLOAD=$(jq -n \
-            --arg url "$EXECUTION_URL" \
-            --arg pr_title "$PR_TITLE" \
-            --arg pr_number "${{ github.event.pull_request.number }}" \
-            --arg pr_url "${{ github.event.pull_request.html_url }}" \
-            --arg base "${{ github.base_ref }}" \
-            --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            '{
-              "text": ":rocket: upgrade-extended test started",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": (":rocket: *upgrade-extended test started*\n*PR:* <" + $pr_url + "|#" + $pr_number + " " + $pr_title + ">\n*Target:* `" + $base + "`\n*<" + $url + "|Execution Link>* | *<" + $run_url + "|GitHub Actions Run>*")
-                  }
-                }
-              ]
-            }')
-          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
-            curl -sf -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
-              -H "Content-Type: application/json" \
-              -d "$SLACK_PAYLOAD" || echo "::warning::Failed to send Slack notification"
-          fi
+      - name: Notify upgrade-extended started
+        uses: ./operator/.github/actions/slack-ci-thread
+        with:
+          mode: reply
+          bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          channel: ${{ vars.SLACK_CHANNEL_ID }}
+          thread-ts: ${{ needs.gate.outputs.slack_ts }}
+          text: |-
+            :hourglass_flowing_sand: *upgrade-extended started*
+            *<${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/${{ steps.create_execution.outputs.execution_id }}|Execution Link>* | *<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|GitHub Actions Run>*
 
+      - name: Wait for upgrade-extended execution
+        id: run_test
+        env:
+          EXECUTION_ID: ${{ steps.create_execution.outputs.execution_id }}
+        run: |
           SLEEP_SECONDS=60
           MAX_POLLS=60
           MAX_CONSECUTIVE_EMPTY=5
@@ -456,13 +463,31 @@ jobs:
         # Cancelling the GitHub job (newer push, or a stack top cancelling a redundant lower-layer
         # run) does not stop the execution on the testing service; stop it so the hardware is free.
         if: cancelled()
+        env:
+          EXECUTION_ID: ${{ steps.create_execution.outputs.execution_id }}
         run: |
-          EXECUTION_ID=$(cat "$RUNNER_TEMP/execution_id" 2>/dev/null || true)
           if [ -z "$EXECUTION_ID" ]; then echo "no execution to stop"; exit 0; fi
           curl --fail --retry 3 --retry-delay 5 -sS -X POST \
             "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions/$EXECUTION_ID/stop" \
             -H "Content-Type: application/json" \
             && echo "stopped execution $EXECUTION_ID" || echo "::warning::could not stop execution $EXECUTION_ID"
+
+      - name: Report upgrade-extended result to the Slack thread
+        if: always()
+        # A notification is never a CI verdict, and this step still has to survive a job that
+        # died before the checkout it loads the action from.
+        continue-on-error: true
+        uses: ./operator/.github/actions/slack-ci-thread
+        with:
+          mode: report
+          bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          channel: ${{ vars.SLACK_CHANNEL_ID }}
+          thread-ts: ${{ needs.gate.outputs.slack_ts }}
+          test-name: upgrade-extended
+          outcome: ${{ steps.run_test.outcome }}
+          job-status: ${{ job.status }}
+          execution-id: ${{ steps.create_execution.outputs.execution_id }}
+          service-url: ${{ vars.WEKA_TESTING_SERVICE_URL }}
 
   clients_only_test:
     needs: [gate, upgrade_extended_test]
@@ -472,6 +497,21 @@ jobs:
       needs.upgrade_extended_test.result == 'success'
     runs-on: scalar-runners
     steps:
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        id: app-token
+        with:
+          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
+          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout operator repository
+        # Before everything else: the `always()` Slack step at the end of the job runs a local
+        # action out of this checkout, and has to report failures that happen this early too.
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: operator
+          token: ${{ steps.app-token.outputs.token }}
+
       - name: Validate required variables
         run: |
           if [ -z "${{ vars.CI_OPERATOR_REPO }}" ]; then
@@ -486,19 +526,6 @@ jobs:
             echo "::error::WEKA_TESTING_SERVICE_URL repository variable is not set."
             exit 1
           fi
-
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
-        id: app-token
-        with:
-          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
-          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
-      - name: Checkout operator repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          path: operator
-          token: ${{ steps.app-token.outputs.token }}
 
       - name: Pre clients-only (copy secrets + get join IPs)
         uses: dagger/dagger-for-github@d913e70051faf3b907d4dd96ef1161083c88c644 # v8.2.0
@@ -516,7 +543,8 @@ jobs:
             --cache-buster="${{ github.run_id }}-${{ github.run_attempt }}"
             --output ${{ github.workspace }}/join-ips
 
-      - name: Run Clients-Only Test via Testing Service
+      - name: Create clients-only execution
+        id: create_execution
         run: |
           OPERATOR_VERSION=$(echo "${{ needs.upgrade_extended_test.outputs.operator_image }}" | sed 's/.*://')
           OPERATOR_IMAGE_REPO=$(echo "${{ needs.upgrade_extended_test.outputs.operator_image }}" | sed 's/:.*//')
@@ -567,11 +595,24 @@ jobs:
             exit 1
           fi
           echo "::notice::Execution: ${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
-          # A file, not $GITHUB_ENV: env additions apply only once a step ends, and this step
-          # then polls for an hour. Cancellation lands mid-poll, which is exactly when the
-          # cleanup step below needs the id.
-          echo "$EXECUTION_ID" > "$RUNNER_TEMP/execution_id"
+          echo "execution_id=$EXECUTION_ID" >> "$GITHUB_OUTPUT"
 
+      - name: Notify clients-only started
+        uses: ./operator/.github/actions/slack-ci-thread
+        with:
+          mode: reply
+          bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          channel: ${{ vars.SLACK_CHANNEL_ID }}
+          thread-ts: ${{ needs.gate.outputs.slack_ts }}
+          text: |-
+            :hourglass_flowing_sand: *clients-only started*
+            *<${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/${{ steps.create_execution.outputs.execution_id }}|Execution Link>* | *<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|GitHub Actions Run>*
+
+      - name: Wait for clients-only execution
+        id: run_test
+        env:
+          EXECUTION_ID: ${{ steps.create_execution.outputs.execution_id }}
+        run: |
           SLEEP_SECONDS=60
           MAX_POLLS=60
           MAX_CONSECUTIVE_EMPTY=5
@@ -620,13 +661,31 @@ jobs:
         # Cancelling the GitHub job (newer push, or a stack top cancelling a redundant lower-layer
         # run) does not stop the execution on the testing service; stop it so the hardware is free.
         if: cancelled()
+        env:
+          EXECUTION_ID: ${{ steps.create_execution.outputs.execution_id }}
         run: |
-          EXECUTION_ID=$(cat "$RUNNER_TEMP/execution_id" 2>/dev/null || true)
           if [ -z "$EXECUTION_ID" ]; then echo "no execution to stop"; exit 0; fi
           curl --fail --retry 3 --retry-delay 5 -sS -X POST \
             "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions/$EXECUTION_ID/stop" \
             -H "Content-Type: application/json" \
             && echo "stopped execution $EXECUTION_ID" || echo "::warning::could not stop execution $EXECUTION_ID"
+
+      - name: Report clients-only result to the Slack thread
+        if: always()
+        # A notification is never a CI verdict, and this step still has to survive a job that
+        # died before the checkout it loads the action from.
+        continue-on-error: true
+        uses: ./operator/.github/actions/slack-ci-thread
+        with:
+          mode: report
+          bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          channel: ${{ vars.SLACK_CHANNEL_ID }}
+          thread-ts: ${{ needs.gate.outputs.slack_ts }}
+          test-name: clients-only
+          outcome: ${{ steps.run_test.outcome }}
+          job-status: ${{ job.status }}
+          execution-id: ${{ steps.create_execution.outputs.execution_id }}
+          service-url: ${{ vars.WEKA_TESTING_SERVICE_URL }}
 
   report_status:
     # Posts the required commit status `ci-gate`. Nothing is posted when `gate` was skipped

@@ -61,6 +61,38 @@ Stack notation: `main <- A <- B <- C`, C is the top. "Expected" means no status,
 | `run_ci_gate` | Run the tests on this PR even if it is a lower layer; layers below it are held and greened like for a top. |
 | `skip_ci_gate` | Count the tests as passed for this PR without running them. Reaches lower layers only if they are skippable themselves. |
 
+## Slack
+
+Each PR gets one thread on the channel. The `gate` job posts the parent when the verdict is
+"test", and every test reports into it:
+
+```
+:rocket: CI started - PR #123
+  :hourglass: upgrade-extended started      <- execution + run links
+  :white_check_mark: upgrade-extended passed
+  :hourglass: clients-only started
+  :x: clients-only failed                   <- + the testing service's investigation
+```
+
+On a failure the reply carries the testing service's AI root-cause analysis
+(`GET /api/executions/{id}/investigation`), which that service starts by itself when an
+execution fails. A long analysis is split across several blocks, since Slack caps one at 3000
+characters.
+
+A re-run, or a new push to the same PR, reuses the existing thread. The parent's fallback text
+carries `[ci-gate <repo>#<pr>]`, which `conversations.history` returns and Slack does not render;
+later runs scan the channel for it. The brackets terminate the number, so `#12` does not match
+`#123`. Losing the marker only costs a second thread.
+
+Setup - both are needed, and Slack stays silent without them:
+
+| Setting | Kind | Notes |
+|---|---|---|
+| `SLACK_BOT_TOKEN` | secret | scopes `chat:write` and `channels:history` (`groups:history` if the channel is private) |
+| `SLACK_CHANNEL_ID` | variable | the bot must be a member of that channel |
+
+Slack is best-effort throughout: every failure is a `::warning::`, never a job verdict.
+
 ## Known limits
 
 - A lower layer with code commits has no status of its own until the top's run greens it. That
@@ -76,4 +108,11 @@ Stack notation: `main <- A <- B <- C`, C is the top. "Expected" means no status,
   still contains the dropped commits, so a docs-only layer can read as "has code" and be blocked
   until `gs sync`. Safe direction, just a stale verdict.
 - Cancelling a job takes GitHub 20 to 50 seconds to take effect.
+- The thread lookup scans the channel's last 1000 top-level messages. A PR whose thread has
+  fallen past that, or a token without `channels:history`, starts a new thread instead of
+  reusing the old one; nothing else breaks.
+- A cancelled run stops its execution, which the testing service records as `interrupted`
+  rather than `failed`, so no investigation is produced and the reply carries the status alone.
+- On a failure the report step waits up to ~5.5m for the investigation, and it runs on the lab
+  runner, so the cluster stays reserved for that long after the test itself has finished.
 - Old PRs whose branch predates `ci_gate.yaml` cannot report the status; rebase them.
