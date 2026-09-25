@@ -165,17 +165,14 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
-			// A backend pod that has exited (terminal phase) no longer needs the do-not-force-delete
+			// A pod that has exited (terminal phase) no longer needs the do-not-force-delete
 			// finalizer; strip it and reap the dead object so a fresh pod is recreated
-			Name: "ReapExitedBackendPod",
-			Run:  r.reapExitedBackendPod,
+			Name: "ReapExitedPod",
+			Run:  r.reapExitedPod,
 			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(r.PodNotSet),
-				r.container.IsBackend,
 				r.NodeIsSet,
-				func() bool {
-					return r.pod.Status.Phase == v1.PodSucceeded || r.pod.Status.Phase == v1.PodFailed
-				},
+				r.shouldReapExitedPod,
 			},
 		},
 		&lifecycle.SimpleStep{
@@ -778,20 +775,38 @@ func (r *containerReconcilerLoop) checkPodUnhealthy(ctx context.Context) error {
 	return nil
 }
 
-// reapExitedBackendPod removes the weka do-not-force-delete-unsafe finalizer from, and reaps, a backend pod
-func (r *containerReconcilerLoop) reapExitedBackendPod(ctx context.Context) error {
+// shouldReapExitedPod is true for a backend or client pod in a terminal phase. Kubelet never restarts
+// such a pod, e.g. a client pod re-admitted after an undrained reboot before the node-agent device plugin
+// registered fails with UnexpectedAdmissionError and stays Failed.
+func (r *containerReconcilerLoop) shouldReapExitedPod() bool {
+	if !r.container.IsBackend() && !r.container.IsClientContainer() {
+		return false
+	}
+	return r.pod.Status.Phase == v1.PodSucceeded || r.pod.Status.Phase == v1.PodFailed
+}
+
+// reapExitedPod removes the weka do-not-force-delete-unsafe finalizer from, and reaps, a terminal pod
+func (r *containerReconcilerLoop) reapExitedPod(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	pod := r.pod
-	logger.Info("Reaping exited backend pod, removing weka finalizer so a fresh pod can be recreated",
-		"pod", pod.Name, "phase", pod.Status.Phase)
+	logger.Info("Reaping exited pod, removing weka finalizer so a fresh pod can be recreated",
+		"pod", pod.Name, "phase", pod.Status.Phase, "reason", pod.Status.Reason)
+
+	_ = r.RecordEvent( //nolint:errcheck // error return value intentionally not checked
+		v1.EventTypeWarning,
+		"ExitedPodReaped",
+		consts.ActionMonitorContainerHealth,
+		fmt.Sprintf("Pod %s reached terminal phase %s (reason: %q, message: %q), deleting it for recreation",
+			pod.Name, pod.Status.Phase, pod.Status.Reason, pod.Status.Message),
+	)
 
 	if err := r.deletePod(ctx, pod); err != nil {
 		return err
 	}
 
 	return lifecycle.NewWaitErrorWithDuration(
-		errors.New("exited backend pod reaped, waiting for recreation"),
+		errors.New("exited pod reaped, waiting for recreation"),
 		time.Second*5,
 	)
 }
