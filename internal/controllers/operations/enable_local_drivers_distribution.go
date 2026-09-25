@@ -519,17 +519,29 @@ func (o *EnsureDistServiceOperation) DeleteIfNodeNotReady(ctx context.Context, c
 		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
 
-	if !resources.NodeIsReady(node) {
-		logger.Info("Node is not ready, deleting dist container", "container", wc.Name, "node", nodeName)
+	reason := resources.NodeIneligibleReason(node, resources.GetWekaPodTolerations(&wc))
+	if reason != "" && reason != "not ready" {
+		// Cordon/taint does not evict a running pod; only reschedule a pod that cannot start on the pinned node.
+		pod := &corev1.Pod{}
+		err := o.client.Get(ctx, client.ObjectKey{Namespace: wc.Namespace, Name: wc.Name}, pod)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get dist pod %s: %w", wc.Name, err)
+		}
+		if err == nil && pod.Status.Phase == corev1.PodRunning {
+			reason = ""
+		}
+	}
+	if reason != "" {
+		logger.Info("Node is ineligible, deleting dist container", "container", wc.Name, "node", nodeName, "reason", reason)
 		deleteErr := o.client.Delete(ctx, container)
 
 		return lifecycle.NewWaitErrorWithDuration(
-			fmt.Errorf("node %s is not ready, deleting dist container %s, err: %w", nodeName, wc.Name, deleteErr),
+			fmt.Errorf("node %s is %s, deleting dist container %s, err: %w", nodeName, reason, wc.Name, deleteErr),
 			time.Second*10,
 		)
 	}
 
-	return nil // Node is ready, no action needed
+	return nil
 }
 
 func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context) error {
