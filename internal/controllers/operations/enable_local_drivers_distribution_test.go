@@ -6,6 +6,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -325,4 +327,145 @@ var _ = Describe("EnsureDistContainer", func() {
 		Expect(containers.Items[0].Spec.Mode).To(Equal(weka.WekaContainerModeDriversDist))
 		Expect(containers.Items[0].Spec.ServiceAccountName).To(Equal(serviceAccountName))
 	})
+})
+
+var _ = Describe("DeleteIfNodeIneligible", func() {
+	const (
+		nodeName         = "node-1"
+		wcName           = "dist-wc"
+		wcNamespace      = "default"
+		untoleratedTaint = "medik8s.io/drain" // NoSchedule taint not in the dist container's tolerations
+	)
+
+	var (
+		ctx    context.Context
+		scheme *runtime.Scheme
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme = runtime.NewScheme()
+		Expect(weka.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+	})
+
+	nodeCondition := func(ready bool) corev1.NodeCondition {
+		status := corev1.ConditionTrue
+		if !ready {
+			status = corev1.ConditionFalse
+		}
+		return corev1.NodeCondition{Type: corev1.NodeReady, Status: status}
+	}
+
+	boundPod := func(phase corev1.PodPhase) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: wcName, Namespace: wcNamespace},
+			Spec:       corev1.PodSpec{NodeName: nodeName},
+			Status:     corev1.PodStatus{Phase: phase},
+		}
+	}
+
+	DescribeTable("deletes the dist container only when the node truly can't host it",
+		func(node *corev1.Node, pod *corev1.Pod, expectDeleted bool) {
+			wc := &weka.WekaContainer{
+				ObjectMeta: metav1.ObjectMeta{Name: wcName, Namespace: wcNamespace},
+				Spec:       weka.WekaContainerSpec{Mode: weka.WekaContainerModeDriversDist},
+				Status:     weka.WekaContainerStatus{NodeAffinity: weka.NodeName(nodeName)},
+			}
+
+			builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wc)
+			if node != nil {
+				builder = builder.WithObjects(node)
+			}
+			if pod != nil {
+				builder = builder.WithObjects(pod)
+			}
+			fakeClient := builder.Build()
+
+			op := &EnsureDistServiceOperation{client: fakeClient}
+
+			key := &weka.WekaContainer{ObjectMeta: metav1.ObjectMeta{Name: wcName, Namespace: wcNamespace}}
+			err := op.DeleteIfNodeIneligible(ctx, key)
+
+			var got weka.WekaContainer
+			getErr := fakeClient.Get(ctx, client.ObjectKey{Namespace: wcNamespace, Name: wcName}, &got)
+
+			if expectDeleted {
+				Expect(err).To(HaveOccurred())
+				Expect(apierrors.IsNotFound(getErr)).To(BeTrue())
+			} else {
+				Expect(err).NotTo(HaveOccurred())
+				Expect(getErr).NotTo(HaveOccurred())
+			}
+		},
+		Entry("ready, not cordoned, pod running bound -> kept",
+			&corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
+			},
+			boundPod(corev1.PodRunning),
+			false,
+		),
+		Entry("not ready + cordoned, pod running bound -> deleted",
+			&corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec:       corev1.NodeSpec{Unschedulable: true},
+				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(false)}},
+			},
+			boundPod(corev1.PodRunning),
+			true,
+		),
+		Entry("ready, cordoned, pod running bound -> kept",
+			&corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec:       corev1.NodeSpec{Unschedulable: true},
+				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
+			},
+			boundPod(corev1.PodRunning),
+			false,
+		),
+		Entry("ready, cordoned, pod bound but pending -> kept",
+			&corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec:       corev1.NodeSpec{Unschedulable: true},
+				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
+			},
+			boundPod(corev1.PodPending),
+			false,
+		),
+		Entry("ready, cordoned, no pod -> deleted",
+			&corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec:       corev1.NodeSpec{Unschedulable: true},
+				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
+			},
+			nil,
+			true,
+		),
+		Entry("ready, cordoned, pod failed bound -> deleted",
+			&corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec:       corev1.NodeSpec{Unschedulable: true},
+				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
+			},
+			boundPod(corev1.PodFailed),
+			true,
+		),
+		Entry("ready, untolerated NoSchedule taint, no pod -> deleted",
+			&corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec: corev1.NodeSpec{Taints: []corev1.Taint{
+					{Key: untoleratedTaint, Effect: corev1.TaintEffectNoSchedule},
+				}},
+				Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
+			},
+			nil,
+			true,
+		),
+		Entry("node missing, no pod -> deleted",
+			nil,
+			nil,
+			true,
+		),
+	)
 })

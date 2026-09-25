@@ -444,7 +444,7 @@ func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) er
 		},
 	}
 
-	err = o.DeleteIfNodeNotReady(ctx, wc)
+	err = o.DeleteIfNodeIneligible(ctx, wc)
 	if err != nil {
 		return err
 	}
@@ -485,8 +485,8 @@ func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) er
 	return nil
 }
 
-func (o *EnsureDistServiceOperation) DeleteIfNodeNotReady(ctx context.Context, container *weka.WekaContainer) error {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "HandleNodeNotReady")
+func (o *EnsureDistServiceOperation) DeleteIfNodeIneligible(ctx context.Context, container *weka.WekaContainer) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "HandleNodeIneligible")
 	defer logger.End()
 
 	var wc weka.WekaContainer
@@ -509,7 +509,7 @@ func (o *EnsureDistServiceOperation) DeleteIfNodeNotReady(ctx context.Context, c
 	if err := o.client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("Node not found, deleting dist container", "container", wc.Name, "node", nodeName)
-			deleteErr := o.client.Delete(ctx, container)
+			deleteErr := o.client.Delete(ctx, &wc)
 
 			return lifecycle.NewWaitErrorWithDuration(
 				fmt.Errorf("node %s not found, deleting dist container %s, err: %w", nodeName, wc.Name, deleteErr),
@@ -519,17 +519,31 @@ func (o *EnsureDistServiceOperation) DeleteIfNodeNotReady(ctx context.Context, c
 		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
 
-	if !resources.NodeIsReady(node) {
-		logger.Info("Node is not ready, deleting dist container", "container", wc.Name, "node", nodeName)
-		deleteErr := o.client.Delete(ctx, container)
+	reason := resources.NodeIneligibleReason(node, resources.GetWekaPodTolerations(&wc))
+	if reason != "" && resources.NodeIsReady(node) {
+		// A cordon or NoSchedule taint doesn't evict a pod already bound to the node; only reschedule
+		// when no live pod is bound (missing, terminated, or evicted by a NoExecute taint).
+		pod := &corev1.Pod{}
+		err := o.client.Get(ctx, client.ObjectKey{Namespace: wc.Namespace, Name: wc.Name}, pod)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get dist pod %s: %w", wc.Name, err)
+		}
+		if err == nil && pod.Spec.NodeName != "" && pod.DeletionTimestamp == nil &&
+			pod.Status.Phase != corev1.PodFailed && pod.Status.Phase != corev1.PodSucceeded {
+			reason = ""
+		}
+	}
+	if reason != "" {
+		logger.Info("Node is ineligible, deleting dist container", "container", wc.Name, "node", nodeName, "reason", reason)
+		deleteErr := o.client.Delete(ctx, &wc)
 
 		return lifecycle.NewWaitErrorWithDuration(
-			fmt.Errorf("node %s is not ready, deleting dist container %s, err: %w", nodeName, wc.Name, deleteErr),
+			fmt.Errorf("node %s is %s, deleting dist container %s, err: %w", nodeName, reason, wc.Name, deleteErr),
 			time.Second*10,
 		)
 	}
 
-	return nil // Node is ready, no action needed
+	return nil
 }
 
 func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context) error {
