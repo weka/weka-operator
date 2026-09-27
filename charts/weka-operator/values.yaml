@@ -23,12 +23,16 @@ deployController: true
 #    operator image; exec into it to preview capacity plans without touching the operator pod)
 deployCapacityPlanner: false
 capacityPlanner:
-  # -- no resource limits (avoids CPU throttling / OOM-kills during an exec'd plan run);
-  #    small requests only, so it still schedules
+  # -- small requests so it schedules anywhere; limits are deliberately loose, since the pod
+  #    idles until someone execs a plan run and admission policies commonly reject a container
+  #    with no limits at all. Raise the memory limit if a large plan run gets OOM-killed.
   resources:
     requests:
       cpu: 50m
       memory: 64Mi
+    limits:
+      cpu: 2
+      memory: 4Gi
   nodeSelector: {}
   tolerations: []
 

@@ -910,6 +910,7 @@ fi
 
 echo "=== OTEL Init Container Completed ==="`,
 			},
+			Resources: HelperContainerResources(),
 			VolumeMounts: []corev1.VolumeMount{
 				{
 					Name:      "otel-packages",

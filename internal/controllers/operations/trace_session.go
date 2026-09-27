@@ -252,9 +252,10 @@ func (o *MaintainTraceSession) EnsureDeployment(ctx context.Context) error {
 					DNSPolicy:    dnsPolicy,
 					Containers: []v1.Container{
 						{
-							Name:    "weka-trace-session",
-							Image:   o.DeduceTaskmonImage(),
-							Command: []string{"/entrypoint.sh"},
+							Name:      "weka-trace-session",
+							Image:     o.DeduceTaskmonImage(),
+							Command:   []string{"/entrypoint.sh"},
+							Resources: resources.HelperContainerResources(),
 							Env: []v1.EnvVar{
 								{
 									Name:  "TASKMON_TRACE_STREAMER_CONFIGS_SOURCE",

@@ -26,9 +26,10 @@ echo "UIO module loaded successfully"
 	hostPathType := v1.HostPathUnset
 
 	uioInitContainer := v1.Container{
-		Name:    "uio-loader-init",
-		Image:   config.Config.MaintenanceImage,
-		Command: command,
+		Name:      "uio-loader-init",
+		Image:     config.Config.MaintenanceImage,
+		Command:   command,
+		Resources: HelperContainerResources(),
 		SecurityContext: &v1.SecurityContext{
 			Privileged: &privileged,
 		},
@@ -92,9 +93,10 @@ func (f *PodFactory) copyWekaVersionToContainer(pod *v1.Pod) {
 	sharedVolumeMountPath := "/shared-weka-version"
 
 	pod.Spec.InitContainers = append(pod.Spec.InitContainers, v1.Container{
-		Name:    "copy-cli",
-		Image:   payload.CliImage,
-		Command: []string{"sh", "-c"},
+		Name:      "copy-cli",
+		Image:     payload.CliImage,
+		Command:   []string{"sh", "-c"},
+		Resources: HelperContainerResources(),
 		Args: []string{
 			`
 					# Stage the weka CLI outside /opt/weka: the extraction step below bind-mounts
@@ -129,9 +131,10 @@ func (f *PodFactory) copyWekaVersionToContainer(pod *v1.Pod) {
 
 	privileged := true
 	pod.Spec.InitContainers = append(pod.Spec.InitContainers, v1.Container{
-		Name:    "copy-weka-version",
-		Image:   payload.TargetImage,
-		Command: []string{"sh", "-c"},
+		Name:      "copy-weka-version",
+		Image:     payload.TargetImage,
+		Command:   []string{"sh", "-c"},
+		Resources: HelperContainerResources(),
 		Args: []string{
 			`
 			# Detect version from release spec file
