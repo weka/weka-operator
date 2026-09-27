@@ -14,6 +14,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
@@ -596,6 +597,17 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 								"envoy",
 								"-c",
 								"/etc/envoy/envoy.yaml",
+							},
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("4"),
+									corev1.ResourceMemory: resource.MustParse("16Gi"),
+								},
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:              resource.MustParse("100m"),
+									corev1.ResourceMemory:           resource.MustParse("128Mi"),
+									corev1.ResourceEphemeralStorage: resource.MustParse("100Mi"),
+								},
 							},
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler:        settings.probeHandler(managementProxyPort),
