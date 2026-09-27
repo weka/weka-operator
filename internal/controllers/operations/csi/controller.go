@@ -299,6 +299,9 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							Name:    "copy-wait-binary",
 							Image:   config.Config.Csi.WekafsImage,
 							Command: []string{"cp", "/wait-for-leader", "/shared/wait-for-leader"},
+							// Shares the wekafs image, so it is sized from the same config rather
+							// than the generic helper profile.
+							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.Wekafs),
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "shared-bin",

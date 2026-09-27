@@ -25,6 +25,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/metrics"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -40,6 +41,9 @@ type MonitoringServiceHashableSpec struct {
 	Tolerations     []v1.Toleration
 	NodeSelector    *util2.HashableMap
 	ImagePullSecret string
+	// Deployments are only updated when this hash changes, so the container's resources have to
+	// take part in it -- otherwise a deployment created before they existed keeps running without.
+	Resources string
 }
 
 // GetMonitoringServiceIdentifierLabels returns the core identifier labels used for pod lookup
@@ -95,6 +99,7 @@ func GetMonitoringServiceHash(cluster *weka.WekaCluster) (string, error) {
 		Tolerations:     tolerations,
 		NodeSelector:    nodeSelectorHashable,
 		ImagePullSecret: cluster.Spec.ImagePullSecret,
+		Resources:       resources.HelperContainerResourcesID(),
 	}
 
 	return util2.HashStruct(spec)
@@ -469,8 +474,9 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 					NodeSelector: GetMonitoringServiceNodeSelector(r.cluster),
 					Containers: []v1.Container{
 						{
-							Name:  "weka-cluster-metrics",
-							Image: config.Config.Metrics.Clusters.Image,
+							Name:      "weka-cluster-metrics",
+							Image:     config.Config.Metrics.Clusters.Image,
+							Resources: resources.HelperContainerResources(),
 							Ports: []v1.ContainerPort{
 								{
 									ContainerPort: 80,

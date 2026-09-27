@@ -171,6 +171,7 @@ func (o *PvcMigrateOperation) EnsureJob(ctx context.Context) error {
 							Image:        maintenanceImage, // Use maintenance image which should have cp
 							Command:      command,
 							VolumeMounts: volumeMounts,
+							Resources:    resources.HelperContainerResources(),
 						},
 					},
 					RestartPolicy: corev1.RestartPolicyOnFailure,

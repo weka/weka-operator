@@ -83,6 +83,7 @@ func BuildPrePullDaemonSet(cfg *PrePullDaemonSetConfig) *appsv1.DaemonSet {
 		Image:           cfg.TargetImage,
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command:         []string{"sh", "-c", "echo 'Image pulled successfully'"},
+		Resources:       resources.HelperContainerResources(),
 	}
 
 	// Main container keeps pod alive for status tracking
@@ -91,6 +92,7 @@ func BuildPrePullDaemonSet(cfg *PrePullDaemonSetConfig) *appsv1.DaemonSet {
 		Image:           config.Config.MaintenanceImage,
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command:         []string{"sleep", "infinity"},
+		Resources:       resources.HelperContainerResources(),
 	}
 
 	imagePullSecrets := []corev1.LocalObjectReference{
