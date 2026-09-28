@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/capacityplanner"
 	globalconfig "github.com/weka/weka-operator/internal/config"
 )
 
@@ -51,7 +52,7 @@ func (clusterDriveComputeCoreRatio) Validate(_ context.Context, _ client.Client,
 	exclusiveFullDrives := config.NumDrives > 0 && config.DriveCapacity == 0
 	var ratio float64
 	if exclusiveFullDrives {
-		ratio = globalconfig.Config.CapacityPlanner.FullDrivesComputeToDriveCoreRatio
+		ratio = capacityplanner.EffectiveFullDrivesRatio(globalconfig.Config.CapacityPlanner.FullDrivesComputeToDriveCoreRatio)
 	} else {
 		ratio = globalconfig.Config.CapacityPlanner.ComputeToTlcDriveCoreRatio
 	}

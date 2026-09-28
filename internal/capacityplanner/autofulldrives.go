@@ -2,6 +2,8 @@ package capacityplanner
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 )
 
@@ -86,7 +88,7 @@ func PlanAutoFullDrives(
 	if plan.Infeasible == "" {
 		// Compute is sized against the FINAL drive state (existing containers as grown above), so one reconcile
 		// converges rather than trailing a pass behind.
-		planComputeAutoFullDrives(&autoComputeInput{
+		plan = planComputeAdaptive(&plan, &autoComputeInput{
 			desired:            desired,
 			existing:           existingCompute,
 			computeNodes:       computeNodes,
@@ -94,10 +96,53 @@ func PlanAutoFullDrives(
 			totalTlcGiB:        totals.tlcGiBTaken,
 			existingDriveCount: len(existingDrives),
 			cons:               cons,
-		}, &plan)
+		})
 	}
 
 	plan.DriveSizing = buildDriveSizingRationale(&plan, desired, totals, cons)
+	return plan
+}
+
+// planComputeAdaptive runs the compute step at plan.RequiredComputeCores. With an unset (negative) full-drives
+// ratio, a compute-infeasible 2:1 target is relaxed one core at a time down to the 1:1 drive-core floor and the
+// largest target that fits wins; each attempt starts from the same pre-compute plan and headroom because the
+// compute step reserves in-place growth against in.remaining. Below 1:1 the floor attempt's verdict stands.
+func planComputeAdaptive(base *CapacityPlan, in *autoComputeInput) CapacityPlan {
+	base.Warnings = slices.Clip(base.Warnings) // appends on attempts must never share a backing array
+	remaining := in.remaining
+	attempt := func(required int) CapacityPlan {
+		p := *base
+		p.RequiredComputeCores = required
+		in.remaining = maps.Clone(remaining)
+		planComputeAutoFullDrives(in, &p)
+		return p
+	}
+
+	preferred := base.RequiredComputeCores
+	plan := attempt(preferred)
+	floor := base.TotalTlcDriveCores
+	if in.cons.FullDrivesComputeToDriveCoreRatio >= 0 || plan.Infeasibility == nil ||
+		plan.Infeasibility.Pool != "compute" || preferred <= floor {
+		return plan
+	}
+
+	// Lower t can settle on fewer, larger containers, each carrying a bigger share of the count-divided
+	// capacity hugepages term, so feasibility is not monotone in t — the descent must check every t.
+	for t := preferred - 1; t >= floor; t-- {
+		plan = attempt(t)
+		if plan.Infeasible == "" {
+			// Report what was placed, not t: per-container rounding and the container floor can exceed it.
+			placed := 0
+			for _, c := range plan.ComputeLayout {
+				placed += c.NumCores
+			}
+			plan.Warnings = append(plan.Warnings, fleetWarningWithCause(WarningKindComputeLayout, CauseComputeRatioRelaxed,
+				"compute:drive core ratio relaxed to %.2f:1 (preferred %g:1): %d compute core(s) placed for %d drive "+
+					"core(s), short of the %d preferred; add compute-eligible nodes to restore it",
+				float64(placed)/float64(floor), PreferredFullDrivesComputeToDriveCoreRatio, placed, floor, preferred))
+			return plan
+		}
+	}
 	return plan
 }
 

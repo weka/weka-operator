@@ -536,7 +536,7 @@ func LoadCapacityEnv() {
 	Config.CapacityPlanner.MaxCoresPerContainer = getIntEnvOrDefault("CAPACITY_MAX_CORES_PER_CONTAINER", 19) // capacityplanner.DefaultMaxCoresPerContainer
 	Config.CapacityPlanner.ComputeToTlcDriveCoreRatio = getFloatEnvOrDefault("CAPACITY_COMPUTE_TO_TLC_DRIVE_CORE_RATIO", 1.0)
 	Config.CapacityPlanner.ComputeToQlcDriveCoreRatio = getFloatEnvOrDefault("CAPACITY_COMPUTE_TO_QLC_DRIVE_CORE_RATIO", 0.0)
-	Config.CapacityPlanner.FullDrivesComputeToDriveCoreRatio = getFloatEnvOrDefault("CAPACITY_FULL_DRIVES_COMPUTE_TO_DRIVE_CORE_RATIO", 2.0)
+	Config.CapacityPlanner.FullDrivesComputeToDriveCoreRatio = getFloatEnvOrDefault("CAPACITY_FULL_DRIVES_COMPUTE_TO_DRIVE_CORE_RATIO", -1)
 
 	// Compute hugepages cap
 	Config.ComputeMaxHugepagesMiB = getIntEnvOrDefault("COMPUTE_MAX_HUGEPAGES_MIB", 360000)

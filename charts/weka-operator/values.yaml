@@ -367,8 +367,9 @@ capacityPlannerConstraints:
     # Compute:QLC-drive-core ratio. Default: 0.0.
     computeToQlcDriveCoreRatio: 0.0
   fullDrives:
-    # Compute:drive-core ratio. Default: 2.0.
-    computeToDriveCoreRatio: 2.0
+    # Compute:drive-core ratio. Unset (default): prefer 2:1 and, when the compute nodes cannot host that,
+    # relax toward 1:1; infeasible only below 1:1. Set a number to enforce that ratio strictly.
+    computeToDriveCoreRatio: null
 
 # Cluster capacity configuration
 # Used when spec.dynamicTemplate.clusterCapacity is set on a WekaCluster.
