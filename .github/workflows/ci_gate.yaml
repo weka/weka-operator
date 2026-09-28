@@ -574,6 +574,7 @@ jobs:
                 "join-ips": $join_ips,
                 "weka-secret-ref": "weka-client-upgrade-extended",
                 "csi-secret-name": "weka-csi-upgrade-extended",
+                "cleanup": "on-start",
                 "is-openshift": true
               }
             }')
