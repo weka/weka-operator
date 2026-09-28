@@ -326,7 +326,8 @@ At the defaults the ratio term equals `totalTlcDriveCores` for a TLC-only cluste
 QLC drive cores too**, so a mixed TLC/QLC cluster requires at least
 one compute core per drive core of *either* type — raising a ratio above 1.0 asks for more, but no
 setting can ever take the plan below 1:1. Full-drives mode uses the same function with its own ratio
-(default **2.0**); see [Act As Daemonset](act-as-daemonset.md#compute-sizing).
+(unset by default: prefer **2.0**, relaxed toward 1:1 when compute cannot host it); see
+[Act As Daemonset](act-as-daemonset.md#compute-sizing).
 
 Compute
 carries its **own** role node selector (`roleNodeSelector.compute`, falling back to the cluster
@@ -1008,7 +1009,7 @@ that fails fast via `ClusterCapacityInfeasible`.)
 | `capacityPlannerConstraints.maxCoresPerContainer` | `19` | `CAPACITY_MAX_CORES_PER_CONTAINER` | Per-container core cap for **drive and compute** containers in **both** planners (0 disables the *policy* cap; real per-node headroom still binds). 19 is weka's own per-container limit; `driveCores`/`computeCores` above 19 are rejected at admission regardless of this value |
 | `capacityPlannerConstraints.driveSharing.computeToTlcDriveCoreRatio` | `1.0` | `CAPACITY_COMPUTE_TO_TLC_DRIVE_CORE_RATIO` | Compute cores wanted per **TLC** drive core (see [Compute sizing](#compute-sizing)); the 1:1 total-drive-core floor still applies |
 | `capacityPlannerConstraints.driveSharing.computeToQlcDriveCoreRatio` | `0.0` | `CAPACITY_COMPUTE_TO_QLC_DRIVE_CORE_RATIO` | Compute cores wanted per **QLC** drive core; `0` sizes compute from TLC cores alone (QLC drive cores excluded from the ratio term) |
-| `capacityPlannerConstraints.fullDrives.computeToDriveCoreRatio` | `2.0` | `CAPACITY_FULL_DRIVES_COMPUTE_TO_DRIVE_CORE_RATIO` | Compute cores wanted per drive core in **full-drives** mode (including the [daemonset mode](act-as-daemonset.md)), see [Act As Daemonset](act-as-daemonset.md#compute-sizing) |
+| `capacityPlannerConstraints.fullDrives.computeToDriveCoreRatio` | unset (prefer `2.0`, relax toward `1.0`) | `CAPACITY_FULL_DRIVES_COMPUTE_TO_DRIVE_CORE_RATIO` | Compute cores wanted per drive core in **full-drives** mode (including the [daemonset mode](act-as-daemonset.md)), see [Act As Daemonset](act-as-daemonset.md#compute-sizing) |
 | `hugepagesTlcRatio` | `1000` | `HUGEPAGES_TLC_RATIO` | Divisor for the TLC term of the compute hugepages [capacity-based formula](#compute-sizing) |
 | `hugepagesQlcRatio` | `6000` | `HUGEPAGES_QLC_RATIO` | Divisor for the QLC term of the compute hugepages [capacity-based formula](#compute-sizing) |
 | `computeMaxHugepagesMiB` | `360000` | `COMPUTE_MAX_HUGEPAGES_MIB` | Hard cap on a single compute container's hugepages, applied after the [per-core floor](#compute-sizing) |

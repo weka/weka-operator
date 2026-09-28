@@ -458,8 +458,10 @@ spec:
               value: "{{ .Values.capacityPlannerConstraints.driveSharing.computeToTlcDriveCoreRatio }}"
             - name: CAPACITY_COMPUTE_TO_QLC_DRIVE_CORE_RATIO
               value: "{{ .Values.capacityPlannerConstraints.driveSharing.computeToQlcDriveCoreRatio }}"
+            {{- if not (kindIs "invalid" .Values.capacityPlannerConstraints.fullDrives.computeToDriveCoreRatio) }}
             - name: CAPACITY_FULL_DRIVES_COMPUTE_TO_DRIVE_CORE_RATIO
               value: "{{ .Values.capacityPlannerConstraints.fullDrives.computeToDriveCoreRatio }}"
+            {{- end }}
             - name: CLUSTER_CAPACITY_TLC_CAPACITY_PER_CORE_GIB
               value: "{{ .Values.clusterCapacity.tlcCapacityPerCoreGiB }}"
             - name: CLUSTER_CAPACITY_QLC_CAPACITY_PER_CORE_GIB

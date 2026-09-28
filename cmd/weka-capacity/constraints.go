@@ -32,7 +32,7 @@ type constraintFlags struct {
 	HugepagesQlcRatio                 *int     `long:"hugepages-qlc-ratio" description:"Override the compute-hugepages QLC ratio"`
 	ComputeToTlcDriveCoreRatio        *float64 `long:"compute-to-tlc-drive-core-ratio" description:"Override the compute:TLC-drive-core ratio"`
 	ComputeToQlcDriveCoreRatio        *float64 `long:"compute-to-qlc-drive-core-ratio" description:"Override the compute:QLC-drive-core ratio"`
-	FullDrivesComputeToDriveCoreRatio *float64 `long:"full-drives-compute-to-drive-core-ratio" description:"Override the full-drives (daemonset / auto full drives) compute:drive-core ratio"`
+	FullDrivesComputeToDriveCoreRatio *float64 `long:"full-drives-compute-to-drive-core-ratio" description:"Override the full-drives (daemonset / auto full drives) compute:drive-core ratio; negative = unset (prefer 2:1, relax toward 1:1 to fit)"`
 }
 
 // loadConstraints builds the capacity constraints in three layers — NEVER re-hardcoding a value the

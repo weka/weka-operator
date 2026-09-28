@@ -83,6 +83,7 @@ type CapacityConstraints struct {
 	// Compute:drive core ratios: requiredComputeCores = max(totalDriveCores, ceil(tlcRatio*tlcCores +
 	// qlcRatio*qlcCores)) — total drive cores is a HARD 1:1 floor no ratio can undercut. The
 	// drive-sharing pair applies to clusterCapacity/containerCapacity; FullDrives... to auto-full-drives.
+	// FullDrivesComputeToDriveCoreRatio < 0 is unset (adaptive): prefer 2:1, relax toward 1:1 to fit compute.
 	ComputeToTlcDriveCoreRatio        float64
 	ComputeToQlcDriveCoreRatio        float64
 	FullDrivesComputeToDriveCoreRatio float64
@@ -191,6 +192,8 @@ const (
 	CausePlacementUnscheduled     WarningCause = "unscheduled-pod"
 	CausePlacementDriveDeleting   WarningCause = "drive-container-deleting"
 	CausePlacementComputeDeleting WarningCause = "compute-container-deleting"
+	// CauseComputeRatioRelaxed: an unset full-drives ratio fell back below 2:1 (still >= 1:1) to fit compute.
+	CauseComputeRatioRelaxed WarningCause = "compute-ratio-relaxed"
 )
 
 // Warning is one classified planner advisory. Every auto-full-drives warning is fleet-wide: a condition
@@ -274,7 +277,8 @@ type DriveSizingRationale struct {
 	TotalTlcDriveCores int `json:"totalTlcDriveCores"`
 	TotalQlcDriveCores int `json:"totalQlcDriveCores"` // always 0 for auto-full-drives; kept for symmetry
 	// RequiredComputeCores: the compute-core total this plan must supply (full-drives ratio applied to
-	// TotalTlcDriveCores). Nothing in the planner reduces it — a fleet that cannot supply it is infeasible.
+	// TotalTlcDriveCores). With an unset ratio this is the relaxed target the plan actually satisfies,
+	// between the 1:1 floor and the 2:1 preferred; a fleet that cannot supply even the floor is infeasible.
 	RequiredComputeCores     int `json:"requiredComputeCores"`
 	ComputeContainers        int `json:"computeContainers"`
 	ComputeCoresPerContainer int `json:"computeCoresPerContainer"`

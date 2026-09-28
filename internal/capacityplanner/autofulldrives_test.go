@@ -4523,3 +4523,80 @@ func TestPlanAutoFullDrives_ComputeShortfall_NamesDrainingNode(t *testing.T) {
 		t.Fatalf("clause must not change the classification: %+v vs %+v", with.Infeasibility, without.Infeasibility)
 	}
 }
+
+// An unset (negative) full-drives ratio prefers 2:1 but relaxes toward the 1:1 drive-core floor when compute
+// cannot host 2:1, instead of failing; an explicit 2.0 stays strict, and below 1:1 it is still infeasible.
+func TestPlanAutoFullDrives_AdaptiveRatio(t *testing.T) {
+	const big = 1 << 28
+	mk := func(ratio float64, computeCPU int) CapacityPlan {
+		cons := testCons()
+		cons.FullDrivesComputeToDriveCoreRatio = ratio
+		inv := []NodeCapacity{{
+			NodeName: "d1", FDValue: "d1", DriveCapacitiesGiB: afdDrives(6, 1000), TlcGiB: 6000,
+			AllocatableCPU: 64, AvailableHugepagesMiB: big, AvailableMemoryMiB: big,
+		}}
+		for _, n := range []string{"c1", "c2", "c3"} {
+			inv = append(inv, NodeCapacity{
+				NodeName: n, FDValue: n,
+				AllocatableCPU: computeCPU, AvailableHugepagesMiB: big, AvailableMemoryMiB: big,
+			})
+		}
+		return PlanAutoFullDrives(AutoFullDrivesDesired{}, nil, nil, inv, computeNodeSet("c1", "c2", "c3"), cons)
+	}
+	computeCores := func(p CapacityPlan) int {
+		total := 0
+		for _, c := range p.ComputeLayout {
+			total += c.NumCores
+		}
+		return total
+	}
+	relaxed := func(p CapacityPlan) bool {
+		for _, w := range p.Warnings {
+			if w.Cause == CauseComputeRatioRelaxed {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("relaxes when 2:1 does not fit", func(t *testing.T) {
+		p := mk(-1, adaptiveTightCPU)
+		if p.Infeasible != "" {
+			t.Fatalf("want feasible, got %q", p.Infeasible)
+		}
+		got := computeCores(p)
+		if got < 6 || got >= 12 {
+			t.Fatalf("compute cores = %d, want in [6, 12)", got)
+		}
+		if !relaxed(p) {
+			t.Fatalf("want a ratio-relaxed warning, got %v", p.Warnings)
+		}
+		if msg := strings.Join(WarningMessages(p.Warnings), " | "); !strings.Contains(msg, fmt.Sprintf("%d compute core(s) placed", got)) {
+			t.Fatalf("warning must report the placed %d cores, got %q", got, msg)
+		}
+	})
+	t.Run("explicit 2.0 stays strict", func(t *testing.T) {
+		if p := mk(2.0, adaptiveTightCPU); p.Infeasible == "" {
+			t.Fatalf("want infeasible under an explicit 2.0 ratio, got feasible")
+		}
+	})
+	t.Run("keeps 2:1 when it fits", func(t *testing.T) {
+		p := mk(-1, 64)
+		if p.Infeasible != "" || computeCores(p) != 12 || relaxed(p) {
+			t.Fatalf("want 12 compute cores and no relaxation, got cores=%d infeasible=%q warnings=%v",
+				computeCores(p), p.Infeasible, p.Warnings)
+		}
+	})
+	t.Run("infeasible below 1:1", func(t *testing.T) {
+		p := mk(-1, 1)
+		if p.Infeasible == "" {
+			t.Fatalf("want infeasible, got feasible with %d compute cores", computeCores(p))
+		}
+		if p.RequiredComputeCores != 6 {
+			t.Fatalf("infeasible report must be for the 1:1 floor (6), got required %d", p.RequiredComputeCores)
+		}
+	})
+}
+
+// adaptiveTightCPU: 3 compute nodes this size host at least the 6-core 1:1 floor but less than the 12-core 2:1 target.
+const adaptiveTightCPU = 3

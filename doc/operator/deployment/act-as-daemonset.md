@@ -127,7 +127,8 @@ For each eligible node, the operator counts its signed non-blocked full drives, 
 - **Hugepages and memory** for the drive container — recomputed from the derived core count (see
   [Per-container footprint](#per-container-footprint-defaults-mib) below for the exact figures).
 - **Compute sizing** — derived from the total drive cores across the cluster at a configurable
-  ratio, **2:1 by default** in full-drives mode. See [Compute sizing](#compute-sizing).
+  ratio. Unset by default: the planner targets **2:1** and, if the compute nodes cannot host that,
+  relaxes toward **1:1** (a `ComputeLayout` warning names the ratio reached). See [Compute sizing](#compute-sizing).
 
 ## The algorithm
 
@@ -163,7 +164,10 @@ never chooses. What the spec can set, and how the planner treats it:
 4. **Size compute from drive cores.** Compute has no per-node pinning, so this is a real derivation:
 
    ```
-   requiredComputeCores = max(totalDriveCores, ceil(2.0 × totalDriveCores))  # ratio 2.0, hard 1:1 floor
+   requiredComputeCores = max(totalDriveCores, ceil(ratio × totalDriveCores))  # hard 1:1 floor
+   # ratio unset (default): try 2.0; if compute is infeasible, retry one core lower at a time down to
+   # totalDriveCores and keep the largest target that fits. Infeasible only when even 1:1 does not fit.
+   # ratio set explicitly: that target is enforced as-is.
    computeContainers    = smallest n ≥ 5 whose n best nodes fit ceil(required / n) cores + hugepages
    computeCores         = ceil(requiredComputeCores / computeContainers)      # floor is 3 under ALLOW_SINGLE_PARITY
    ```
@@ -206,6 +210,7 @@ event per condition naming up to 10 nodes, not one event per node:
 | `Transient` | `drive-container-deleting` | This cluster's drive container on the node is being deleted |
 | `Transient` | `compute-container-deleting` | A deleting compute container still holds hugepages, so the fit may fail until it lands |
 | `ComputeLayout` | — | Compute-sizing advisory, e.g. the form-cluster floor forcing more containers than the core requirement needs |
+| `ComputeLayout` | `compute-ratio-relaxed` | An unset full-drives ratio was relaxed below 2:1 (still ≥ 1:1) so compute fits |
 
 The full event table with throttles is in [Events](#events).
 
@@ -338,7 +343,7 @@ Compute is sized from the cluster's drive cores at a **configurable ratio** with
 
 | Mode | Ratio setting | Default |
 |---|---|---|
-| Full drives (daemonset, manual container counts) | `capacityPlannerConstraints.fullDrives.computeToDriveCoreRatio` | **2.0** |
+| Full drives (daemonset, manual container counts) | `capacityPlannerConstraints.fullDrives.computeToDriveCoreRatio` | unset — prefer **2.0**, relax toward 1.0 to fit (auto full drives); the manual-counts advisory checks against 2.0 |
 | Drive sharing — TLC drive cores | `capacityPlannerConstraints.driveSharing.computeToTlcDriveCoreRatio` | **1.0** |
 | Drive sharing — QLC drive cores | `capacityPlannerConstraints.driveSharing.computeToQlcDriveCoreRatio` | **0.0** |
 
@@ -412,7 +417,7 @@ the example below applies it at defaults.
 
 Fleet: **8 hyperconverged nodes**, each with **6 signed full drives of 14,307 GiB**, 63 CPUs and
 **60,000 MiB** of free hugepages. Defaults throughout (`hugepagesTlcRatio: 1000`,
-`computeMaxHugepagesMiB: 360000`, `fullDrives.computeToDriveCoreRatio: 2.0`).
+`computeMaxHugepagesMiB: 360000`, `fullDrives.computeToDriveCoreRatio` unset, so the target is 2:1).
 
 1. **Claimed capacity.** Every drive is taken: `8 × 6 × 14,307 = 686,736 GiB`, which is
    `686,736 × 1024 / 1000 = 703,217 MiB` of cluster-wide compute hugepages to divide up.
@@ -429,7 +434,8 @@ Fleet: **8 hyperconverged nodes**, each with **6 signed full drives of 14,307 Gi
                  + 64 × 12 (DPDK)              = 109,070 MiB
    ```
 
-   against **50,016 MiB** available. The plan is **infeasible**.
+   against **50,016 MiB** available. With the ratio unset the planner relaxes toward 1:1 (48 cores),
+   but step 5 shows no core count can fit here, so the plan is **infeasible**.
 
 5. **Smaller compute containers do not rescue it.** Even at one core each, the capacity-based term
    alone gives `87,902 + 1,700 + 64 = 89,666` MiB — still above the node's *entire* 60,000 MiB, before
@@ -984,7 +990,7 @@ without matching message text, and the kinds that are not problems are Normal ra
 | `AutoFullDrivesDrivesStranded` | Normal | Cluster | 3 min | A pinned `numDrives` leaves signed drives unused. One aggregated message covering the whole fleet, listing each node as *used of signed*. **Expected** whenever the pin is in force — it is Normal precisely because you asked for it. Raise or drop `numDrives` to use them. |
 | `AutoFullDrivesPlacementDeferred` | Normal | Cluster | 3 min | Placement is waiting this pass, for one of four causes, each its own message and its own throttle key so one cause firing never silences another: an existing container's growth is deferred because its pod is not yet scheduled; a node still hosts a this-cluster drive container that is being deleted; a node hosts a this-cluster compute container that is being deleted and holds what the pending placement needs — a create as readily as a growth, and the message names the binding dimension (cores, hugepages or memory) only when every node hit by this cause is short of the same one; or, fleet-wide, *every* signed drive is still held by containers being deleted so planning cannot start at all — there the drives are signed, merely not released yet. A pass can therefore emit up to three of these events for the per-node causes, each naming every node hit by that one cause, plus the fleet-wide one as a fourth. Clears itself. |
 | `AutoFullDrivesNodeIneligible` | Normal | Cluster | 3 min | A node matching the drive-role selector is cordoned, `NotReady`, or carries an untolerated taint, so it gets no **new** container. Normal rather than Warning because on its own it costs nothing — the plan proceeds on the remaining nodes, and if the loss actually matters the plan goes infeasible and `AutoFullDrivesInfeasible` says so. All currently-ineligible nodes arrive in one message, each still carrying its own reason inline (e.g. `cordoned`), but the throttle cause is the *set* of distinct reasons present this pass — so a node going `NotReady` changes the cause and is reported at once even while a separately cordoned node's event is still inside its own window, instead of one reason masking the other. Anything already running there keeps running and still grows. See [Troubleshooting](#troubleshooting). |
-| `AutoFullDrivesComputeLayout` | Warning | Cluster | 15 min | Every compute-sizing advisory from the shared compute layout step, joined into one message per pass. |
+| `AutoFullDrivesComputeLayout` | Warning | Cluster | 15 min | Compute-sizing advisories from the shared compute layout step. The compute-ratio-relaxed advisory (an unset full-drives ratio relaxed below 2:1) is a separate Warning with its own cause and throttle window, so a single pass can emit two of these. |
 | `AutoFullDrivesWarning` | Warning | Cluster | 15 min | Fallback only: a planner warning whose kind has no dedicated reason yet. |
 | `AutoFullDrivesInfeasible` | Warning | Cluster | 1 min | The plan can't proceed and **nothing is created**. Triggers: a node that cannot fit a container sized for all its drives (named, with the binding dimension and needed-vs-available), `driveCores` pinned above a node's drive count, `numDrives` pinned above a node's signed count, not enough compute capacity for the ratio, or a growth blocked by headroom a co-located compute container holds (see [Relaxing a pin in stages can strand capacity](#relaxing-a-pin-in-stages-can-strand-capacity)). The message names the binding reason and, for a growth blocked this way, the remedy. The full remedy catalog travels in the structured report rather than the event — `weka-capacity plan` renders it. |
 | `AutoFullDrivesNoSignedDrives` | Normal | Cluster | 1 min | No node matching the drive-role selector has a signed, non-blocked full drive yet. Planning is deferred; sign drives and the operator picks them up on its own. Drives held by a container being deleted are *not* this case — see `AutoFullDrivesPlacementDeferred`. |

@@ -30,8 +30,9 @@ func CapacityConstraintsFromConfig() *capacityplanner.CapacityConstraints {
 	// (0 growth-fraction = always allow in-place grow; 0 over-provision = never overshoot desiredRaw).
 	minGrowthFraction := globalconfig.Config.DriveSharing.MinGrowthFraction
 	maxOverProvisionFraction := globalconfig.Config.DriveSharing.MaxOverProvisionFraction
-	// Negative means genuinely unset, so fall back to documented defaults; 0 is a meaningful
-	// "disable this ratio term" value (see CapacityConstraints doc comment).
+	// Negative means genuinely unset: the drive-sharing pair falls back to their documented defaults, while
+	// the full-drives ratio keeps it as the planner's adaptive mode (prefer 2:1, relax toward 1:1). 0 is a
+	// meaningful "disable this ratio term" value (see CapacityConstraints doc comment).
 	computeToTlcDriveCoreRatio := globalconfig.Config.CapacityPlanner.ComputeToTlcDriveCoreRatio
 	if computeToTlcDriveCoreRatio < 0 {
 		computeToTlcDriveCoreRatio = 1.0
@@ -39,10 +40,6 @@ func CapacityConstraintsFromConfig() *capacityplanner.CapacityConstraints {
 	computeToQlcDriveCoreRatio := globalconfig.Config.CapacityPlanner.ComputeToQlcDriveCoreRatio
 	if computeToQlcDriveCoreRatio < 0 {
 		computeToQlcDriveCoreRatio = 0.0
-	}
-	fullDrivesComputeToDriveCoreRatio := globalconfig.Config.CapacityPlanner.FullDrivesComputeToDriveCoreRatio
-	if fullDrivesComputeToDriveCoreRatio < 0 {
-		fullDrivesComputeToDriveCoreRatio = 2.0
 	}
 	return &capacityplanner.CapacityConstraints{
 		TlcCapacityPerCoreGiB: cfg.TlcCapacityPerCoreGiB,
@@ -61,7 +58,7 @@ func CapacityConstraintsFromConfig() *capacityplanner.CapacityConstraints {
 		ComputeMaxHugepagesMiB:            globalconfig.Config.ComputeMaxHugepagesMiB,
 		ComputeToTlcDriveCoreRatio:        computeToTlcDriveCoreRatio,
 		ComputeToQlcDriveCoreRatio:        computeToQlcDriveCoreRatio,
-		FullDrivesComputeToDriveCoreRatio: fullDrivesComputeToDriveCoreRatio,
+		FullDrivesComputeToDriveCoreRatio: globalconfig.Config.CapacityPlanner.FullDrivesComputeToDriveCoreRatio,
 		// Disabled: planner creates new containers instead of extending existing ones.
 		AllowInPlaceGrowth:       globalconfig.Config.DriveSharing.EnableDynamicDriveScaling,
 		MinGrowthFraction:        minGrowthFraction,
