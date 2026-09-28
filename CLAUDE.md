@@ -64,23 +64,59 @@ go test ./...
 make test-e2e
 ```
 
+## Scope of a change
+
+Fix what was asked, and only that. Unrelated problems you notice along the way
+stay untouched — even obvious ones, even one-line ones. Mention them and offer
+to open a ticket instead.
+
+A change is in scope only if the requested fix does not work without it.
+
+## After any code change
+
+Run `/simplify` once the change is complete and working. Not after each edit —
+after the change as a whole.
+
+## Commit messages
+
+One line. No body, no bullet list, no trailing explanation — if the change needs
+more words than a single subject line, those words belong in the PR description,
+the code, or a comment, not in the commit.
+
+Conventional-commit prefix (enforced by `commitlint.config.js`), and the Jira key
+when there is one. Existing history is the bar:
+`fix: add csi properties to wekapolicy configuration (OP-387)`.
+
 ## Code Style
 
 - Go code follows standard Go conventions
-- Comments should be short, explain what the code does and why it is the way it is — nothing else.
-  Do NOT write comments about: history or changelog, anything restating the line below it, or narrating obvious mechanics
 - Never swallow errors unless explicitly asked for
-- Comments should be short, explain what the code does and why it is the way it is — nothing else.
-  Do NOT write comments about:
-  - History or changelog ("an earlier revision did X", "previously this was Y",
-    "renamed from Z", "added in PR #123") — that belongs in git or Jira tasks, not the source
-  - The process of writing the code ("as requested", "TODO: I chose this because",
-    self-justification, apologies, notes addressed to a reviewer)
-  - Anything restating the line below it, or narrating obvious mechanics
-  A reader who has never seen the diff should find every comment useful.
 - Controllers use `go-steps-engine` for step-based reconciliation
 - Kubernetes resources use controller-runtime patterns
 - Python code (in charts/resources) uses standard Python style
+
+## Comments
+
+Keep them minimal. Write a comment only when the code cannot be made obvious on
+its own: a non-obvious Weka or Kubernetes constraint, a deliberate omission, a
+workaround whose reason isn't visible in the diff. Do not comment what the code
+already says.
+
+The test is what happens when the code is wrong. Comment what fails *silently*,
+at reconcile time, or in only one environment — those cost a cycle to
+rediscover. Say nothing about syntax, types, or API shape: the compiler and
+`make generate` reject those instantly and loudly, so the comment buys nothing
+even when it is accurate.
+
+Do NOT write comments about:
+- History or changelog ("an earlier revision did X", "previously this was Y",
+  "renamed from Z", "added in PR #123") — that belongs in git or Jira tasks, not
+  the source
+- The process of writing the code ("as requested", "TODO: I chose this because",
+  self-justification, apologies, notes addressed to a reviewer)
+- Anything restating the line below it, or narrating obvious mechanics
+
+A reader who has never seen the diff should find every comment useful.
 
 ## Key Documentation
 
