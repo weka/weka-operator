@@ -30,6 +30,28 @@ the top layer, and lower layers cannot be merged untested. There is no merge que
 - One execution at a time on the lab cluster: runs of different PRs wait for each other.
   A new push to a PR cancels that PR's running job and stops its remote execution.
 
+## Continue vs from scratch
+
+Each test job (upgrade-extended, clients-only) looks at its own earlier attempts on the same
+commit, across all ci-gate runs and re-run attempts, before starting:
+
+| Situation | Result |
+|---|---|
+| New commit | from scratch |
+| `run_ci_gate` just added (first attempt of that run) | from scratch, but still fails if the previous execution is `running` / `pending` |
+| Newest earlier job on this commit with an execution succeeded, or none started one | from scratch |
+| clients-only, when upgrade-extended started from scratch in the same attempt (lab rebuilt) | from scratch |
+| Its execution is `failed` / `interrupted` (a cancelled job stops it: `interrupted`) | `POST /api/executions/{id}/continue`, same id polled |
+| ... but another execution used the lab (`operator-mq-ci` / `ocp_clients`) since it stopped | upgrade-extended: from scratch. clients-only: from scratch on the backend now on the lab (possibly another PR's) if the latest updated upgrade-extended succeeded, otherwise job fails ("re-run all jobs") |
+| Its execution has any other status (`running`, `pending`, unknown) | job fails, nothing started |
+| Continue call returns an error | job fails, no fallback to from scratch |
+
+The execution id is read from the job's `Execution: ...` notice annotation. The operator image
+published for the commit is read the same way (`Operator versions: ...`), and Publish Operator
+is skipped when one exists - also on a `run_ci_gate` run, which restarts the lab executions only.
+
+To test: `POST /api/executions/{id}/stop` on the running execution, then re-run the failed jobs.
+
 ## Expected behaviour
 
 Stack notation: `main <- A <- B <- C`, C is the top. "Expected" means no status, blocked.
@@ -44,7 +66,7 @@ Stack notation: `main <- A <- B <- C`, C is the top. "Expected" means no status,
 | C's tests fail | pending | pending | failure | nothing merges; push a fix to C or below |
 | Push to A while C is green | Expected (new SHA) | stale | stale, needs rebase | `gs sync`, then C re-tests and re-greens A and B |
 | Amend C while its tests run | pending | pending | old run cancelled, new run tests | remote execution of the old run stopped |
-| `run_ci_gate` on B | pending, then success | tests run, own result | untouched | "Merge stack" on B lands A+B; remove the label after |
+| `run_ci_gate` on B | pending, then success | tests run from scratch, own result | untouched | "Merge stack" on B lands A+B; label removed when the run ends |
 | `skip_ci_gate` on C, A and B have code commits | Expected | Expected | success | skip does not reach non-skippable layers |
 | `skip_ci_gate` on C, A is chore-only, B has code | success ("chore/docs only") | Expected | success | only the skippable layer inherits |
 | All commits in the stack are chore/docs | success | success | success (no tests) | same as skip on C |
@@ -58,7 +80,7 @@ Stack notation: `main <- A <- B <- C`, C is the top. "Expected" means no status,
 
 | Label | Effect |
 |---|---|
-| `run_ci_gate` | Run the tests on this PR even if it is a lower layer; layers below it are held and greened like for a top. |
+| `run_ci_gate` | One-shot: run the tests from scratch on this PR, even if it is a lower layer; layers below it are held and greened like for a top. Removed automatically when the run ends. |
 | `skip_ci_gate` | Count the tests as passed for this PR without running them. Reaches lower layers only if they are skippable themselves. |
 
 ## Slack
@@ -115,4 +137,7 @@ Slack is best-effort throughout: every failure is a `::warning::`, never a job v
   rather than `failed`, so no investigation is produced and the reply carries the status alone.
 - On a failure the report step waits up to ~5.5m for the investigation, and it runs on the lab
   runner, so the cluster stays reserved for that long after the test itself has finished.
+- `run_ci_gate` is removed when its run ends, pass or fail. On a **lower** layer, both re-running
+  that run and pushing a fix afterwards give a blocked run (gate green, tests skipped, a red
+  status stays). Add the label again: that run starts from scratch.
 - Old PRs whose branch predates `ci_gate.yaml` cannot report the status; rebase them.

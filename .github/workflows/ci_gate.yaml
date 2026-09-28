@@ -7,6 +7,8 @@
 # - the top of a stack (or any layer with label `run_ci_gate`) runs the tests, marks the
 #   layers below `pending` while it runs and `success` when it passes, so a human can merge the
 #   stack up to that layer with "Merge stack";
+# - adding `run_ci_gate` starts the lab tests from scratch and the label is removed when the run
+#   ends; any other run on the same SHA continues the last failed or interrupted execution;
 # - label `skip_ci_gate`, or a PR whose commits are all chore/docs, counts as a pass for
 #   that PR; a lower layer inherits such a pass only if it is skippable itself (same label, or
 #   its own commits are all chore/docs).
@@ -20,6 +22,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  checks: read          # previous executions are found through job annotations
   statuses: write   # post the `ci-gate` status
   actions: write    # wait step lists runs; gate cancels redundant lower-layer runs
 
@@ -35,6 +38,8 @@ concurrency:
 env:
   INITIAL_WEKA_VERSION: "quay.io/weka.io/weka-in-container:4.4.23"
   NEW_WEKA_VERSION: "quay.io/weka.io/weka-in-container:5.1.20.7"
+  # Clusters the lab tests run on: no continue once another execution used either of them.
+  LAB_KUBE_CONTEXTS: "operator-mq-ci ocp_clients"
 
 jobs:
   gate:
@@ -255,6 +260,7 @@ jobs:
     outputs:
       operator_image: ${{ steps.set-operator-versions.outputs.operator_image }}
       operator_helm_image: ${{ steps.set-operator-versions.outputs.operator_helm_image }}
+      fresh_attempt: ${{ steps.create_execution.outputs.fresh_attempt }}
     runs-on: scalar-runners
     steps:
       - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
@@ -308,7 +314,23 @@ jobs:
           echo "CI_HELM_REPO is set to: ${{ vars.CI_HELM_REPO }}"
           echo "WEKA_TESTING_SERVICE_URL is set to: ${{ vars.WEKA_TESTING_SERVICE_URL }}"
 
+      - name: Find previous execution on this commit
+        # Continue by default: a failed or interrupted execution of this job on the same commit
+        # (GH re-run, reopen, ...) is resumed instead of restarted. Adding run_ci_gate starts from
+        # scratch; a GH re-run of that run keeps the `labeled` payload, hence the attempt check.
+        # Also finds the operator already published for this commit, so Publish can be skipped.
+        id: prev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          JOB: upgrade_extended_test
+          WITH_OPERATOR: "true"
+          FRESH: ${{ github.event.action == 'labeled' && github.event.label.name == 'run_ci_gate' && github.run_attempt == 1 }}
+          WEKA_TESTING_SERVICE_URL: ${{ vars.WEKA_TESTING_SERVICE_URL }}
+        run: operator/.github/scripts/find_previous_execution.sh
+
       - name: Publish Operator
+        if: steps.prev.outputs.operator_image == ''
         uses: dagger/dagger-for-github@d913e70051faf3b907d4dd96ef1161083c88c644 # v8.2.0
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -331,11 +353,21 @@ jobs:
       
       - name: Set Operator Versions (to output and environment variables)
         id: set-operator-versions
+        env:
+          PREV_OPERATOR_IMAGE: ${{ steps.prev.outputs.operator_image }}
+          PREV_OPERATOR_HELM_IMAGE: ${{ steps.prev.outputs.operator_helm_image }}
         run: |
           echo "Setting operator versions as environment variables"
-          versions=$(cat ${{ github.workspace }}/versions)
-          operator_image=$(echo "$versions" | head -n 1)
-          operator_helm_image=$(echo "$versions" | tail -n 1)
+          if [[ -n "$PREV_OPERATOR_IMAGE" ]]; then
+            operator_image=$PREV_OPERATOR_IMAGE
+            operator_helm_image=$PREV_OPERATOR_HELM_IMAGE
+          else
+            versions=$(cat ${{ github.workspace }}/versions)
+            operator_image=$(echo "$versions" | head -n 1)
+            operator_helm_image=$(echo "$versions" | tail -n 1)
+          fi
+          # Read back by the "Find previous execution" step of later runs on this commit.
+          echo "::notice::Operator versions: $operator_image $operator_helm_image"
 
           echo "Operator Image: $operator_image"
           echo "Operator Helm Image: $operator_helm_image"
@@ -348,6 +380,8 @@ jobs:
 
       - name: Create upgrade-extended execution
         id: create_execution
+        env:
+          PREV_EXECUTION_ID: ${{ steps.prev.outputs.execution_id }}
         run: |
           OPERATOR_VERSION=$(echo "${{ env.operator_image }}" | sed 's/.*://')
           OPERATOR_IMAGE_REPO=$(echo "${{ env.operator_image }}" | sed 's/:.*//')
@@ -380,24 +414,30 @@ jobs:
               }
             }')
 
+          POST_PATH=/api/executions; ACTION=started
+          if [[ -n "$PREV_EXECUTION_ID" ]]; then
+            POST_PATH=/api/executions/$PREV_EXECUTION_ID/continue; BODY='{}'; ACTION=continued
+          fi
           HTTP_RESPONSE=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sS \
             -w "\n%{http_code}" \
-            -X POST "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions" \
+            -X POST "${{ vars.WEKA_TESTING_SERVICE_URL }}$POST_PATH" \
             -H "Content-Type: application/json" \
             -d "$BODY")
           HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
           RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
           if [[ "$HTTP_CODE" -lt 200 || "$HTTP_CODE" -ge 300 ]]; then
-            echo "::error::testing service POST /api/executions returned HTTP $HTTP_CODE. Response: $RESPONSE"
+            echo "::error::testing service POST $POST_PATH returned HTTP $HTTP_CODE. Response: $RESPONSE"
             exit 1
           fi
-          EXECUTION_ID=$(echo "$RESPONSE" | jq -r '.execution_id // empty')
+          if [[ "$ACTION" == started ]]; then echo "fresh_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"; fi
+          EXECUTION_ID=${PREV_EXECUTION_ID:-$(echo "$RESPONSE" | jq -r '.execution_id // empty')}
           if [ -z "$EXECUTION_ID" ]; then
             echo "::error::testing service did not return execution_id. Response: $RESPONSE"
             exit 1
           fi
           echo "::notice::Execution: ${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
           echo "execution_id=$EXECUTION_ID" >> "$GITHUB_OUTPUT"
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
 
       - name: Notify upgrade-extended started
         uses: ./operator/.github/actions/slack-ci-thread
@@ -407,7 +447,7 @@ jobs:
           channel: ${{ vars.SLACK_CHANNEL_ID }}
           thread-ts: ${{ needs.gate.outputs.slack_ts }}
           text: |-
-            :hourglass_flowing_sand: *upgrade-extended started*
+            :hourglass_flowing_sand: *upgrade-extended ${{ steps.create_execution.outputs.action }}*
             *<${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/${{ steps.create_execution.outputs.execution_id }}|Execution Link>* | *<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|GitHub Actions Run>*
 
       - name: Wait for upgrade-extended execution
@@ -527,6 +567,22 @@ jobs:
             exit 1
           fi
 
+      - name: Find previous execution on this commit
+        # Continue by default: a failed or interrupted execution of this job on the same commit
+        # (GH re-run, reopen, ...) is resumed instead of restarted. Adding run_ci_gate starts from
+        # scratch; a GH re-run of that run keeps the `labeled` payload, hence the attempt check.
+        id: prev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          JOB: clients_only_test
+          # A fresh upgrade-extended in this attempt (run_ci_gate, or nothing to continue) rebuilt the
+          # lab (cleanup on-start): the old clients-only execution cannot be continued on it.
+          FRESH: ${{ needs.upgrade_extended_test.outputs.fresh_attempt == github.run_attempt }}
+          WEKA_TESTING_SERVICE_URL: ${{ vars.WEKA_TESTING_SERVICE_URL }}
+          BACKEND_KUBE_CONTEXT: operator-mq-ci
+        run: operator/.github/scripts/find_previous_execution.sh
+
       - name: Pre clients-only (copy secrets + get join IPs)
         uses: dagger/dagger-for-github@d913e70051faf3b907d4dd96ef1161083c88c644 # v8.2.0
         env:
@@ -545,6 +601,8 @@ jobs:
 
       - name: Create clients-only execution
         id: create_execution
+        env:
+          PREV_EXECUTION_ID: ${{ steps.prev.outputs.execution_id }}
         run: |
           OPERATOR_VERSION=$(echo "${{ needs.upgrade_extended_test.outputs.operator_image }}" | sed 's/.*://')
           OPERATOR_IMAGE_REPO=$(echo "${{ needs.upgrade_extended_test.outputs.operator_image }}" | sed 's/:.*//')
@@ -579,24 +637,29 @@ jobs:
               }
             }')
 
+          POST_PATH=/api/executions; ACTION=started
+          if [[ -n "$PREV_EXECUTION_ID" ]]; then
+            POST_PATH=/api/executions/$PREV_EXECUTION_ID/continue; BODY='{}'; ACTION=continued
+          fi
           HTTP_RESPONSE=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sS \
             -w "\n%{http_code}" \
-            -X POST "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions" \
+            -X POST "${{ vars.WEKA_TESTING_SERVICE_URL }}$POST_PATH" \
             -H "Content-Type: application/json" \
             -d "$BODY")
           HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
           RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
           if [[ "$HTTP_CODE" -lt 200 || "$HTTP_CODE" -ge 300 ]]; then
-            echo "::error::testing service POST /api/executions returned HTTP $HTTP_CODE. Response: $RESPONSE"
+            echo "::error::testing service POST $POST_PATH returned HTTP $HTTP_CODE. Response: $RESPONSE"
             exit 1
           fi
-          EXECUTION_ID=$(echo "$RESPONSE" | jq -r '.execution_id // empty')
+          EXECUTION_ID=${PREV_EXECUTION_ID:-$(echo "$RESPONSE" | jq -r '.execution_id // empty')}
           if [ -z "$EXECUTION_ID" ]; then
             echo "::error::testing service did not return execution_id. Response: $RESPONSE"
             exit 1
           fi
           echo "::notice::Execution: ${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
           echo "execution_id=$EXECUTION_ID" >> "$GITHUB_OUTPUT"
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
 
       - name: Notify clients-only started
         uses: ./operator/.github/actions/slack-ci-thread
@@ -606,7 +669,7 @@ jobs:
           channel: ${{ vars.SLACK_CHANNEL_ID }}
           thread-ts: ${{ needs.gate.outputs.slack_ts }}
           text: |-
-            :hourglass_flowing_sand: *clients-only started*
+            :hourglass_flowing_sand: *clients-only ${{ steps.create_execution.outputs.action }}*
             *<${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/${{ steps.create_execution.outputs.execution_id }}|Execution Link>* | *<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|GitHub Actions Run>*
 
       - name: Wait for clients-only execution
@@ -694,6 +757,9 @@ jobs:
     # shows "Expected" and stays blocked until the stack top's run greens it.
     needs: [gate, upgrade_extended_test, clients_only_test]
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write  # remove run_ci_gate
+      statuses: write
     # Not on a cancelled run either: a run cancelled by a stack top's sweep has possibly never
     # written `blocked`, and an `error` from it would land over the status the top just posted.
     if: "!cancelled() && needs.gate.result != 'skipped' && needs.gate.outputs.blocked != 'true'"
@@ -744,3 +810,12 @@ jobs:
             for sha in $HELD; do post "$sha"; done
           fi
           post "$HEAD_SHA"
+
+      - name: Remove run_ci_gate
+        # One-shot trigger: the next run on this commit continues instead of starting over.
+        # Removed with GITHUB_TOKEN, which triggers no new workflow run.
+        if: always() && contains(github.event.pull_request.labels.*.name, 'run_ci_gate')
+        run: |
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/run_ci_gate" >/dev/null \
+            && echo "removed run_ci_gate from PR #$PR" \
+            || echo "::warning::could not remove run_ci_gate from PR #$PR"
