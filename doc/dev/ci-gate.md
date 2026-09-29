@@ -27,7 +27,10 @@ the top layer, and lower layers cannot be merged untested. There is no merge que
   to `success`, so "Merge stack" on the tested layer can merge everything below it.
 - A skip counts as a pass for that PR. A lower layer inherits the pass only if it is
   skippable on its own (same label, or its own commits are all chore/docs).
-- One execution at a time on the lab cluster: runs of different PRs wait for each other.
+- One execution at a time on the lab cluster: runs of different PRs wait for each other
+  (turnstyle, oldest run first, held for the whole run). Each test job also waits until the lab
+  kube contexts are not `in_use` on the testing service, which covers a clients-only re-run
+  (it skips turnstyle) and executions started outside CI.
   A new push to a PR cancels that PR's running job and stops its remote execution.
 
 ## Continue vs from scratch
