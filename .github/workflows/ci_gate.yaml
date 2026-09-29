@@ -314,6 +314,11 @@ jobs:
           echo "CI_HELM_REPO is set to: ${{ vars.CI_HELM_REPO }}"
           echo "WEKA_TESTING_SERVICE_URL is set to: ${{ vars.WEKA_TESTING_SERVICE_URL }}"
 
+      - name: Wait for the lab to be free
+        env:
+          WEKA_TESTING_SERVICE_URL: ${{ vars.WEKA_TESTING_SERVICE_URL }}
+        run: operator/.github/scripts/wait_for_lab.sh
+
       - name: Find previous execution on this commit
         # Continue by default: a failed or interrupted execution of this job on the same commit
         # (GH re-run, reopen, ...) is resumed instead of restarted. Adding run_ci_gate starts from
@@ -566,6 +571,11 @@ jobs:
             echo "::error::WEKA_TESTING_SERVICE_URL repository variable is not set."
             exit 1
           fi
+
+      - name: Wait for the lab to be free
+        env:
+          WEKA_TESTING_SERVICE_URL: ${{ vars.WEKA_TESTING_SERVICE_URL }}
+        run: operator/.github/scripts/wait_for_lab.sh
 
       - name: Find previous execution on this commit
         # Continue by default: a failed or interrupted execution of this job on the same commit
