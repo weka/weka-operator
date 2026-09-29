@@ -393,6 +393,7 @@ jobs:
           OPERATOR_HELM_IMAGE_REPO=$(echo "${{ env.operator_helm_image }}" | sed 's/:.*//')
 
           BODY=$(jq -n \
+            --arg comment "PR #${{ github.event.pull_request.number }} ${{ github.event.pull_request.html_url }}" \
             --arg operator_version "$OPERATOR_VERSION" \
             --arg operator_image_repo "$OPERATOR_IMAGE_REPO" \
             --arg operator_helm_image_repo "$OPERATOR_HELM_IMAGE_REPO" \
@@ -401,6 +402,7 @@ jobs:
             '{
               "flowName": "upgrade-extended",
               "kubeContext": "operator-mq-ci",
+              "comment": $comment,
               "config": {
                 "flowName": "upgrade-extended",
                 "operator-version": $operator_version,
@@ -587,7 +589,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           JOB: clients_only_test
           # A fresh upgrade-extended in this attempt (run_ci_gate, or nothing to continue) rebuilt the
-          # lab (cleanup on-start): the old clients-only execution cannot be continued on it.
+          # lab (pre-clean-env): the old clients-only execution cannot be continued on it.
           FRESH: ${{ needs.upgrade_extended_test.outputs.fresh_attempt == github.run_attempt }}
           WEKA_TESTING_SERVICE_URL: ${{ vars.WEKA_TESTING_SERVICE_URL }}
           BACKEND_KUBE_CONTEXT: operator-mq-ci
@@ -624,6 +626,7 @@ jobs:
           fi
 
           BODY=$(jq -n \
+            --arg comment "PR #${{ github.event.pull_request.number }} ${{ github.event.pull_request.html_url }}" \
             --arg operator_version "$OPERATOR_VERSION" \
             --arg operator_image_repo "$OPERATOR_IMAGE_REPO" \
             --arg operator_helm_image_repo "$OPERATOR_HELM_IMAGE_REPO" \
@@ -632,6 +635,7 @@ jobs:
             '{
               "flowName": "clients-only",
               "kubeContext": "ocp_clients",
+              "comment": $comment,
               "config": {
                 "flowName": "clients-only",
                 "operator-version": $operator_version,
@@ -642,7 +646,7 @@ jobs:
                 "join-ips": $join_ips,
                 "weka-secret-ref": "weka-client-upgrade-extended",
                 "csi-secret-name": "weka-csi-upgrade-extended",
-                "cleanup": "on-start",
+                "pre-clean-env": true,
                 "is-openshift": true
               }
             }')
