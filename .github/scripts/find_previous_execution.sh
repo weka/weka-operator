@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# Used by ci_gate.yaml test jobs. Looks at earlier attempts of job $JOB on commit $HEAD_SHA
-# (all ci-gate runs and re-run attempts) and writes step outputs:
+# Used by the ci_gate.yaml upgrade-extended job. Looks at earlier attempts of job $JOB on commit
+# $HEAD_SHA (all ci-gate runs and re-run attempts) and writes step outputs:
 #   execution_id          - failed/interrupted execution to continue (empty: start from scratch;
 #                           always empty with FRESH=true)
 #   operator_image,
-#   operator_helm_image   - operator already published for this commit (only with WITH_OPERATOR=true)
+#   operator_helm_image   - operator already published for this commit
 # Fails on any other status of the previous execution (running/pending: it still holds the lab).
 # If another execution used the lab ($LAB_KUBE_CONTEXTS) since, starts from scratch instead of
-# continuing; with BACKEND_KUBE_CONTEXT (clients-only) only if the latest upgrade-extended there
-# succeeded, since that is the backend it joins.
+# continuing.
 set -euo pipefail
 
 # curl, not gh: the self-hosted test runners have no gh.
@@ -37,14 +36,12 @@ newest() {  # prefix -> "job_id conclusion message" of the newest job with that 
   done <<< "$jobs"
 }
 
-if [[ "${WITH_OPERATOR:-}" == "true" ]]; then
-  op=$(newest "Operator versions: ")
-  if [[ -n "$op" ]]; then
-    read -r id _ _ _ img helm <<< "$op"
-    echo "reusing operator published by job $id: $img $helm"
-    echo "operator_image=$img" >> "$GITHUB_OUTPUT"
-    echo "operator_helm_image=$helm" >> "$GITHUB_OUTPUT"
-  fi
+op=$(newest "Operator versions: ")
+if [[ -n "$op" ]]; then
+  read -r id _ _ _ img helm <<< "$op"
+  echo "reusing operator published by job $id: $img $helm"
+  echo "operator_image=$img" >> "$GITHUB_OUTPUT"
+  echo "operator_helm_image=$helm" >> "$GITHUB_OUTPUT"
 fi
 
 ex=$(newest "Execution: ")
@@ -76,20 +73,8 @@ case "$STATUS" in
     if [[ -z "$used" ]]; then
       echo "execution $EXECUTION_ID is $STATUS: continuing it"
       echo "execution_id=$EXECUTION_ID" >> "$GITHUB_OUTPUT"
-    elif [[ -z "${BACKEND_KUBE_CONTEXT:-}" ]]; then
-      echo "lab used by execution $used after $EXECUTION_ID: from scratch"
     else
-      # clients-only joins whatever backend is on the lab now (possibly another PR's); fine only if
-      # it came up. Latest updated, not highest id: a continued older execution is what is there.
-      backend=$(svc "executions?kubeContext=$BACKEND_KUBE_CONTEXT&flowName=upgrade-extended" \
-        '(.executions // [])|max_by(.updated_at // "")|if . then "\(.id) \(.status)" else empty end')
-      read -r bid bstatus <<< "$backend" || true
-      if [[ "${bstatus:-}" == "succeeded" ]]; then
-        echo "lab used by execution $used after $EXECUTION_ID, backend from upgrade-extended $bid succeeded: from scratch on it"
-      else
-        echo "::error::lab used by execution $used after $EXECUTION_ID, and the backend (upgrade-extended ${bid:-none}) is ${bstatus:-missing}; re-run all jobs"
-        exit 1
-      fi
+      echo "lab used by execution $used after $EXECUTION_ID: from scratch"
     fi ;;
   *)
     echo "::error::previous execution $EXECUTION_ID of job $id is ${STATUS:-without status}, not continuing it"

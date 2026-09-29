@@ -35,17 +35,17 @@ the top layer, and lower layers cannot be merged untested. There is no merge que
 
 ## Continue vs from scratch
 
-Each test job (upgrade-extended, clients-only) looks at its own earlier attempts on the same
-commit, across all ci-gate runs and re-run attempts, before starting:
+upgrade-extended looks at its own earlier attempts on the same commit, across all ci-gate runs and
+re-run attempts, before starting. clients-only is short and always starts from scratch, on the
+backend currently on the lab.
 
 | Situation | Result |
 |---|---|
 | New commit | from scratch |
 | `run_ci_gate` just added (first attempt of that run) | from scratch, but still fails if the previous execution is `running` / `pending` |
 | Newest earlier job on this commit with an execution succeeded, or none started one | from scratch |
-| clients-only, when upgrade-extended started from scratch in the same attempt (lab rebuilt) | from scratch |
 | Its execution is `failed` / `interrupted` (a cancelled job stops it: `interrupted`) | `POST /api/executions/{id}/continue`, same id polled |
-| ... but another execution used the lab (`operator-mq-ci` / `ocp_clients`) since it stopped | upgrade-extended: from scratch. clients-only: from scratch on the backend now on the lab (possibly another PR's) if the latest updated upgrade-extended succeeded, otherwise job fails ("re-run all jobs") |
+| ... but another execution used the lab (`operator-mq-ci` / `ocp_clients`) since it stopped | from scratch |
 | Its execution has any other status (`running`, `pending`, unknown) | job fails, nothing started |
 | Continue call returns an error | job fails, no fallback to from scratch |
 

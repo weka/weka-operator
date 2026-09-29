@@ -260,7 +260,6 @@ jobs:
     outputs:
       operator_image: ${{ steps.set-operator-versions.outputs.operator_image }}
       operator_helm_image: ${{ steps.set-operator-versions.outputs.operator_helm_image }}
-      fresh_attempt: ${{ steps.create_execution.outputs.fresh_attempt }}
     runs-on: scalar-runners
     steps:
       - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
@@ -329,7 +328,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           JOB: upgrade_extended_test
-          WITH_OPERATOR: "true"
           FRESH: ${{ github.event.action == 'labeled' && github.event.label.name == 'run_ci_gate' && github.run_attempt == 1 }}
           WEKA_TESTING_SERVICE_URL: ${{ vars.WEKA_TESTING_SERVICE_URL }}
         run: operator/.github/scripts/find_previous_execution.sh
@@ -436,7 +434,6 @@ jobs:
             echo "::error::testing service POST $POST_PATH returned HTTP $HTTP_CODE. Response: $RESPONSE"
             exit 1
           fi
-          if [[ "$ACTION" == started ]]; then echo "fresh_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"; fi
           EXECUTION_ID=${PREV_EXECUTION_ID:-$(echo "$RESPONSE" | jq -r '.execution_id // empty')}
           if [ -z "$EXECUTION_ID" ]; then
             echo "::error::testing service did not return execution_id. Response: $RESPONSE"
@@ -579,22 +576,6 @@ jobs:
           WEKA_TESTING_SERVICE_URL: ${{ vars.WEKA_TESTING_SERVICE_URL }}
         run: operator/.github/scripts/wait_for_lab.sh
 
-      - name: Find previous execution on this commit
-        # Continue by default: a failed or interrupted execution of this job on the same commit
-        # (GH re-run, reopen, ...) is resumed instead of restarted. Adding run_ci_gate starts from
-        # scratch; a GH re-run of that run keeps the `labeled` payload, hence the attempt check.
-        id: prev
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          JOB: clients_only_test
-          # A fresh upgrade-extended in this attempt (run_ci_gate, or nothing to continue) rebuilt the
-          # lab (pre-clean-env): the old clients-only execution cannot be continued on it.
-          FRESH: ${{ needs.upgrade_extended_test.outputs.fresh_attempt == github.run_attempt }}
-          WEKA_TESTING_SERVICE_URL: ${{ vars.WEKA_TESTING_SERVICE_URL }}
-          BACKEND_KUBE_CONTEXT: operator-mq-ci
-        run: operator/.github/scripts/find_previous_execution.sh
-
       - name: Pre clients-only (copy secrets + get join IPs)
         uses: dagger/dagger-for-github@d913e70051faf3b907d4dd96ef1161083c88c644 # v8.2.0
         env:
@@ -612,9 +593,9 @@ jobs:
             --output ${{ github.workspace }}/join-ips
 
       - name: Create clients-only execution
+        # Always from scratch: clients-only is short, and continuing it would have to track the
+        # backend it joined across other PRs' runs.
         id: create_execution
-        env:
-          PREV_EXECUTION_ID: ${{ steps.prev.outputs.execution_id }}
         run: |
           OPERATOR_VERSION=$(echo "${{ needs.upgrade_extended_test.outputs.operator_image }}" | sed 's/.*://')
           OPERATOR_IMAGE_REPO=$(echo "${{ needs.upgrade_extended_test.outputs.operator_image }}" | sed 's/:.*//')
@@ -651,29 +632,25 @@ jobs:
               }
             }')
 
-          POST_PATH=/api/executions; ACTION=started
-          if [[ -n "$PREV_EXECUTION_ID" ]]; then
-            POST_PATH=/api/executions/$PREV_EXECUTION_ID/continue; BODY='{}'; ACTION=continued
-          fi
           HTTP_RESPONSE=$(curl --retry 3 --retry-delay 5 --retry-connrefused -sS \
             -w "\n%{http_code}" \
-            -X POST "${{ vars.WEKA_TESTING_SERVICE_URL }}$POST_PATH" \
+            -X POST "${{ vars.WEKA_TESTING_SERVICE_URL }}/api/executions" \
             -H "Content-Type: application/json" \
             -d "$BODY")
           HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
           RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
           if [[ "$HTTP_CODE" -lt 200 || "$HTTP_CODE" -ge 300 ]]; then
-            echo "::error::testing service POST $POST_PATH returned HTTP $HTTP_CODE. Response: $RESPONSE"
+            echo "::error::testing service POST /api/executions returned HTTP $HTTP_CODE. Response: $RESPONSE"
             exit 1
           fi
-          EXECUTION_ID=${PREV_EXECUTION_ID:-$(echo "$RESPONSE" | jq -r '.execution_id // empty')}
+          EXECUTION_ID=$(echo "$RESPONSE" | jq -r '.execution_id // empty')
           if [ -z "$EXECUTION_ID" ]; then
             echo "::error::testing service did not return execution_id. Response: $RESPONSE"
             exit 1
           fi
           echo "::notice::Execution: ${{ vars.WEKA_TESTING_SERVICE_URL }}/execution/$EXECUTION_ID"
           echo "execution_id=$EXECUTION_ID" >> "$GITHUB_OUTPUT"
-          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+          echo "action=started" >> "$GITHUB_OUTPUT"
 
       - name: Notify clients-only started
         uses: ./operator/.github/actions/slack-ci-thread
