@@ -187,4 +187,8 @@
         <tags>WekaManualOperation API, custom resource, manual operations, drive signing, discover drives, block drives, ensure NICs, force resign, remote traces, shared drives, drive sharing, proxy mode</tags>
         <summary>API reference for WekaManualOperation custom resource enabling one-time operations like drive signing (including shared drive signing for proxy mode), discovery, blocking, NIC configuration, and remote trace collection with detailed payload specifications for each operation type.</summary>
     </file>
+    <file relpath="dev/reference-site.md">
+        <tags>reference site, GitHub Pages, mkdocs, website, crd-ref-docs, helm-docs, preview-docs.sh, docs.yaml, NAV_GROUPS</tags>
+        <summary>How the public Helm chart and CRD reference site in website/ is generated, previewed locally and published to GitHub Pages.</summary>
+    </file>
 </documentation>

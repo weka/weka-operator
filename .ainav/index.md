@@ -35,6 +35,7 @@ internal/rest_api/           # Optional REST API server (cluster CRUD)
 internal/node_agent/         # Per-node agent server
 pkg/weka-k8s-api/           # CRD type definitions
 charts/weka-operator/        # Helm chart and Python runtime
+website/                     # Reference site (mkdocs, preview-docs.sh); see doc/dev/reference-site.md
 ```
 
 ## Key Areas by Functionality
