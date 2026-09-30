@@ -13,7 +13,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"

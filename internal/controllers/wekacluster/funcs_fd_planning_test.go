@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/weka/go-steps-engine/throttling"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"

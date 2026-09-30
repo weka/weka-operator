@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sapi "k8s.io/client-go/kubernetes"

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 // TestAllocationStrategyGenerator_EvenDistribution tests even distribution strategy generation

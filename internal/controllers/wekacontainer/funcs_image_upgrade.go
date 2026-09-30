@@ -8,8 +8,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1/condition"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 

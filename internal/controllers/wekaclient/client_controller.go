@@ -5,7 +5,7 @@ import (
 
 	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/go-weka-observability/instrumentation"
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/otel/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/rest"

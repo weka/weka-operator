@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 // operationalContainer builds a Drive-mode container that passes discovery.IsContainerOperational

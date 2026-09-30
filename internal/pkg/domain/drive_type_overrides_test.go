@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 
 	"github.com/weka/weka-operator/internal/consts"
 )

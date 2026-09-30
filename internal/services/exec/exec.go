@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 

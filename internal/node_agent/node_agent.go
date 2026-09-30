@@ -24,7 +24,7 @@ import (
 	"github.com/rs/zerolog/hlog"
 	"github.com/weka/go-weka-observability/instrumentation"
 	obslogger "github.com/weka/go-weka-observability/logger"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/sync/singleflight"
 	corev1 "k8s.io/api/core/v1"

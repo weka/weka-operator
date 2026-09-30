@@ -4,7 +4,7 @@ import (
 	"context"
 	"reflect"
 
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"

@@ -5,7 +5,7 @@ import (
 	"maps"
 	"strings"
 
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 
 	"github.com/weka/weka-operator/internal/config"
 )

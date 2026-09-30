@@ -6,7 +6,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 // PausedStateFlow returns the steps for a container in the paused state

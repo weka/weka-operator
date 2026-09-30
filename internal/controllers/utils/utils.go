@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )

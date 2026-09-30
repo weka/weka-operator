@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/env"
 )

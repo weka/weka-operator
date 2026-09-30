@@ -1,7 +1,7 @@
 package validation
 
 import (
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 // roleSpec is one container role's sizing fields together with the spec field names used in

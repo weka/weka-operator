@@ -1,4 +1,4 @@
-module github.com/weka/weka-k8s-api
+module github.com/weka/weka-operator/pkg/weka-k8s-api
 
 go 1.27.0
 
