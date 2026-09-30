@@ -165,6 +165,7 @@ lint-fix: ## Run golangci-lint and auto-fix issues where possible.
 .PHONY: test
 test: ## Run tests.
 	go test -v ./internal/... -coverprofile cover.out
+	cd pkg/weka-k8s-api && go test -v ./...
 
 .PHONY: test-e2e
 test-e2e: ## Run e2e tests.
