@@ -1,0 +1,531 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: wekapolicies.weka.weka.io
+spec:
+  group: weka.weka.io
+  names:
+    kind: WekaPolicy
+    listKind: WekaPolicyList
+    plural: wekapolicies
+    singular: wekapolicy
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: Type
+      jsonPath: .spec.type
+      name: Type
+      type: string
+    - description: Status
+      jsonPath: .status.status
+      name: Status
+      type: string
+    - description: Policy-specific progress
+      jsonPath: .status.progress
+      name: Progress
+      type: string
+    - description: Last result
+      jsonPath: .status.result
+      name: Result
+      priority: 1
+      type: string
+    - description: Interval
+      jsonPath: .spec.payload.interval
+      name: Interval
+      priority: 1
+      type: string
+    - description: Last run time
+      jsonPath: .status.lastRunTime
+      name: Last Run Time
+      priority: 1
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: WekaPolicy is the Schema for the wekapolicies API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: WekaPolicySpec defines the desired state of WekaPolicy
+            properties:
+              image:
+                type: string
+              imagePullSecret:
+                type: string
+              payload:
+                properties:
+                  cleanStaleVirtualDrivesPayload:
+                    description: |-
+                      CleanStaleVirtualDrivesPayload is the shared payload for the clean-stale-virtual-drives
+                      operation, used by both WekaManualOperation (one-shot) and WekaPolicy (periodic).
+
+                      The operation scans every ssdproxy's virtual drives (VIDs) and diffs them against
+                      the union of all live WekaContainer allocations to find stale VIDs. Detection always
+                      runs and reports; deletion is opt-in and double-gated (see DeleteStaleVids).
+                    properties:
+                      deleteStaleVids:
+                        default: false
+                        description: |-
+                          DeleteStaleVids enables ACTUAL removal of detected stale VIDs. DANGEROUS — disabled by
+                          default. Even when true, a VID is only removed if it was reported stale and UNCHANGED on
+                          the previous cycle (fingerprint match) and is still unclaimed at removal time. Acts as the
+                          user's confirmation.
+                        type: boolean
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          NodeSelector limits the scan to ssdproxies on nodes matching these labels.
+                          Empty = all nodes that have an ssdproxy.
+                        type: object
+                      onlyNonExistingClusters:
+                        default: false
+                        description: |-
+                          OnlyNonExistingClusters restricts the stale set to VIDs whose owner cluster GUID has NO
+                          WekaCluster CR at all (category dead_cluster) — the safe-by-construction subset (no live
+                          cluster could be mid-allocating them). Excludes live_cluster_unclaimed. Recommended ON
+                          when pairing with deletion.
+                        type: boolean
+                    type: object
+                  configurationPayload:
+                    description: 'ConfigurationPayload defines the parameters for
+                      the configuration policy: operator-wide settings'
+                    properties:
+                      csi:
+                        description: Csi configures the embedded CSI deployment.
+                        properties:
+                          fsGroupPolicy:
+                            description: |-
+                              FsGroupPolicy sets fsGroupPolicy on the CSIDriver object, which decides whether Kubernetes
+                              reapplies a pod's fsGroup to the volume. Default value is File.
+                            enum:
+                            - File
+                            - None
+                            - ReadWriteOnceWithFSType
+                            type: string
+                          metricsEnabled:
+                            description: |-
+                              MetricsEnabled controls the Prometheus metrics endpoints of the CSI controller, the CSI node
+                              plugin and the controller sidecars. Enabled by default.
+                            type: boolean
+                        type: object
+                      drivers:
+                        description: Drivers configures the drivers build and distribution.
+                        properties:
+                          forceBuilderCli:
+                            description: |-
+                              ForceBuilderCli makes the drivers-builder init containers take the weka CLI from the builder
+                              image instead of the cluster image. False by default.
+                            type: boolean
+                        type: object
+                    type: object
+                  discoverDrivesPayload:
+                    properties:
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
+                  driverDistPayload:
+                    description: DriverDistPayload defines the parameters for the
+                      enable-local-drivers-distribution policy
+                    properties:
+                      architectureLabelKey:
+                        description: |-
+                          ArchitectureLabelKey is the custom label key to use for storing the node's architecture.
+                          If not specified, "weka.io/architecture" will be used.
+                        type: string
+                      builderImageOverride:
+                        description: BuilderImageOverride is an optional image that
+                          you can specify for the builder
+                        type: string
+                      builderPreRunScript:
+                        description: BuilderPreRunScript is an optional script to
+                          run on builder containers after kernel validation.
+                        type: string
+                      distNodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          DistNodeSelector is the node selector for the drivers distribution (dist) container.
+                          If not specified, the dist container will be scheduled on any available node.
+                        type: object
+                      distResources:
+                        description: |-
+                          DistResources overrides the pod resources of the drivers distribution (dist) container.
+                          Fields left empty keep the built-in sizing.
+                        properties:
+                          limits:
+                            properties:
+                              cpu:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              hugepages-2Mi:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: |-
+                                  Hugepages2Mi is requested verbatim as the pod's hugepages-2Mi resource. 1Gi pages are
+                                  not settable through this field.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              memory:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                            type: object
+                          requests:
+                            properties:
+                              cpu:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              hugepages-2Mi:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: |-
+                                  Hugepages2Mi is requested verbatim as the pod's hugepages-2Mi resource. 1Gi pages are
+                                  not settable through this field.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              memory:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                            type: object
+                        type: object
+                      ensureImages:
+                        description: EnsureImages is a list of Weka images for which
+                          drivers should be proactively built.
+                        items:
+                          type: string
+                        type: array
+                      kernelLabelKey:
+                        description: |-
+                          KernelLabelKey is the custom label key to use for storing the node's kernel version.
+                          If not specified, "weka.io/kernel" will be used.
+                        type: string
+                      nodeSelectors:
+                        description: |-
+                          NodeSelectors is a list of node selectors. Nodes matching any of these selectors will be considered for driver building.
+                          If empty, all nodes in the cluster are considered.
+                        items:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        type: array
+                      osLabelKey:
+                        description: |-
+                          OsLabelKey is the custom label key to use for storing the node's os.
+                          If not specified, "weka.io/os" will be used.
+                        type: string
+                    type: object
+                  ensureNICsPayload:
+                    properties:
+                      dataNICsNumber:
+                        type: integer
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      type:
+                        type: string
+                    required:
+                    - type
+                    type: object
+                  interval:
+                    default: 5m
+                    pattern: ^(0|([0-9]+(\.[0-9]+)?(s|m|h))+)$
+                    type: string
+                  remoteTracesSessionPayload:
+                    properties:
+                      allowHttpWekahomeEndpoint:
+                        type: boolean
+                      allowInsecureWekahomeEndpoint:
+                        type: boolean
+                      cluster:
+                        properties:
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                      duration:
+                        description: |-
+                          Duration specifies how long the trace session should run.
+                          WekaManualOperation: defaults to 1 week if omitted/0. CR auto-deletes after expiration.
+                          WekaPolicy: defaults to continuous if omitted/0. Resources cleaned up after expiration.
+                          Examples: "30m", "2h", "7d", "168h"
+                        type: string
+                      hostNetwork:
+                        type: boolean
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      wekahomeCaSecret:
+                        type: string
+                      wekahomeEndpointOverride:
+                        type: string
+                    type: object
+                  schedulingConfigPayload:
+                    type: object
+                  signDrivesPayload:
+                    properties:
+                      devicePaths:
+                        items:
+                          type: string
+                        type: array
+                      deviceSerials:
+                        description: DeviceSerials sign drives by serial ID. Used
+                          with type device-serials.
+                        items:
+                          type: string
+                        type: array
+                      driveTypeOverrides:
+                        description: |-
+                          DriveTypeOverrides forces the reported TLC/QLC type for matching drives instead of
+                          deriving it from the drive's IU size. Only meaningful when Shared is true.
+                          Persisted on the node in the weka.io/drive-type-overrides annotation and re-applied
+                          on every later sign-drives run. Omit the field to keep whatever is already persisted
+                          on the node; set an empty rules list to clear all overrides.
+                        properties:
+                          rules:
+                            description: |-
+                              Rules are evaluated in order; the first rule matching a drive wins.
+                              An empty list clears all previously persisted overrides on the node.
+                            items:
+                              description: |-
+                                DriveTypeOverrideRule forces the drive type for drives matching Model and/or CapacityGiB.
+                                When both Model and CapacityGiB are set, BOTH must match (AND semantics) — this lets you
+                                target one SKU shipped in several capacities where only some are QLC.
+                              properties:
+                                capacityGiB:
+                                  description: |-
+                                    CapacityGiB matches the drive capacity in GiB exactly, as reported in the
+                                    weka.io/weka-shared-drives annotation. 0 means "do not match on capacity".
+                                  minimum: 1
+                                  type: integer
+                                model:
+                                  description: |-
+                                    Model matches the device model exactly, case-insensitively, ignoring surrounding
+                                    whitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1
+                                    Empty means "do not match on model".
+                                  type: string
+                                type:
+                                  description: Type is the drive type to report for
+                                    matching drives.
+                                  enum:
+                                  - TLC
+                                  - QLC
+                                  type: string
+                              required:
+                              - type
+                              type: object
+                              x-kubernetes-validations:
+                              - message: at least one of model or capacityGiB must
+                                  be set
+                                rule: (has(self.model) && size(self.model) > 0) ||
+                                  (has(self.capacityGiB) && self.capacityGiB != 0)
+                            type: array
+                        required:
+                        - rules
+                        type: object
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      options:
+                        properties:
+                          allowEraseNonWekaPartitions:
+                            type: boolean
+                          allowEraseWekaPartitions:
+                            type: boolean
+                          allowNonEmptyDevice:
+                            type: boolean
+                          skipTrimFormat:
+                            type: boolean
+                        type: object
+                      pciDevices:
+                        description: |-
+                          PCI vendor and device IDs of the drives to sign.
+                          To get the values for VendorId and DeviceId:
+                          1. Run the following command to list all PCI devices on your system:
+                             ```bash
+                             lspci -nn
+                             ```
+                          2. Find the relevant PCI device in the output, which will display both the
+                             vendor and device IDs in square brackets in the format [vendorId:deviceId].
+                             For example:
+                             ```
+                             00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01]
+                             ```
+                        properties:
+                          deviceId:
+                            description: |-
+                              DeviceId is the 4-digit hexadecimal device ID
+                              default for AWS: `cd01` (NVMe SSD)
+                            pattern: ^[0-9a-fA-F]{4}$
+                            type: string
+                          vendorId:
+                            description: |-
+                              VendorId is the 4-digit hexadecimal vendor ID
+                              default for AWS: `1d0f` (Amazon.com, Inc.)
+                            pattern: ^[0-9a-fA-F]{4}$
+                            type: string
+                        required:
+                        - deviceId
+                        - vendorId
+                        type: object
+                      shared:
+                        description: |-
+                          Shared enables shared drive signing for proxy mode (defaults to false).
+                          When enabled:
+                          - Drives are signed for proxy using 'weka-sign-drive sign proxy' command
+                          - Drives are signed with a proxy system GUID
+                          - Results are stored in weka.io/shared-drives annotation (instead of weka.io/weka-drives)
+                          - Physical UUIDs, serial IDs, and capacities are captured
+                          - Enables multi-tenant drive sharing via SSD proxy
+                        type: boolean
+                      type:
+                        enum:
+                        - aws-all
+                        - gcp-all
+                        - device-identifiers
+                        - device-paths
+                        - device-serials
+                        - all-not-root
+                        type: string
+                    required:
+                    - type
+                    type: object
+                    x-kubernetes-validations:
+                    - message: driveTypeOverrides is only supported when shared is
+                        true
+                      rule: '!has(self.driveTypeOverrides) || (has(self.shared) &&
+                        self.shared)'
+                  waitForPolicies:
+                    items:
+                      type: string
+                    type: array
+                type: object
+              serviceAccountName:
+                type: string
+              tolerations:
+                items:
+                  description: |-
+                    The pod this Toleration is attached to tolerates any taint that matches
+                    the triple <key,value,effect> using the matching operator <operator>.
+                  properties:
+                    effect:
+                      description: |-
+                        Effect indicates the taint effect to match. Empty means match all taint effects.
+                        When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                      type: string
+                    key:
+                      description: |-
+                        Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                        If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                      type: string
+                    operator:
+                      description: |-
+                        Operator represents a key's relationship to the value.
+                        Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
+                        Exists is equivalent to wildcard for value, so that a pod can
+                        tolerate all taints of a particular category.
+                        Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
+                      type: string
+                    tolerationSeconds:
+                      description: |-
+                        TolerationSeconds represents the period of time the toleration (which must be
+                        of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                        it is not set, which means tolerate the taint forever (do not evict). Zero and
+                        negative values will be treated as 0 (evict immediately) by the system.
+                      format: int64
+                      type: integer
+                    value:
+                      description: |-
+                        Value is the taint value the toleration matches to.
+                        If the operator is Exists, the value should be empty, otherwise just a regular string.
+                      type: string
+                  type: object
+                type: array
+              type:
+                description: WekaPolicyType enumerates the supported WekaPolicy types.
+                enum:
+                - sign-drives
+                - discover-drives
+                - ensure-nics
+                - enable-local-drivers-distribution
+                - remote-traces-session
+                - clean-stale-virtual-drives
+                type: string
+            required:
+            - payload
+            type: object
+          status:
+            description: WekaPolicyStatus defines the observed state of WekaPolicy
+            properties:
+              lastRunTime:
+                format: date-time
+                type: string
+              progress:
+                type: string
+              result:
+                type: string
+              status:
+                type: string
+              typedStatus:
+                description: TypedPolicyStatus holds status fields specific to a policy
+                  type
+                properties:
+                  distService:
+                    description: DistServiceStatus holds the status for the enable-local-drivers-distribution
+                      policy
+                    properties:
+                      serviceUrl:
+                        type: string
+                    type: object
+                type: object
+            required:
+            - lastRunTime
+            - result
+            - status
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

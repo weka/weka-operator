@@ -1,0 +1,19 @@
+name: CRDs Generation Check
+
+on:
+  pull_request:
+  
+jobs:
+  pre-commit:
+    # In a stack only the top layer runs: it contains every lower layer.
+    if: >-
+      github.event.pull_request.stack == null ||
+      github.event.pull_request.stack.position == github.event.pull_request.stack.size
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v3
+    - uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+    - uses: pre-commit/action@v3.0.0

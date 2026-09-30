@@ -1,0 +1,11 @@
+.idea
+package-lock.json
+node_modules/*
+.aider*
+
+# Generated docs (built by CI)
+docs/*.md
+site/
+
+# Local preview venv
+.venv
