@@ -9,7 +9,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
+	"github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1/condition"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"

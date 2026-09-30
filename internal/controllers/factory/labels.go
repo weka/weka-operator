@@ -1,9 +1,9 @@
 package factory
 
 import (
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/pkg/util"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/types"
 )
 

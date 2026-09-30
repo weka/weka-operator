@@ -6,7 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"

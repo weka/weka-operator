@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
+	wekav1alpha1 "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1/condition"
 
 	"github.com/kr/pretty"
 	v1 "k8s.io/api/core/v1"

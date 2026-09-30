@@ -1,6 +1,6 @@
 package domain
 
-import "github.com/weka/weka-k8s-api/api/v1alpha1"
+import "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 
 var ContainerModesWithFrontend = []string{
 	v1alpha1.WekaContainerModeNfs,

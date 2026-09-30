@@ -10,8 +10,8 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1/condition"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services"

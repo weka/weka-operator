@@ -8,7 +8,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 
 	"github.com/weka/weka-operator/internal/services"
 	metrics2 "github.com/weka/weka-operator/pkg/metrics"

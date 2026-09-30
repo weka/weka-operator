@@ -29,7 +29,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/weka/go-weka-observability/instrumentation"
 	obslogger "github.com/weka/go-weka-observability/logger"
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/errors"

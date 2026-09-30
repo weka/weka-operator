@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 // fieldByJSONTag finds the struct field whose json tag name matches tag.

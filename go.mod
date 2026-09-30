@@ -38,7 +38,7 @@ require (
 	github.com/weka/go-lib v0.0.0-20250813155110-01f071a2760a
 	github.com/weka/go-steps-engine v0.0.0
 	github.com/weka/go-weka-observability v0.0.15
-	github.com/weka/weka-k8s-api v0.0.0
+	github.com/weka/weka-operator/pkg/weka-k8s-api v0.0.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
@@ -59,7 +59,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.24.1
 )
 
-replace github.com/weka/weka-k8s-api => ./pkg/weka-k8s-api
+replace github.com/weka/weka-operator/pkg/weka-k8s-api => ./pkg/weka-k8s-api
 
 replace github.com/weka/go-steps-engine => ./pkg/go-steps-engine
 

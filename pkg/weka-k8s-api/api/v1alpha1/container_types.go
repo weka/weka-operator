@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
+	"github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1/condition"
 )
 
 type NodeName types.NodeName
