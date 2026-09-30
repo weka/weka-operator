@@ -1,6 +1,4 @@
 .idea
-package-lock.json
-node_modules/*
 .aider*
 
 # Generated docs (built by CI)
