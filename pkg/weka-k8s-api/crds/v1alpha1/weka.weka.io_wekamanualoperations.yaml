@@ -359,6 +359,47 @@ spec:
                         items:
                           type: string
                         type: array
+                      driveExclusions:
+                        description: |-
+                          DriveExclusions skips matching drives when signing, in both full-drives and shared mode.
+                          Type is matched against the IU-size-derived type, before DriveTypeOverrides apply.
+                        properties:
+                          rules:
+                            description: A drive is excluded if any rule matches it.
+                            items:
+                              description: DriveExclusionRule matches drives by Model,
+                                CapacityGiB and/or Type; all set fields must match.
+                              properties:
+                                capacityGiB:
+                                  description: CapacityGiB matches the drive capacity
+                                    in GiB exactly.
+                                  minimum: 1
+                                  type: integer
+                                model:
+                                  description: |-
+                                    Model matches the device model exactly, case-insensitively, ignoring surrounding
+                                    whitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1
+                                  maxLength: 256
+                                  type: string
+                                type:
+                                  description: Type is the drive type the sign tool
+                                    derives from the IU size.
+                                  enum:
+                                  - TLC
+                                  - QLC
+                                  type: string
+                              type: object
+                              x-kubernetes-validations:
+                              - message: at least one of model, capacityGiB or type
+                                  must be set
+                                rule: (has(self.model) && size(self.model.trim())
+                                  > 0) || (has(self.capacityGiB) && self.capacityGiB
+                                  != 0) || has(self.type)
+                            maxItems: 64
+                            type: array
+                        required:
+                        - rules
+                        type: object
                       driveTypeOverrides:
                         description: |-
                           DriveTypeOverrides forces the reported TLC/QLC type for matching drives instead of
