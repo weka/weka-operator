@@ -578,7 +578,7 @@ func (c *RoleTopologySpreadConstraints) ForRole(role string) []v1.TopologySpread
 		return nil
 	}
 
-	constraints, _ := unmarshalTopologySpreadConstraints(raw)
+	constraints, _ := unmarshalTopologySpreadConstraints(raw) //nolint:errcheck // malformed constraints are treated as unset
 	return constraints
 }
 
@@ -1178,7 +1178,7 @@ func (w *WekaCluster) ToOwnerObject() *WekaOwnerDetails {
 		Image:           w.Spec.Image,
 		ImagePullSecret: w.Spec.ImagePullSecret,
 		Tolerations:     util.ExpandTolerations([]v1.Toleration{}, w.Spec.Tolerations, w.Spec.RawTolerations),
-		Labels:          w.ObjectMeta.GetLabels(),
+		Labels:          w.GetLabels(),
 	}
 }
 
@@ -1263,7 +1263,7 @@ func (c *WekaCluster) GetAnnotationsForRole(role string) map[string]string {
 	if roleAnnotations != nil {
 		return *roleAnnotations
 	} else {
-		return c.ObjectMeta.GetAnnotations()
+		return c.GetAnnotations()
 	}
 }
 

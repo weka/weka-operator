@@ -56,6 +56,13 @@ jobs:
           version: v2.13.2
           only-new-issues: true
 
+      - name: Lint pkg/weka-k8s-api
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.13.2
+          only-new-issues: true
+          working-directory: pkg/weka-k8s-api
+
       - name: Check for typos
         uses: crate-ci/typos@631208b7aac2daa8b707f55e7331f9112b0e062d # v1.44.0
 

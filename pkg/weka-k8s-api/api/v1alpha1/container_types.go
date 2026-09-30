@@ -46,7 +46,7 @@ func (c *WekaContainer) GetHostIps(subnets []string) []string {
 	for _, subnetstr := range subnets {
 		_, subnet, err := net.ParseCIDR(subnetstr)
 		if err != nil {
-			//log/ctx
+			// log/ctx
 			continue
 		}
 		parsedSubnets = append(parsedSubnets, *subnet)
@@ -55,7 +55,7 @@ func (c *WekaContainer) GetHostIps(subnets []string) []string {
 		if len(parsedSubnets) > 0 {
 			parsedIp := net.ParseIP(ip)
 			if parsedIp == nil {
-				//log/ctx
+				// log/ctx
 				continue
 			}
 			ipInSubnet := false
@@ -66,7 +66,7 @@ func (c *WekaContainer) GetHostIps(subnets []string) []string {
 				}
 			}
 			if !ipInSubnet {
-				//log/ctx
+				// log/ctx
 				continue
 			}
 		}
@@ -259,8 +259,8 @@ type WekaContainerSpec struct {
 	WekaContainerName string `json:"name"`
 	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs;smbw;telemetry;ssdproxy;data-services;data-services-fe
 	Mode       string `json:"mode"`
-	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
-	ExtraCores int    `json:"extraCores,omitempty"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
+	NumCores   int    `json:"numCores"`             // numCores is weka-specific cores
+	ExtraCores int    `json:"extraCores,omitempty"` // extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
 	CoreIds    []int  `json:"coreIds,omitempty"`
 	// NonDatapathCoreIds pins management/aux (non-IONode) processes to specific CPUs.
 	NonDatapathCoreIds []int `json:"nonDatapathCoreIds,omitempty"`
@@ -812,7 +812,7 @@ func (w *WekaContainer) ToOwnerDetails() *WekaOwnerDetails {
 		Image:              w.Spec.Image,
 		ImagePullSecret:    w.Spec.ImagePullSecret,
 		Tolerations:        w.Spec.Tolerations,
-		Labels:             w.ObjectMeta.GetLabels(),
+		Labels:             w.GetLabels(),
 		Affinity:           w.Spec.Affinity,
 		ServiceAccountName: w.Spec.ServiceAccountName,
 	}
