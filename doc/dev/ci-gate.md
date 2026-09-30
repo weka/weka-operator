@@ -92,7 +92,7 @@ Each PR gets one thread on the channel. The `gate` job posts the parent when the
 "test", and every test reports into it:
 
 ```
-:rocket: CI started - PR #123
+:rocket: CI started - PR #123, owner @someone
   :hourglass: upgrade-extended started      <- execution + run links
   :white_check_mark: upgrade-extended passed
   :hourglass: clients-only started
@@ -115,6 +115,12 @@ Setup - both are needed, and Slack stays silent without them:
 |---|---|---|
 | `SLACK_BOT_TOKEN` | secret | scopes `chat:write` and `channels:history` (`groups:history` if the channel is private) |
 | `SLACK_CHANNEL_ID` | variable | the bot must be a member of that channel |
+
+The parent names the PR's owner. Resolving them to a real `@` mention takes the author's email -
+their public GitHub one, else the head commit's - and looks it up with `users.lookupByEmail`, which
+needs the optional scope `users:read.email`. Without that scope, with a private
+`users.noreply.github.com` address, or with no Slack account on that address, the line falls back to
+the plain GitHub login.
 
 Slack is best-effort throughout: every failure is a `::warning::`, never a job verdict.
 
