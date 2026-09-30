@@ -1,25 +1,11 @@
 # weka-k8s-api
 
-This repo contains Weka k8s Custom Resource Definitions (CRDs) and corresponding Go type definitions.
+Weka k8s Custom Resource Definitions (CRDs) and corresponding Go type definitions.
 
+This is a nested Go module (`github.com/weka/weka-operator/pkg/weka-k8s-api`) inside the weka-operator repository. The root module consumes it through a `replace` directive.
 
-## Setting Up Development Environment
+## Development
 
-To contribute to this project, follow these steps to set up your development environment:
-
-### Install Pre-Commit Hooks
-
-This project uses [pre-commit](https://pre-commit.com/) to automate checks before each commit. To set it up:
-
-1. Install `pre-commit`:
-    ```bash
-    pip install pre-commit
-    ```
-2. Install the hooks:
-    ```bash
-    pre-commit install
-    ```
-3. (Optional) Run the hooks on all files to ensure compliance:
-    ```bash
-    pre-commit run --all-files
-    ```
+- `make generate manifests` (from the repository root) regenerates deepcopy code, CRDs in `crds/v1alpha1/` and the chart CRDs.
+- `make fmt vet` in this directory formats and vets the module.
+- `scripts/preview-docs.sh` builds and serves the CRD reference site locally.

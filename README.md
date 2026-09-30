@@ -99,8 +99,8 @@ See [doc/examples](doc/examples) for YAML configurations including clusters, cli
 
 ## API
 
-The operator api is defined in a separate [api](https://github.com/weka/weka-k8s-api) repository.<br>
-Any changes to the api requires updating the [api submodule](pkg/weka-k8s-api).
+The operator api is defined in the [pkg/weka-k8s-api](pkg/weka-k8s-api) directory, a nested Go module within this repository.<br>
+Changes to the api are made in place; run `make generate manifests` to regenerate code and CRDs.
 
 ## License
 
