@@ -56,3 +56,8 @@ See [operations/index.md](operations/index.md) for CSI details.
 4. Node agent endpoints: `internal/node_agent/node_agent.go`
 
 See [services/index.md](services/index.md) for service overview.
+
+## Debugging the Operator In-Cluster
+
+- `make deploy-debug` → `script/deploy-debug.sh`, image from `debug.Dockerfile`
+- Guide: `doc/dev/debugging-with-delve.md`
