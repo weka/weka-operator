@@ -143,7 +143,7 @@ never chooses. What the spec can set, and how the planner treats it:
 | `driveHugepages`, `computeHugepages` (and `*Offset`) | **Overrides, not pins.** Written to the container as given, but the planner still fits nodes against its *own* derived figure. See [the callout](#hugepages-budget). |
 
 1. **Inventory.** For each node matching the drive-role selector: its signed, non-blocked full drives
-   (TLC only; QLC is never signed into this mode) and its headroom, meaning allocatable minus every pod
+   (QLC drives are signed by default and charged as TLC; `driveExclusions` keeps them out) and its headroom, meaning allocatable minus every pod
    already on the node, Weka's or not.
 2. **Size each drive container from its node.**
 
@@ -913,22 +913,16 @@ pod will fail to start the next time it is recreated.
 
 **To avoid this:** pin `driveCores` explicitly to its current value before upgrading the operator.
 
-## QLC drives are not used in this mode
+## QLC drives in this mode
 
 The daemonset mode is **full-drives-only** and has no QLC accounting: capacity, drive cores and
-hugepages are all computed as if every drive were TLC. QLC drives are therefore **excluded from
-full-drives signing** — the signing path skips them, so they never enter the
-`weka.io/weka-full-drives` annotation and are never picked up. Drive type is derived from the
-device's IU size (large IU size → QLC), queried through the drive-signing tool. Proxy/shared signing
-is unaffected: drive sharing supports QLC.
-
-As a second line of defence, the operator also filters QLC entries out of discovery results before
-writing the annotation, emitting a `QLCDrivesSkipped` Warning event on the `WekaContainer` that did
-the discovery.
-
-Entries written by older operator versions carry no drive type. Those are left alone and are still
-charged as TLC — re-run drive signing (see [Drive Signing](../operations/drive-signing.md)) to
-refresh a node's annotation if you suspect it contains QLC devices.
+hugepages are all computed as if every drive were TLC. QLC drives are **not excluded by default**:
+they are signed, enter the `weka.io/weka-full-drives` annotation and are charged as TLC. To keep
+them out, sign with `signDrivesPayload.driveExclusions` (e.g. `rules: [{type: QLC}]`, type derived
+from the device's IU size) — see [Drive Signing](../operations/drive-signing.md#drive-exclusions).
+Exclusions only stop signing: a QLC drive signed earlier stays in the annotation — block it with
+[Block Drives](../operations/block-drives.md). Proxy/shared
+signing supports QLC.
 
 If your deployment needs QLC capacity, use a drive-sharing mode — `clusterCapacity` (with
 `driveTypesRatio`) or `containerCapacity` — described in [Cluster Capacity](cluster-capacity.md) and
@@ -1009,8 +1003,8 @@ Check that your backend nodes have signed full drives — the operator never sig
 Confirm the `weka.io/weka-full-drives` node annotation is present (see
 [Drive Signing](../operations/drive-signing.md)) and that the node matches the drive-role
 `nodeSelector` (or the cluster-wide `nodeSelector` if no role-specific selector is set). If the
-node's devices are QLC, they are deliberately not signed for full drives — see
-[QLC drives are not used in this mode](#qlc-drives-are-not-used-in-this-mode). If drives *are* signed
+node's devices are QLC and you configured `signDrivesPayload.driveExclusions` for them, they were not signed
+— see [QLC drives in this mode](#qlc-drives-in-this-mode). If drives *are* signed
 and nothing is created anyway, the plan is infeasible: look for `AutoFullDrivesInfeasible`.
 
 **A node ends up with fewer drives than you signed on it.**

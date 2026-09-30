@@ -84,7 +84,7 @@ MANAGEMENT_IPS = []  # to be populated at later stage
 UDP_MODE = os.environ.get("UDP_MODE", "false") == "true"
 NO_RESERVE_SPACE = os.environ.get("NO_RESERVE_SPACE", "false") == "true"
 DUMPER_CONFIG_MODE = os.environ.get("DUMPER_CONFIG_MODE", "auto")
-EXCLUDED_DRIVE_PATHS = []  # List of device paths to exclude from signing
+EXCLUDED_DRIVE_PATHS = set()  # Resolved (realpath) device paths to exclude from signing
 
 # SSD Proxy socket path for sign-drives operations (mounted at /host-binds/ssdproxy-local-socket)
 SSDPROXY_SOCKET_PATH = "/host-binds/ssdproxy-local-socket/container.sock"
@@ -388,6 +388,33 @@ def iu_size_to_drive_type(iu_size: int) -> str:
         return "TLC"
 
 
+def drive_rule_matches(rule: dict, drive: dict) -> bool:
+    """
+    True if every field set on the rule (model, capacityGiB, type) matches the drive.
+    A rule with no field set matches nothing.
+    """
+    model = (rule.get('model') or '').strip().lower()
+    capacity_gib = rule.get('capacityGiB') or 0
+    drive_type = rule.get('type') or ''
+    if not (model or capacity_gib or drive_type):
+        return False
+    if model and model != (drive.get('model') or '').strip().lower():
+        return False
+    if capacity_gib and capacity_gib != drive.get('capacity_gib'):
+        return False
+    if drive_type and drive_type != drive.get('type'):
+        return False
+    return True
+
+
+def is_proxy_signed(weka_info: dict) -> bool:
+    cluster_guid = weka_info.get('cluster_guid') or ''
+    # 026938d8-a8a2-4ad4-a316-2f23358a1e7a means signed for proxy (but not yet added to proxy)
+    # TODO: hardcoded "Proxy GUID" is weka bug, remove when fixed
+    return (cluster_guid.lower() in ("026938d8-a8a2-4ad4-a316-2f23358a1e7a", "proxy guid")
+            or bool(weka_info.get('is_proxy', False)))
+
+
 async def get_serial_id_cos_specific(device_path: str) -> Optional[str]:
     """
     Get serial ID for Google COS
@@ -541,9 +568,11 @@ async def _list_devices_with_sign_tool(use_proxy_socket: bool = False) -> List[d
     return json.loads(output_text[json_start:]).get('devices', [])
 
 
-async def get_drive_types_with_sign_tool(use_proxy_socket: bool = False) -> Dict[str, str]:
+async def get_drives_with_sign_tool(use_proxy_socket: bool = False) -> Dict[str, dict]:
     """
-    Map block device path (e.g. /dev/nvme0n1) to drive type ("TLC" or "QLC").
+    Map block device path (e.g. /dev/nvme0n1) to {'model', 'capacity_gib', 'type', 'proxy'}; type is
+    "TLC"/"QLC" derived from iu_size, or None when the tool reports no iu_size; proxy is True
+    when the drive is signed for ssdproxy.
 
     Covers every device the sign tool reports hardware for, including ones it could not
     open (status "excluded") - their hardware info still carries iu_size.
@@ -551,17 +580,24 @@ async def get_drive_types_with_sign_tool(use_proxy_socket: bool = False) -> Dict
     Args:
         use_proxy_socket: If True, use the ssdproxy socket to see proxy-taken drives
     """
-    drive_types = {}
+    drives = {}
     for device in await _list_devices_with_sign_tool(use_proxy_socket):
         path = device.get('path')
-        iu_size = (device.get('hardware') or {}).get('iu_size')
-        if not path or not iu_size:
-            logging.warning(f"No iu_size reported for device {path or 'unknown'}, drive type unknown")
+        if not path:
             continue
-        drive_types[path] = iu_size_to_drive_type(iu_size)
+        hardware = device.get('hardware') or {}
+        iu_size = hardware.get('iu_size')
+        if not iu_size:
+            logging.warning(f"No iu_size reported for device {path}, drive type unknown")
+        drives[path] = {
+            'model': await resolve_drive_model(hardware, path),
+            'capacity_gib': (hardware.get('size_bytes') or 0) // (1024 ** 3),
+            'type': iu_size_to_drive_type(iu_size) if iu_size else None,
+            'proxy': is_proxy_signed(device.get('weka_info') or {}),
+        }
 
-    logging.info(f"Drive types from sign tool: {drive_types}")
-    return drive_types
+    logging.info(f"Drives from sign tool: {drives}")
+    return drives
 
 
 async def get_drives_with_cluster_guid(use_proxy_socket: bool = False) -> dict:
@@ -608,7 +644,7 @@ def _build_sign_params(options: SignOptions) -> List[str]:
 
 async def sign_device_path(device_path, options: SignOptions):
     # Check if device path should be excluded
-    if device_path in EXCLUDED_DRIVE_PATHS:
+    if os.path.realpath(device_path) in EXCLUDED_DRIVE_PATHS:
         logging.info(f"Skipping drive {device_path} - in exclusion list")
         return
 
@@ -648,7 +684,7 @@ async def sign_device_path_for_proxy(device_path: str, options: SignOptions):
 
 
 async def sign_device_paths_batch(device_paths: List[str], options: SignOptions) -> List[str]:
-    paths = [p for p in device_paths if p not in EXCLUDED_DRIVE_PATHS]
+    paths = [p for p in device_paths if os.path.realpath(p) not in EXCLUDED_DRIVE_PATHS]
     if not paths:
         return []
     params = _build_sign_params(options)
@@ -669,7 +705,7 @@ async def sign_device_paths_batch(device_paths: List[str], options: SignOptions)
 
 
 async def sign_device_paths_for_proxy_batch(device_paths: List[str], options: SignOptions) -> List[dict]:
-    paths = [p for p in device_paths if p not in EXCLUDED_DRIVE_PATHS]
+    paths = [p for p in device_paths if os.path.realpath(p) not in EXCLUDED_DRIVE_PATHS]
     if not paths:
         return []
     params = ["sign", "proxy"] + _build_sign_params(options)
@@ -1010,23 +1046,33 @@ async def sign_drives(instruction: dict):
     # Use proxy socket when signing for proxy mode to see proxy-taken drives
     excluded_serials = instruction.get('excludedSerialIds', [])
     drives_with_guid = await get_drives_with_cluster_guid(use_proxy_socket=for_proxy)
-    EXCLUDED_DRIVE_PATHS = []
+    EXCLUDED_DRIVE_PATHS = set()
     for serial in excluded_serials:
         if serial in drives_with_guid:
-            EXCLUDED_DRIVE_PATHS.append(drives_with_guid[serial])
+            EXCLUDED_DRIVE_PATHS.add(os.path.realpath(drives_with_guid[serial]))
             logging.info(f"Serial {serial} -> {drives_with_guid[serial]} (has cluster_guid, will exclude)")
         else:
             logging.info(f"Serial {serial} has no cluster_guid or not found, NOT excluding")
 
-    # Full-drives mode has no QLC accounting (capacity, drive cores and hugepages are all
-    # computed as TLC), so QLC drives must never be signed for it. Proxy mode supports QLC.
-    if not for_proxy:
-        for path, drive_type in (await get_drive_types_with_sign_tool()).items():
-            if drive_type == "QLC":
-                EXCLUDED_DRIVE_PATHS.append(path)
-                logging.info(f"Excluding QLC drive {path} from full-drives signing")
+    rules = (instruction.get('driveExclusions') or {}).get('rules') or []
+    if rules:
+        matched_rules = set()
+        has_type_rule = any(r.get('type') for r in rules)
+        for path, drive in (await get_drives_with_sign_tool(use_proxy_socket=for_proxy)).items():
+            hits = [i for i, rule in enumerate(rules) if drive_rule_matches(rule, drive)]
+            if has_type_rule and drive['type'] is None and not hits:
+                logging.warning(f"Drive {path} has no detectable type (no iu_size); "
+                                f"driveExclusions type rules cannot match it")
+            if hits:
+                EXCLUDED_DRIVE_PATHS.add(os.path.realpath(path))
+                logging.info(f"Excluding drive {path} (model={drive['model']!r}, {drive['capacity_gib']} GiB, "
+                             f"type={drive['type']}) from signing: matches driveExclusions rules {hits}")
+                matched_rules.update(hits)
+        for i, rule in enumerate(rules):
+            if i not in matched_rules:
+                logging.warning(f"driveExclusions rule {i} {rule} matched no drive")
 
-    logging.info(f"Final excluded paths: {EXCLUDED_DRIVE_PATHS}")
+    logging.info(f"Final excluded paths: {sorted(EXCLUDED_DRIVE_PATHS)}")
 
     # Route to proxy signing functions if shared is true
     if for_proxy:
@@ -1244,12 +1290,7 @@ async def list_weka_proxy_drives_with_sign_tool():
                     continue
 
                 weka_info = device_data.get('weka_info', {})
-                cluster_guid = weka_info.get('cluster_guid') or ''
-                is_proxy = weka_info.get('is_proxy', False)
-
-                # 026938d8-a8a2-4ad4-a316-2f23358a1e7a means signed for proxy (but not yet added to proxy)
-                # TODO: hardcoded "Proxy GUID" is weka bug, remove when fixed
-                if cluster_guid.lower() not in ("026938d8-a8a2-4ad4-a316-2f23358a1e7a", "proxy guid") and not is_proxy:
+                if not is_proxy_signed(weka_info):
                     logging.debug(f"Skipping drive not signed for proxy: {device_data.get('path', 'unknown')}")
                     continue
 
@@ -1305,12 +1346,11 @@ async def find_weka_drives(use_sign_tool: bool = True) -> List[dict]:
     drives = []
     # ls /dev/disk/by-path/pci-0000\:03\:00.0-scsi-0\:0\:3\:0  | ssd
 
-    drive_types = {}
-    # Drive type is not derivable from the kernel view (blkid/hexdump) - it comes from the sign tool's
-    # reported iu_size. If the tool is unavailable, every drive stays untyped, and an untyped QLC drive
-    # is accounted as TLC in full-drives mode.
+    proxy_paths = set()
     if use_sign_tool:
-        drive_types = await get_drive_types_with_sign_tool()
+        # A drive held by a running ssdproxy is unbound from the nvme driver and never shows up in part_names;
+        # the plain listing only has to catch drives signed for proxy but not yet taken by it.
+        proxy_paths = {os.path.realpath(p) for p, d in (await get_drives_with_sign_tool()).items() if d['proxy']}
 
     devices_by_id = subprocess.check_output("ls /dev/disk/by-id/", shell=True,
                                              timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip().split()
@@ -1383,14 +1423,10 @@ async def find_weka_drives(use_sign_tool: bool = True) -> List[dict]:
                                                       shell=True,
                                                       timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip()
             device_path = "/dev/" + pci_device_path.split("/")[-2]
+            if os.path.realpath(device_path) in proxy_paths:
+                logging.info(f"Skipping {part_name} ({device_path}): signed for ssdproxy")
+                continue
             serial_id = await get_device_serial_id(device_path)
-
-            # A drive the sign tool does not enumerate (e.g. SCSI/SATA) stays untyped rather than
-            # failing discovery - it is outside the tool's view, so it could not have been signed
-            # as QLC either. Consumers treat an empty type as unknown and keep the drive.
-            drive_type = drive_types.get(device_path, "")
-            if not drive_type and use_sign_tool:
-                logging.warning(f"Sign tool reported no drive type for {device_path}, leaving it unset")
 
             drives.append({
                 "partition": "/dev/" + part_name,
@@ -1398,7 +1434,6 @@ async def find_weka_drives(use_sign_tool: bool = True) -> List[dict]:
                 "serial_id": serial_id,
                 "weka_guid": weka_guid,
                 "is_signed": is_signed,
-                "type": drive_type,
             })
 
     return drives
@@ -4526,9 +4561,7 @@ async def assert_vfio_pci_loaded_if_required():
 
 async def ensure_drives():
     await assert_vfio_pci_loaded_if_required()
-    # Drive types are not consulted here - drives are matched to the requested set by serial_id -
-    # and the sign tool is not on the weka container's filesystem, so querying it would fail
-    # discovery outright. QLC is filtered at signing time, before a drive reaches this container.
+    # The sign tool is not on the weka container's filesystem, so querying it would fail discovery outright.
     sys_drives = await find_weka_drives(use_sign_tool=False)
     requested_drives = RESOURCES.get("drives", [])
     drives_to_setup = []

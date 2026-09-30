@@ -29,8 +29,8 @@ const (
 
 	// AnnotationWekaFullDrives stores drive entries with full metadata for non-proxy mode:
 	// [{"serial":"SERIAL1","capacity_gib":14307},...]. Supersedes AnnotationWekaDrives (still read
-	// as fallback). TLC drives only: full-drives mode has no QLC accounting, so discovery excludes
-	// QLC drives here and every consumer charges these entries as TLC.
+	// as fallback). Full-drives mode has no QLC accounting: every consumer charges these entries as
+	// TLC, QLC-typed ones included. Keep QLC out via signDrivesPayload.driveExclusions.
 	AnnotationWekaFullDrives = "weka.io/weka-full-drives"
 
 	// AnnotationBlockedDrives stores blocked drive serial IDs (non-proxy mode): ["SERIAL1", ...].
@@ -86,8 +86,8 @@ const PodConfigCodeVersion = "1"
 
 // Kubernetes extended resource names
 const (
-	// ResourceDrives tracks available drives (non-proxy mode). TLC only: it counts the non-blocked
-	// entries of AnnotationWekaFullDrives, which excludes QLC.
+	// ResourceDrives tracks available drives (non-proxy mode): it counts the non-blocked entries of
+	// AnnotationWekaFullDrives.
 	ResourceDrives = "weka.io/drives"
 
 	// ResourceSharedDrivesCapacity tracks shared drive capacity (proxy mode).
