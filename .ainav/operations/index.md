@@ -20,12 +20,12 @@ Manual operations, policies, CSI, and driver management.
 
 | File | Purpose |
 |------|---------|
-| `sign_drives.go` | Drive signing for weka use; TLC/QLC type overrides |
+| `sign_drives.go` | Drive signing; TLC/QLC overrides; `driveExclusions` |
 | `block_drives.go` | block-drives/unblock-drives by serial, physical UUID, or virtual UUID |
-| `discover_drives.go` | Drive discovery. Runs on `SIGN_DRIVES_IMAGE` (needs `weka-sign-drive` for TLC/QLC typing) |
+| `discover_drives.go` | Drive discovery on `SIGN_DRIVES_IMAGE`; skips proxy-signed drives |
 | `resign_drives.go` | Force drive re-signing |
-| `stale_virtual_drives.go` | Stale virtual drives detection + gated cleanup. |
-| `rotate_ssdproxy.go` | Rolling ssdproxy image rotation, one node at a time |
+| `stale_virtual_drives.go` | Stale virtual drive detection + gated cleanup |
+| `rotate_ssdproxy.go` | Rolling ssdproxy image rotation, node by node |
 | `kernelize.go` | Ad-hoc hostPID kernelize container before proxy pod (re)creation. See [doc](../../doc/operator/operations/drive-sharing.md) |
 | `proxy_disruption_gate.go` | Health gate before disrupting a shared proxy node |
 | `migrate_drive_sharing.go` | `migrate-to-drive-sharing`: per-cluster full-drives → drive-sharing campaign, one drive container at a time. See [doc](../../doc/operator/operations/migrate-to-drive-sharing.md) |
@@ -54,9 +54,8 @@ See [driver-distribution.md](../../doc/operator/deployment/driver-distribution.m
 
 ## Container Sizing
 
-See [drivers-dist-sizing.md](drivers-dist-sizing.md) for how `spec.resources`,
-`driverDistPayload.distResources` and `additionalMemory` reach the pod, and what
-overriding them costs.
+See [drivers-dist-sizing.md](drivers-dist-sizing.md): how `spec.resources`,
+`distResources` and `additionalMemory` reach the pod.
 
 ## Policies vs Manual Operations
 

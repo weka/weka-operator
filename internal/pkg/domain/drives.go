@@ -12,7 +12,8 @@ import (
 )
 
 // DriveEntry represents a drive in the weka.io/weka-drives annotation (non-proxy mode).
-// TLC drives only: there is deliberately no Type field, because full-drives mode has no QLC.
+// There is deliberately no Type field: full-drives mode has no QLC accounting, so every entry is charged as TLC,
+// QLC included. Keep QLC out via signDrivesPayload.driveExclusions.
 type DriveEntry struct {
 	Serial      string `json:"serial"`
 	CapacityGiB int    `json:"capacity_gib"`

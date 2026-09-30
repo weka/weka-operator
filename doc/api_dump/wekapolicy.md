@@ -20,11 +20,13 @@
 - [PCIDevices](#pcidevices)
 - [SignOptions](#signoptions)
 - [DriveTypeOverrides](#drivetypeoverrides)
+- [DriveExclusions](#driveexclusions)
 - [PodResourcesSpec](#podresourcesspec)
 - [ObjectReference](#objectreference)
 - [CsiSpec](#csispec)
 - [DriversSpec](#driversspec)
 - [DriveTypeOverrideRule](#drivetypeoverriderule)
+- [DriveExclusionRule](#driveexclusionrule)
 - [PodResources](#podresources)
 
 ---
@@ -108,6 +110,7 @@
 | options | *SignOptions |  |
 | shared | bool | Shared enables shared drive signing for proxy mode (defaults to false).<br>When enabled:<br>- Drives are signed for proxy using 'weka-sign-drive sign proxy' command<br>- Drives are signed with a proxy system GUID<br>- Results are stored in weka.io/shared-drives annotation (instead of weka.io/weka-drives)<br>- Physical UUIDs, serial IDs, and capacities are captured<br>- Enables multi-tenant drive sharing via SSD proxy |
 | driveTypeOverrides | *DriveTypeOverrides | DriveTypeOverrides forces the reported TLC/QLC type for matching drives instead of<br>deriving it from the drive's IU size. Only meaningful when Shared is true.<br>Persisted on the node in the weka.io/drive-type-overrides annotation and re-applied<br>on every later sign-drives run. Omit the field to keep whatever is already persisted<br>on the node; set an empty rules list to clear all overrides. |
+| driveExclusions | *DriveExclusions | DriveExclusions skips matching drives when signing, in both full-drives and shared mode.<br>Type is matched against the IU-size-derived type, before DriveTypeOverrides apply. |
 
 ---
 
@@ -219,6 +222,14 @@
 
 ---
 
+## DriveExclusions
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| rules | []DriveExclusionRule | A drive is excluded if any rule matches it. |
+
+---
+
 ## PodResourcesSpec
 
 | JSON Field | Type | Description |
@@ -261,6 +272,16 @@
 | model | string | Model matches the device model exactly, case-insensitively, ignoring surrounding<br>whitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1<br>Empty means "do not match on model". |
 | capacityGiB | int | CapacityGiB matches the drive capacity in GiB exactly, as reported in the<br>weka.io/weka-shared-drives annotation. 0 means "do not match on capacity". |
 | type | string | Type is the drive type to report for matching drives. |
+
+---
+
+## DriveExclusionRule
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| model | string | Model matches the device model exactly, case-insensitively, ignoring surrounding<br>whitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1 |
+| capacityGiB | int | CapacityGiB matches the drive capacity in GiB exactly. |
+| type | string | Type is the drive type the sign tool derives from the IU size. |
 
 ---
 

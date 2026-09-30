@@ -1035,6 +1035,58 @@
         "WekaContainer"
       ]
     },
+    "DriveExclusionRule": {
+      "kind": "struct",
+      "description": "DriveExclusionRule matches drives by Model, CapacityGiB and/or Type; all set fields must match.",
+      "fields": [
+        {
+          "name": "Model",
+          "jsonName": "model",
+          "type": "string",
+          "description": "Model matches the device model exactly, case-insensitively, ignoring surrounding\nwhitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1",
+          "optional": true
+        },
+        {
+          "name": "CapacityGiB",
+          "jsonName": "capacityGiB",
+          "type": "int",
+          "description": "CapacityGiB matches the drive capacity in GiB exactly.",
+          "optional": true
+        },
+        {
+          "name": "Type",
+          "jsonName": "type",
+          "type": "string",
+          "description": "Type is the drive type the sign tool derives from the IU size.",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation",
+        "WekaPolicy"
+      ]
+    },
+    "DriveExclusions": {
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Rules",
+          "jsonName": "rules",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/DriveExclusionRule"
+            }
+          },
+          "description": "A drive is excluded if any rule matches it.",
+          "optional": false
+        }
+      ],
+      "usedBy": [
+        "WekaManualOperation",
+        "WekaPolicy"
+      ]
+    },
     "DriveFailures": {
       "kind": "struct",
       "fields": [
@@ -2974,6 +3026,16 @@
             "$ref": "#/definitions/DriveTypeOverrides"
           },
           "description": "DriveTypeOverrides forces the reported TLC/QLC type for matching drives instead of\nderiving it from the drive's IU size. Only meaningful when Shared is true.\nPersisted on the node in the weka.io/drive-type-overrides annotation and re-applied\non every later sign-drives run. Omit the field to keep whatever is already persisted\non the node; set an empty rules list to clear all overrides.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DriveExclusions",
+          "jsonName": "driveExclusions",
+          "type": {
+            "$ref": "#/definitions/DriveExclusions"
+          },
+          "description": "DriveExclusions skips matching drives when signing, in both full-drives and shared mode.\nType is matched against the IU-size-derived type, before DriveTypeOverrides apply.",
           "optional": true,
           "pointer": true
         }

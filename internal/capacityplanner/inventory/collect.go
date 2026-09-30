@@ -1125,8 +1125,8 @@ func sumSharedDriveCapacity(drives []domain.SharedDriveInfo) (tlcGiB, qlcGiB int
 	return tlcGiB, qlcGiB
 }
 
-// sumFullDriveCapacity sums the capacity of full (non-shared, non-proxy) drives — every full drive is TLC
-// by design (see FullDrivesInventory). A thin wrapper around fullDriveCapacities so the call site reads
+// sumFullDriveCapacity sums the capacity of full (non-shared, non-proxy) drives — every full drive entry is
+// charged as TLC, QLC included (see FullDrivesInventory). A thin wrapper around fullDriveCapacities so the call site reads
 // as "the total", independent of how DriveCapacitiesGiB is built.
 func sumFullDriveCapacity(drives []domain.DriveEntry) (tlcGiB int) {
 	for _, gib := range fullDriveCapacities(drives) {

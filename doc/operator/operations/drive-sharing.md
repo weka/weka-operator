@@ -808,6 +808,9 @@ parking/warning model, events, and recommended usage on a live fleet.
 
 ## Migrating an existing full-drives cluster
 
+Full-drives discovery skips drives signed for ssdproxy. Entries already present in `weka.io/weka-full-drives` are never
+removed by re-discovery: block the drive ([Block Drives](block-drives.md)) or clear the annotation and re-sign.
+
 A `WekaCluster` currently running in exclusive full-drives mode can be moved onto drive sharing
 **in place** — no rebuild from external object storage — by draining and re-signing one drive
 container at a time while the rest of the cluster keeps serving. This is a separate

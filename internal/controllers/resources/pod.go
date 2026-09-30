@@ -1584,8 +1584,6 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeDrive && !f.container.UsesDriveSharing() {
-		// TLC drives only — weka.io/drives counts the node's weka-full-drives entries, which exclude
-		// QLC (full-drives mode has no QLC accounting). QLC is only usable via drive sharing.
 		pod.Spec.Containers[0].Resources.Requests[consts.ResourceDrives] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
 		pod.Spec.Containers[0].Resources.Limits[consts.ResourceDrives] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
 	} else if f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.UsesDriveSharing() {

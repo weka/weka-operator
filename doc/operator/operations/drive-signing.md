@@ -38,6 +38,7 @@ The only cases when spec.image might be specified - is when there is specific ne
 
 When drives are signed they are propagated into node annotations and extended resources
 Annotation: `weka.io/weka-full-drives` (legacy format: `weka.io/weka-drives: '["233447E40E3C","233447E40CFD","233447E40E5A","19231043BD02","23164A23D27F","233447E40D0F"]'`)
+Full-drives discovery skips drives signed for ssdproxy, and entries already present in `weka.io/weka-full-drives` are never removed by re-discovery — block the drive ([Block Drives](block-drives.md)) or clear the annotation and re-sign.
 In drive-sharing (proxy) mode the result goes to `weka.io/weka-shared-drives` instead — see [Drive Sharing](drive-sharing.md).
 Extended resource example: `weka.io/drives: "6"`
 This way, multiple wekaclusters can share same nodes, as long as they use different set of drives, which they are not selecting themselves, but rather Weka Operator is selecting them based on the signed drives available on the node
@@ -171,3 +172,27 @@ carved from it, so overriding a claimed drive leaves the node's per-type allocat
 disagreeing with the pools of already-running containers until those containers are reallocated. The
 per-drive warning naming each changed drive is logged only on the deferred re-sign, not on the
 immediate annotation rewrite.
+
+### Drive exclusions
+
+`signDrivesPayload.driveExclusions` skips matching drives when signing, in both full-drives and shared mode. By
+default nothing is excluded, so in full-drives mode drives the sign tool detects as QLC are signed and accounted as TLC.
+
+```yaml
+signDrivesPayload:
+  type: all-not-root
+  driveExclusions:
+    rules:
+      - type: QLC                             # every drive whose IU size reads as QLC
+      - model: "SAMSUNG MZQL23T8HCLS-00A07"   # one SKU (full model string)
+        capacityGiB: 3576                     # ...only in this capacity
+```
+
+A drive is excluded if **any** rule matches; within a rule every set field (`model`, `capacityGiB`, `type`) must
+match, and the API rejects a rule with none set (or a whitespace-only `model`). `model` is compared exactly,
+case-insensitively, whitespace-trimmed. `capacityGiB` is the whole-device size (`lsblk -bdno SIZE <dev>` / 1024³,
+truncated) — it can differ by 1 GiB from `weka.io/weka-shared-drives`, which records the signed partition size.
+`type` is the IU-size-derived type, before `driveTypeOverrides` apply; a drive with no detectable IU size has no type, so `type` rules never match it (a warning is logged). A rule that matches no drive is logged as a
+warning in the sign container. Exclusions only stop signing: a drive that is already Weka-signed is still
+discovered and listed in the node's drive annotation — take it out of use with [Block Drives](block-drives.md).
+Rules apply per run, so keep them in the spec of a recurring `WekaPolicy`.
