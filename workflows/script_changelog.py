@@ -107,30 +107,32 @@ SUBMODULE_PATH = "pkg/weka-k8s-api"
 def get_submodule_ref_at(ref: str) -> str | None:
     """Return the weka-k8s-api submodule commit recorded at the given operator ref.
 
-    Uses `git rev-parse <ref>:<submodule-path>` to read the gitlink pointer as of
-    that operator commit/tag. Returns None if the submodule did not exist at that
-    ref (e.g. it was added later in history).
+    Reads the tree entry with `git ls-tree` and returns the pointer only when it is
+    a real gitlink (mode 160000, type commit). Returns None when the path is absent
+    at that ref or is a regular tree (the API was inlined into the operator repo),
+    since neither has a submodule pointer to diff.
 
-    Distinguishes that benign "not present at this ref" case from unexpected git
-    failures (bad ref, corrupt repo, permission issues): the latter are logged as
+    Unexpected git failures (bad ref, corrupt repo, permission issues) are logged as
     warnings so they do not silently drop API-change detection and produce
     incomplete release notes.
     """
     result = subprocess.run(
-        ['git', 'rev-parse', f'{ref}:{SUBMODULE_PATH}'],
+        ['git', 'ls-tree', ref, '--', SUBMODULE_PATH],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
     if result.returncode != 0:
-        stderr = result.stderr.decode().strip()
-        # git reports a missing tree path as "... does not exist in ..." /
-        # "exists on disk, but not in ...". Anything else is an unexpected error.
-        if "does not exist" in stderr or "exists on disk, but not in" in stderr:
-            logger.debug(f"Submodule {SUBMODULE_PATH} not present at ref {ref}: {stderr}")
-        else:
-            logger.warning(f"Unexpected git error reading submodule ref at {ref}: {stderr}")
+        logger.warning(f"Unexpected git error reading submodule ref at {ref}: {result.stderr.decode().strip()}")
         return None
-    sha = result.stdout.decode().strip()
-    return sha or None
+    line = result.stdout.decode().strip()
+    if not line:
+        logger.debug(f"Submodule {SUBMODULE_PATH} not present at ref {ref}")
+        return None
+    meta, _, _path = line.partition('\t')
+    mode, obj_type, sha = meta.split()
+    if mode != '160000' or obj_type != 'commit':
+        logger.debug(f"{SUBMODULE_PATH} at ref {ref} is a regular {obj_type}, not a submodule")
+        return None
+    return sha
 
 
 def get_submodule_commits(old_hash: str, new_hash: str) -> list[str]:
@@ -813,7 +815,13 @@ def main():
     from_sub = get_submodule_ref_at(gfrom)
     to_sub = get_submodule_ref_at(gto)
     if not to_sub:
-        logger.info(f"No weka-k8s-api submodule at {gto}; skipping API change detection.")
+        if from_sub:
+            logger.warning(
+                f"weka-k8s-api is inlined at {gto} but was a submodule at {gfrom}; API history is part of "
+                "the operator history, so API commits appear as regular commits and submodule-based API "
+                "detection is skipped.")
+        else:
+            logger.info(f"No weka-k8s-api submodule at {gto}; skipping API change detection.")
     elif from_sub == to_sub:
         logger.info("weka-k8s-api submodule unchanged across the range; no API changes.")
     else:
