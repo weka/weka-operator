@@ -253,7 +253,8 @@ jobs:
       - name: Verify go.mod is tidy
         run: |
           go mod tidy
-          git diff --exit-code go.mod go.sum
+          (cd pkg/weka-k8s-api && go mod tidy)
+          git diff --exit-code go.mod go.sum pkg/weka-k8s-api/go.mod pkg/weka-k8s-api/go.sum
 
       - name: Verify generated code is current
         run: |
