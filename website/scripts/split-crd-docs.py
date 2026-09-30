@@ -213,9 +213,12 @@ def write_crd_page(root, owned_types, sections, type_to_files, children_of, file
 
 def write_overview(ownership):
     """Write the overview index.md landing page."""
+    version = os.environ.get("OPERATOR_VERSION", "")
     lines = [
-        "# Weka CRD API Reference\n",
-        "API reference for the Weka Kubernetes Operator custom resources.\n",
+        "# Weka Operator Reference\n",
+        "Reference for the Weka Kubernetes Operator: the [Helm chart](helm-chart.md) values ([install](helm-chart.md#install)) and the custom resource APIs. "
+        "For installation guides and concepts, see [docs.weka.io](https://docs.weka.io).\n",
+        *([f"Version: `{version}`\n"] if version else []),
         "## Resource Hierarchy\n",
         "```",
         "WekaCluster",
@@ -262,6 +265,7 @@ def update_mkdocs_nav(ownership):
     # Build nav entries grouped by category
     nav_lines = ["nav:"]
     nav_lines.append("  - Overview: index.md")
+    nav_lines.append("  - Helm Chart: helm-chart.md")
 
     known_roots = set()
     for group_label, roots in NAV_GROUPS.items():

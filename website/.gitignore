@@ -1,0 +1,4 @@
+docs/*.md
+docs/_kubectl_explain.json
+site/
+.venv

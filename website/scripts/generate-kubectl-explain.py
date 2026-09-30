@@ -21,7 +21,7 @@ import json
 import os
 import re
 
-API_DIR = os.path.join("api", "v1alpha1")
+API_DIR = os.path.join("..", "pkg", "weka-k8s-api", "api", "v1alpha1")
 DOCS_DIR = "docs"
 OUTPUT = os.path.join(DOCS_DIR, "_kubectl_explain.json")
 

@@ -1,5 +1,8 @@
-site_name: Weka K8s API Reference
-site_description: CRD API reference for Weka Kubernetes operator
+site_name: Weka Operator Reference
+site_description: Helm chart and CRD API reference for the Weka Kubernetes operator
+site_url: https://weka.github.io/weka-operator/
+repo_url: https://github.com/weka/weka-operator
+repo_name: weka/weka-operator
 
 theme:
   name: material
@@ -47,6 +50,7 @@ markdown_extensions:
 
 nav:
   - Overview: index.md
+  - Helm Chart: helm-chart.md
   - Cluster Resources:
       - WekaCluster: wekacluster.md
       - WekaClient: wekaclient.md
