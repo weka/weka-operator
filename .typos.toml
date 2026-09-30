@@ -1,5 +1,10 @@
 [files]
-extend-exclude = ["pkg/weka-k8s-api/", "pkg/go-steps-engine/"]
+extend-exclude = [
+  "pkg/weka-k8s-api/CHANGELOG.md",
+  "pkg/weka-k8s-api/crds/",
+  "pkg/weka-k8s-api/go.sum",
+  "pkg/go-steps-engine/",
+]
 
 [default.extend-words]
 # ChromeOS abbreviation used in charts/weka-operator/resources/cos-devenv.sh
