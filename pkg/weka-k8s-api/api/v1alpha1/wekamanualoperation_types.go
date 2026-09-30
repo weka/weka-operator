@@ -152,6 +152,9 @@ type SignDrivesPayload struct {
 	// on every later sign-drives run. Omit the field to keep whatever is already persisted
 	// on the node; set an empty rules list to clear all overrides.
 	DriveTypeOverrides *DriveTypeOverrides `json:"driveTypeOverrides,omitempty"`
+	// DriveExclusions skips matching drives when signing, in both full-drives and shared mode.
+	// Type is matched against the IU-size-derived type, before DriveTypeOverrides apply.
+	DriveExclusions *DriveExclusions `json:"driveExclusions,omitempty"`
 }
 
 type SignOptions struct {
@@ -183,6 +186,27 @@ type DriveTypeOverrideRule struct {
 	// Type is the drive type to report for matching drives.
 	// +kubebuilder:validation:Enum=TLC;QLC
 	Type string `json:"type"`
+}
+
+type DriveExclusions struct {
+	// A drive is excluded if any rule matches it.
+	// +kubebuilder:validation:MaxItems=64
+	Rules []DriveExclusionRule `json:"rules"`
+}
+
+// DriveExclusionRule matches drives by Model, CapacityGiB and/or Type; all set fields must match.
+// +kubebuilder:validation:XValidation:rule="(has(self.model) && size(self.model.trim()) > 0) || (has(self.capacityGiB) && self.capacityGiB != 0) || has(self.type)",message="at least one of model, capacityGiB or type must be set"
+type DriveExclusionRule struct {
+	// Model matches the device model exactly, case-insensitively, ignoring surrounding
+	// whitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1
+	// +kubebuilder:validation:MaxLength=256
+	Model string `json:"model,omitempty"`
+	// CapacityGiB matches the drive capacity in GiB exactly.
+	// +kubebuilder:validation:Minimum=1
+	CapacityGiB int `json:"capacityGiB,omitempty"`
+	// Type is the drive type the sign tool derives from the IU size.
+	// +kubebuilder:validation:Enum=TLC;QLC
+	Type string `json:"type,omitempty"`
 }
 
 type ForceResignDrivesPayload struct {
