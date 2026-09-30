@@ -1,0 +1,20 @@
+# {{ template "chart.name" . }}
+
+{{ template "chart.description" . }}
+
+## Install
+
+Helm does not upgrade CRDs, so apply the chart's CRDs with server-side apply before every install or upgrade.
+
+```bash
+VERSION=vX.Y.Z  # the operator release to install
+
+helm show crds oci://quay.io/weka.io/helm/weka-operator --version "$VERSION" | \
+  kubectl apply --server-side -f -
+
+helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
+  --namespace weka-operator-system --create-namespace \
+  --version "$VERSION"
+```
+
+{{ template "chart.valuesSection" . }}
