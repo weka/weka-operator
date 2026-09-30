@@ -40,16 +40,16 @@
   },
   "overrides": {
     "conventional-changelog-conventionalcommits": ">= 8.0.0",
-    "tar": ">=7.5.7",
-    "lodash": ">=4.17.23",
-    "lodash-es": ">=4.17.23",
+    "tar": ">=7.5.18",
+    "lodash": ">=4.18.0",
+    "lodash-es": ">=4.18.0",
     "glob": ">=10.5.0",
-    "js-yaml": ">=4.1.1",
+    "js-yaml": ">=4.3.2 <5",
     "cross-spawn": ">=7.0.5",
     "diff": ">=5.2.2",
     "micromatch": ">=4.0.8"
   },
   "resolutions": {
-    "tar": "7.5.7"
+    "tar": ">=7.5.18"
   }
 }
