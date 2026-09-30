@@ -127,8 +127,12 @@ api-docs: ## Generate API reference documentation from source files
 	@mkdir -p doc/api_dump
 	@go run scripts/gen-api-docs.go
 
+.PHONY: helm-docs
+helm-docs: ## Generate the Helm chart README from values.yaml.
+	$(HELM_DOCS) --chart-search-root charts/weka-operator
+
 .PHONY: generate
-generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+generate: helm-docs ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="" paths="./pkg/weka-k8s-api/..."
 
 .PHONY: fmt
@@ -381,10 +385,12 @@ $(LOCALBIN):
 
 ## Tool Binaries
 CONTROLLER_GEN ?= go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
+HELM_DOCS ?= go run github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION)
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= v0.16.5
+HELM_DOCS_VERSION ?= v1.14.2
 
 
 .PHONY: envtest

@@ -3,33 +3,48 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-# Prefix for all resources created by the operator
+# -- Prefix for all resources created by the operator (for example the controller Deployment and its service accounts).
+# @section -- Operator runtime & logging
 prefix: "weka-operator"
 
 image:
+  # -- Operator image repository.
+  # @section -- Images
   repository: quay.io/weka.io/weka-operator
-  # Override only, default equals to the chart version
+  # -- Operator image tag. Override only.
+  # @default -- the chart version
+  # @section -- Images
   tag: ""
+# -- kube-rbac-proxy sidecar image, used in front of the operator metrics endpoint.
+# @section -- Images
 kubeProxyImage: "quay.io/brancz/kube-rbac-proxy:v0.21.0"
 
+# -- Driver builder images. `default` is the Ubuntu 22 builder, `ubuntu24` is used for Ubuntu 24 nodes, and
+# `nixos` holds NixOS builders keyed by the gcc major of the NixOS kernel they are built for
+# (a node's OS is reported by discovery as "nixos-gcc<major>").
+# @section -- Images
 builderImages:
   default: "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22-v1"
   ubuntu24: "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24-v1"
-  # NixOS builder images, keyed by the gcc major of the NixOS kernel they're built for
-  # (a node's os is reported by discovery as "nixos-gcc<major>").
   nixos:
     gcc15: "quay.io/weka.io/weka-drivers-build-images:builder-nixos-gcc15-v2"
 
-# -- optional: name of an existing imagePullSecret to attach to operator pods
+# -- Name of an existing imagePullSecret to attach to operator pods (optional).
+# @section -- Images
 imagePullSecret: ""
+# -- Deploy the operator controller. When false, the controller Deployment is scaled to 0 replicas.
+# @section -- Operator runtime & logging
 deployController: true
-# -- deploy a standalone capacity-planner toolbox pod (runs `weka-capacity` from the
-#    operator image; exec into it to preview capacity plans without touching the operator pod)
+# -- Deploy a standalone capacity-planner toolbox pod (runs `weka-capacity` from the
+# operator image; exec into it to preview capacity plans without touching the operator pod).
+# @section -- Capacity planner tool
 deployCapacityPlanner: false
 capacityPlanner:
-  # -- small requests so it schedules anywhere; limits are deliberately loose, since the pod
-  #    idles until someone execs a plan run and admission policies commonly reject a container
-  #    with no limits at all. Raise the memory limit if a large plan run gets OOM-killed.
+  # -- Resources of the capacity-planner toolbox pod. Requests are small so it schedules anywhere;
+  # limits are deliberately loose, since the pod idles until someone execs a plan run and admission
+  # policies commonly reject a container with no limits at all. Raise the memory limit if a large
+  # plan run gets OOM-killed.
+  # @section -- Capacity planner tool
   resources:
     requests:
       cpu: 50m
@@ -37,58 +52,86 @@ capacityPlanner:
     limits:
       cpu: 2
       memory: 4Gi
+  # -- nodeSelector of the capacity-planner toolbox pod.
+  # @section -- Capacity planner tool
   nodeSelector: {}
+  # -- Tolerations of the capacity-planner toolbox pod.
+  # @section -- Capacity planner tool
   tolerations: []
 
-# -- experimental: enables custtom HTTP API endpoint as alternative to K8s API
+# -- Experimental: enables a custom HTTP API endpoint as an alternative to the K8s API.
+# @section -- Advanced
 enableClusterApi: false
-# -- enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.
+# -- Enable leader election for the controller manager. Ensures only one controller manager is active.
+# @section -- Operator runtime & logging
 enableLeaderElection: true
-# -- custom endpoint to send OTLP traces and logs to (GRPC).
+# -- Custom endpoint to send OTLP traces and logs to (GRPC).
 # If left empty, traces are sent to stdout in json format, and logs use standard Python logging.
+# Optionally, set `otelPackagesInstallerImage` (commented out by default, for example `python:3.10-slim`, chosen
+# for glibc compatibility with the weka-container image) to enable OTEL logging through an init container
+# that installs the OpenTelemetry packages. Leave it unset to disable OTEL logging.
+# @section -- Observability
 otelExporterOtlpEndpoint: "https://otelcollector.prod.weka.io:4317"
-# -- image used for installing OpenTelemetry packages in init container
-# When set, enables OTEL logging with init container. Leave empty to disable OTEL logging.
-# Default is python:3.10-slim for glibc compatibility (for weka-container image)
 # otelPackagesInstallerImage: "python:3.10-slim"
 
-# logging settings
 logging:
+  # -- Operator log level.
+  # @section -- Operator runtime & logging
   level: 0
+  # -- Log only the time (without the date) in log lines.
+  # @section -- Operator runtime & logging
   timeOnly: true
-# -- management proxy (envoy) image
+# -- Management proxy (envoy) image.
+# @section -- Images
 envoyImage: "docker.io/envoyproxy/envoy:v1.31-latest"
-# -- can be overridden with any other basic linux image
+# -- Image used for maintenance pods; can be overridden with any other basic linux image.
+# If required, a pull secret for it can be set with `maintenanceImagePullSecret` (commented out by default).
+# @section -- Images
 maintenanceImage: quay.io/weka.io/busybox:1.37.0
-# -- if required, you can specify a pull secret for that image
 # maintenanceImagePullSecret: ""
-# -- used by various operations that are not in context of wekacluster/wekacontainer, for example: GC of persistent storage/removal of tobmstones
+# Weka Home connection settings, used by various operations that are not in the context of a
+# WekaCluster/WekaContainer (for example GC of persistent storage, removal of tombstones).
 wekahome:
+  # -- Weka Home API endpoint.
+  # @section -- Observability
   endpoint: https://api.home.weka.io
-  # -- allow insecure TLS connection to the wekahome endpoint (no server certificate validation)
+  # -- Allow insecure TLS connection to the wekahome endpoint (no server certificate validation).
+  # @section -- Observability
   allowInsecureTLS: false
-  # -- name of the secret specifying CA certificate chain. It is assumed that every target namespace will have such secret
+  # -- Name of the secret specifying the CA certificate chain. It is assumed that every target namespace will have such a secret.
+  # @section -- Observability
   cacertSecret: ""
+  # -- Send performance statistics to Weka Home. Connectivity and event data are sent regardless of this setting.
+  # @section -- Observability
   enableStats: true
   report:
     # -- Periodically report operator CRs to Weka Home.
+    # @section -- Observability
     enabled: true
     # -- Reporting interval.
+    # @section -- Observability
     interval: 60s
 
+# -- Timeout of a single reconcile run.
+# @section -- Timeouts & intervals
 reconcileTimeout: 30m
+# -- Timeout of commands the operator executes inside pods.
+# @section -- Timeouts & intervals
 kubeExecTimeout: 5m
 # -- How long a terminating backend pod may sit before the operator forces graceful
 # deactivation. 0 = never (default). On managed cloud nodes (AWS/EKS, OCI/OKE) the operator
 # overrides this to 30m so managed-nodegroup drains don't hang. Per-cluster override:
 # spec.overrides.podTerminationDeactivationTimeout.
+# @section -- Timeouts & intervals
 podTerminationDeactivationTimeout: 0
 # -- How long to wait, once IO processes are reported up, before considering the container's
 # applied image settled. 0 = don't wait (default). Per-object override:
 # spec.overrides.waitSinceIoProcessesUpTimeout on the WekaCluster (backend containers) or on the
 # WekaClient (client containers).
+# @section -- Timeouts & intervals
 waitSinceIoProcessesUpTimeout: 0
-# -- maximum number of workers for each reconciler (for each resource type)
+# -- Maximum number of workers for each reconciler (for each resource type).
+# @section -- Operator runtime & logging
 maxWorkers:
   wekaCluster: 5
   wekaContainer: 50
@@ -96,53 +139,60 @@ maxWorkers:
   wekaManualOperation: 5
   wekaPolicy: 5
 
+# @ignored
 wekaAllocZombieDeleteAfter: 5m
 
+# -- Bind address of the operator metrics endpoint.
+# @section -- Networking & ports
 operatorMetricsBindAddress: "127.0.0.1:8080"
+# -- Bind address of the node-agent metrics endpoint.
+# @section -- Networking & ports
 nodeAgentMetricsBindAddress: ":8090"
+# -- Bind address of the operator health probe endpoint.
+# @section -- Networking & ports
 healthProbeBindAddress: ":8081"
 
+# -- OpenShift (OCP) settings: driver toolkit access, hugepages provisioning through a Tuned profile,
+# and CSI SELinux policy placement.
+# `hugepageConfiguration.enabled` automatically creates a Tuned profile on the matching nodes to apply
+# hugepages (WARNING: do not enable it if you already use custom Tuned profiles for hugepages).
+# `retainMachineConfig`: if true, the machine configurations are not removed when uninstalling the operator, so an
+# operator reinstall does not cause a machine config pool update.
+# `csi.machineConfigLabels`: which machineconfig pools to install the Weka SELinux policy on (by default both
+# workers and control plane nodes).
+# @section -- Platform compatibility
 ocpCompatibility:
   driverToolkitSecretName:
   driverToolkitImageBaseUrl: quay.io/openshift-release-dev/ocp-v4.0-art-dev
-  # -- automatically create Tuned profile for the cluster nodes to apply hugepages configuration.
-  # -- WARNING: do not enable this feature if you are already using custom Tuned profiles for setting hugepages
   hugepageConfiguration:
-    # -- if enabled, the operator will configure hugepages for the OCP nodes
     enabled: false
-    # -- on which nodes to configure hugepages
     machineConfigNodeLabel: "worker"
-    # -- hugepage size
     hugepageSize: "2M"
-    # -- hugepage count
     hugepagesCount: 4000
     nodeSelector:
       matchLabels:
         - node-role.kubernetes.io/worker: ""
-  # -- If true, the machine configurations will not be removed when uninstalling the operator.
-  #    This is useful for OpenShift Container Platform clusters, to not cause machine config pool update on operator reinstall
   retainMachineConfig: true
   csi:
-    # -- Optional setting for OCP platform only, which machineconfig pools to apply the Weka SELinux policy on
-    #    NOTE: by default, the policy will be installed both on workers and control plane nodes
     machineConfigLabels:
       - "worker"
       - "master"
 
+# -- Google Kubernetes Engine (GKE) settings. `hugepageConfiguration.enabled` automatically configures hugepages on the
+# GKE nodes, and `disableDriverSigning` disables driver signing enforcement on them
+# (WARNING: both reboot nodes forcefully!).
+# @section -- Platform compatibility
 gkeCompatibility:
   gkeServiceAccountSecret: ""
-  # -- automatically configure hugepages for the GKE nodes
   hugepageConfiguration:
-    # -- if enabled, the operator will configure hugepages for the GKE nodes (WARNING: will reboot nodes forcefully!)
     enabled: false
-    # -- hugepage size
     hugepageSize: "2M"
-    # -- hugepage count
     hugepageCount: 4000
-  # -- if enabled, the operator will disable driver signing enforcement on the GKE nodes (WARNING: will reboot nodes forcefully!)
   disableDriverSigning: false
 
 manager:
+  # -- Resources of the operator manager container.
+  # @section -- Operator runtime & logging
   resources:
     limits:
       cpu: 1000m
@@ -150,35 +200,49 @@ manager:
     requests:
       cpu: 250m
       memory: 64Mi
+  # -- nodeSelector of the operator pod.
+  # @section -- Operator runtime & logging
   nodeSelector: {}
+  # -- Tolerations of the operator pod. When empty, the top-level `tolerations` are used.
+  # @section -- Tolerations
   tolerations: []
+  # -- Extra labels added to the operator pod.
+  # @section -- Operator runtime & logging
   labels: {}
-  # -- extra volumes added to the operator Deployment pod spec (standard PodSpec `volumes` shape).
+  # -- Extra volumes added to the operator Deployment pod spec (standard PodSpec `volumes` shape).
   # The reserved name is `tmpdir`.
+  # @section -- Operator runtime & logging
   extraVolumes: []
-  # -- extra volumeMounts for the `manager` container. The reserved path is `/tmp` (on, under, or
+  # -- Extra volumeMounts for the `manager` container. The reserved path is `/tmp` (on, under, or
   # above it) -- it holds the webhook serving certs. A mount at `/` is rejected for the same reason.
+  # @section -- Operator runtime & logging
   extraVolumeMounts: []
+  # -- Operator logger settings: verbosity `level`, output `format` and `callerDirLvl` (how many caller
+  # directory levels to include in log lines).
+  # @section -- Operator runtime & logging
   loggerSettings:
     level: 0
     format: raw
     callerDirLvl: 1
 
+# -- Debug sleep applied to weka pods on terminate (passed as WEKA_OPERATOR_DEBUG_SLEEP); overridable per container via spec.overrides.debugSleepOnTerminate.
+# @ignored
 debugSleep: 3
 
-# Pod-level securityContext applied to every privileged / hostPath pod produced
-# by the operator. Opt-in: leave empty (default {}) for no override. Accepts
-# any subset of the standard corev1.PodSecurityContext shape — every field
-# you set here flows through to the produced pods unchanged.
+# -- Pod-level securityContext applied to every privileged / hostPath pod produced by the operator.
+# Opt-in: leave empty for no override. Accepts any subset of the standard corev1.PodSecurityContext
+# shape; every field you set flows through to the produced pods unchanged.
 # Example to satisfy Kyverno's require-apparmor-on-privileged-or-hostpath
-# (Unconfined is recommended for weka — its containers rely on DPDK/RDMA/device
-# access that RuntimeDefault may restrict):
-#   podSecurityContext:
-#     appArmorProfile:
-#       type: Unconfined
+# (Unconfined is recommended for weka, as its containers rely on DPDK/RDMA/device
+# access that RuntimeDefault may restrict): `{appArmorProfile: {type: Unconfined}}`.
+# @section -- Advanced
 podSecurityContext: {}
 
+# -- Tolerations of the operator pod, used when `manager.tolerations` is empty.
+# @section -- Tolerations
 tolerations: []
+# -- Identifier attached to the OTEL telemetry emitted by the operator and node agent to tell deployments apart.
+# @section -- Observability
 deploymentIdentifier: ""
 
 # === Lifecycle hooks ===========================================================
@@ -186,56 +250,70 @@ deploymentIdentifier: ""
 # throttling, and toleration shaping. Defaults below; only set what you change.
 
 # -- Delete backend WekaContainers whose target node is no longer in the K8s cluster.
+# @section -- Node lifecycle & cleanup
 cleanupRemovedNodes: false
 # -- Delete backend WekaContainers when their nodeSelector no longer matches the
 # assigned node. Aux containers are unaffected.
+# @section -- Node lifecycle & cleanup
 cleanupOnNodeSelectorMismatch: false
 # -- Delete client WekaContainers when their nodeSelector no longer matches the
 # assigned node.
+# @section -- Node lifecycle & cleanup
 cleanupClientsOnNodeSelectorMismatch: false
 # -- Delete WekaContainers (except aux) when node taints are no longer tolerated.
+# @section -- Node lifecycle & cleanup
 cleanupContainersOnTolerationsMismatch: false
 
 # -- When a backend pod begins terminating (DeletionTimestamp set, including
 # API-driven evictions / drains), transition the container to graceful
 # deactivation rather than force-stopping.
+# @section -- Node lifecycle & cleanup
 evictContainerOnDeletion: false
 # -- Evicted-pod cleanup: a background goroutine periodically deletes
 # operator-managed pods stuck in Phase=Failed, Reason=Evicted.
+# `enabled` runs the cleanup goroutine; `interval` is its tick interval.
+# @section -- Node lifecycle & cleanup
 evictedPodCleanup:
-  # -- Run the cleanup goroutine.
   enabled: true
-  # -- Tick interval for the cleanup goroutine.
   interval: 2m
 
 # -- Throttle container deactivation to one per role per cluster per minute,
 # preventing cascading removals.
+# @section -- Node lifecycle & cleanup
 removalThrottlingEnabled: true
 # -- Throttle envoy container recreation to one per cluster per minute when the
 # envoy process is missing.
+# @section -- Node lifecycle & cleanup
 recreateUnhealthyEnvoyThrottlingEnabled: true
 
-# Force SMT/full-pcpus-only CPU alignment (round weka pod CPU up to an even number
+# -- Force SMT/full-pcpus-only CPU alignment (round weka pod CPU up to an even number
 # on hyperthreaded nodes). Default false = auto-detect per node from the kubelet's
 # cpuManagerPolicyOptions full-pcpus-only setting (needs nodes/proxy RBAC). Set true
 # to force alignment operator-wide, e.g. when the kubelet configz read is unavailable.
+# @section -- Drives & capacity
 fullPcpusOnly: false
 # -- Pods omit standard "unhealthy node" tolerations (unschedulable, not-ready, unreachable).
+# @section -- Tolerations
 skipUnhealthyToleration: false
 # -- Client pods omit auto-generated NoSchedule tolerations.
+# @section -- Tolerations
 skipClientNoScheduleToleration: false
 # -- Aux pods (drivers, adhoc ops, telemetry) omit auto-generated NoSchedule tolerations.
+# @section -- Tolerations
 skipAuxNoScheduleToleration: false
 # -- Disable all operator management of the AWS ASG termination lifecycle hook (detection and
 # creation). Scale-down drive-drain protection is unavailable while set. Do not combine with a
 # manually registered weka-drive-drain hook: the operator will not release held instances, so they
 # will sit in Terminating:Wait until the hook's HeartbeatTimeout expires.
+# @section -- Node lifecycle & cleanup
 skipAwsTerminationLifecycleHook: false
-# -- Skip taint/toleration validation for client containers — assume all nodes
+# -- Skip taint/toleration validation for client containers, assuming all nodes
 # tolerate all clients.
+# @section -- Tolerations
 skipClientsTolerationValidation: true
 # -- Tolerations-mismatch cleanup tuning (paired with cleanupContainersOnTolerationsMismatch).
-# Listed taints are ignored when checking for toleration mismatch.
+# When `enableIgnoredTaints` is set, the taints listed in `ignoredTaints` are ignored when checking for toleration mismatch.
+# @section -- Tolerations
 tolerationsMismatchSettings:
   enableIgnoredTaints: true
   ignoredTaints:
@@ -245,180 +323,221 @@ tolerationsMismatchSettings:
 
 # === end lifecycle hooks =======================================================
 
+# -- Remove failed drives from Weka once drive containers report added drives that are not aligned with allocations.
+# @section -- Drives & capacity
 removeFailedDrives: false
 
-# -- if true, allows multiple network protocols containers per node, like NFS for multiple weka clusters or S3+NFS on same nodes,
-# in case of multiple clusters upgrades need to be synchronized/keep spares for per-node eviction
+# -- If true, allows multiple network protocols containers per node, like NFS for multiple weka clusters or S3+NFS on same nodes.
+# In case of multiple clusters, upgrades need to be synchronized / spares kept for per-node eviction.
+# @section -- NFS/SMB
 allowMultipleProtocolsPerNode: false
 
+# -- Image of the drive signing tool.
+# @section -- Images
 signDrivesImage: quay.io/weka.io/weka-sign-tool:cfbc60804cb627bcd3b7fde8e9c5e82f6f24c0be-multiarch  # +multiarch build
 
+# -- Taskmon settings; `defaultImage` is the default taskmon image.
+# @section -- Images
 taskmon:
   defaultImage: quay.io/weka.io/taskmon:92b35aa657e9aba4782b4530b81107fff4c19847_x86_64
 
 nodeAgent:
+  # -- Node-agent DaemonSet container resources.
+  # On VM nodes using the native containerd snapshotter (e.g. KubeVirt guests without
+  # overlayfs support), the entire container image is copied into the writable snapshot
+  # and counted as ephemeral storage. On such nodes rootfs usage equals the image size
+  # (~300Mi for weka-operator), regardless of any actual writes by the process.
+  # Increase `ephemeral-storage` if node-agent pods are evicted on such nodes.
+  # @section -- Node agent
   resources:
     limits:
       cpu: 1000m
       memory: 1024Mi
-      # On VM nodes using the native containerd snapshotter (e.g. KubeVirt guests without
-      # overlayfs support), the entire container image is copied into the writable snapshot
-      # and counted as ephemeral storage. On such nodes rootfs usage equals the image size
-      # (~300Mi for weka-operator), regardless of any actual writes by the process.
-      # Increase this value if node-agent pods are evicted on such nodes.
       ephemeral-storage: 400Mi
     requests:
       cpu: 50m
       memory: 64Mi
       ephemeral-storage: 100Mi
+  # -- Tolerations of the node-agent DaemonSet.
+  # @section -- Node agent
   tolerations:
     - operator: Exists
+  # -- nodeSelector of the node-agent DaemonSet.
+  # @section -- Node agent
   nodeSelector: {}
+  # -- Affinity of the node-agent DaemonSet.
+  # @section -- Node agent
   affinity: {}
-  # default set for generic OSes, can be overridden /root/k8s-weka for openshift, /mnt/stateful_partition/k8s-weka for google container OS
+  # -- Host path used for node-agent persistence. The default suits generic OSes; override with
+  # /root/k8s-weka for OpenShift, or /mnt/stateful_partition/k8s-weka for Google Container-Optimized OS.
+  # @section -- Node agent
   persistencePaths: /opt/k8s-weka
-  # kubelet path, in cases Kubernetes is installed not in default folder. Used to locate the
-  # host's kubelet device-plugins directory for the NUMA region device plugin below.
+  # -- Kubelet path, for clusters where Kubernetes is not installed in the default folder. Used to locate the
+  # host's kubelet device-plugins directory for the NUMA region device plugin.
+  # @section -- Node agent
   kubeletPath: /var/lib/kubelet
+  # -- NUMA region device plugin. When `enabled`, each node's NUMA regions are advertised as
+  # weka.io/numa-region-<N> extended resources via a kubelet device plugin. Requires access to the
+  # host's kubelet device-plugins directory. Off by default.
+  # @section -- Node agent
   devicePlugin:
-    # Advertise each node's NUMA regions as weka.io/numa-region-<N> extended resources via a
-    # kubelet device plugin. Requires access to the host's kubelet device-plugins directory.
-    # Off by default.
     enabled: false
 
 metrics:
+  # -- Cluster-level metrics service. `enabled` toggles it, `pollingRate` is the polling interval and `image` is
+  # the image of the metrics service pods. Optionally set `nodeSelector` (commented out by default, for example
+  # `{weka.io/monitoring: "true"}`) to pin the monitoring service pods; if unset, it inherits the WekaCluster nodeSelector.
+  # @section -- Observability
   clusters:
     enabled: true
     pollingRate: 60s
     image: docker.io/library/nginx:1.27.3
-    # nodeSelector: Optional node selector for monitoring service pods
-    # If not set, inherits from WekaCluster nodeSelector
-    # Example:
-    #   nodeSelector:
-    #     weka.io/monitoring: "true"
+    # nodeSelector:
+    #   weka.io/monitoring: "true"
+  # -- Container-level metrics. `enabled` toggles it, `pollingRate` is the polling interval and
+  # `requestsTimeouts` holds the timeouts of the `register` and `getContainerInfo` requests.
+  # @section -- Observability
   containers:
     enabled: true
     pollingRate: 60s
     requestsTimeouts:
       register: 3s
       getContainerInfo: 10s
-  # Scrape pod cpu/memory from the Kubernetes metrics.k8s.io API and report it on reconcile
-  # spans. Requires metrics-server to be installed in the cluster, set to false if it is not,
+  # -- Scrape pod cpu/memory from the Kubernetes metrics.k8s.io API and report it on reconcile
+  # spans. Requires metrics-server to be installed in the cluster; set `enabled` to false if it is not,
   # to avoid a per-container "Error getting pod metrics" warning. Only the cpu/memory
   # attributes are affected: reconcile spans still carry the weka-native process and drive
   # counters, and metrics.containers.* is independent.
+  # @section -- Observability
   podMetrics:
     enabled: true
 
+# -- Not referenced by the chart templates or the operator.
+# @ignored
 localDataStorageClass: ""
+# -- Name of a PVC used as the default local data PVC for containers that do not set one in their spec.
+# @section -- Advanced
 localDataPvc: ""
 upgrade:
+  # -- Minimum percentage of the cluster's compute containers that must be active before the upgrade proceeds.
+  # @section -- Upgrade
   computeThresholdPercent: 90
+  # -- Minimum percentage of the cluster's drive containers that must be active before the upgrade proceeds.
+  # @section -- Upgrade
   driveThresholdPercent: 90
+  # -- Rolling upgrade aborts when more than this percentage of containers are already marked for deletion.
+  # @section -- Upgrade
   maxDeactivatingContainersPercent: 10
-  # Image pre-pull settings for upgrades
+  # -- Image pre-pull before an upgrade. When `enabled`, images are pre-pulled on the nodes before the upgrade,
+  # and `timeout` is the maximum time to wait for all nodes to pull the image.
+  # @section -- Upgrade
   imagePrePull:
-    # Enable/disable pre-pulling images before upgrade
     enabled: true
-    # Max time to wait for all nodes to pull the image
     timeout: 20m
+# -- Create PodMonitors for the node-agent (`app: weka-node-agent`) and cluster-monitoring
+# (`app: weka-cluster-monitoring`) pods. Created only when the monitoring.coreos.com/v1 API is available in the cluster.
+# @section -- Observability
 podMonitor:
   enabled: true
 
-# DNS policy configuration
+# -- DNS policy of operator-created pods: `k8sNetwork` for pods without hostNetwork: true,
+# `hostNetwork` for pods with hostNetwork: true. Empty leaves the operator default.
+# @section -- Networking & ports
 dnsPolicy:
-  # dns policy for the pods without hostNetwork: true
   k8sNetwork: ""
-  # dns policy for the pods with hostNetwork: true
   hostNetwork: ""
 
+# -- Default timeouts and intervals of operator garbage collection:
+# `deleteEnvoyWithoutS3NeighborTimeout` and `deleteUnschedulablePodsAfter`;
+# `unschedulableDriveContainerGCTimeout` is how long a clusterCapacity drive container may stay unscheduled before the
+# operator deletes it so the planner can re-place its capacity on a node that can host it;
+# `stuckAdhocPodTimeout` is how long an adhoc-op container's pod may fail to produce a result before the operator
+# deletes the container, and `stuckAdhocPodStartingTimeout` is the longer variant that applies while the pod is still
+# pulling its image / creating containers.
+# @section -- Timeouts & intervals
 defaultIntervals:
   deleteEnvoyWithoutS3NeighborTimeout: 5m
   deleteUnschedulablePodsAfter: 1m
-  # How long a clusterCapacity drive container may stay unscheduled before the operator deletes it
-  # so the planner can re-place its capacity on a node that can host it.
   unschedulableDriveContainerGCTimeout: 2m
-  # How long an adhoc-op container's pod may fail to produce a result before the operator
-  # deletes the container. The "starting" variant applies while the pod is still pulling
-  # its image / creating containers, which legitimately takes longer.
   stuckAdhocPodTimeout: 10m
   stuckAdhocPodStartingTimeout: 30m
 
-# NFS global configuration
 nfs:
-  # Port for mountd service
+  # -- Port for the NFS mountd service.
+  # @section -- NFS/SMB
   mountdPort: 18000
-  # Port for lock manager service
+  # -- Port for the NFS lock manager service.
+  # @section -- NFS/SMB
   lockmanagerPort: 18001
-  # Port for notify service
+  # -- Port for the NFS notify service.
+  # @section -- NFS/SMB
   notifyPort: 18002
 
-# SMB-W global configuration
 smbw:
-  # Size of /dev/shm for SMB-W containers (for corosync shared memory)
-  # Default: 8Gi
+  # -- Size of /dev/shm for SMB-W containers (for corosync shared memory).
+  # @section -- NFS/SMB
   shmSize: "8Gi"
 
-# Capacity planner constraints
+# -- Capacity planner constraints. `maxCoresPerContainer` is Weka's own per-container core cap (drive or compute).
+# `driveSharing.computeToTlcDriveCoreRatio` and `driveSharing.computeToQlcDriveCoreRatio` set the compute:drive-core
+# ratios for TLC and QLC drives: requiredComputeCores = max(totalDriveCores, ceil(tlcRatio*tlcCores + qlcRatio*qlcCores)),
+# and the drive-core count itself is always a hard 1:1 floor regardless of these ratios.
+# `fullDrives.computeToDriveCoreRatio`: when unset (null), the planner prefers 2:1 and, when the compute nodes cannot host
+# that, relaxes toward 1:1 (infeasible only below 1:1); set a number to enforce that ratio strictly.
+# @section -- Drives & capacity
 capacityPlannerConstraints:
-  # Weka's own per-container core cap (drive or compute). Default: 19.
   maxCoresPerContainer: 19
-  # requiredComputeCores = max(totalDriveCores, ceil(tlcRatio*tlcCores + qlcRatio*qlcCores)) — the
-  # drive-core count itself is always a hard 1:1 floor regardless of these ratios.
   driveSharing:
-    # Compute:TLC-drive-core ratio. Default: 1.0.
     computeToTlcDriveCoreRatio: 1.0
-    # Compute:QLC-drive-core ratio. Default: 0.0.
     computeToQlcDriveCoreRatio: 0.0
   fullDrives:
-    # Compute:drive-core ratio. Unset (default): prefer 2:1 and, when the compute nodes cannot host that,
-    # relax toward 1:1; infeasible only below 1:1. Set a number to enforce that ratio strictly.
     computeToDriveCoreRatio: null
 
 # Cluster capacity configuration
 # Used when spec.dynamicTemplate.clusterCapacity is set on a WekaCluster.
 clusterCapacity:
-  # Max TLC capacity (GiB) one drive core can serve. Default: 5 TiB = 5120 GiB.
+  # -- Max TLC capacity (GiB) one drive core can serve. The default is 5 TiB.
+  # @section -- Drives & capacity
   tlcCapacityPerCoreGiB: 5120
-  # Max QLC capacity (GiB) one drive core can serve. Default: 50 TiB = 51200 GiB.
+  # -- Max QLC capacity (GiB) one drive core can serve. The default is 50 TiB.
+  # @section -- Drives & capacity
   qlcCapacityPerCoreGiB: 51200
-  # Grow imbalance factor: when each new drive container would be >= this factor x the existing
-  # containers' average capacity, the planner lays out a fresh balanced set instead. Default 8.0.
+  # -- Grow imbalance factor: when each new drive container would be >= this factor x the existing
+  # containers' average capacity, the planner lays out a fresh balanced set instead.
+  # @section -- Drives & capacity
   imbalanceFactor: 8.0
-  # Relative capacity deadband: a clusterCapacity growth is ignored when the shortfall is smaller
-  # than desired capacity x this fraction. Avoids re-planning/thrashing on trivial bumps. Default 0.05 (5%).
+  # -- Relative capacity deadband: a clusterCapacity growth is ignored when the shortfall is smaller
+  # than desired capacity x this fraction. Avoids re-planning/thrashing on trivial bumps.
   # Set to 0 to disable the deadband (any positive capacity delta triggers growth).
+  # @section -- Drives & capacity
   deadbandFraction: 0.05
 
 # Drive sharing configuration
 driveSharing:
-  # driveTypesRatio specifies the global default ratio of drive types (TLC vs QLC) when using drive sharing.
-  # Drive sharing is enabled by setting containerCapacity in spec.dynamicTemplate of WekaCluster.
-  # This value is used as a default when spec.dynamicTemplate.driveTypesRatio is not explicitly specified.
-  #
-  # Ratio is specified as integer parts representing relative proportions:
-  #   tlc: 1, qlc: 0 = 100% TLC (all high-performance) - DEFAULT
-  #   tlc: 4, qlc: 1 = 80% TLC, 20% QLC (recommended balance for cost/performance)
-  #   tlc: 1, qlc: 1 = 50% TLC, 50% QLC
+  # -- Global default ratio of drive types (TLC vs QLC) when using drive sharing, as integer parts of relative
+  # proportions. Used when spec.dynamicTemplate.driveTypesRatio is not set on the WekaCluster; can be overridden per
+  # cluster via that field. Drive sharing is enabled by setting containerCapacity in spec.dynamicTemplate of WekaCluster.
+  # For example tlc: 1, qlc: 0 = 100% TLC; tlc: 4, qlc: 1 = 80% TLC, 20% QLC; tlc: 1, qlc: 1 = 50% TLC, 50% QLC.
   # NOTE: tlc must be > 0. QLC-only configurations (tlc: 0) are not supported.
-  #
-  # Can be overridden per cluster via spec.dynamicTemplate.driveTypesRatio.
+  # @section -- Drives & capacity
   driveTypesRatio:
     tlc: 1
     qlc: 10
 
-  # Maximum number of virtual drives per CPU core when using drive sharing.
-  # Default: 8
+  # -- Maximum number of virtual drives per CPU core when using drive sharing.
+  # @section -- Drives & capacity
   maxVirtualDrivesPerCore: 8
 
-  # Enforce minimum drives per type per core when using drive sharing with mixed TLC/QLC.
-  # When true (default): per-type constraints - cores <= tlcDrives AND cores <= qlcDrives
-  # When false: combined constraint - cores <= tlcDrives + qlcDrives <= maxDrives
-  # Note: Only affects mixed TLC/QLC configurations. Single-type allocations behave the same either way.
+  # -- Enforce minimum drives per type per core when using drive sharing with mixed TLC/QLC.
+  # When true: per-type constraints (cores <= tlcDrives AND cores <= qlcDrives).
+  # When false: combined constraint (cores <= tlcDrives + qlcDrives <= maxDrives).
+  # Only affects mixed TLC/QLC configurations; single-type allocations behave the same either way.
+  # @section -- Drives & capacity
   enforceMinDrivesPerTypePerCore: true
 
-  # Enable dynamic drive scaling for shared drives mode.
-  # When false (default): containers are never extended in place on a spec change - existing drive
+  # -- Enable dynamic drive scaling for shared drives mode (containerCapacity or driveCapacity configured;
+  # traditional numDrives-only mode is not affected).
+  # When false: containers are never extended in place on a spec change - existing drive
   # containers won't automatically allocate additional drives when containerCapacity increases or
   # driveTypesRatio changes, and clusterCapacity growth is satisfied by CREATING new containers on
   # fresh failure domains only (reported infeasible if no free FDs/nodes can hold the delta). To
@@ -428,181 +547,212 @@ driveSharing:
   # grows are applied live (no pod restart); a grow that also needs more cores/hugepages is not
   # applied automatically (the operator only emits a warning) - the pod must be terminated manually
   # to pick up the new spec.
-  # Note: This only affects shared drives mode (containerCapacity or driveCapacity configured).
-  # Traditional mode (numDrives only) is not affected.
+  # @section -- Drives & capacity
   enableDynamicDriveScalingForSharedDrives: false
 
-  # Minimum relative per-container growth (target-cur)/cur to grow an existing drive container in
+  # -- Minimum relative per-container growth (target-cur)/cur to grow an existing drive container in
   # place; smaller grows are skipped (prefer creating a new FD at the uniform chunk size T instead,
   # or emit infeasible if no spare node is available).
+  # @section -- Drives & capacity
   minGrowthFraction: 0.2
 
-  # Max fraction by which creating new failure domains may over-provision a drive pool's desired
+  # -- Max fraction by which creating new failure domains may over-provision a drive pool's desired
   # capacity. A create-new that would exceed desiredRaw * (1 + maxOverProvisionFraction) is not
   # allowed (falls back to grow or infeasible).
+  # @section -- Drives & capacity
   maxOverProvisionFraction: 0.2
 
-  # Max allowed ratio between the largest and smallest drive in the IndirectionUnitBig
+  # -- Max allowed ratio between the largest and smallest drive in the IndirectionUnitBig
   # pool. Overrides weka's built-in limit (MAX_DRIVE_CAPACITY_RATIO=8). Relevant for
   # drive-sharing clusters that mix very differently sized drives.
+  # @section -- Drives & capacity
   smallBigDiskSizesMaxProportionFactor: 100
 
-  # SSD Proxy configuration (used in drive sharing mode)
+  # -- SSD proxy settings (drive sharing mode). `hugepagesOffsetMiB` is the hugepages offset in MiB kept as a
+  # buffer from weka's --memory for SSD proxy containers (null uses the operator default of 200 MiB).
+  # `imageOverride`, if set, is used as the ssdProxy container image instead of the cluster image; it is also the
+  # fallback target image for the `rotate-ssdproxy` WekaManualOperation when
+  # payload.rotateSsdProxyPayload.targetImage is left empty.
+  # @section -- Drives & capacity
   ssdProxy:
-    # Hugepages offset in MiB kept as a buffer from weka's --memory for SSD proxy containers.
-    # When null, defaults to 200 MiB (defined in operator code).
     hugepagesOffsetMiB: ~
-    # If set, use this image for ssdProxy containers instead of the cluster image.
-    # Also the fallback target image for the `rotate-ssdproxy` WekaManualOperation when
-    # payload.rotateSsdProxyPayload.targetImage is left empty.
     imageOverride: ""
 
-# Hugepages capacity ratios for compute containers.
-# These control how much hugepages memory is allocated based on raw drive capacity.
-# Formula: clusterHugepages = tlcCapacityGiB / hugepagesTlcRatio + qlcCapacityGiB / hugepagesQlcRatio
+# -- Hugepages capacity ratio for TLC drives, used for compute containers. Hugepages are allocated from raw drive capacity:
+# clusterHugepages = tlcCapacityGiB / hugepagesTlcRatio + qlcCapacityGiB / hugepagesQlcRatio.
 # TLC drives require more hugepages per GiB than QLC drives.
+# @section -- Hugepages
 hugepagesTlcRatio: 1000
+# -- Hugepages capacity ratio for QLC drives, see `hugepagesTlcRatio`.
+# @section -- Hugepages
 hugepagesQlcRatio: 6000
 
-# Lower the clusterCapacity protection floor from the production 3+2+0
+# -- Lower the clusterCapacity protection floor from the production 3+2+0
 # (stripeWidth/data>=3, redundancyLevel/parity>=2, hotSpare>=0 / hot spare optional) to
 # single-parity 2+1+0, enabling QA/test clusters such as 2+1 (minFdNum=3). QA/TEST ONLY: a single parity chunk
 # leaves a stripe unprotected during rebuild. When true, the operator also sets the
 # allow_1_parity weka override at cluster formation (weka rejects parity=1 without it).
+# @section -- Drives & capacity
 allowSingleParity: false
 
-# Default protection scheme applied to WekaClusters that leave these fields at 0.
+# -- Default protection scheme applied to WekaClusters that leave these fields at 0.
 # A non-zero per-cluster spec value wins; a spec value of 0 is treated as "unset" and
 # falls back to the default below (so a cluster cannot force e.g. hotSpare=0 while a
 # non-zero default is configured here).
-# stripeWidth/redundancyLevel: 0 means "no default" — the operator skips the matching
-# `weka cluster update` call, so the weka CLI default applies.
+# stripeWidth/redundancyLevel: 0 means "no default", so the operator skips the matching
+# `weka cluster update` call and the weka CLI default applies.
 # hotSpare: the operator always runs `weka cluster hot-spare <value>` at formation, so 0
 # here sets hot spare explicitly to 0 (it is NOT left at a weka CLI default).
 # Note: clusterCapacity clusters are still rejected at admission unless the *effective*
-# protection (spec value, else this default) meets the 3+2+0 floor (see allowSingleParity
-# and allocator.MinProtectionFloor).
+# protection (spec value, else this default) meets the 3+2+0 floor (see allowSingleParity).
+# @section -- Drives & capacity
 protection:
   stripeWidth: 0
   redundancyLevel: 0
   hotSpare: 0
 
-# Hugepages update propagation to existing compute/drive containers.
+# -- Hugepages update propagation to existing compute/drive containers.
 # User-set hugepages values (spec.dynamicTemplate.computeHugepages / driveHugepages) are always
 # propagated to existing containers regardless of these flags.
-# These flags control auto-calculation from cluster capacity for containers where no
+# `compute` and `drive` control auto-calculation from cluster capacity for containers where no
 # explicit value is set in the spec. S3/NFS/DataServices hugepages are always
 # propagated using per-role defaults unless overridden in the spec.
-# Disabled by default.
+# @section -- Hugepages
 hugepagesUpdate:
   compute: false
   drive: false
 
-# Maximum hugepages (MiB) for compute containers. 0 = no cap.
+# -- Maximum hugepages (MiB) for compute containers. 0 = no cap.
 # Applied during both initial container creation and hugepages updates.
+# @section -- Hugepages
 computeMaxHugepagesMiB: 360000
 
-# Port allocation configuration
 portAllocation:
-  # Starting port for Weka container port allocation.
-  # This is the base port from which the operator allocates port ranges for Weka clusters.
+  # -- Starting port for Weka container port allocation: the base port from which the operator
+  # allocates port ranges for Weka clusters.
+  # @section -- Networking & ports
   startingPort: 35000
 
-# Management proxy configuration. Applies to every WekaCluster; no per-WekaCluster override.
-# Tunables below are commented out so the operator's defaults apply.
+# -- Management proxy (envoy) settings. Applies to every WekaCluster; no per-WekaCluster override.
+# `hostNetwork`: deploy Envoy proxy on host network.
+# `ingressBaseDomain`: base domain for ingress hostname generation (format: namespace--clustername.basedomain);
+# if empty, ingress creation is disabled. `ingressClass`: ingress class of the ingress resource; if empty, the
+# default ingress class of the cluster is used.
+# The tunables below are commented out so the operator's defaults apply:
+# `replicas` (default 2; 0 parks the proxy without uninstalling it; under hostNetwork all replicas bind the same node
+# ports and nothing keeps two of them, or two clusters' proxies which share admin port 9901, off one node, so replicas
+# beyond the number of usable nodes crash-loop; avoid 1 with hostNetwork, since host ports force in-place replacement
+# and the proxy goes down on every config change);
+# `healthyPanicThreshold` (percentage of healthy upstreams below which Envoy load balances to all hosts including
+# unhealthy ones; default 50, Envoy's own default; 0 always honours health checks, so a fully failed backend set returns 503);
+# `adminBindAddress` (address the Envoy admin endpoint binds to; must be bindable by the pod: 0.0.0.0, ::, 127.0.0.1 or
+# ::1, other values crash-loop every replica; defaults to 0.0.0.0, or 127.0.0.1 under hostNetwork, since the admin API is
+# unauthenticated and includes /quitquitquit; a loopback address with hostNetwork false makes kubelet probes degrade to
+# TCP, which cannot detect a wedged Envoy).
+# @section -- Networking & ports
 managementProxy:
-  # If true, deploy Envoy proxy on host network
   hostNetwork: false
-  # Number of Envoy replicas. Default 2; 0 parks the proxy without uninstalling it.
-  # Under hostNetwork all replicas bind the same node ports and nothing keeps two of them (or two
-  # clusters' proxies, which share admin port 9901) off one node, so replicas beyond the number of
-  # usable nodes crash-loop. Avoid 1 with hostNetwork: host ports force in-place replacement, so
-  # the proxy goes down on every config change.
   # replicas: 2
-  #
-  # Percentage of healthy upstreams below which Envoy panics and load balances to all hosts,
-  # including unhealthy ones. Default 50 (Envoy's own default), so it fails open on a health-check
-  # false negative. Set 0 to always honour health checks -- a fully failed backend set returns 503.
   # healthyPanicThreshold: 50
-  #
-  # Address the Envoy admin endpoint binds to. Must be bindable by the pod (0.0.0.0, ::, 127.0.0.1,
-  # ::1); other values crash-loop every replica. Defaults to 0.0.0.0, or 127.0.0.1 under
-  # hostNetwork, since the admin API is unauthenticated and includes /quitquitquit.
-  # Both defaults keep the /ready probe. A loopback address with hostNetwork: false is the one
-  # combination kubelet cannot reach: probes degrade to TCP, which cannot detect a wedged Envoy.
   # adminBindAddress: "0.0.0.0"
-  # Base domain for ingress hostname generation (format: namespace--clustername.basedomain)
-  # If empty, ingress creation is disabled
   ingressBaseDomain: ""
-  # Ingress class to use for the ingress resource (optional)
-  # If empty, will use the default ingress class configured in the cluster
   ingressClass: ""
 
-# Syslog package choice
-# Supported values: "auto", "go-syslog", "syslog-ng"
-# - "auto": automatically choose go-syslog if available, otherwise use syslog-ng (default behavior)
-# - "go-syslog": explicitly use go-syslog
-# - "syslog-ng": explicitly use syslog-ng
+# -- Syslog package choice: "auto" (go-syslog if available, otherwise syslog-ng), "go-syslog" or "syslog-ng".
+# @section -- Advanced
 syslogPackage: "auto"
 
-# Manual version bump to trigger pod rotation when pod config shape changes via helm
+# -- Manual version bump to trigger pod rotation when pod config shape changes via helm.
+# @section -- Advanced
 podConfigVersion: "1"
 
-# If true, include WekaRuntimeVersion in the pod config hash calculation.
+# -- If true, include WekaRuntimeVersion in the pod config hash calculation.
 # When enabled, bumping WekaRuntimeVersion triggers coordinated rolling pod rotation.
 # Default false to avoid unexpected rotations on operator upgrade.
+# @section -- Advanced
 enablePodConfigCodeVersionRotation: false
 
-# If true, rotate pods for containers that have no pod-config-version annotation yet
+# -- If true, rotate pods for containers that have no pod-config-version annotation yet
 # (pre-existing containers from before this feature). Default false to avoid mass restarts on upgrade.
+# @section -- Advanced
 allowRotateNonAnnotatedPodConfigHash: false
 
-# Proxy configuration for drivers loader pod and weka home
+# -- Proxy configuration for the drivers loader pod and weka home.
+# @section -- Networking & ports
 proxy: ""
 
-# Priority classes configuration
+# -- Priority classes. `initial` and `targeted` are the priority class names for initial weka containers and for
+# re-scheduled weka containers, node agents, CSI controller and CSI node server. The operator always creates the
+# default priority classes weka-initial-no-evict and weka-targeted-no-evict; override the names to use your own
+# existing priority classes instead. `defaultValues` holds the values of the default priority classes that are
+# always created.
+# @section -- Advanced
 priorityClasses:
-  # The operator always creates default priority classes: weka-initial-no-evict and weka-targeted-no-evict
-  # Users can override the names below to use their own existing priority classes instead
-  initial: "weka-initial-no-evict"        # Priority class name for initial weka containers
-  targeted: "weka-targeted-no-evict"      # Priority class name for re-scheduled weka containers, node agents, CSI controller and CSI node server
-  # Values for the default priority classes that are always created
+  initial: "weka-initial-no-evict"
+  targeted: "weka-targeted-no-evict"
   defaultValues:
     initial: 900000000
     targeted: 1000000000
 
 csi:
+  # -- Install the embedded CSI driver.
+  # @section -- CSI
   installationEnabled: false
-  # SELinux support mode for embedded CSI driver.
-  # "auto" (default) - auto-detect from host /etc/selinux/config
-  # "enforced" - always apply SELinux contexts to volume mounts
-  # "off" - never apply SELinux contexts
+  # -- SELinux support mode for the embedded CSI driver: "auto" (auto-detect from host /etc/selinux/config),
+  # "enforced" (always apply SELinux contexts to volume mounts) or "off" (never apply SELinux contexts).
+  # @section -- CSI
   selinuxSupport: "auto"
-  # kubelet path, in cases Kubernetes is installed not in default folder
+  # -- Kubelet path, in cases Kubernetes is installed not in the default folder.
+  # @section -- CSI
   kubeletPath: "/var/lib/kubelet"
-  # Allow the CSI node driver to override mount options from PVC/Pod annotations
-  # during NodePublishVolume. Security-gated capability, default false.
-  #
+  # -- Allow the CSI node driver to override mount options from PVC/Pod annotations
+  # during NodePublishVolume. Security-gated capability.
   # TRUST IMPLICATION: when enabled, mount options are no longer fixed by the
-  # StorageClass alone — they can be influenced by annotations on the PVC/Pod,
+  # StorageClass alone. They can be influenced by annotations on the PVC/Pod,
   # which any principal able to create a Pod/PVC in a namespace can set. This
   # widens who can affect on-host mount behavior (e.g. caching/coherency,
   # read-only vs read-write). Leave false unless you trust all such principals.
   # The exact annotation keys honored are defined by the csi-wekafs driver
   # version in use (see the csi-wekafs docs for the release pinned in `image`).
   # Note: toggling this on an existing cluster rolls the CSI node DaemonSet.
+  # @section -- CSI
   allowMountOptionOverrides: false
+  # -- Do not create the CSI StorageClass.
+  # @section -- CSI
   storageClassCreationDisabled: false
+  # -- CSI driver (csi-wekafs) image.
+  # @section -- CSI
   image: "quay.io/weka.io/csi-wekafs:v2.9.4"
+  # -- csi-provisioner sidecar image.
+  # @section -- CSI
   provisionerImage: "registry.k8s.io/sig-storage/csi-provisioner:v5.3.0"
+  # -- csi-attacher sidecar image.
+  # @section -- CSI
   attacherImage: "registry.k8s.io/sig-storage/csi-attacher:v4.9.0"
+  # -- livenessprobe sidecar image.
+  # @section -- CSI
   livenessProbeImage: "registry.k8s.io/sig-storage/livenessprobe:v2.16.0"
+  # -- csi-resizer sidecar image.
+  # @section -- CSI
   resizerImage: "registry.k8s.io/sig-storage/csi-resizer:v1.14.0"
+  # -- csi-snapshotter sidecar image.
+  # @section -- CSI
   snapshotterImage: "registry.k8s.io/sig-storage/csi-snapshotter:v8.3.0"
+  # -- csi-node-driver-registrar sidecar image.
+  # @section -- CSI
   registrarImage: "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.14.0"
+  # -- Prevent new workloads from being scheduled on a node while its client container is not running.
+  # @section -- CSI
   preventNewWorkloadOnClientContainerNotRunning: true
+  # -- CSI driver log level.
+  # @section -- CSI
   logLevel: 5
+  # -- Run the CSI pods with hostNetwork.
+  # @section -- CSI
   hostNetwork: false
+  # -- CSI controller container resources, per container (wekafs, csiAttacher, csiProvisioner, csiResizer,
+  # csiSnapshotter, livenessProbe), each with `limits` and `requests`.
+  # @section -- CSI
   controller:
     resources:
       wekafs:
@@ -647,6 +797,8 @@ csi:
         requests:
           cpu: 12m
           memory: 48Mi
+  # -- CSI node container resources, per container (wekafs, livenessProbe, csiRegistrar), each with `limits` and `requests`.
+  # @section -- CSI
   node:
     resources:
       wekafs:
@@ -672,21 +824,22 @@ csi:
           memory: 52Mi
 
 # -- Admission control master switch. When true, installs the VWC with
-# failurePolicy=Fail; every operator restart briefly blocks WekaCluster/
-# WekaClient writes. Per-object bypass: set the
+# failurePolicy=Fail; every operator restart briefly blocks WekaCluster/WekaClient
+# writes. Per-object bypass: set the
 # `weka.io/skip-admission` label on the CR. Emergency recovery:
 # `kubectl delete validatingwebhookconfiguration weka-operator-validating-webhook-configuration`.
+# @section -- Admission control
 enableAdmissionControl: true
 
-# -- Admission policies: default mode plus per-policy overrides.
+# -- Admission policies. `mode` is the default mode applied to all policies: `relaxed` uses the "relaxed" column
+# of the per-policy mapping, `strict` the "strict" column. Per-policy overrides (`policies`, a map of policy name to
+# `default`, `warn` or `error`, commented out by default) win over `mode`. The available policies and their strict/relaxed
+# defaults are listed in the commented `policies` block in values.yaml.
+# @section -- Admission control
 admissionPolicies:
-  # -- Default mode applied to all policies. Two options:
-  #   relaxed → use the "relaxed" column from the per-policy mapping below
-  #   strict  → use the "strict" column from the per-policy mapping below
-  # Per-policy overrides win over this default.
   mode: relaxed
 
-  # -- Per-policy overrides. Values: default | warn | error.
+  # Per-policy overrides. Values: default | warn | error.
   # Uncomment any policy you want to pin regardless of `mode`.
   #
   # policies:
@@ -863,7 +1016,9 @@ admissionPolicies:
   #   # Decreasing spec.coresNum on a WekaClient is denied.
   #   client_cores_decrease:                default  # strict: error  | relaxed: error
 
+
 # -- Bind-mount the host's /run/weka/ephemeral/shared-netns into weka runtime containers with bidirectional
 # mount propagation, so network namespaces created on either side propagate to the other.
 # Set to false only if you need to isolate the weka container from host netns changes.
+# @section -- Networking & ports
 netnsEnabled: true

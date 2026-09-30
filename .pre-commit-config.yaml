@@ -17,6 +17,14 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
+      - id: helm-docs
+        name: helm-docs
+        entry: make helm-docs
+        language: system
+        files: ^charts/weka-operator/(values\.yaml|README\.md\.gotmpl)$
+        pass_filenames: false
+        stages: [pre-commit]
+
   - repo: https://github.com/crate-ci/typos
     rev: v1.44.0
     hooks:
