@@ -358,3 +358,25 @@ func TestResolveDriveModel(t *testing.T) {
 		})
 	}
 }
+
+func TestDevicePathBySerial(t *testing.T) {
+	runner := &fakeRunner{stdout: map[string][]byte{"lsblk": []byte("/dev/sda\n/dev/nvme0n1\n/dev/nvme1n1\n")}}
+	serials := map[string]string{"/dev/sda": "A", "/dev/nvme0n1": "B", "/dev/nvme1n1": "C"}
+	serialOf := func(_ context.Context, p string) (string, error) {
+		if p == "/dev/sda" {
+			return "", os.ErrNotExist
+		}
+		return serials[p], nil
+	}
+	got, err := devicePathBySerial(context.Background(), runner, "C", serialOf)
+	if err != nil || got != "/dev/nvme1n1" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if _, err := devicePathBySerial(context.Background(), runner, "missing", serialOf); err == nil {
+		t.Error("want error for unmatched serial")
+	}
+	failing := &fakeRunner{err: map[string]error{"lsblk": os.ErrPermission}}
+	if _, err := devicePathBySerial(context.Background(), failing, "C", serialOf); err == nil {
+		t.Error("want error when lsblk fails")
+	}
+}

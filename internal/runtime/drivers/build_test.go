@@ -219,6 +219,11 @@ func TestBuilderKernelBuildID(t *testing.T) {
 			nodeInfo: &osinfo.NodeInfo{Os: osinfo.OsNameUbuntu, OsBuildId: "22.04"},
 			want:     "",
 		},
+		{
+			name:     "NixOS → OS build ID",
+			nodeInfo: &osinfo.NodeInfo{Os: "nixos-gcc15", OsBuildId: "nixos-gcc15"},
+			want:     "nixos-gcc15",
+		},
 	}
 
 	for _, tt := range tests {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/internal/pkg/osinfo"
 	"github.com/weka/weka-operator/internal/runtime/agent"
 	"github.com/weka/weka-operator/internal/runtime/config"
 	"github.com/weka/weka-operator/internal/runtime/drivers"
@@ -22,6 +23,16 @@ type loaderResult struct {
 func runDriverLoader(ctx context.Context, cfg *config.DriverLoaderConfig, deps *Deps) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "runtimes.runDriverLoader")
 	defer logger.End()
+
+	nodeInfo, err := osinfo.Load()
+	if err != nil {
+		return fmt.Errorf("drivers-loader: load osinfo: %w", err)
+	}
+	if nodeInfo.IsNixos() {
+		if err := drivers.PrepareNixosHostKernel(ctx, deps.Runner); err != nil {
+			return fmt.Errorf("drivers-loader: %w", err)
+		}
+	}
 
 	if err := agent.OverrideDependenciesFlag(ctx, deps.Runner, cfg.Drivers.ImageName); err != nil {
 		return err

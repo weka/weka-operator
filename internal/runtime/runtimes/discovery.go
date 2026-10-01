@@ -11,11 +11,12 @@ import (
 )
 
 type discoveryResult struct {
-	IsHT       bool   `json:"is_ht"`
-	KubeDistro string `json:"kubernetes_distro"`
-	OS         string `json:"os"`
-	OSBuildID  string `json:"os_build_id"`
-	Schema     int    `json:"schema"`
+	IsHT        bool   `json:"is_ht"`
+	KubeDistro  string `json:"kubernetes_distro"`
+	OS          string `json:"os"`
+	OSBuildID   string `json:"os_build_id"`
+	ProcVersion string `json:"proc_version"`
+	Schema      int    `json:"schema"`
 }
 
 // runDiscovery reports host OS/hyperthreading facts and configures hugepages on COS nodes.
@@ -41,13 +42,20 @@ func runDiscovery(ctx context.Context, cfg *config.DiscoveryConfig, deps *Deps) 
 		isHT = ht
 	}
 
+	// Reported like the HT status: best-effort, the operator only needs it to diagnose NixOS kernels.
+	procVersion, pvErr := osinfo.ReadProcVersion()
+	if pvErr != nil {
+		logger.Info("Could not read /proc/version, reporting empty", "err", pvErr.Error())
+	}
+
 	logger.Info("Discovery result", "is_ht", isHT, "os", nodeInfo.Os, "distro", nodeInfo.KubernetesDistro)
 
 	return results.Write(ctx, cfg.Results.Path, discoveryResult{
-		IsHT:       isHT,
-		KubeDistro: nodeInfo.KubernetesDistro,
-		OS:         nodeInfo.Os,
-		OSBuildID:  nodeInfo.OsBuildId,
-		Schema:     1,
+		IsHT:        isHT,
+		KubeDistro:  nodeInfo.KubernetesDistro,
+		OS:          nodeInfo.Os,
+		OSBuildID:   nodeInfo.OsBuildId,
+		ProcVersion: procVersion,
+		Schema:      1,
 	})
 }

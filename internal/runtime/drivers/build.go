@@ -58,6 +58,9 @@ func KernelBuildID(driversBuildID, distService string) (string, error) {
 		}
 		return nodeInfo.OsBuildId, nil
 
+	case nodeInfo.IsNixos():
+		return nodeInfo.OsBuildId, nil
+
 	case isUbuntu24(nodeInfo) && distService != "":
 		return ubuntu24BuildID, nil
 	}
@@ -67,12 +70,15 @@ func KernelBuildID(driversBuildID, distService string) (string, error) {
 }
 
 // BuilderKernelBuildID returns the kernel build ID for the drivers-builder mode: "ubuntu24.04"
-// on Ubuntu 24, otherwise "" (weka falls back to uname -r). Unlike KernelBuildID, the builder
+// on Ubuntu 24, the OS build ID on NixOS, otherwise "" (weka falls back to uname -r). Unlike KernelBuildID, the builder
 // has no DRIVERS_BUILD_ID override and no COS/OS_BUILD_ID or dist-service branch — it mirrors
 // the narrower logic in Python's builder mode at weka_runtime.py:4505-4509.
 func BuilderKernelBuildID(nodeInfo *osinfo.NodeInfo) string {
-	if isUbuntu24(nodeInfo) {
+	switch {
+	case isUbuntu24(nodeInfo):
 		return ubuntu24BuildID
+	case nodeInfo.IsNixos():
+		return nodeInfo.OsBuildId
 	}
 	return ""
 }

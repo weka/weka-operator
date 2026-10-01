@@ -68,10 +68,9 @@ func disksFromLsblk(out []byte) ([]Disk, error) {
 
 // FindDisks enumerates all disk-type block devices visible from the host PID namespace.
 func FindDisks(ctx context.Context, runner process.CommandRunner) ([]Disk, error) {
-	res, err := runner.Run(ctx, process.Command{Path: "nsenter", Args: []string{
-		"--mount", "--pid", "--target", "1", "--",
+	res, err := runner.Run(ctx, process.Command{Path: "nsenter", Args: osinfo.HostNsenterArgs(
 		"lsblk", "-p", "-J", "-o", "NAME,TYPE,MOUNTPOINT,SERIAL",
-	}})
+	)})
 	if err != nil {
 		return nil, fmt.Errorf("lsblk: %w", err)
 	}
@@ -246,25 +245,24 @@ func ResolveDriveModel(hardwareModel, hardwareModelNumber, devicePath string) st
 	return model
 }
 
-// GetDevicePathBySerial resolves a drive serial to a /dev/ path by searching /dev/disk/by-id/.
-// It finds the first symlink whose name contains the serial string, then resolves it to the
-// canonical /dev/ device path.
-func GetDevicePathBySerial(ctx context.Context, serial string) (string, error) {
-	entries, err := os.ReadDir("/dev/disk/by-id")
+// GetDevicePathBySerial resolves a drive serial to a /dev/ path by comparing each
+// `lsblk -dpno NAME` device's serial ID against the requested serial.
+func GetDevicePathBySerial(ctx context.Context, runner process.CommandRunner, serial string) (string, error) {
+	return devicePathBySerial(ctx, runner, serial, GetDeviceSerialID)
+}
+
+func devicePathBySerial(ctx context.Context, runner process.CommandRunner, serial string, serialOf func(context.Context, string) (string, error)) (string, error) {
+	res, err := runner.Run(ctx, process.Command{Path: "lsblk", Args: []string{"-dpno", "NAME"}})
 	if err != nil {
-		return "", fmt.Errorf("reading /dev/disk/by-id: %w", err)
+		return "", fmt.Errorf("listing block devices: %w", err)
 	}
-	for _, e := range entries {
-		if !strings.Contains(e.Name(), serial) {
-			continue
+	for _, devicePath := range strings.Fields(string(res.Stdout)) {
+		// A device whose serial cannot be read is not a match (the serial lookup is best-effort per device).
+		if got, sErr := serialOf(ctx, devicePath); sErr == nil && got == serial {
+			return devicePath, nil
 		}
-		target, evalErr := filepath.EvalSymlinks("/dev/disk/by-id/" + e.Name())
-		if evalErr != nil {
-			continue
-		}
-		return target, nil
 	}
-	return "", fmt.Errorf("no device found for serial %q in /dev/disk/by-id", serial)
+	return "", fmt.Errorf("no block device with serial %q", serial)
 }
 
 // cosSerialFallback reads /sys/block/<name>/wwid for Google COS where NVMe serial path differs.

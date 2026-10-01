@@ -35,7 +35,17 @@ func runDriverBuilder(ctx context.Context, cfg *config.DriverBuilderConfig, deps
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "runtimes.runDriverBuilder")
 	defer logger.End()
 
-	if err := runPreRunScript(ctx, deps, cfg.PreRunScript); err != nil {
+	nodeInfo, err := osinfo.Load()
+	if err != nil {
+		return fmt.Errorf("drivers-builder: load osinfo: %w", err)
+	}
+	if nodeInfo.IsNixos() {
+		if err = drivers.PrepareNixosHostKernel(ctx, deps.Runner); err != nil {
+			return fmt.Errorf("drivers-builder: %w", err)
+		}
+	}
+
+	if err = runPreRunScript(ctx, deps, cfg.PreRunScript); err != nil {
 		return fmt.Errorf("drivers-builder: pre-run script: %w", err)
 	}
 
@@ -45,10 +55,6 @@ func runDriverBuilder(ctx context.Context, cfg *config.DriverBuilderConfig, deps
 	}
 	logger.Info("building drivers", "version", version)
 
-	nodeInfo, err := osinfo.Load()
-	if err != nil {
-		return fmt.Errorf("drivers-builder: load osinfo: %w", err)
-	}
 	kernelBuildID := drivers.BuilderKernelBuildID(nodeInfo)
 
 	kernelSig, err := drivers.Build(ctx, deps.Runner, deps.Paths.OptWeka, version, kernelBuildID)
