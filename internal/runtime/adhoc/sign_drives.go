@@ -59,10 +59,20 @@ func RunSignDrives(ctx context.Context, cfg *config.Config) error {
 	excludedPaths := make(map[string]struct{})
 	for _, serial := range payload.ExcludedSerialIds {
 		if p, ok := guidMap[serial]; ok {
-			excludedPaths[p] = struct{}{}
+			excludedPaths[wekadrive.RealPath(p)] = struct{}{}
 			logger.Info("sign-drives: excluding drive", "serial", serial, "path", p)
 		} else {
 			logger.Info("sign-drives: serial has no cluster_guid, not excluding", "serial", serial)
+		}
+	}
+
+	if payload.DriveExclusions != nil && len(payload.DriveExclusions.Rules) > 0 {
+		drives, dErr := wekadrive.GetDrivesWithSignTool(ctx, payload.Shared)
+		if dErr != nil {
+			return fmt.Errorf("sign-drives: GetDrivesWithSignTool: %w", dErr)
+		}
+		for p := range wekadrive.ExcludedPathsByRules(ctx, payload.DriveExclusions.Rules, drives) {
+			excludedPaths[p] = struct{}{}
 		}
 	}
 
@@ -75,7 +85,7 @@ func RunSignDrives(ctx context.Context, cfg *config.Config) error {
 	// 6. Filter out excluded paths
 	var filtered []string
 	for _, p := range paths {
-		if _, excluded := excludedPaths[p]; excluded {
+		if _, excluded := excludedPaths[wekadrive.RealPath(p)]; excluded {
 			logger.Info("sign-drives: skipping excluded path", "path", p)
 			continue
 		}
@@ -89,19 +99,35 @@ func RunSignDrives(ctx context.Context, cfg *config.Config) error {
 		if _, signErr := wekadrive.SignBatchProxy(ctx, filtered, opts); signErr != nil {
 			return fmt.Errorf("sign-drives: SignBatchProxy: %w", signErr)
 		}
-		time.Sleep(3 * time.Second)
+		// Mirror Python asyncio.sleep(3) hack at weka_runtime.py:4298 — DO NOT remove.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
 		proxyDrives, listErr := wekadrive.ListAllProxyDrives(ctx)
 		if listErr != nil {
 			return fmt.Errorf("sign-drives: ListAllProxyDrives: %w", listErr)
 		}
-		return results.Write(domain.DriveNodeResults{ProxyDrives: proxyDrives})
+		// Mirror Python discover_ssdproxy_drives() (commit 44c5d512): also return
+		// raw_drives and kernel_view_complete alongside proxy_drives.
+		return results.Write(domain.DriveNodeResults{
+			ProxyDrives:        proxyDrives,
+			RawDrives:          collectRawDrives(ctx),
+			KernelViewComplete: blockdev.IsKernelViewComplete(ctx),
+		})
 	}
 
 	// Regular signing — signed paths themselves are not needed in result; discover-drives populates it
 	if _, signErr := wekadrive.SignBatch(ctx, filtered, opts); signErr != nil {
 		return fmt.Errorf("sign-drives: SignBatch: %w", signErr)
 	}
-	time.Sleep(3 * time.Second)
+	// Mirror Python asyncio.sleep(3) hack at weka_runtime.py:4316 — DO NOT remove.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(3 * time.Second):
+	}
 	return RunDiscoverDrives(ctx, cfg)
 }
 
@@ -147,7 +173,9 @@ func pciToDevicePaths(ctx context.Context, vendorID, deviceID string) ([]string,
 	if vendorID == "" || deviceID == "" {
 		return nil, fmt.Errorf("pciToDevicePaths: vendorId and deviceId are required")
 	}
-	out, err := cmdutil.Output(ctx, "lspci", "-d", vendorID+":"+deviceID)
+	// -D shows full PCI domain numbers (e.g. "0000:00:1f.0"); mirrors Python commit 587db35e.
+	// The first whitespace-delimited field is still the BDF address, so downstream parsing is unaffected.
+	out, err := cmdutil.Output(ctx, "lspci", "-D", "-d", vendorID+":"+deviceID)
 	if err != nil {
 		instrumentation.CurrentSpanLogger(ctx).Warn("pciToDevicePaths: lspci found no devices", "err", err)
 		return nil, nil

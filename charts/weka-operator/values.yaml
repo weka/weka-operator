@@ -98,6 +98,9 @@ logging:
   # -- Log only the time (without the date) in log lines.
   # @section -- Operator runtime & logging
   timeOnly: true
+  # -- Log output format: `raw` or `json`.
+  # @section -- Operator runtime & logging
+  format: raw
 # -- Management proxy (envoy) image.
 # @section -- Images
 envoyImage: "docker.io/envoyproxy/envoy:v1.31-latest"

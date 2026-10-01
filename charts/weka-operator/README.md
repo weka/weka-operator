@@ -159,6 +159,7 @@ helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
 |-----|------|---------|-------------|
 | deployController | bool | `true` | Deploy the operator controller. When false, the controller Deployment is scaled to 0 replicas. |
 | enableLeaderElection | bool | `true` | Enable leader election for the controller manager. Ensures only one controller manager is active. |
+| logging.format | string | `"raw"` | Log output format: `raw` or `json`. |
 | logging.level | int | `0` | Operator log level. |
 | logging.timeOnly | bool | `true` | Log only the time (without the date) in log lines. |
 | manager.extraVolumeMounts | list | `[]` | Extra volumeMounts for the `manager` container. The reserved path is `/tmp` (on, under, or above it) -- it holds the webhook serving certs. A mount at `/` is rejected for the same reason. |
