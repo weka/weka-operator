@@ -73,7 +73,7 @@ jobs:
           echo "Stack: ${{ toJson(github.event.pull_request.stack) }}"
 
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           # Only commit subjects are read here; this job now runs on every layer of a stack.
@@ -304,7 +304,7 @@ jobs:
       operator_helm_image: ${{ steps.set-operator-versions.outputs.operator_helm_image }}
     runs-on: scalar-runners
     steps:
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
         with:
           app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
@@ -315,7 +315,7 @@ jobs:
         # Before everything else: the `always()` Slack step at the end of the job runs a local
         # action out of this checkout, and has to report failures that happen this early too
         # (dind still down, an unset variable).
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: operator
           submodules: true
@@ -325,7 +325,7 @@ jobs:
         # One execution at a time on the lab cluster (operator-mq-ci), across all PRs. Newer runs
         # wait for older in-progress runs of this workflow; nothing is dropped. (A global
         # `concurrency` group would drop runs: GitHub keeps only one pending run per group.)
-        uses: softprops/turnstyle@807f6009e7cee5c2c9faa41ccef03a8bb24b06ab # v2.4.0
+        uses: softprops/turnstyle@3805450be63b8c80577dc253e8c17e9132036df4 # v3.3.3
         with:
           same-branch-only: false
           poll-interval-seconds: 30
@@ -376,7 +376,7 @@ jobs:
 
       - name: Publish Operator
         if: steps.prev.outputs.operator_image == ''
-        uses: dagger/dagger-for-github@d913e70051faf3b907d4dd96ef1161083c88c644 # v8.2.0
+        uses: dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77 # v8.4.1
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           HELM_USERNAME: ${{ secrets.CI_HELM_USERNAME }}
@@ -583,7 +583,7 @@ jobs:
       needs.upgrade_extended_test.result == 'success'
     runs-on: scalar-runners
     steps:
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
         with:
           app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
@@ -593,7 +593,7 @@ jobs:
       - name: Checkout operator repository
         # Before everything else: the `always()` Slack step at the end of the job runs a local
         # action out of this checkout, and has to report failures that happen this early too.
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: operator
           token: ${{ steps.app-token.outputs.token }}
@@ -619,7 +619,7 @@ jobs:
         run: operator/.github/scripts/wait_for_lab.sh
 
       - name: Pre clients-only (copy secrets + get join IPs)
-        uses: dagger/dagger-for-github@d913e70051faf3b907d4dd96ef1161083c88c644 # v8.2.0
+        uses: dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77 # v8.4.1
         env:
           SOURCE_KUBECONFIG: ${{ secrets.UPGRADE_TEST_KUBECONFIG }}
           OCP_KUBECONFIG: ${{ secrets.OCP_CLUSTER_KUBECONFIG }}
