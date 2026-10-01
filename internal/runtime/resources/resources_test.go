@@ -2,24 +2,32 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"reflect"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/runtime/clock"
+	"github.com/weka/weka-operator/internal/runtime/paths"
 )
 
-func TestWaitAndLoad_AbortsOnShutdown(t *testing.T) {
+func testRoots(t *testing.T) paths.Roots {
+	return paths.Roots{K8sRuntime: t.TempDir()}
+}
+
+func withFastRetry(t *testing.T) {
 	orig := retryInterval
 	retryInterval = time.Millisecond
-	defer func() { retryInterval = orig }()
+	t.Cleanup(func() { retryInterval = orig })
+}
 
-	// resourcesPath won't exist in the test environment, so phase 1 loops,
-	// sleeps retryInterval, then shouldAbort returns true → aborts with error.
-	_, err := WaitAndLoad(context.Background(), func() bool { return true })
+func TestWaitAndLoad_AbortsOnShutdown(t *testing.T) {
+	withFastRetry(t)
+	p := testRoots(t) // resources.json never appears
+
+	_, err := WaitAndLoad(context.Background(), clock.System, p, func() bool { return true })
 	if err == nil {
 		t.Fatal("expected error when shutdown requested, got nil")
 	}
@@ -29,43 +37,31 @@ func TestWaitAndLoad_AbortsOnShutdown(t *testing.T) {
 }
 
 func TestWaitAndLoad_CtxCancel(t *testing.T) {
-	orig := retryInterval
-	retryInterval = time.Millisecond
-	defer func() { retryInterval = orig }()
+	withFastRetry(t)
+	p := testRoots(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // immediately cancelled
 
-	_, err := WaitAndLoad(ctx, func() bool { return false })
+	_, err := WaitAndLoad(ctx, clock.System, p, func() bool { return false })
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
 }
 
-// TestNodeResourcesIsContainerAllocations pins the producer/consumer contract: the
-// operator marshals weka.ContainerAllocations and the runtime must decode the exact
-// same wire shape via NodeResources, with no field drift or tag fork.
-func TestNodeResourcesIsContainerAllocations(t *testing.T) {
-	fd := "fd-1"
-	produced := weka.ContainerAllocations{
-		Drives:            []string{"drive-1", "drive-2"},
-		WekaPort:          14000,
-		AgentPort:         15000,
-		FailureDomain:     &fd,
-		MachineIdentifier: "machine-1",
-		NetDevices:        []string{"eth0", "eth1"},
-	}
-	data, err := json.Marshal(produced)
-	if err != nil {
+func TestWaitAndLoad_RetriesMalformedFile(t *testing.T) {
+	withFastRetry(t)
+	p := testRoots(t)
+	resPath := filepath.Join(p.K8sRuntime, resourcesFile)
+	if err := os.WriteFile(resPath, []byte("not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	var consumed NodeResources
-	if err := json.Unmarshal(data, &consumed); err != nil {
-		t.Fatal(err)
+	_, err := WaitAndLoad(context.Background(), clock.System, p, nil)
+	if err == nil {
+		t.Fatal("expected error after exhausting retries on malformed JSON, got nil")
 	}
-
-	if !reflect.DeepEqual(consumed, produced) {
-		t.Fatalf("round trip mismatch: got %+v, want %+v", consumed, produced)
+	if want := "failed to read valid JSON"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %q, want it to contain %q", err.Error(), want)
 	}
 }

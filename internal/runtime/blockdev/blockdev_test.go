@@ -1,10 +1,51 @@
 package blockdev
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/weka/weka-operator/internal/runtime/process"
 )
+
+// fakeRunner returns a scripted stdout per binary path.
+type fakeRunner struct {
+	stdout map[string][]byte
+	err    map[string]error
+}
+
+func (f *fakeRunner) Run(_ context.Context, c process.Command) (process.Result, error) {
+	if err, ok := f.err[c.Path]; ok {
+		return process.Result{}, err
+	}
+	return process.Result{Stdout: f.stdout[c.Path]}, nil
+}
+
+func TestGetCapacityGiB(t *testing.T) {
+	tests := []struct {
+		name    string
+		stdout  string
+		want    int
+		wantErr bool
+	}{
+		{name: "1 GiB device", stdout: "1073741824\n", want: 1},
+		{name: "zero size returns zero, no error", stdout: "0\n", want: 0},
+		{name: "unparsable output errors", stdout: "not-a-number\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &fakeRunner{stdout: map[string][]byte{"blockdev": []byte(tt.stdout)}}
+			got, err := GetCapacityGiB(context.Background(), runner, "/dev/sda")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("GetCapacityGiB() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && got != tt.want {
+				t.Errorf("GetCapacityGiB() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
 
 // realLsblkJSON is a fixture derived from a live node.
 // The node's ~37 type:"loop" entries are trimmed here to 3 representative ones

@@ -9,58 +9,86 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	obslogger "github.com/weka/go-weka-observability/logger"
+	"github.com/weka/weka-operator/internal/runtime/clock"
 	"github.com/weka/weka-operator/internal/runtime/config"
-	"github.com/weka/weka-operator/internal/runtime/modes"
+	"github.com/weka/weka-operator/internal/runtime/debugexit"
+	"github.com/weka/weka-operator/internal/runtime/lifecycle"
+	"github.com/weka/weka-operator/internal/runtime/logrotate"
+	"github.com/weka/weka-operator/internal/runtime/paths"
+	"github.com/weka/weka-operator/internal/runtime/process"
+	"github.com/weka/weka-operator/internal/runtime/runtimes"
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-
-	cfg := config.Load()
-
 	logger := obslogger.NewZerologrWithLoggerNameInsteadCaller()
-	ctx = obslogger.ContextWithLogr(ctx, logger)
+	// root is the only never-cancelled context in the process; the coordinator built on it
+	// installs its own signal handling and cancels its derived contexts on shutdown.
+	root := obslogger.ContextWithLogr(context.Background(), logger)
 
-	shutdown, err := instrumentation.SetupOTelSDKWithOptions(ctx, "weka-pod-runtime", cfg.Version, logger)
+	env := config.CaptureEnv()
+	rt, err := config.ParseRuntimeSection(env)
+	if err != nil {
+		logger.Error(err, "parse runtime config")
+		os.Exit(1)
+	}
+
+	otelShutdown, err := instrumentation.SetupOTelSDKWithOptions(root, "weka-pod-runtime", rt.BinaryVersion, logger)
 	if err != nil {
 		// observability is non-critical, log and continue
 		logger.Info("failed to set up OTel SDK", "err", err)
 	}
 
-	modeErr := modes.Run(ctx, cfg)
+	pm := process.NewManager(root)
+	coord := lifecycle.New(root, pm)
+	// Keep SIGTERM/SIGINT caught for the whole process, not only inside Run: teardown can deliver
+	// one during the flush and exit wait below, which would otherwise kill the process with 143.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		for range sigs {
+			coord.RequestShutdown(lifecycle.ReasonSignal)
+		}
+	}()
+	deps := &runtimes.Deps{
+		Runner:    pm,
+		Processes: pm,
+		Clock:     clock.System,
+		Paths:     paths.Default(),
+		Coord:     coord,
+	}
 
-	if shutdown != nil {
-		// For one-shot modes, ctx is already cancelled here (modes.Run returned because SIGTERM
-		// cancelled it). Flushing OTel with the cancelled ctx fails immediately with
-		// "context canceled" and drops the final spans. WithoutCancel keeps the same context
-		// values (logger, trace context) but strips the cancellation; the timeout bounds the flush.
-		flushCtx, cancelFlush := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		if shutdownErr := shutdown(flushCtx); shutdownErr != nil {
-			logger.Info("failed to shutdown OTel", "err", shutdownErr)
+	modeRT, err := runtimes.New(env, deps)
+	if err != nil {
+		logger.Error(err, "build mode runtime")
+		os.Exit(1)
+	}
+
+	if logrotate.Applies(rt.Mode, env.Get("SYSLOG_PACKAGE")) {
+		coord.GoPeriodic("logrotate", deps.Clock, 0, logrotate.RotateInterval, func(ctx context.Context) error {
+			return logrotate.Rotate(ctx, deps.Runner)
+		})
+	}
+
+	outcome := coord.Run(root, modeRT)
+	if outcome.StartupErr != nil {
+		logger.Error(outcome.StartupErr, "mode failed", "mode", rt.Mode)
+	}
+	if outcome.ShutdownErr != nil {
+		logger.Error(outcome.ShutdownErr, "shutdown failed", "mode", rt.Mode)
+	}
+	for _, cerr := range outcome.CleanupErrs {
+		logger.Info("cleanup error", "err", cerr)
+	}
+
+	if otelShutdown != nil {
+		flushCtx, cancelFlush := context.WithTimeout(root, 5*time.Second)
+		if err := otelShutdown(flushCtx); err != nil {
+			logger.Info("failed to shutdown OTel", "err", err)
 		}
 		cancelFlush()
 	}
-	stop()
 
-	// Mirror Python debug-sleep at weka_runtime.py:4655-4661:
-	//   debug_sleep = int(WEKA_OPERATOR_DEBUG_SLEEP or 3)
-	//   start = now; while now-start < debug_sleep: if /tmp/.cancel-debug-sleep: break; sleep(1)
-	// i.e. poll the cancel file once per second so an externally-created flag aborts the sleep.
-	debugSleep := cfg.DebugSleep
-	if debugSleep == 0 {
-		debugSleep = 3
-	}
-	logger.Info("debug sleep before exit", "seconds", debugSleep)
-	for i := 0; i < debugSleep; i++ {
-		if _, err := os.Stat("/tmp/.cancel-debug-sleep"); err == nil {
-			logger.Info("debug sleep cancelled by /tmp/.cancel-debug-sleep")
-			break
-		}
-		time.Sleep(1 * time.Second)
-	}
+	debugexit.Wait(root, deps.Clock, deps.Paths.Tmp, rt.DebugExitWait)
 
-	if modeErr != nil {
-		logger.Error(modeErr, "mode failed", "mode", cfg.Mode)
-		os.Exit(1)
-	}
+	os.Exit(outcome.ExitCode())
 }

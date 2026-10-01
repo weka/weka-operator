@@ -5,16 +5,16 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/runtime/blockdev"
-	"github.com/weka/weka-operator/internal/runtime/config"
+	"github.com/weka/weka-operator/internal/runtime/process"
 )
 
 // RunDebug logs raw disk information to aid in troubleshooting.
 // It does not write results.json — matches Python debug handler behaviour.
-func RunDebug(ctx context.Context, _ *config.Config) error {
+func RunDebug(ctx context.Context, runner process.CommandRunner) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "RunDebug")
 	defer logger.End()
 
-	disks, err := blockdev.FindDisks(ctx)
+	disks, err := blockdev.FindDisks(ctx, runner)
 	if err != nil {
 		logger.Warn("debug: failed to find disks", "err", err)
 		return nil
