@@ -43,10 +43,9 @@ func SetupSSDProxyContainer(ctx context.Context, in *SSDProxyInput) error {
 		return fmt.Errorf("SetupSSDProxyContainer: mkdir %s: %w", resourcesDir, err)
 	}
 
-	kernelizeScript := fmt.Sprintf(`ln -sf %s/dist/extracted/weka-sign-drive /usr/bin/weka-sign-drive
-weka-sign-drive kernelize`, in.Roots.OptWeka)
-	if _, err := in.Runner.Run(ctx, process.Shell(kernelizeScript)); err != nil {
-		logger.Warn("weka-sign-drive kernelize failed (continuing)", "err", err)
+	symlinkScript := fmt.Sprintf("ln -sf %s/dist/extracted/weka-sign-drive /usr/bin/weka-sign-drive", in.Roots.OptWeka)
+	if _, err := in.Runner.Run(ctx, process.Shell(symlinkScript)); err != nil {
+		return fmt.Errorf("SetupSSDProxyContainer: link weka-sign-drive: %w", err)
 	}
 
 	containers, err := GetContainers(ctx, in.Runner)

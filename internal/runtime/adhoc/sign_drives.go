@@ -15,6 +15,7 @@ import (
 	"github.com/weka/weka-operator/internal/runtime/process"
 	"github.com/weka/weka-operator/internal/runtime/results"
 	"github.com/weka/weka-operator/internal/runtime/wekadrive"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 const (
@@ -133,6 +134,9 @@ func enumerateDevicePaths(ctx context.Context, runner process.CommandRunner, pay
 	case "device-paths":
 		return payload.DevicePaths, nil
 
+	case weka.SignDrivesTypeDeviceSerials:
+		return resolveDevicePathsBySerials(ctx, runner, payload.DeviceSerials)
+
 	case "all-not-root":
 		disks, err := blockdev.FindDisks(ctx, runner)
 		if err != nil {
@@ -162,6 +166,19 @@ func enumerateDevicePaths(ctx context.Context, runner process.CommandRunner, pay
 	default:
 		return nil, fmt.Errorf("unknown sign-drives type: %q", payload.Type)
 	}
+}
+
+// resolveDevicePathsBySerials fails if any serial does not resolve to a block device.
+func resolveDevicePathsBySerials(ctx context.Context, runner process.CommandRunner, serials []string) ([]string, error) {
+	paths := make([]string, 0, len(serials))
+	for _, serial := range serials {
+		p, err := blockdev.GetDevicePathBySerial(ctx, runner, serial)
+		if err != nil {
+			return nil, fmt.Errorf("could not resolve device path for serial %s: %w", serial, err)
+		}
+		paths = append(paths, p)
+	}
+	return paths, nil
 }
 
 // pciToDevicePaths runs lspci and maps matching PCI addresses to /dev/disk/by-path/ paths.

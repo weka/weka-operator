@@ -37,3 +37,17 @@ func TestRunDiscovery_WritesResult(t *testing.T) {
 		t.Fatalf("Schema = %d, want 1", res.Schema)
 	}
 }
+
+func TestDiscoveryResult_ProcVersionKey(t *testing.T) {
+	data, err := json.Marshal(discoveryResult{ProcVersion: "Linux version 6.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["proc_version"] != "Linux version 6.1" {
+		t.Errorf("proc_version = %v", m["proc_version"])
+	}
+}

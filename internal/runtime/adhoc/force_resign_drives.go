@@ -32,7 +32,7 @@ func RunForceResignDrives(ctx context.Context, runner process.CommandRunner, pay
 		paths = payloadData.DevicePaths
 	} else {
 		for _, serial := range payloadData.DeviceSerials {
-			p, err := blockdev.GetDevicePathBySerial(ctx, serial)
+			p, err := blockdev.GetDevicePathBySerial(ctx, runner, serial)
 			if err != nil {
 				// DELIBERATE DEVIATION from Python (weka_runtime.py:962): Python's
 				// force_resign_drives_by_serials appends None to device_paths when serial

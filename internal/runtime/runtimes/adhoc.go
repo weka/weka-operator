@@ -27,6 +27,8 @@ func runAdhoc(ctx context.Context, cfg *config.AdhocConfig, deps *Deps) error {
 		return adhoc.RunSignDrives(ctx, deps.Runner, deps.Clock, cfg.Operation.Raw, cfg.Results.Path)
 	case "force-resign-drives":
 		return adhoc.RunForceResignDrives(ctx, deps.Runner, cfg.Operation.Raw, cfg.Results.Path)
+	case "kernelize":
+		return adhoc.RunKernelize(ctx, deps.Runner, cfg.Results.Path)
 	case "umount":
 		return adhoc.RunUmount(ctx, deps.Runner, cfg.Results.Path)
 	case "debug":
