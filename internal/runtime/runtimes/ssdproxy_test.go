@@ -54,6 +54,7 @@ func testRoots(t *testing.T) paths.Roots {
 		Proc:       filepath.Join(root, "proc"),
 		Sys:        sys,
 		Tmp:        filepath.Join(root, "tmp"),
+		UsrBin:     t.TempDir(),
 	}
 }
 
@@ -99,6 +100,10 @@ func TestSSDProxyRuntime_Start_Succeeds(t *testing.T) {
 	rt := newSSDProxy(cfg, deps)
 	if err := rt.Start(ctx); err != nil {
 		t.Fatalf("ssdProxyRuntime.Start() error = %v", err)
+	}
+	link := filepath.Join(deps.Paths.UsrBin, "weka-sign-drive")
+	if got, err := os.Readlink(link); err != nil || got != filepath.Join(deps.Paths.OptWeka, "dist", "extracted", "weka-sign-drive") {
+		t.Errorf("weka-sign-drive link = (%q, %v), want it to point into OptWeka dist", got, err)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/internal/pkg/osinfo"
 	"github.com/weka/weka-operator/internal/runtime/process"
 	"github.com/weka/weka-operator/internal/runtime/results"
 )
@@ -22,10 +23,7 @@ func RunUmount(ctx context.Context, runner process.CommandRunner, resultsPath st
 	defer logger.End()
 
 	// 1. List wekafs mounts: 3rd whitespace-separated field of each line
-	res, err := runner.Run(ctx, process.Command{Path: "nsenter", Args: []string{
-		"--mount", "--pid", "--target", "1", "--",
-		"mount", "-t", "wekafs",
-	}})
+	res, err := runner.Run(ctx, process.Command{Path: "nsenter", Args: osinfo.HostNsenterArgs("mount", "-t", "wekafs")})
 	if err != nil {
 		logger.Warn("umount: failed to list wekafs mounts", "err", err)
 		// Proceed with empty mount list — write empty results
@@ -47,10 +45,7 @@ func RunUmount(ctx context.Context, runner process.CommandRunner, resultsPath st
 		}
 		mountPoint := fields[2]
 
-		if _, umountErr := runner.Run(ctx, process.Command{Path: "nsenter", Args: []string{
-			"--mount", "--pid", "--target", "1", "--",
-			"umount", mountPoint,
-		}}); umountErr != nil {
+		if _, umountErr := runner.Run(ctx, process.Command{Path: "nsenter", Args: osinfo.HostNsenterArgs("umount", mountPoint)}); umountErr != nil {
 			errs = append(errs, umountErr.Error())
 			continue
 		}

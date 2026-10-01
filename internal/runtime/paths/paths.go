@@ -9,6 +9,7 @@ type Roots struct {
 	Proc       string // /proc, mountable for host visibility
 	Sys        string // /sys, mountable for host visibility
 	Tmp        string // scratch dir
+	UsrBin     string // /usr/bin, where ssdproxy links weka-sign-drive
 }
 
 // Default returns the standard container-root paths.
@@ -20,5 +21,6 @@ func Default() Roots {
 		Proc:       "/proc",
 		Sys:        "/sys",
 		Tmp:        "/tmp",
+		UsrBin:     "/usr/bin",
 	}
 }
