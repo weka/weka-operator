@@ -17,7 +17,7 @@ func RunDiscoverDrives(ctx context.Context, _ *config.Config) error {
 	defer logger.End()
 
 	// use_sign_tool=true: mirrors Python discover_drives() calling find_weka_drives() with its
-	// default, so drive Type ("TLC"/"QLC") is populated for the operator's capacity accounting.
+	// default, so drives signed for ssdproxy but not yet taken by it are skipped.
 	drives, err := wekadrive.FindWekaPartitions(ctx, true)
 	if err != nil {
 		logger.Info("FindWekaPartitions failed, continuing with empty drives list", "err", err.Error())

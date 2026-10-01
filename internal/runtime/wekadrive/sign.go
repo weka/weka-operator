@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/runtime/blockdev"
 	"github.com/weka/weka-operator/internal/runtime/cmdutil"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 const ssdProxySocketPath = "/host-binds/ssdproxy-local-socket/container.sock"
@@ -107,7 +109,7 @@ func filterClusterGUIDDrives(parsed signDriveListOutput) map[string]string {
 // extractProxyDrives returns SharedDriveInfo for every proxy-signed drive in a parsed list.
 // A drive qualifies when:
 //   - status == "weka_formatted"
-//   - WekaInfo != nil AND (clusterGUID matches proxySignedGUID, or equals "proxy guid", or IsProxy)
+//   - WekaInfo != nil AND isProxySigned(WekaInfo)
 //   - PhysicalUUID is non-empty
 //   - SizeBytes > 0
 func extractProxyDrives(ctx context.Context, parsed signDriveListOutput) []domain.SharedDriveInfo {
@@ -120,8 +122,7 @@ func extractProxyDrives(ctx context.Context, parsed signDriveListOutput) []domai
 		if dev.WekaInfo == nil {
 			continue
 		}
-		clusterGUID := strings.ToLower(dev.WekaInfo.ClusterGUID)
-		if clusterGUID != proxySignedGUID && clusterGUID != "proxy guid" && !dev.WekaInfo.IsProxy {
+		if !isProxySigned(dev.WekaInfo) {
 			continue
 		}
 		if dev.PhysicalUUID == "" {
@@ -216,26 +217,55 @@ func ListAllProxyDrives(ctx context.Context) ([]domain.SharedDriveInfo, error) {
 	return drives, nil
 }
 
-// driveTypesFromDevices maps block device path (e.g. /dev/nvme0n1) to drive type ("TLC"/"QLC")
-// using each device's reported iu_size. Covers devices the tool could not open ("excluded"
-// status) since their hardware info still carries iu_size. Devices with no path or no iu_size
-// are skipped — their drive type is unknown.
-func driveTypesFromDevices(devices []signDriveDevice) map[string]string {
-	driveTypes := make(map[string]string, len(devices))
-	for i := range devices {
-		dev := &devices[i]
-		if dev.Path == "" || dev.Hardware.IuSize == 0 {
-			continue
-		}
-		driveTypes[dev.Path] = iuSizeToDriveType(dev.Hardware.IuSize)
+// isProxySigned reports whether the device is signed for ssdproxy, including the sentinel
+// cluster_guid values weka-sign-drive reports before the drive is added to a proxy.
+// Mirrors Python is_proxy_signed().
+func isProxySigned(info *signDriveWekaInfo) bool {
+	if info == nil {
+		return false
 	}
-	return driveTypes
+	clusterGUID := strings.ToLower(info.ClusterGUID)
+	return clusterGUID == proxySignedGUID || clusterGUID == "proxy guid" || info.IsProxy
 }
 
-// GetDriveTypesWithSignTool maps block device path to drive type using the sign tool's reported
-// iu_size. Mirrors Python get_drive_types_with_sign_tool().
-func GetDriveTypesWithSignTool(ctx context.Context, useProxySocket bool) (map[string]string, error) {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetDriveTypesWithSignTool")
+// SignToolDrive is a drive as reported by the sign tool. Type is empty when the tool reports no iu_size.
+type SignToolDrive struct {
+	Model       string
+	CapacityGiB int
+	Type        string
+	Proxy       bool
+}
+
+// drivesFromDevices maps block device path (e.g. /dev/nvme0n1) to its sign tool view. Covers devices
+// the tool could not open ("excluded" status) since their hardware info still carries iu_size.
+func drivesFromDevices(ctx context.Context, devices []signDriveDevice) map[string]SignToolDrive {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+	drives := make(map[string]SignToolDrive, len(devices))
+	for i := range devices {
+		dev := &devices[i]
+		if dev.Path == "" {
+			continue
+		}
+		var driveType string
+		if dev.Hardware.IuSize == 0 {
+			logger.Warn("no iu_size reported for device, drive type unknown", "path", dev.Path)
+		} else {
+			driveType = iuSizeToDriveType(dev.Hardware.IuSize)
+		}
+		drives[dev.Path] = SignToolDrive{
+			Model:       blockdev.ResolveDriveModel(dev.Hardware.Model, dev.Hardware.ModelNumber, dev.Path),
+			CapacityGiB: int(dev.Hardware.SizeBytes / (1024 * 1024 * 1024)),
+			Type:        driveType,
+			Proxy:       isProxySigned(dev.WekaInfo),
+		}
+	}
+	return drives
+}
+
+// GetDrivesWithSignTool maps block device path to the sign tool's view of the drive.
+// Mirrors Python get_drives_with_sign_tool().
+func GetDrivesWithSignTool(ctx context.Context, useProxySocket bool) (map[string]SignToolDrive, error) {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetDrivesWithSignTool")
 	defer logger.End()
 
 	devices, err := listDevicesWithSignTool(ctx, useProxySocket)
@@ -243,9 +273,86 @@ func GetDriveTypesWithSignTool(ctx context.Context, useProxySocket bool) (map[st
 		return nil, err
 	}
 
-	driveTypes := driveTypesFromDevices(devices)
-	logger.Info("drive types from sign tool", "count", len(driveTypes))
-	return driveTypes, nil
+	drives := drivesFromDevices(ctx, devices)
+	logger.Info("drives from sign tool", "count", len(drives))
+	return drives, nil
+}
+
+// ProxySignedPaths returns the resolved device paths of drives signed for ssdproxy.
+func ProxySignedPaths(ctx context.Context) (map[string]struct{}, error) {
+	drives, err := GetDrivesWithSignTool(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	paths := make(map[string]struct{})
+	for p, d := range drives {
+		if d.Proxy {
+			paths[RealPath(p)] = struct{}{}
+		}
+	}
+	return paths, nil
+}
+
+// RealPath resolves symlinks like Python os.path.realpath: on failure it returns the cleaned path.
+func RealPath(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return filepath.Clean(p)
+}
+
+// DriveRuleMatches reports whether every field set on the rule matches the drive.
+// A rule with no field set matches nothing. Mirrors Python drive_rule_matches().
+func DriveRuleMatches(rule weka.DriveExclusionRule, drive SignToolDrive) bool {
+	model := strings.ToLower(strings.TrimSpace(rule.Model))
+	if model == "" && rule.CapacityGiB == 0 && rule.Type == "" {
+		return false
+	}
+	if model != "" && model != strings.ToLower(strings.TrimSpace(drive.Model)) {
+		return false
+	}
+	if rule.CapacityGiB != 0 && rule.CapacityGiB != drive.CapacityGiB {
+		return false
+	}
+	return rule.Type == "" || rule.Type == drive.Type
+}
+
+// ExcludedPathsByRules returns the resolved paths of drives matching any rule, logging each exclusion
+// and every rule that matched no drive.
+func ExcludedPathsByRules(ctx context.Context, rules []weka.DriveExclusionRule, drives map[string]SignToolDrive) map[string]struct{} {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+	hasTypeRule := false
+	for _, r := range rules {
+		hasTypeRule = hasTypeRule || r.Type != ""
+	}
+	excluded := make(map[string]struct{})
+	matchedRules := make(map[int]struct{})
+	for path, drive := range drives {
+		var hits []int
+		for i, rule := range rules {
+			if DriveRuleMatches(rule, drive) {
+				hits = append(hits, i)
+			}
+		}
+		if hasTypeRule && drive.Type == "" && len(hits) == 0 {
+			logger.Warn("drive has no detectable type (no iu_size); driveExclusions type rules cannot match it", "path", path)
+		}
+		if len(hits) == 0 {
+			continue
+		}
+		excluded[RealPath(path)] = struct{}{}
+		logger.Info("excluding drive from signing: matches driveExclusions rules",
+			"path", path, "model", drive.Model, "capacityGiB", drive.CapacityGiB, "type", drive.Type, "rules", hits)
+		for _, i := range hits {
+			matchedRules[i] = struct{}{}
+		}
+	}
+	for i, rule := range rules {
+		if _, ok := matchedRules[i]; !ok {
+			logger.Warn("driveExclusions rule matched no drive", "rule", i, "model", rule.Model, "capacityGiB", rule.CapacityGiB, "type", rule.Type)
+		}
+	}
+	return excluded
 }
 
 // runWithStderr runs a command and returns stdout, stderr, and any error.
