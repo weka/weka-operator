@@ -2,10 +2,13 @@ package wekadrive
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 // ---------------------------------------------------------------------------
@@ -516,35 +519,98 @@ func TestExtractProxyDrives(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// driveTypesFromDevices
+// drivesFromDevices / DriveRuleMatches / ExcludedPathsByRules
 // ---------------------------------------------------------------------------
 
-func TestDriveTypesFromDevices(t *testing.T) {
-	t.Run("real fixture — every device typed by path", func(t *testing.T) {
+func TestDrivesFromDevices(t *testing.T) {
+	t.Run("real fixture — every device present by path", func(t *testing.T) {
 		parsed := mustParseSignDriveList(t, realSignDriveListJSON)
-		got := driveTypesFromDevices(parsed.Devices)
+		got := drivesFromDevices(context.Background(), parsed.Devices)
 		if len(got) != len(parsed.Devices) {
 			t.Errorf("expected one entry per device (%d), got %d: %v", len(parsed.Devices), len(got), got)
 		}
 	})
 
-	t.Run("QLC and TLC classified by iu_size, missing path/iu_size skipped", func(t *testing.T) {
+	t.Run("type, capacity, model and proxy; missing iu_size gives empty type; no path skipped", func(t *testing.T) {
 		const listJSON = `{
       "devices": [
-        {"path": "/dev/nvme0n1", "hardware": {"iu_size": 16384}},
-        {"path": "/dev/nvme1n1", "hardware": {"iu_size": 4096}},
+        {"path": "/dev/nvme0n1", "hardware": {"iu_size": 16384, "model": "M1", "size_bytes": 2147483648}},
+        {"path": "/dev/nvme1n1", "hardware": {"iu_size": 4096, "model": "M2"}, "weka_info": {"cluster_guid": "PROXY GUID"}},
         {"path": "", "hardware": {"iu_size": 16384}},
-        {"path": "/dev/nvme2n1", "hardware": {"iu_size": 0}}
+        {"path": "/dev/nvme2n1", "hardware": {"iu_size": 0, "model": "M3"}, "weka_info": {"is_proxy": true}}
       ]
     }`
 		parsed := mustParseSignDriveList(t, listJSON)
-		got := driveTypesFromDevices(parsed.Devices)
-		want := map[string]string{
-			"/dev/nvme0n1": "QLC",
-			"/dev/nvme1n1": "TLC",
+		got := drivesFromDevices(context.Background(), parsed.Devices)
+		want := map[string]SignToolDrive{
+			"/dev/nvme0n1": {Model: "M1", CapacityGiB: 2, Type: "QLC"},
+			"/dev/nvme1n1": {Model: "M2", Type: "TLC", Proxy: true},
+			"/dev/nvme2n1": {Model: "M3", Proxy: true},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("got %v; want %v", got, want)
 		}
 	})
+}
+
+func TestDriveRuleMatches(t *testing.T) {
+	drive := SignToolDrive{Model: "Samsung PM9A3", CapacityGiB: 3576, Type: "QLC"}
+	tests := []struct {
+		name string
+		rule weka.DriveExclusionRule
+		want bool
+	}{
+		{"empty rule matches nothing", weka.DriveExclusionRule{}, false},
+		{"whitespace model only matches nothing", weka.DriveExclusionRule{Model: "  "}, false},
+		{"model only, case and space insensitive", weka.DriveExclusionRule{Model: " samsung pm9a3 "}, true},
+		{"model mismatch", weka.DriveExclusionRule{Model: "other"}, false},
+		{"capacity only", weka.DriveExclusionRule{CapacityGiB: 3576}, true},
+		{"capacity mismatch", weka.DriveExclusionRule{CapacityGiB: 1}, false},
+		{"type only", weka.DriveExclusionRule{Type: "QLC"}, true},
+		{"type mismatch", weka.DriveExclusionRule{Type: "TLC"}, false},
+		{"all fields match", weka.DriveExclusionRule{Model: "Samsung PM9A3", CapacityGiB: 3576, Type: "QLC"}, true},
+		{"one of several fields mismatches", weka.DriveExclusionRule{Model: "Samsung PM9A3", CapacityGiB: 3576, Type: "TLC"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DriveRuleMatches(tt.rule, drive); got != tt.want {
+				t.Errorf("got %v; want %v", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("type rule never matches untyped drive", func(t *testing.T) {
+		if DriveRuleMatches(weka.DriveExclusionRule{Type: "TLC"}, SignToolDrive{}) {
+			t.Error("expected no match")
+		}
+	})
+}
+
+func TestExcludedPathsByRules(t *testing.T) {
+	dir := t.TempDir()
+	dev := filepath.Join(dir, "dev0")
+	if err := os.WriteFile(dev, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link0")
+	if err := os.Symlink(dev, link); err != nil {
+		t.Fatal(err)
+	}
+	real := RealPath(link)
+
+	drives := map[string]SignToolDrive{
+		link:           {Model: "A", CapacityGiB: 100, Type: "QLC"},
+		"/dev/missing": {Model: "B", CapacityGiB: 200, Type: "TLC"},
+		"/dev/untyped": {Model: "C", CapacityGiB: 300},
+	}
+	rules := []weka.DriveExclusionRule{{Type: "QLC"}, {Model: "nomatch"}}
+	got := ExcludedPathsByRules(context.Background(), rules, drives)
+	want := map[string]struct{}{real: {}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v; want %v", got, want)
+	}
+
+	if rp := RealPath("/dev/does/../missing"); rp != "/dev/missing" {
+		t.Errorf("RealPath fallback = %q; want cleaned path", rp)
+	}
 }
