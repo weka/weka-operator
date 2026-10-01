@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 const resourcesPath = "/opt/weka/k8s-runtime/resources.json"
@@ -18,14 +19,9 @@ const resourcesPath = "/opt/weka/k8s-runtime/resources.json"
 var retryInterval = 3 * time.Second
 
 // NodeResources is the JSON structure written by the operator controller.
-type NodeResources struct {
-	WekaPort          int      `json:"wekaPort"`
-	AgentPort         int      `json:"agentPort"`
-	FailureDomain     string   `json:"failureDomain"`
-	Drives            []string `json:"drives"`
-	NetDevices        []string `json:"netDevices"`
-	MachineIdentifier string   `json:"machineIdentifier,omitempty"`
-}
+// It is the same wire type the operator marshals (weka.ContainerAllocations),
+// shared here to guarantee producer/consumer stay in sync by construction.
+type NodeResources = weka.ContainerAllocations
 
 // WaitAndLoad polls until /opt/weka/k8s-runtime/resources.json appears, then parses it.
 // shouldAbort, if non-nil, is called after each phase-1 sleep; if it returns true the wait is

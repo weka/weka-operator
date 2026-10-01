@@ -1,0 +1,12 @@
+{
+  "err": null,
+  "drives": ["drive-1", "drive-2"],
+  "raw_drives": [
+    {
+      "path": "/dev/nvme0n1",
+      "serial": "SN-0001",
+      "size_bytes": 1000204886016
+    }
+  ],
+  "kernel_view_complete": true
+}
