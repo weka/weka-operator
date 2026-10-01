@@ -59,25 +59,20 @@ func RunSignDrives(ctx context.Context, cfg *config.Config) error {
 	excludedPaths := make(map[string]struct{})
 	for _, serial := range payload.ExcludedSerialIds {
 		if p, ok := guidMap[serial]; ok {
-			excludedPaths[p] = struct{}{}
+			excludedPaths[wekadrive.RealPath(p)] = struct{}{}
 			logger.Info("sign-drives: excluding drive", "serial", serial, "path", p)
 		} else {
 			logger.Info("sign-drives: serial has no cluster_guid, not excluding", "serial", serial)
 		}
 	}
 
-	// Full-drives mode has no QLC accounting (capacity, drive cores and hugepages are all
-	// computed as TLC), so QLC drives must never be signed for it. Proxy mode supports QLC.
-	if !payload.Shared {
-		driveTypes, dtErr := wekadrive.GetDriveTypesWithSignTool(ctx, false)
-		if dtErr != nil {
-			return fmt.Errorf("sign-drives: GetDriveTypesWithSignTool: %w", dtErr)
+	if payload.DriveExclusions != nil && len(payload.DriveExclusions.Rules) > 0 {
+		drives, dErr := wekadrive.GetDrivesWithSignTool(ctx, payload.Shared)
+		if dErr != nil {
+			return fmt.Errorf("sign-drives: GetDrivesWithSignTool: %w", dErr)
 		}
-		for path, driveType := range driveTypes {
-			if driveType == "QLC" {
-				excludedPaths[path] = struct{}{}
-				logger.Info("sign-drives: excluding QLC drive from full-drives signing", "path", path)
-			}
+		for p := range wekadrive.ExcludedPathsByRules(ctx, payload.DriveExclusions.Rules, drives) {
+			excludedPaths[p] = struct{}{}
 		}
 	}
 
@@ -90,7 +85,7 @@ func RunSignDrives(ctx context.Context, cfg *config.Config) error {
 	// 6. Filter out excluded paths
 	var filtered []string
 	for _, p := range paths {
-		if _, excluded := excludedPaths[p]; excluded {
+		if _, excluded := excludedPaths[wekadrive.RealPath(p)]; excluded {
 			logger.Info("sign-drives: skipping excluded path", "path", p)
 			continue
 		}

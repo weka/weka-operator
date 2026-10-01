@@ -22,20 +22,21 @@ const (
 // FindWekaPartitions scans /dev/disk/by-id/ and /dev/disk/by-path/ for Weka-formatted partitions.
 // It checks partition GUID and reads the Weka magic to determine if the drive is signed.
 //
-// useSignTool mirrors Python's find_weka_drives(use_sign_tool): when true, drive Type ("TLC"/"QLC")
-// is looked up via the sign tool; discover-drives passes true, ensure/shutdown paths pass false
-// because the sign tool binary is absent from the weka container image.
+// useSignTool mirrors Python's find_weka_drives(use_sign_tool): when true, drives signed for ssdproxy
+// are skipped (a drive held by a running ssdproxy is unbound from the nvme driver and never listed;
+// this catches drives signed for proxy but not yet taken by it). discover-drives passes true,
+// ensure/shutdown paths pass false because the sign tool binary is absent from the weka container image.
 func FindWekaPartitions(ctx context.Context, useSignTool bool) ([]domain.DriveInfo, error) {
 	partNames, err := collectPartNames(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var driveTypes map[string]string
+	var proxyPaths map[string]struct{}
 	if useSignTool {
-		driveTypes, err = GetDriveTypesWithSignTool(ctx, false)
+		proxyPaths, err = ProxySignedPaths(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("GetDriveTypesWithSignTool: %w", err)
+			return nil, fmt.Errorf("ProxySignedPaths: %w", err)
 		}
 	}
 
@@ -72,16 +73,14 @@ func FindWekaPartitions(ctx context.Context, useSignTool bool) ([]domain.DriveIn
 		parentName := filepath.Base(filepath.Dir(pciDevPath))
 		diskPath := "/dev/" + parentName
 
+		if _, isProxy := proxyPaths[RealPath(diskPath)]; isProxy {
+			instrumentation.CurrentSpanLogger(ctx).Info("skipping drive signed for ssdproxy", "partition", partName, "device", diskPath)
+			continue
+		}
+
 		serialID, err := blockdev.GetDeviceSerialID(ctx, diskPath)
 		if err != nil {
 			serialID = ""
-		}
-
-		// A drive the sign tool does not enumerate (e.g. SCSI/SATA) stays untyped rather than
-		// failing discovery; consumers treat an empty type as unknown and keep the drive.
-		driveType := driveTypes[diskPath]
-		if driveType == "" && useSignTool {
-			instrumentation.CurrentSpanLogger(ctx).Warn("sign tool reported no drive type", "device", diskPath)
 		}
 
 		drives = append(drives, domain.DriveInfo{
