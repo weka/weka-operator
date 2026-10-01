@@ -7,26 +7,26 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"maps"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/runtime/config"
+	"github.com/weka/weka-operator/internal/runtime/process"
 )
 
 // FindFullCores selects n CPU core IDs suitable for Weka data-path processes.
 // Mirrors Python find_full_cores() at weka_runtime.py:1716.
-func FindFullCores(ctx context.Context, cfg *config.Config, n int) ([]string, error) {
+func FindFullCores(ctx context.Context, cpu config.CPU, n int) ([]string, error) { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
 	_, logger := instrumentation.CreateLogSpan(ctx, "cpuaffinity.FindFullCores")
 	defer logger.End()
 
 	// If explicit core IDs are set and not "auto", use them directly.
-	if len(cfg.CoreIDs) > 0 {
-		result := make([]string, len(cfg.CoreIDs))
-		for i, id := range cfg.CoreIDs {
+	if !cpu.CoreIDs.Auto && len(cpu.CoreIDs.IDs) > 0 {
+		result := make([]string, len(cpu.CoreIDs.IDs))
+		for i, id := range cpu.CoreIDs.IDs {
 			result[i] = strconv.Itoa(id)
 		}
 		return result, nil
@@ -37,7 +37,7 @@ func FindFullCores(ctx context.Context, cfg *config.Config, n int) ([]string, er
 		return nil, fmt.Errorf("cpuaffinity: reading allowed CPUs: %w", err)
 	}
 
-	if cfg.CPUPolicy == "dedicated" {
+	if cpu.Policy == "dedicated" {
 		selected := make([]string, 0, n)
 		for _, c := range available {
 			if c != 0 {
@@ -70,11 +70,11 @@ func FindFullCores(ctx context.Context, cfg *config.Config, n int) ([]string, er
 	var selected []string
 	selectedSet := make(map[int]struct{})
 
-	for _, cpu := range available {
-		if _, skip := zeroSibSet[cpu]; skip {
+	for _, cpuID := range available {
+		if _, skip := zeroSibSet[cpuID]; skip {
 			continue
 		}
-		siblings, err := readSiblingsList(cpu)
+		siblings, err := readSiblingsList(cpuID)
 		if err != nil {
 			continue
 		}
@@ -100,8 +100,8 @@ func FindFullCores(ctx context.Context, cfg *config.Config, n int) ([]string, er
 		if alreadySelected {
 			continue
 		}
-		selected = append(selected, strconv.Itoa(cpu))
-		selectedSet[cpu] = struct{}{}
+		selected = append(selected, strconv.Itoa(cpuID))
+		selectedSet[cpuID] = struct{}{}
 		if len(selected) == n {
 			return selected, nil
 		}
@@ -158,10 +158,14 @@ func expandRanges(rangesStr string) []int {
 	return result
 }
 
+// sysfsRoot is a package var so tests can point it at a temp dir mimicking /sys's layout
+// instead of the real sysfs.
+var sysfsRoot = "/sys"
+
 // readSiblingsList reads the thread_siblings_list for a given CPU index.
 // Mirrors Python read_siblings_list() at weka_runtime.py:1666.
 func readSiblingsList(cpuIndex int) ([]int, error) {
-	path := fmt.Sprintf("/sys/devices/system/cpu/cpu%d/topology/thread_siblings_list", cpuIndex)
+	path := fmt.Sprintf("%s/devices/system/cpu/cpu%d/topology/thread_siblings_list", sysfsRoot, cpuIndex)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -183,29 +187,9 @@ func readSiblingsList(cpuIndex int) ([]int, error) {
 //	reserved  = set(full_cores) | siblings-of(full_cores)
 //	non_datapath_cores = sorted(available - reserved)
 func DeriveNonDatapathCores(procStatusPath string, fullCores []string) ([]int, error) {
-	return deriveNonDatapathCores(procStatusPath, fullCores, "")
-}
-
-// deriveNonDatapathCores is the testable inner implementation.
-// sysfsRoot overrides the /sys prefix used when reading thread_siblings_list files;
-// pass "" for the real /sys path.
-func deriveNonDatapathCores(procStatusPath string, fullCores []string, sysfsRoot string) ([]int, error) {
 	available, err := parseCPUAllowedList(procStatusPath)
 	if err != nil {
 		return nil, fmt.Errorf("DeriveNonDatapathCores: read allowed CPUs: %w", err)
-	}
-
-	readSiblings := func(cpuIndex int) ([]int, error) {
-		root := sysfsRoot
-		if root == "" {
-			root = "/sys"
-		}
-		path := fmt.Sprintf("%s/devices/system/cpu/cpu%d/topology/thread_siblings_list", root, cpuIndex)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-		return expandRanges(strings.TrimSpace(string(data))), nil
 	}
 
 	reserved := make(map[int]struct{}, len(fullCores)*2)
@@ -215,7 +199,7 @@ func deriveNonDatapathCores(procStatusPath string, fullCores []string, sysfsRoot
 			continue
 		}
 		reserved[c] = struct{}{}
-		if siblings, err := readSiblings(c); err == nil {
+		if siblings, err := readSiblingsList(c); err == nil {
 			for _, sib := range siblings {
 				reserved[sib] = struct{}{}
 			}
@@ -231,55 +215,20 @@ func deriveNonDatapathCores(procStatusPath string, fullCores []string, sysfsRoot
 	return result, nil
 }
 
-// Manager periodically adjusts CPU affinities of non-datapath processes.
-type Manager struct {
-	cfg *config.Config
-}
-
-// NewManager creates a new Manager.
-func NewManager(cfg *config.Config) *Manager {
-	return &Manager{cfg: cfg}
-}
-
-// RunPeriodic runs the affinity management loop in the background.
-// Initial delay is 30s, then runs every 60s.
-// Mirrors Python periodic_cpu_affinity_management() at weka_runtime.py:2055.
-func (m *Manager) RunPeriodic(ctx context.Context) {
-	_, logger := instrumentation.CreateLogSpan(ctx, "cpuaffinity.RunPeriodic")
-	defer logger.End()
-
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(30 * time.Second):
-	}
-
-	logger.Info("starting periodic CPU affinity management (every 60 seconds)")
-
-	for {
-		if err := m.Manage(ctx); err != nil {
-			logger.Warn("periodic CPU affinity management failed (non-fatal)", "err", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(60 * time.Second):
-		}
-	}
-}
-
-// Manage identifies processes that need reassignment and tasksets them.
+// Manage identifies processes that need reassignment and tasksets them. Intended to be run
+// periodically via lifecycle.Coordinator.GoPeriodic (initial delay 30s, interval 60s, mirroring
+// Python periodic_cpu_affinity_management() at weka_runtime.py:2055).
 // Mirrors Python manage_cpu_affinities() at weka_runtime.py:1963.
-func (m *Manager) Manage(ctx context.Context) error {
+func Manage(ctx context.Context, runner process.CommandRunner) error {
 	_, logger := instrumentation.CreateLogSpan(ctx, "cpuaffinity.Manage")
 	defer logger.End()
 
 	available, err := parseCPUAllowedList("/proc/1/status")
 	if err != nil {
-		return fmt.Errorf("cpuaffinity.Manage: %w", err)
+		return fmt.Errorf("cpuaffinity.manage: %w", err)
 	}
 
-	dataPathCores := getDataPathCores()
+	dataPathCores := getDataPathCores(ctx, runner)
 	reservedSet := getAllReservedCores(dataPathCores)
 
 	var remaining []int
@@ -300,14 +249,14 @@ func (m *Manager) Manage(ctx context.Context) error {
 		targetSet[c] = struct{}{}
 	}
 
-	pids := getProcessesToReassign()
+	pids := getProcessesToReassign(ctx, runner)
 	var needChange []string
 	for _, pid := range pids {
-		current := getProcessAffinity(pid)
+		current := getProcessAffinity(ctx, runner, pid)
 		if current == nil {
 			continue
 		}
-		if mapsEqual(current, targetSet) {
+		if maps.Equal(current, targetSet) {
 			continue
 		}
 		needChange = append(needChange, pid)
@@ -323,8 +272,8 @@ func (m *Manager) Manage(ctx context.Context) error {
 
 	changesMade := 0
 	for _, pid := range needChange {
-		cmd := exec.CommandContext(ctx, "taskset", "-cp", coresStr, pid) //nolint:gosec // pid is sourced from ps output, not user input
-		if err := cmd.Run(); err != nil {
+		_, err := runner.Run(ctx, process.Command{Path: "taskset", Args: []string{"-cp", coresStr, pid}})
+		if err != nil {
 			logger.Debug("failed to set affinity", "pid", pid, "err", err)
 			continue
 		}
@@ -338,14 +287,14 @@ func (m *Manager) Manage(ctx context.Context) error {
 
 // getDataPathCores reads wekanode data-path process core affinities.
 // Mirrors Python get_data_path_cores() at weka_runtime.py:1767.
-func getDataPathCores() []int {
-	out, err := exec.Command("ps", "aux").Output() //nolint:gosec // ps with fixed args, no user input
+func getDataPathCores(ctx context.Context, runner process.CommandRunner) []int {
+	res, err := runner.Run(ctx, process.Command{Path: "ps", Args: []string{"aux"}})
 	if err != nil {
 		return nil
 	}
 
 	var dpPIDs []string
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(string(res.Stdout), "\n") {
 		if strings.Contains(line, "/weka/wekanode") &&
 			strings.Contains(line, "--slot") &&
 			!strings.Contains(line, "--slot 0") {
@@ -358,7 +307,7 @@ func getDataPathCores() []int {
 
 	coreSet := make(map[int]struct{})
 	for _, pid := range dpPIDs {
-		affinity := getProcessAffinity(pid)
+		affinity := getProcessAffinity(ctx, runner, pid)
 		for c := range affinity {
 			coreSet[c] = struct{}{}
 		}
@@ -387,14 +336,14 @@ func getAllReservedCores(dataPathCores []int) map[int]struct{} {
 
 // getProcessesToReassign collects PIDs eligible for affinity reassignment.
 // Mirrors Python get_processes_to_reassign() at weka_runtime.py:1881.
-func getProcessesToReassign() []string {
-	out, err := exec.Command("ps", "aux").Output() //nolint:gosec // ps with fixed args, no user input
+func getProcessesToReassign(ctx context.Context, runner process.CommandRunner) []string {
+	res, err := runner.Run(ctx, process.Command{Path: "ps", Args: []string{"aux"}})
 	if err != nil {
 		return nil
 	}
 
 	var pids []string
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(string(res.Stdout), "\n") {
 		parts := strings.Fields(line)
 		if len(parts) < 2 {
 			continue
@@ -416,12 +365,12 @@ func getProcessesToReassign() []string {
 
 // getProcessAffinity returns the current affinity set for a PID, or nil on error.
 // Mirrors Python get_process_affinity() at weka_runtime.py:1943.
-func getProcessAffinity(pid string) map[int]struct{} {
-	out, err := exec.Command("taskset", "-cp", pid).Output() //nolint:gosec // pid is sourced from ps output, not user input
+func getProcessAffinity(ctx context.Context, runner process.CommandRunner, pid string) map[int]struct{} {
+	res, err := runner.Run(ctx, process.Command{Path: "taskset", Args: []string{"-cp", pid}})
 	if err != nil {
 		return nil
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(string(res.Stdout), "\n") {
 		if strings.Contains(line, "affinity list:") {
 			parts := strings.SplitN(line, "affinity list:", 2)
 			if len(parts) == 2 {
@@ -469,16 +418,4 @@ func intsToCSV(ints []int) string {
 		parts[i] = strconv.Itoa(v)
 	}
 	return strings.Join(parts, ",")
-}
-
-func mapsEqual(a, b map[int]struct{}) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k := range a {
-		if _, ok := b[k]; !ok {
-			return false
-		}
-	}
-	return true
 }

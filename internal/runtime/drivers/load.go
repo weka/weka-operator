@@ -8,25 +8,26 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/osinfo"
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
+	"github.com/weka/weka-operator/internal/runtime/cos"
+	"github.com/weka/weka-operator/internal/runtime/process"
 )
 
 // SetupOverlayfsForLibModules mounts a tmpfs-backed overlayfs over /lib/modules so
 // that the kernel driver installer can write into what is typically a read-only host mount.
-func SetupOverlayfsForLibModules(ctx context.Context) error {
+func SetupOverlayfsForLibModules(ctx context.Context, runner process.CommandRunner) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "drivers.SetupOverlayfsForLibModules")
 	defer logger.End()
 
-	realPathBytes, err := cmdutil.Output(ctx, "readlink", "-f", "/lib/modules")
+	res, err := runner.Run(ctx, process.Command{Path: "readlink", Args: []string{"-f", "/lib/modules"}})
 	if err != nil {
 		return fmt.Errorf("SetupOverlayfsForLibModules: readlink: %w", err)
 	}
-	realPath := strings.TrimSpace(string(realPathBytes))
+	realPath := strings.TrimSpace(string(res.Stdout))
 
 	// Guard: skip the overlay if realPath is not a host-mounted mountpoint (e.g. Google COS
 	// does not host-mount /lib/modules, so there is nothing read-only to overlay).
 	// Mirrors Python commit 1a8c0641: if subprocess.run(["mountpoint", "-q", real_path]).returncode != 0: return
-	if err := cmdutil.Run(ctx, "mountpoint", "-q", realPath); err != nil {
+	if _, err := runner.Run(ctx, process.Command{Path: "mountpoint", Args: []string{"-q", realPath}}); err != nil {
 		logger.Info("Skipping overlayfs: /lib/modules is not a host mount (no read-only /lib/modules to overlay)", "realPath", realPath)
 		return nil
 	}
@@ -43,8 +44,8 @@ func SetupOverlayfsForLibModules(ctx context.Context) error {
 	// L4: Skip the tmpfs mount if ovlBase is already a mountpoint (idempotency guard).
 	// Mirrors Python weka_runtime.py:1565-1570:
 	//   if (await run_command(f"mountpoint -q {ovl_root}"))[2] != 0: mount tmpfs ...
-	if err := cmdutil.Run(ctx, "mountpoint", "-q", ovlBase); err != nil {
-		if err := cmdutil.Run(ctx, "mount", "-t", "tmpfs", "-o", "size=512m", "tmpfs", ovlBase); err != nil {
+	if _, err := runner.Run(ctx, process.Command{Path: "mountpoint", Args: []string{"-q", ovlBase}}); err != nil {
+		if _, err := runner.Run(ctx, process.Command{Path: "mount", Args: []string{"-t", "tmpfs", "-o", "size=512m", "tmpfs", ovlBase}}); err != nil {
 			return fmt.Errorf("SetupOverlayfsForLibModules: mount tmpfs: %w", err)
 		}
 	}
@@ -56,16 +57,16 @@ func SetupOverlayfsForLibModules(ctx context.Context) error {
 	}
 
 	overlayOpts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", realPath, upperDir, workDir)
-	if err := cmdutil.Run(ctx, "mount", "-t", "overlay", "overlay", "-o", overlayOpts, ovlMnt); err != nil {
+	if _, err := runner.Run(ctx, process.Command{Path: "mount", Args: []string{"-t", "overlay", "overlay", "-o", overlayOpts, ovlMnt}}); err != nil {
 		return fmt.Errorf("SetupOverlayfsForLibModules: mount overlay: %w", err)
 	}
 
-	if err := cmdutil.Run(ctx, "mount", "--bind", ovlMnt, realPath); err != nil {
+	if _, err := runner.Run(ctx, process.Command{Path: "mount", Args: []string{"--bind", ovlMnt, realPath}}); err != nil {
 		return fmt.Errorf("SetupOverlayfsForLibModules: bind mount to %s: %w", realPath, err)
 	}
 
 	if realPath != "/lib/modules" {
-		if err := cmdutil.Run(ctx, "mount", "--bind", realPath, "/lib/modules"); err != nil {
+		if _, err := runner.Run(ctx, process.Command{Path: "mount", Args: []string{"--bind", realPath, "/lib/modules"}}); err != nil {
 			return fmt.Errorf("SetupOverlayfsForLibModules: bind mount to /lib/modules: %w", err)
 		}
 	}
@@ -76,7 +77,7 @@ func SetupOverlayfsForLibModules(ctx context.Context) error {
 
 // DisableDriverSigning handles COS-specific kernel module signature enforcement.
 // allowDisableSign should be cfg.COSAllowDisableDriverSign. On non-COS nodes it is a no-op.
-func DisableDriverSigning(ctx context.Context, allowDisableSign bool) error {
+func DisableDriverSigning(ctx context.Context, runner process.CommandRunner, allowDisableSign bool) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "drivers.DisableDriverSigning")
 	defer logger.End()
 
@@ -86,42 +87,41 @@ func DisableDriverSigning(ctx context.Context, allowDisableSign bool) error {
 	}
 
 	logger.Info("checking kernel driver signing enforcement on COS")
-	return cosDisableDriverSigning(ctx, allowDisableSign)
+	return cosDisableDriverSigning(ctx, runner, allowDisableSign)
 }
 
-func cosDisableDriverSigning(ctx context.Context, allowDisableSign bool) error {
+func cosDisableDriverSigning(ctx context.Context, runner process.CommandRunner, allowDisableSign bool) error {
 	cmdlineData, err := os.ReadFile("/hostside/proc/cmdline")
 	if err != nil {
 		return fmt.Errorf("cosDisableDriverSigning: read cmdline: %w", err)
 	}
 	line := string(cmdlineData)
 
-	type sedCmd struct{ from, to string }
-	var cmds []sedCmd
+	var seds []cos.GrubSed
 
 	if strings.Contains(line, "module.sig_enforce") {
 		if strings.Contains(line, "module.sig_enforce=1") {
-			cmds = append(cmds, sedCmd{"module.sig_enforce=1", "module.sig_enforce=0"})
+			seds = append(seds, cos.GrubSed{From: "module.sig_enforce=1", To: "module.sig_enforce=0"})
 		}
 	} else {
-		cmds = append(cmds, sedCmd{"cros_efi", "cros_efi module.sig_enforce=0"})
+		seds = append(seds, cos.GrubSed{From: "cros_efi", To: "cros_efi module.sig_enforce=0"})
 	}
 	if strings.Contains(line, "loadpin.enabled") {
 		if strings.Contains(line, "loadpin.enabled=1") {
-			cmds = append(cmds, sedCmd{"loadpin.enabled=1", "loadpin.enabled=0"})
+			seds = append(seds, cos.GrubSed{From: "loadpin.enabled=1", To: "loadpin.enabled=0"})
 		}
 	} else {
-		cmds = append(cmds, sedCmd{"cros_efi", "cros_efi loadpin.enabled=0"})
+		seds = append(seds, cos.GrubSed{From: "cros_efi", To: "cros_efi loadpin.enabled=0"})
 	}
 	if strings.Contains(line, "loadpin.enforce") {
 		if strings.Contains(line, "loadpin.enforce=1") {
-			cmds = append(cmds, sedCmd{"loadpin.enforce=1", "loadpin.enforce=0"})
+			seds = append(seds, cos.GrubSed{From: "loadpin.enforce=1", To: "loadpin.enforce=0"})
 		}
 	} else {
-		cmds = append(cmds, sedCmd{"cros_efi", "cros_efi loadpin.enforce=0"})
+		seds = append(seds, cos.GrubSed{From: "cros_efi", To: "cros_efi loadpin.enforce=0"})
 	}
 
-	if len(cmds) == 0 {
+	if len(seds) == 0 {
 		return nil
 	}
 
@@ -129,33 +129,12 @@ func cosDisableDriverSigning(ctx context.Context, allowDisableSign bool) error {
 		return fmt.Errorf("node driver signing must be disabled but WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING is not set")
 	}
 
-	const espPartition = "/dev/disk/by-partlabel/EFI-SYSTEM"
-	const mountPath = "/tmp/esp"
-	const grubCfg = "efi/boot/grub.cfg"
-
-	if err := os.MkdirAll(mountPath, 0o755); err != nil {
-		return err
-	}
-	if err := cmdutil.Run(ctx, "mount", espPartition, mountPath); err != nil {
-		return fmt.Errorf("cosDisableDriverSigning: mount ESP: %w", err)
-	}
-	defer func() { _ = cmdutil.Run(ctx, "umount", mountPath) }() //nolint:errcheck // best-effort cleanup on defer
-
-	for _, sc := range cmds {
-		script := fmt.Sprintf("cd %s && sed -i 's/%s/%s/g' %s", mountPath, sc.from, sc.to, grubCfg)
-		if err := cmdutil.Run(ctx, "sh", "-c", script); err != nil {
-			return fmt.Errorf("cosDisableDriverSigning: sed: %w", err)
-		}
-	}
-
-	// Reboot via sysrq-trigger.
-	_ = os.WriteFile("/hostside/proc/sysrq-trigger", []byte("b"), 0o200) //nolint:errcheck // reboot trigger: process ends immediately after
-	return nil
+	return cos.RewriteGrubAndReboot(ctx, runner, seds, "/hostside/proc/sysrq-trigger")
 }
 
 // LoadModules runs the post-load steps common to both legacy and new driver modes:
 // vfio-pci, arp_tables, and optionally uio_pci_generic.
-func LoadModules(ctx context.Context, skipUIOPCIGeneric bool) {
+func LoadModules(ctx context.Context, runner process.CommandRunner, skipUIOPCIGeneric bool) {
 	_, logger := instrumentation.CreateLogSpan(ctx, "drivers.LoadModules")
 	defer logger.End()
 
@@ -164,22 +143,22 @@ func LoadModules(ctx context.Context, skipUIOPCIGeneric bool) {
 
 	loadVfioPCI := func() {
 		if isCOS {
-			_ = cmdutil.Run(ctx, "modprobe", "vfio-pci") //nolint:errcheck // best-effort: module may already be loaded
+			_, _ = runner.Run(ctx, process.Command{Path: "modprobe", Args: []string{"vfio-pci"}}) //nolint:errcheck // best-effort: module may already be loaded
 			return
 		}
 		entries, err := os.ReadDir("/sys/kernel/iommu_groups/")
 		if err == nil && len(entries) > 0 {
-			_ = cmdutil.Run(ctx, "modprobe", "vfio-pci") //nolint:errcheck // best-effort: module may already be loaded
+			_, _ = runner.Run(ctx, process.Command{Path: "modprobe", Args: []string{"vfio-pci"}}) //nolint:errcheck // best-effort: module may already be loaded
 		}
 	}
 	loadVfioPCI()
 
-	if err := cmdutil.Run(ctx, "modprobe", "arp_tables"); err != nil {
+	if _, err := runner.Run(ctx, process.Command{Path: "modprobe", Args: []string{"arp_tables"}}); err != nil {
 		logger.Warn("failed to load arp_tables (non-fatal)", "err", err)
 	}
 
 	if !skipUIOPCIGeneric {
-		if err := cmdutil.Run(ctx, "modprobe", "uio_pci_generic"); err != nil {
+		if _, err := runner.Run(ctx, process.Command{Path: "modprobe", Args: []string{"uio_pci_generic"}}); err != nil {
 			logger.Warn("failed to load uio_pci_generic (non-fatal)", "err", err)
 		}
 	}
