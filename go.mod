@@ -11,7 +11,7 @@ module github.com/weka/weka-operator
 // go directive must stay <= this one, since a replace'd module is built by this toolchain.
 // To catch any pin not listed above:
 //   grep -rn 'golang:[0-9]\|golang [0-9]\|^go 1\.\|alpine"' --exclude-dir=.git .
-go 1.27.0
+go 1.27.1
 
 require (
 	github.com/ant0ine/go-json-rest v3.3.2+incompatible
