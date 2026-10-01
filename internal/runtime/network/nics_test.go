@@ -1,12 +1,58 @@
 package network
 
 import (
+	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 
-	"github.com/weka/weka-operator/internal/runtime/config"
+	"github.com/weka/weka-operator/internal/runtime/paths"
+	"github.com/weka/weka-operator/internal/runtime/process"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
+
+// fakeRunner is a minimal process.CommandRunner test double: it records every call and
+// delegates the result to resultFn, if set.
+type fakeRunner struct {
+	mu       sync.Mutex
+	calls    []process.Command
+	resultFn func(c process.Command) (process.Result, error)
+}
+
+func (f *fakeRunner) Run(_ context.Context, c process.Command) (process.Result, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, c)
+	f.mu.Unlock()
+	if f.resultFn != nil {
+		return f.resultFn(c)
+	}
+	return process.Result{}, nil
+}
+
+func (f *fakeRunner) callsWithPrefix(prefix ...string) []process.Command {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []process.Command
+	for _, c := range f.calls {
+		if len(c.Args) < len(prefix) {
+			continue
+		}
+		match := true
+		for i, p := range prefix {
+			if c.Args[i] != p {
+				match = false
+				break
+			}
+		}
+		if match {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 func TestShouldAllocateVFPerIoNode(t *testing.T) {
 	tests := []struct {
@@ -199,58 +245,99 @@ func TestPairDevicesBySubnet(t *testing.T) {
 
 func TestIsUDP(t *testing.T) {
 	tests := []struct {
-		name string
-		cfg  *config.Config
-		want bool
+		name          string
+		udpMode       bool
+		networkDevice string
+		want          bool
 	}{
-		{
-			name: "UDPMode true",
-			cfg:  &config.Config{UDPMode: true},
-			want: true,
-		},
-		{
-			name: "NetworkDevice=udp (lowercase)",
-			cfg:  &config.Config{NetworkDevice: "udp"},
-			want: true,
-		},
-		{
-			name: "NetworkDevice=UDP (uppercase)",
-			cfg:  &config.Config{NetworkDevice: "UDP"},
-			want: true,
-		},
-		{
-			name: "NetworkDevice=Udp (mixed case)",
-			cfg:  &config.Config{NetworkDevice: "Udp"},
-			want: true,
-		},
-		{
-			name: "both UDPMode and NetworkDevice=udp",
-			cfg:  &config.Config{UDPMode: true, NetworkDevice: "udp"},
-			want: true,
-		},
-		{
-			name: "neither UDPMode nor udp device",
-			cfg:  &config.Config{NetworkDevice: "eth0"},
-			want: false,
-		},
-		{
-			name: "empty config",
-			cfg:  &config.Config{},
-			want: false,
-		},
-		{
-			name: "NetworkDevice contains udp but is not exactly udp",
-			cfg:  &config.Config{NetworkDevice: "eth0,udp"},
-			want: false,
-		},
+		{"UDPMode true", true, "", true},
+		{"NetworkDevice=udp (lowercase)", false, "udp", true},
+		{"NetworkDevice=UDP (uppercase)", false, "UDP", true},
+		{"NetworkDevice=Udp (mixed case)", false, "Udp", true},
+		{"both UDPMode and NetworkDevice=udp", true, "udp", true},
+		{"neither UDPMode nor udp device", false, "eth0", false},
+		{"empty", false, "", false},
+		{"NetworkDevice contains udp but is not exactly udp", false, "eth0,udp", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isUDP(tt.cfg)
-			if got != tt.want {
-				t.Errorf("isUDP(%+v) = %v, want %v", tt.cfg, got, tt.want)
+			if got := IsUDP(tt.udpMode, tt.networkDevice); got != tt.want {
+				t.Errorf("IsUDP(%v, %q) = %v, want %v", tt.udpMode, tt.networkDevice, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestReconcileNetDevicesRdmaOnlySelectorSetsFlag verifies a selector with RdmaOnly produces
+// the --rdma-only flag on the `weka local resources net add` command.
+func TestReconcileNetDevicesRdmaOnlySelectorSetsFlag(t *testing.T) {
+	runner := &fakeRunner{
+		resultFn: func(c process.Command) (process.Result, error) {
+			if c.Path == "ip" && len(c.Args) > 0 && c.Args[0] == "link" {
+				return process.Result{}, nil // device exists
+			}
+			if c.Path == "weka" && len(c.Args) > 1 && c.Args[1] == "resources" && len(c.Args) == 5 {
+				// `weka local resources -C <name> --json`
+				return process.Result{Stdout: []byte(`{"net_devices":[],"rdma_devices":{"devices":[]}}`)}, nil
+			}
+			return process.Result{}, nil
+		},
+	}
+
+	err := ReconcileNetDevices(context.Background(), runner, ReconcileInput{
+		Name: "cont0",
+		Selectors: []weka.NetworkSelector{
+			{DeviceNames: []string{"ib0"}, RdmaOnly: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ReconcileNetDevices() error = %v", err)
+	}
+
+	addCalls := runner.callsWithPrefix("local", "resources", "net", "-C", "cont0", "add", "ib0")
+	if len(addCalls) != 1 {
+		t.Fatalf("expected exactly one add call for ib0, got %d: %+v", len(addCalls), runner.calls)
+	}
+	found := false
+	for _, a := range addCalls[0].Args {
+		if a == "--rdma-only" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected --rdma-only flag in add command, got args %v", addCalls[0].Args)
+	}
+}
+
+// TestWriteManagementIPsReturnsWrittenIPs verifies WriteManagementIPs returns the IPs it wrote,
+// matching what lands in the management_ips file.
+func TestWriteManagementIPsReturnsWrittenIPs(t *testing.T) {
+	runner := &fakeRunner{
+		resultFn: func(c process.Command) (process.Result, error) {
+			return process.Result{Stdout: []byte("10.0.0.5")}, nil
+		},
+	}
+	dir := t.TempDir()
+	roots := paths.Roots{K8sRuntime: dir}
+
+	got, err := WriteManagementIPs(context.Background(), runner, ManagementInput{
+		Mode:          "compute",
+		NetworkDevice: "eth0",
+	}, roots)
+	if err != nil {
+		t.Fatalf("WriteManagementIPs() error = %v", err)
+	}
+	want := []string{"10.0.0.5"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WriteManagementIPs() = %v, want %v", got, want)
+	}
+
+	written, err := os.ReadFile(filepath.Join(dir, "management_ips"))
+	if err != nil {
+		t.Fatalf("reading management_ips: %v", err)
+	}
+	if string(written) != "10.0.0.5" {
+		t.Fatalf("management_ips file = %q, want %q", written, "10.0.0.5")
 	}
 }

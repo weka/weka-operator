@@ -11,8 +11,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
 	"github.com/weka/weka-operator/internal/runtime/config"
+	"github.com/weka/weka-operator/internal/runtime/paths"
+	"github.com/weka/weka-operator/internal/runtime/process"
 )
 
 const (
@@ -20,25 +21,23 @@ const (
 	wekaK8sRuntimeDir         = "/opt/weka/k8s-runtime"
 
 	wekahomeCACertSecretDir = "/var/run/secrets/weka-operator/wekahome-cacert"
-	wekahomeCACertOutDir    = wekaK8sRuntimeDir + "/vars/wh-cacert"
-	wekahomeCACertOutFile   = wekahomeCACertOutDir + "/cert.pem"
 )
 
 // Configure sets up persistent storage bind-mounts.
 // Mirrors Python configure_persistency() at weka_runtime.py:3144.
-func Configure(ctx context.Context, cfg *config.Config) error {
-	persistenceDir := "/host-binds/opt-weka"
-	if cfg.WekaPersistenceMode == "global" {
-		persistenceDir = fmt.Sprintf("/opt/weka-global-persistence/containers/%s", cfg.WekaContainerID)
+func Configure(ctx context.Context, runner process.CommandRunner, persistence config.Persistence, p paths.Roots) error { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
+	persistenceDir := p.HostBinds + "/opt-weka"
+	if persistence.Mode == "global" {
+		persistenceDir = fmt.Sprintf("/opt/weka-global-persistence/containers/%s", persistence.ContainerID)
 	}
 
 	mountScript := buildMountScript(persistenceDir)
 
-	if err := cmdutil.Run(ctx, "sh", "-c", mountScript); err != nil {
+	if _, err := runner.Run(ctx, process.Command{Path: "sh", Args: []string{"-c", mountScript}}); err != nil {
 		return fmt.Errorf("configure_persistency: %w", err)
 	}
 
-	if err := configureWHCACert(); err != nil {
+	if err := configureWHCACert(p.K8sRuntime); err != nil {
 		return fmt.Errorf("configure_persistency: wh-cacert: %w", err)
 	}
 
@@ -62,7 +61,7 @@ touch %s
 		wekaK8sRuntimeDir, persistencyConfiguredPath,
 	)
 
-	if err := cmdutil.Run(ctx, "sh", "-c", finalScript); err != nil {
+	if _, err := runner.Run(ctx, process.Command{Path: "sh", Args: []string{"-c", finalScript}}); err != nil {
 		return fmt.Errorf("configure_persistency: %w", err)
 	}
 	return nil
@@ -167,7 +166,10 @@ func filterCACertContent(files []caCertFile) []byte {
 // configureWHCACert rebuilds the WekaHome CA bundle from the mounted secret, or leaves no
 // bundle if the secret is absent or holds no usable certificate.
 // Mirrors the WH CA block in Python configure_persistency() (weka_runtime.py:3243-3259).
-func configureWHCACert() error {
+func configureWHCACert(k8sRuntimeDir string) error {
+	wekahomeCACertOutDir := filepath.Join(k8sRuntimeDir, "vars", "wh-cacert")
+	wekahomeCACertOutFile := filepath.Join(wekahomeCACertOutDir, "cert.pem")
+
 	if err := os.RemoveAll(wekahomeCACertOutDir); err != nil {
 		return fmt.Errorf("remove stale wh-cacert dir: %w", err)
 	}

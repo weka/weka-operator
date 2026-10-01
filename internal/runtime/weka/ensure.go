@@ -1,33 +1,32 @@
-// Package weka — ensure.go implements Weka container lifecycle management.
+// Package weka — ensure.go implements Weka backend/client container lifecycle management.
 // Mirrors ensure_weka_container, create_container, handle_existing_container,
-// should_recreate_client_container, write_feature_flags_json, write_telemetry_config_override
-// at weka_runtime.py:2312–3408.
+// should_recreate_client_container at weka_runtime.py:2312–3408.
 package weka
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/runtime/config"
 	"github.com/weka/weka-operator/internal/runtime/cpuaffinity"
 	"github.com/weka/weka-operator/internal/runtime/network"
-	"github.com/weka/weka-operator/internal/runtime/resources"
+	"github.com/weka/weka-operator/internal/runtime/paths"
+	"github.com/weka/weka-operator/internal/runtime/process"
+	v1alpha1 "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
-// modeCoresFlag maps mode → weka local resources cores flag.
+// modeCoresFlag maps mode → weka local resources/setup cores flag.
 var modeCoresFlag = map[string]string{
 	"compute":       "--only-compute-cores",
 	"drive":         "--only-drives-cores",
@@ -38,478 +37,252 @@ var modeCoresFlag = map[string]string{
 	"data-services": "--only-dataserv-cores",
 }
 
-// EnsureWekaContainer ensures the named Weka container exists and is configured.
-// Mirrors Python ensure_weka_container() at weka_runtime.py:2644.
-func EnsureWekaContainer(ctx context.Context, cfg *config.Config, res *resources.NodeResources) error {
-	_, logger := instrumentation.CreateLogSpan(ctx, "weka.EnsureWekaContainer", "name", cfg.Name)
+// ContainerInput carries the dependencies and configuration shared by every weka container
+// mode (backend and client, via ClientInput).
+type ContainerInput struct {
+	Runner process.CommandRunner
+	Roots  paths.Roots
+
+	Name string
+	Mode string
+	Port int
+
+	Cores       int
+	CoreIDs     config.CoreSelection
+	NonDatapath config.CoreSelection
+	CPUPolicy   string
+
+	MemoryBytes int64
+	DPDKBaseMiB int
+
+	JoinIPs       []string
+	ManagementIPs []string
+
+	NetDevice    string
+	NetSelectors []v1alpha1.NetworkSelector
+	NetSubnets   []string
+	UDPMode      bool
+	Gateway      string
+	Netmask      int
+
+	BindManagementAll bool
+	NvidiaVFSingleIP  *bool
+	AutoRemoveTimeout int
+	FailureDomain     string
+
+	Features domain.FeatureFlags
+}
+
+// ClientInput carries EnsureClientContainer's dependencies and configuration.
+type ClientInput struct {
+	ContainerInput
+	ImageName string
+}
+
+// EnsureBackendContainer creates or reconciles a backend (compute/drive/s3/nfs/smbw/
+// data-services) container. It never issues "weka local rm": a backend container missing its
+// staging resources file is an error, not a recovery-by-recreation case.
+func EnsureBackendContainer(ctx context.Context, in *ContainerInput) error {
+	return ensureContainer(ctx, in, false, "")
+}
+
+// EnsureClientContainer creates or reconciles a client container, recreating it when its
+// base_port or restricted_client no longer match the desired config.
+// Mirrors Python ensure_weka_container() for MODE=client at weka_runtime.py:2312.
+func EnsureClientContainer(ctx context.Context, in *ClientInput) error {
+	return ensureContainer(ctx, &in.ContainerInput, true, in.ImageName)
+}
+
+// ensureContainer implements the shared backend/client container lifecycle.
+// Mirrors Python ensure_weka_container() at weka_runtime.py:2312.
+func ensureContainer(ctx context.Context, in *ContainerInput, isClient bool, imageName string) error {
+	_, logger := instrumentation.CreateLogSpan(ctx, "weka.ensureContainer", "name", in.Name)
 	defer logger.End()
 
-	resourcesDir := fmt.Sprintf("/opt/weka/data/%s/container", cfg.Name)
+	resourcesDir := filepath.Join(in.Roots.OptWeka, "data", in.Name, "container")
 	if err := os.MkdirAll(resourcesDir, 0o755); err != nil {
-		return fmt.Errorf("EnsureWekaContainer mkdir: %w", err)
+		return fmt.Errorf("ensureContainer: mkdir %s: %w", resourcesDir, err)
 	}
 
-	containers, err := GetContainers(ctx)
+	containers, err := GetContainers(ctx, in.Runner)
 	if err != nil {
-		return fmt.Errorf("EnsureWekaContainer: list containers: %w", err)
+		return fmt.Errorf("ensureContainer: list containers: %w", err)
 	}
 
 	if len(containers) == 0 {
 		logger.Info("no pre-existing containers, creating")
-		if createErr := createContainer(ctx, cfg); createErr != nil {
-			return createErr
+		if cerr := createContainer(ctx, in, isClient, imageName); cerr != nil {
+			return cerr
 		}
 	} else {
-		// Mirror Python: logging.info(f"Found {len(current_containers)} existing containers")
-		logger.Info("found existing containers, reusing", "count", len(containers))
-		var found map[string]interface{}
-		for _, c := range containers {
-			name, ok := c["name"].(string)
-			if ok && name == cfg.Name {
-				found = c
-				break
-			}
+		found, ferr := findContainerByName(containers, in.Name)
+		if ferr != nil {
+			return fmt.Errorf("ensureContainer: %w", ferr)
 		}
-		if found == nil {
-			names := make([]string, 0, len(containers))
-			for _, c := range containers {
-				n, ok := c["name"].(string)
-				if ok && n != "" {
-					names = append(names, n)
-				}
-			}
-			return fmt.Errorf("EnsureWekaContainer: container with name %q not found; existing: %v", cfg.Name, names)
-		}
-		if handleErr := HandleExistingContainer(ctx, cfg, found, resourcesDir); handleErr != nil {
-			return handleErr
+		if ierr := inspectContainers(ctx, in, isClient, imageName, found, resourcesDir); ierr != nil {
+			return ierr
 		}
 	}
 
-	// Get number of cores for this container.
-	numCores := numCoresForMode(cfg)
-	var fullCores []string
-	var localRes map[string]interface{}
-	fullCores, err = cpuaffinity.FindFullCores(ctx, cfg, numCores)
+	fullCores, err := reconcileCores(ctx, in)
 	if err != nil {
-		return fmt.Errorf("EnsureWekaContainer: find full cores: %w", err)
+		return fmt.Errorf("ensureContainer: find cores: %w", err)
 	}
 
-	localRes, err = GetWekaLocalResources(ctx, cfg.Name)
+	resBytes, err := GetWekaLocalResources(ctx, in.Runner, in.Name)
 	if err != nil {
-		if cfg.Mode == "client" && strings.Contains(err.Error(), "resources.json.staging: No such file or directory") {
-			logger.Warn("client container corrupted state, recreating", "err", err)
-			if stopErr := cmdutil.Run(ctx, "weka", "local", "stop", "--force"); stopErr != nil {
-				logger.Warn("weka local stop --force failed during recreate (continuing)", "err", stopErr)
+		if isClient {
+			// A client whose staging resources file never landed recovers the same way an
+			// existing-but-unhealthy container does.
+			if recErr := checkResourcesJSON(ctx, in, isClient, imageName, resourcesDir); recErr != nil {
+				return fmt.Errorf("ensureContainer: recover missing resources: %w", recErr)
 			}
-			if rmErr := cmdutil.Run(ctx, "weka", "local", "rm", cfg.Name, "--force"); rmErr != nil {
-				logger.Warn("weka local rm --force failed during recreate (continuing)", "err", rmErr)
-			}
-			if err2 := createContainer(ctx, cfg); err2 != nil {
-				return err2
-			}
-			localRes, err = GetWekaLocalResources(ctx, cfg.Name)
-			if err != nil {
-				return fmt.Errorf("EnsureWekaContainer: get resources after recreate: %w", err)
-			}
-		} else {
-			return fmt.Errorf("EnsureWekaContainer: get local resources: %w", err)
+			resBytes, err = GetWekaLocalResources(ctx, in.Runner, in.Name)
 		}
-	}
-
-	if cfg.Mode == "client" && shouldRecreateClientContainer(cfg, localRes) {
-		// Mirror Python: logging.info("Recreating client container") at weka_runtime.py:2735
-		// Log the reason (base_port or restricted_client mismatch).
-		logger.Info("Recreating client container",
-			"reason", "base_port or restricted_client mismatch",
-			"current_base_port", localRes["base_port"], "expected_base_port", cfg.Port,
-			"current_restricted_client", localRes["restricted_client"],
-			"expected_restricted_client", !strings.Contains(cfg.ImageName, "4.2.7.64"))
-		if stopErr := cmdutil.Run(ctx, "weka", "local", "stop", "--force"); stopErr != nil {
-			logger.Warn("weka local stop --force failed during recreate (continuing)", "err", stopErr)
-		}
-		if rmErr := cmdutil.Run(ctx, "weka", "local", "rm", cfg.Name, "--force"); rmErr != nil {
-			logger.Warn("weka local rm --force failed during recreate (continuing)", "err", rmErr)
-		}
-		if createErr := createContainer(ctx, cfg); createErr != nil {
-			return createErr
-		}
-		localRes, err = GetWekaLocalResources(ctx, cfg.Name)
 		if err != nil {
-			return fmt.Errorf("EnsureWekaContainer: get resources after client recreate: %w", err)
+			return fmt.Errorf("ensureContainer: get resources: %w", err)
 		}
 	}
 
-	// Reconfigure core count if needed.
-	if coresFlag, ok := modeCoresFlag[cfg.Mode]; ok {
-		nodes, nodesOK := localRes["nodes"].(map[string]interface{})
-		currentNodeCount := 0
-		if nodesOK {
-			currentNodeCount = len(nodes)
+	if isClient && shouldRecreateClientContainer(in.Port, imageName, resBytes) {
+		logger.Info("recreating client container: base_port or restricted_client mismatch")
+		if _, rmerr := in.Runner.Run(ctx, process.Command{Path: "weka", Args: []string{"local", "rm", in.Name, "--force"}}); rmerr != nil {
+			return fmt.Errorf("ensureContainer: remove stale client container: %w", rmerr)
 		}
-		if !nodesOK || currentNodeCount != numCores+1 {
-			logger.Info("reconfiguring cores",
-				"current_node_count", currentNodeCount, "expected_node_count", numCores+1, "num_cores", numCores)
-			coreIDs := fullCores
-			if len(coreIDs) > numCores {
-				coreIDs = coreIDs[:numCores]
-			}
-			args := []string{"local", "resources", "cores", strconv.Itoa(numCores),
-				"-C", cfg.Name, coresFlag, "--core-ids", strings.Join(coreIDs, ",")}
-			if coresErr := cmdutil.Run(ctx, "weka", args...); coresErr != nil {
-				return fmt.Errorf("EnsureWekaContainer: reconfigure cores: %w", coresErr)
-			}
-		} else {
-			logger.Info("core count already correct, skipping reconfiguration", "node_count", currentNodeCount, "num_cores", numCores)
+		if cerr := createContainer(ctx, in, isClient, imageName); cerr != nil {
+			return cerr
+		}
+		fullCores, err = reconcileCores(ctx, in)
+		if err != nil {
+			return fmt.Errorf("ensureContainer: find cores after recreate: %w", err)
+		}
+		resBytes, err = GetWekaLocalResources(ctx, in.Runner, in.Name)
+		if err != nil {
+			return fmt.Errorf("ensureContainer: get resources after recreate: %w", err)
 		}
 	}
 
-	// Re-fetch after potential core change.
-	localRes, err = GetWekaLocalResources(ctx, cfg.Name)
+	doc, err := ParseResourceDoc(resBytes)
 	if err != nil {
-		return fmt.Errorf("EnsureWekaContainer: re-fetch resources after core change: %w", err)
+		return fmt.Errorf("ensureContainer: parse resources: %w", err)
 	}
 
-	// Patch resource fields.
-	if cfg.Mode == "s3" || cfg.Mode == "nfs" || cfg.Mode == "smbw" {
-		localRes["allow_protocols"] = true
+	if err := patchResourceDoc(in, isClient, doc, fullCores); err != nil {
+		return fmt.Errorf("ensureContainer: patch resources: %w", err)
 	}
-	localRes["reserve_1g_hugepages"] = false
-	localRes["excluded_drivers"] = []string{"igb_uio"}
-	if cfg.Memory != "" {
-		if memBytes, memErr := ConvertToBytes(cfg.Memory); memErr == nil {
-			localRes["memory"] = memBytes
-		} else {
-			logger.Warn("failed to parse memory value, skipping", "memory", cfg.Memory, "err", memErr)
+
+	if err := WriteResourceDoc(ctx, resourcesDir, doc); err != nil {
+		return fmt.Errorf("ensureContainer: write resources: %w", err)
+	}
+
+	return reconcileNetwork(ctx, in)
+}
+
+// findContainerByName returns the container matching name, or an error listing what was found.
+func findContainerByName(containers []map[string]interface{}, name string) (map[string]interface{}, error) {
+	for _, c := range containers {
+		if n, ok := c["name"].(string); ok && n == name {
+			return c, nil
 		}
 	}
-	localRes["auto_discovery_enabled"] = false
-	localRes["ips"] = network.ManagementIPs
-
-	dpdk := cfg.DPDKBaseMemMB
-	if dpdk == 0 {
-		dpdk = 64
-	}
-	localRes["dpdk_base_memory_mb"] = dpdk
-
-	// non_datapath_cores: only when feature flag weka_manages_non_ionode_affinity is set.
-	// Mirrors Python ensure_weka_container() non_datapath_cores block at weka_runtime.py.
-	if cfg.Features.WekaManagesNonIonodeAffinity {
-		logger.Info("weka_manages_non_ionode_affinity feature flag is set, configuring non_datapath_cores",
-			"non_datapath_core_ids", cfg.NonDatapathCoreIDs)
-		if cfg.NonDatapathCoreIDs != "auto" {
-			// Explicit list: parse comma-separated core IDs to []int.
-			ndpCores, ndpErr := parseNonDatapathCoreIDs(cfg.NonDatapathCoreIDs)
-			if ndpErr != nil {
-				logger.Warn("failed to parse NON_DATAPATH_CORE_IDS, skipping", "value", cfg.NonDatapathCoreIDs, "err", ndpErr)
-			} else {
-				logger.Info("using explicit non_datapath_cores", "cores", ndpCores)
-				localRes["non_datapath_cores"] = ndpCores
-			}
-		} else if len(fullCores) > 0 {
-			// Auto-derive: cpuset minus full cores and their HT siblings.
-			ndpCores, ndpErr := cpuaffinity.DeriveNonDatapathCores("/proc/1/status", fullCores)
-			if ndpErr != nil {
-				logger.Warn("failed to derive non_datapath_cores, skipping", "err", ndpErr)
-			} else if len(ndpCores) > 0 {
-				sort.Ints(ndpCores)
-				// Mirror Python: logging.info(f"Auto-derived non-datapath cores: {non_datapath_cores} (available: {available}, reserved: {reserved})")
-				logger.Info("Auto-derived non-datapath cores", "non_datapath_cores", ndpCores)
-				localRes["non_datapath_cores"] = ndpCores
-			}
+	names := make([]string, 0, len(containers))
+	for _, c := range containers {
+		if n, ok := c["name"].(string); ok && n != "" {
+			names = append(names, n)
 		}
 	}
+	return nil, fmt.Errorf("container %q not found; existing: %v", name, names)
+}
 
-	localRes["auto_remove_timeout"] = cfg.AutoRemoveTimeout
-
-	// Join IPs / backend endpoints.
-	if len(cfg.JoinIPs) > 0 {
-		var endpoints []map[string]interface{}
-		for _, joinIP := range cfg.JoinIPs {
-			parts := strings.SplitN(joinIP, ":", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			port, perr := strconv.Atoi(parts[1])
-			if perr != nil {
-				logger.Warn("invalid join IP port, using 0", "joinIP", joinIP, "err", perr)
-			}
-			endpoints = append(endpoints, map[string]interface{}{"ip": parts[0], "port": port})
-		}
-		localRes["backend_endpoints"] = endpoints
+// inspectContainers mirrors Python handle_existing_container(): a running container, or one
+// whose runStatus isn't "Unknown", needs no action.
+func inspectContainers(ctx context.Context, in *ContainerInput, isClient bool, imageName string, container map[string]interface{}, resourcesDir string) error {
+	if running, ok := container["isRunning"].(bool); ok && running {
+		return nil
 	}
-
-	// Binding restriction.
-	if cfg.Features.SupportsBindingToNotAllInterfaces {
-		localRes["restrict_listen"] = !cfg.BindManagementAll
+	if status, ok := container["runStatus"].(string); !ok || status != "Unknown" {
+		return nil
 	}
+	return checkResourcesJSON(ctx, in, isClient, imageName, resourcesDir)
+}
 
-	// NVIDIA VF single IP.
-	localRes["nvidia_vf_single_ip"] = cfg.NvidiaVFSingleIP
-
-	// Net gateway/netmask. Mirrors Python ensure_weka_container() at weka_runtime.py:3047-3059.
-	if cfg.NetGateway != "" || cfg.NetNetmask != 0 {
-		if isUDP(cfg) {
-			logger.Warn("Ignoring gateway/netmask: not applicable in UDP mode",
-				"gateway", cfg.NetGateway, "netmask", cfg.NetNetmask)
-		} else {
-			netDevs, ok := localRes["net_devices"].([]interface{})
-			if !ok || len(netDevs) != 1 {
-				return fmt.Errorf("gateway/netmask configuration is not supported with multiple or zero NICs")
-			}
-			devMap, ok := netDevs[0].(map[string]interface{})
-			if !ok {
-				return fmt.Errorf("EnsureWekaContainer: net_devices[0] is not an object")
-			}
-			if cfg.NetGateway != "" {
-				devMap["gateway"] = cfg.NetGateway
-			}
-			if cfg.NetNetmask != 0 {
-				devMap["netmask"] = cfg.NetNetmask
-			}
-		}
-	}
-
-	// Assign core IDs to nodes, in ascending node-id order (matches Python's iteration over
-	// json-ordered resources['nodes'].items(), where ids are numeric strings) so core_id
-	// assignment is deterministic instead of depending on Go map iteration order.
-	nodes, nodesOK := localRes["nodes"].(map[string]interface{})
-	if nodesOK {
-		nodeIDs := sortedNodeIDs(nodes)
-
-		needCores := 0
-		for _, id := range nodeIDs {
-			if node, ok := nodes[id].(map[string]interface{}); ok && !isManagementNode(node) {
-				needCores++
-			}
-		}
-		if needCores > len(fullCores) {
-			return fmt.Errorf("not enough cores: %d nodes need a core, %d cores allocated", needCores, len(fullCores))
-		}
-
-		coresCursor := 0
-		for _, id := range nodeIDs {
-			node, ok := nodes[id].(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if isManagementNode(node) {
-				continue
-			}
-			if cfg.CPUPolicy == "shared" {
-				node["dedicate_core"] = false
-				node["dedicated_mode"] = "NONE"
-			} else {
-				node["dedicate_core"] = true
-			}
-			coreID, coreIDErr := strconv.Atoi(fullCores[coresCursor])
-			if coreIDErr != nil {
-				logger.Warn("invalid core ID, skipping", "coreID", fullCores[coresCursor], "err", coreIDErr)
-			} else {
-				node["core_id"] = coreID
-			}
-			coresCursor++
-		}
-	}
-
-	// Atomic write of patched resources.
-	resourceGen := fmt.Sprintf("%x", time.Now().UnixNano())
-	fileName := fmt.Sprintf("weka-resources.%s.json", resourceGen)
-	resourceFile := filepath.Join(resourcesDir, fileName)
-	data, err := json.Marshal(localRes)
+// checkResourcesJSON mirrors Python check_resources_json(): an empty resources.json is
+// recovered by relinking the newest non-empty weka-resources.*.json candidate. When no
+// candidate exists, a client recreates from scratch; a backend errors, since it must never
+// issue "weka local rm".
+func checkResourcesJSON(ctx context.Context, in *ContainerInput, isClient bool, imageName, resourcesDir string) error {
+	recovered, err := relinkLatestResourcesFile(ctx, resourcesDir)
 	if err != nil {
-		return fmt.Errorf("EnsureWekaContainer: marshal resources: %w", err)
+		return fmt.Errorf("checkResourcesJSON: %w", err)
 	}
-	if err := os.WriteFile(resourceFile, data, 0o644); err != nil {
-		return fmt.Errorf("EnsureWekaContainer: write resources: %w", err)
-	}
-	if err := LinkResourcesFile(ctx, fileName, resourcesDir); err != nil {
-		return err
-	}
-
-	// Reconcile net devices.
-	desired := desiredNetDevices(cfg)
-	if err := network.ReconcileNetDevices(ctx, cfg.Name, desired); err != nil {
-		return fmt.Errorf("EnsureWekaContainer: reconcile net devices: %w", err)
-	}
-
-	return nil
-}
-
-// sortedNodeIDs returns the keys of a decoded resources["nodes"] map in ascending numeric
-// order (ids are numeric strings, e.g. "0", "1", ...), falling back to string order for any
-// non-numeric id.
-func sortedNodeIDs(nodes map[string]interface{}) []string {
-	ids := make([]string, 0, len(nodes))
-	for id := range nodes {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool {
-		ni, iErr := strconv.Atoi(ids[i])
-		nj, jErr := strconv.Atoi(ids[j])
-		if iErr == nil && jErr == nil {
-			return ni < nj
-		}
-		return ids[i] < ids[j]
-	})
-	return ids
-}
-
-// isManagementNode reports whether a decoded node object has the MANAGEMENT role.
-func isManagementNode(node map[string]interface{}) bool {
-	roles, ok := node["roles"].([]interface{})
-	if !ok {
-		return false
-	}
-	for _, r := range roles {
-		if s, ok := r.(string); ok && s == "MANAGEMENT" {
-			return true
-		}
-	}
-	return false
-}
-
-// EnsureWekaVersion sets the active Weka version if not already set.
-// Mirrors Python ensure_weka_version(force_set=False) at weka_runtime.py:3291.
-func EnsureWekaVersion(ctx context.Context, cfg *config.Config) error {
-	if cfg.Features.WekactlAsDefault {
-		// wekactl's `weka version -J` emits objects (not strings) and marks the active
-		// version via a "current" field instead of the legacy '*' marker.
-		return cmdutil.Run(ctx, "sh", "-c",
-			`weka version -J | jq -e 'any(.[]; .current)' >/dev/null || weka version set $(weka version -J | jq -r '.[0].version')`)
-	}
-	return cmdutil.Run(ctx, "sh", "-c", "weka version | grep '*' || weka version set $(weka version)")
-}
-
-// ForceSetWekaVersion unconditionally pins the active Weka version.
-// Used by ssdproxy mode (force_set=True) after creating the proxy container.
-// Mirrors Python ensure_weka_version(force_set=True) at weka_runtime.py:3291.
-func ForceSetWekaVersion(ctx context.Context, cfg *config.Config) error {
-	if cfg.Features.WekactlAsDefault {
-		return cmdutil.Run(ctx, "sh", "-c", `weka version set $(weka version -J | jq -r '.[0].version')`)
-	}
-	return cmdutil.Run(ctx, "sh", "-c", "weka version set $(weka version -J | jq -r '.[0]')")
-}
-
-// WriteFeatureFlagsJSON atomically writes feature flags to /opt/weka/k8s-runtime/feature_flags.json.
-// Mirrors Python write_feature_flags_json() at weka_runtime.py:1401.
-func WriteFeatureFlagsJSON(ctx context.Context, cfg *config.Config) error {
-	data, err := json.Marshal(cfg.Features)
-	if err != nil {
-		return err
-	}
-	const tmp = "/opt/weka/k8s-runtime/feature_flags.json.tmp"
-	const dst = "/opt/weka/k8s-runtime/feature_flags.json"
-	if err := os.MkdirAll("/opt/weka/k8s-runtime", 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, dst)
-}
-
-// WriteTelemetryConfigOverride writes the telemetry audit-traces config override atomically.
-// Mirrors Python write_telemetry_config_override() at weka_runtime.py:3344.
-func WriteTelemetryConfigOverride(ctx context.Context) error {
-	_, logger := instrumentation.CreateLogSpan(ctx, "WriteTelemetryConfigOverride")
-	defer logger.End()
-
-	const auditDir = "/opt/weka/external-mounts/shared_boot_level/audit-traces"
-	const configPath = auditDir + "/override.config.json"
-
-	if _, err := os.Stat(auditDir); os.IsNotExist(err) {
-		// Mirror Python: logging.info(f"Audit traces directory {audit_traces_dir} does not exist, skipping config override")
-		logger.Info("Audit traces directory does not exist, skipping config override", "dir", auditDir)
+	if recovered {
 		return nil
 	}
 
-	// Get filesystem stats to compute minimumFreeSpace.
-	var stat syscall.Statfs_t
-	minimumFreeSpace := int64(5368709120) // fallback ~5GiB
-	if err := syscall.Statfs(auditDir, &stat); err == nil {
-		// Python uses f_blocks * f_frsize (weka_runtime.py:3360); Bsize is f_bsize which may differ
-		// on some NFS/btrfs mounts.  statfsFragmentSize returns Frsize on Linux (f_frsize).
-		total := int64(stat.Blocks) * statfsFragmentSize(&stat)
-		minimumFreeSpace = total * 20 / 100
+	if !isClient {
+		return fmt.Errorf("checkResourcesJSON: no recoverable resources file in %s", resourcesDir)
 	}
-
-	const tracesRetentionSize = 10 * 1024 * 1024 * 1024 // 10 GiB
-
-	configOverride := map[string]interface{}{
-		"global": map[string]interface{}{
-			"dumping": map[string]interface{}{
-				"histogramRetentionSize": 134217728, // 128 MiB
-				"maxHistograms":          30000,
-				"minimumFreeSpace":       minimumFreeSpace,
-				"tracesRetentionSize":    tracesRetentionSize,
-			},
-		},
+	_, logger := instrumentation.CreateLogSpan(ctx, "weka.checkResourcesJSON.recreate", "name", in.Name)
+	defer logger.End()
+	if _, err := in.Runner.Run(ctx, process.Command{Path: "weka", Args: []string{"local", "stop", in.Name}}); err != nil {
+		logger.Warn("stop before recreate failed (continuing)", "err", err)
 	}
+	if _, err := in.Runner.Run(ctx, process.Command{Path: "weka", Args: []string{"local", "rm", "--all", "--force"}}); err != nil {
+		logger.Warn("rm --all before recreate failed (continuing)", "err", err)
+	}
+	return createContainer(ctx, in, isClient, imageName)
+}
 
-	newContent, err := json.Marshal(configOverride)
+// relinkLatestResourcesFile relinks resources.json (and its .stable/.staging siblings) to the
+// newest non-empty weka-resources.*.json candidate in resourcesDir, when resources.json itself
+// is empty. recovered is true when no relink was needed (resources.json already non-empty) or
+// the relink succeeded; recovered is false, with a nil error, when resources.json is empty and
+// no relinkable candidate exists, leaving the no-candidate handling to the caller.
+func relinkLatestResourcesFile(ctx context.Context, resourcesDir string) (recovered bool, err error) {
+	info, err := os.Stat(filepath.Join(resourcesDir, "resources.json"))
 	if err != nil {
-		return err
+		return false, fmt.Errorf("stat resources.json: %w", err)
+	}
+	if info.Size() > 0 {
+		return true, nil
 	}
 
-	// Idempotent check.
-	if existing, err := os.ReadFile(configPath); err == nil {
-		if bytes.Equal(existing, newContent) {
-			return nil
+	latest, err := findLatestResourcesFile(resourcesDir)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", resourcesDir, err)
+	}
+	if latest == "" {
+		return false, nil
+	}
+	if err := LinkResourcesFile(ctx, latest, resourcesDir); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// findLatestResourcesFile returns the name of the most recently modified non-empty
+// weka-resources.*.json file in dir, or "" if none is found.
+func findLatestResourcesFile(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+	var latest string
+	var latestMod time.Time
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), "weka-resources.") || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		fi, err := e.Info()
+		if err != nil || fi.Size() == 0 {
+			continue
+		}
+		if fi.ModTime().After(latestMod) {
+			latestMod = fi.ModTime()
+			latest = e.Name()
 		}
 	}
-
-	// Mirror Python: logging.info(f"Writing telemetry config override: tracesRetentionSize=..., minimumFreeSpace=...")
-	logger.Info("Writing telemetry config override",
-		"tracesRetentionSize", tracesRetentionSize, "minimumFreeSpace", minimumFreeSpace)
-
-	tmpPath := fmt.Sprintf("%s/.config.json.tmp.%d", auditDir, os.Getpid())
-	if err := os.WriteFile(tmpPath, newContent, 0o644); err != nil {
-		return fmt.Errorf("WriteTelemetryConfigOverride write tmp: %w", err)
-	}
-	if err := os.Rename(tmpPath, configPath); err != nil {
-		_ = os.Remove(tmpPath) //nolint:errcheck // best-effort cleanup of orphaned temp file
-		return fmt.Errorf("WriteTelemetryConfigOverride rename: %w", err)
-	}
-	// Mirror Python: logging.info(f"Telemetry config override written to {config_path}")
-	logger.Info("Telemetry config override written", "path", configPath)
-	return nil
-}
-
-// StartContainer starts the named container.
-// Mirrors Python start_weka_container() at weka_runtime.py:2827.
-func StartContainer(ctx context.Context, name string) error {
-	return cmdutil.Run(ctx, "weka", "local", "start", name)
-}
-
-// ---- unexported helpers ----------------------------------------------------------------
-
-// GetContainers runs "weka local ps --json" and returns the parsed array.
-func GetContainers(ctx context.Context) ([]map[string]interface{}, error) {
-	out, err := cmdutil.Output(ctx, "weka", "local", "ps", "--json")
-	if err != nil {
-		return nil, fmt.Errorf("GetContainers: %w", err)
-	}
-	var result []map[string]interface{}
-	if err := json.Unmarshal(out, &result); err != nil {
-		return nil, fmt.Errorf("GetContainers: parse JSON: %w", err)
-	}
-	return result, nil
-}
-
-// GetWekaLocalResources runs "weka local resources -C name --json" and returns the parsed map.
-func GetWekaLocalResources(ctx context.Context, name string) (map[string]interface{}, error) {
-	// Python passes log_output=False here (weka_runtime.py:2557) to skip logging the large JSON
-	// body, but still logs the command's execution. Go never logs stdout bodies, so a plain
-	// Output already matches: it logs the command, not the JSON.
-	out, err := cmdutil.Output(ctx, "weka", "local", "resources", "-C", name, "--json")
-	if err != nil {
-		return nil, fmt.Errorf("GetWekaLocalResources(%s): %w", name, err)
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(out, &result); err != nil {
-		return nil, fmt.Errorf("GetWekaLocalResources(%s): parse JSON: %w", name, err)
-	}
-	return result, nil
+	return latest, nil
 }
 
 // shouldRecreateClientContainer returns true when the client container must be recreated.
@@ -518,190 +291,100 @@ func GetWekaLocalResources(ctx context.Context, name string) (map[string]interfa
 // DELIBERATE DEVIATION from Python (weka_runtime.py:2503-2508):
 // Python unconditionally checks `restricted_client is not True`, which always triggers
 // recreation on 4.2.7.64 images (they never set restricted_client=True) causing an
-// infinite recreate loop.  Go instead computes the expected value from the image name
+// infinite recreate loop. Go instead computes the expected value from the image name
 // (restricted_client should be True for all images except 4.2.7.64) and only recreates
-// when the actual value differs from that expectation.  Do not revert to Python's logic.
-func shouldRecreateClientContainer(cfg *config.Config, res map[string]interface{}) bool {
-	// base_port: zero on missing/wrong type → mismatch with any real port → recreate.
-	basePort, basePortOK := res["base_port"].(float64)
-	if !basePortOK || int(basePort) != cfg.Port {
+// when the actual value differs from that expectation. Do not revert to Python's logic.
+func shouldRecreateClientContainer(port int, imageName string, resBytes []byte) bool {
+	var res struct {
+		BasePort         *int `json:"base_port"`
+		RestrictedClient bool `json:"restricted_client"`
+	}
+	if err := json.Unmarshal(resBytes, &res); err != nil || res.BasePort == nil || *res.BasePort != port {
 		return true
 	}
-	expectedRestricted := !strings.Contains(cfg.ImageName, "4.2.7.64")
-	// restricted_client: false on missing/wrong type is the safe default for the comparison.
-	restricted, restrictedOK := res["restricted_client"].(bool)
-	if !restrictedOK {
-		restricted = false
-	}
-	return restricted != expectedRestricted
-}
-
-// HandleExistingContainer handles a container that already exists.
-// Mirrors Python handle_existing_container() at weka_runtime.py:2571.
-func HandleExistingContainer(ctx context.Context, cfg *config.Config, container map[string]interface{}, resourcesDir string) error {
-	running, runningOK := container["isRunning"].(bool)
-	if runningOK && running {
-		return nil
-	}
-	status, statusOK := container["runStatus"].(string)
-	if statusOK && status == "Unknown" {
-		return checkResourcesJSON(ctx, cfg, resourcesDir)
-	}
-	return nil
-}
-
-// checkResourcesJSON handles empty resources file by restoring from a backup or recreating.
-// Mirrors Python check_resources_json() at weka_runtime.py:2538.
-func checkResourcesJSON(ctx context.Context, cfg *config.Config, resourcesDir string) error {
-	_, logger := instrumentation.CreateLogSpan(ctx, "weka.checkResourcesJSON")
-	defer logger.End()
-
-	resourcesFile := filepath.Join(resourcesDir, "resources.json")
-	info, err := os.Stat(resourcesFile)
-	if err != nil {
-		return fmt.Errorf("checkResourcesJSON: %w", err)
-	}
-	if info.Size() > 0 {
-		return nil // not empty, nothing to do
-	}
-
-	// Find older non-empty weka-resources.*.json files.
-	entries, err := os.ReadDir(resourcesDir)
-	if err != nil {
-		return err
-	}
-	var candidates []string
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "weka-resources.") && strings.HasSuffix(e.Name(), ".json") {
-			full := filepath.Join(resourcesDir, e.Name())
-			if fi, err := os.Stat(full); err == nil && fi.Size() > 0 {
-				candidates = append(candidates, e.Name())
-			}
-		}
-	}
-	if len(candidates) == 0 {
-		// Recreate container.
-		if stopErr := cmdutil.Run(ctx, "weka", "local", "stop", "--force"); stopErr != nil {
-			logger.Warn("weka local stop --force failed during recreate (continuing)", "err", stopErr)
-		}
-		if rmErr := cmdutil.Run(ctx, "weka", "local", "rm", "--all", "--force"); rmErr != nil {
-			logger.Warn("weka local rm --all --force failed during recreate (continuing)", "err", rmErr)
-		}
-		return createContainer(ctx, cfg)
-	}
-	// Link the most-recently-modified candidate.
-	var latest string
-	var latestMod time.Time
-	for _, name := range candidates {
-		if fi, err := os.Stat(filepath.Join(resourcesDir, name)); err == nil {
-			if fi.ModTime().After(latestMod) {
-				latestMod = fi.ModTime()
-				latest = name
-			}
-		}
-	}
-	return LinkResourcesFile(ctx, latest, resourcesDir)
-}
-
-// LinkResourcesFile creates the standard symlinks for a resource file.
-// Mirrors Python link_resources_file() at weka_runtime.py:2581.
-func LinkResourcesFile(_ context.Context, fileName, resourcesDir string) error {
-	script := fmt.Sprintf(`
-ln -sf %s %s/resources.json
-ln -sf %s %s/resources.json.stable
-ln -sf %s %s/resources.json.staging
-`, fileName, resourcesDir,
-		fileName, resourcesDir,
-		fileName, resourcesDir)
-	cmd := fmt.Sprintf("cd %s && %s", resourcesDir, script)
-	return cmdutil.Run(context.Background(), "sh", "-c", cmd)
+	expectedRestricted := !strings.Contains(imageName, "4.2.7.64")
+	return res.RestrictedClient != expectedRestricted
 }
 
 // createContainer builds and runs the "weka local setup container" command.
 // Mirrors Python create_container() at weka_runtime.py:2312.
-func createContainer(ctx context.Context, cfg *config.Config) error {
-	_, logger := instrumentation.CreateLogSpan(ctx, "weka.createContainer", "name", cfg.Name)
+func createContainer(ctx context.Context, in *ContainerInput, isClient bool, imageName string) error {
+	_, logger := instrumentation.CreateLogSpan(ctx, "weka.createContainer", "name", in.Name)
 	defer logger.End()
 
-	numCores := numCoresForMode(cfg)
-	fullCores, err := cpuaffinity.FindFullCores(ctx, cfg, numCores)
+	fullCores, err := reconcileCores(ctx, in)
 	if err != nil {
 		return fmt.Errorf("createContainer: find cores: %w", err)
 	}
 	coreStr := strings.Join(fullCores, ",")
-	modeFlag := modeCoresFlag[cfg.Mode]
+	modeFlag := modeCoresFlag[in.Mode]
 
-	// Join secret.
+	const joinSecretPath = "/var/run/secrets/weka-operator/operator-user/join-secret"
 	joinSecretFlag := ""
 	joinSecretCmd := ""
-	if _, err := os.Stat("/var/run/secrets/weka-operator/operator-user/join-secret"); err == nil {
+	if _, err := os.Stat(joinSecretPath); err == nil {
 		joinSecretFlag = "--join-secret"
-		if cfg.Mode == "client" {
+		if isClient {
 			joinSecretFlag = "--join-token"
 		}
-		joinSecretCmd = "$(cat /var/run/secrets/weka-operator/operator-user/join-secret)"
+		joinSecretCmd = fmt.Sprintf("$(cat %s)", joinSecretPath)
 	}
 
-	// Network flags.
 	var netStr string
 	switch {
-	case network.ShouldAllocateVFPerIoNode(cfg.NetworkDevice):
+	case network.ShouldAllocateVFPerIoNode(in.NetDevice):
 		devices := make([]string, 0)
-		for _, dev := range strings.Split(cfg.NetworkDevice, ",") {
+		for _, dev := range strings.Split(in.NetDevice, ",") {
 			bare := strings.TrimPrefix(dev, "vf_")
 			devices = append(devices, "--net "+bare)
 		}
-		netStr = strings.Join(devices, " ") + " --management-ips " + strings.Join(network.ManagementIPs, ",")
+		netStr = strings.Join(devices, " ") + " --management-ips " + strings.Join(in.ManagementIPs, ",")
 	default:
-		// UDP mode and bare-metal both start with "--net udp";
-		// bare-metal reconcile adds NICs later via ReconcileNetDevices.
+		// UDP mode and bare-metal both start with "--net udp"; bare-metal reconcile adds NICs
+		// later via ReconcileNetDevices.
 		netStr = "--net udp"
 	}
 
-	// Build command parts.
 	parts := []string{
 		"weka", "local", "setup", "container",
-		"--name", cfg.Name,
+		"--name", in.Name,
 		"--no-start", "--disable",
 		"--core-ids", coreStr,
-		"--cores", strconv.Itoa(numCores),
+		"--cores", strconv.Itoa(in.Cores),
 	}
 	if modeFlag != "" {
-		parts = append(parts, strings.Fields(modeFlag)...)
+		parts = append(parts, modeFlag)
 	}
-	parts = append(parts, strings.Fields(netStr)...)
-	parts = append(parts, "--base-port", strconv.Itoa(cfg.Port))
+	parts = append(parts, netStr, "--base-port", strconv.Itoa(in.Port))
 
 	if joinSecretCmd != "" {
 		parts = append(parts, joinSecretFlag, joinSecretCmd)
 	}
-	if len(cfg.JoinIPs) > 0 {
-		parts = append(parts, "--join-ips", strings.Join(cfg.JoinIPs, ","))
+	if len(in.JoinIPs) > 0 {
+		parts = append(parts, "--join-ips", strings.Join(in.JoinIPs, ","))
 	}
-	if cfg.Mode == "client" {
+	if isClient {
 		parts = append(parts, "--client")
-		if !strings.Contains(cfg.ImageName, "4.2.7.64") {
+		if !strings.Contains(imageName, "4.2.7.64") {
 			parts = append(parts, "--restricted")
 		}
 	}
-	if cfg.FailureDomain != "" {
-		parts = append(parts, "--failure-domain", cfg.FailureDomain)
+	if in.FailureDomain != "" {
+		parts = append(parts, "--failure-domain", in.FailureDomain)
 	}
-	if cfg.Mode == "data-services" {
+	if in.Mode == "data-services" {
 		parts = append(parts, "--allow-mix-setting")
 	}
 
-	// Run via shell to allow $(cat ...) expansion.
 	cmdStr := strings.Join(parts, " ")
 	logger.Info("creating container", "cmd", cmdStr)
-	if err := cmdutil.Run(ctx, "sh", "-c", cmdStr); err != nil {
+	if _, err := in.Runner.Run(ctx, process.Shell(cmdStr)); err != nil {
 		return fmt.Errorf("createContainer: %w", err)
 	}
 
 	// For bare-metal (non-VF, non-UDP): reconcile net devices after creation.
-	if !network.ShouldAllocateVFPerIoNode(cfg.NetworkDevice) && !isUDP(cfg) {
-		desired := desiredNetDevices(cfg)
-		if err := network.ReconcileNetDevices(ctx, cfg.Name, desired); err != nil {
+	if !network.ShouldAllocateVFPerIoNode(in.NetDevice) && !network.IsUDP(in.UDPMode, in.NetDevice) {
+		if err := reconcileNetwork(ctx, in); err != nil {
 			return fmt.Errorf("createContainer: reconcile net devices: %w", err)
 		}
 	}
@@ -709,75 +392,200 @@ func createContainer(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-// desiredNetDevices computes the list of net devices the container should have.
-func desiredNetDevices(cfg *config.Config) []string {
-	if cfg.NetworkDevice == "" {
-		return nil
+// reconcileCores selects the CPU core IDs for the container.
+func reconcileCores(ctx context.Context, in *ContainerInput) ([]string, error) {
+	cpu := config.CPU{
+		Cores:            in.Cores,
+		CoreIDs:          in.CoreIDs,
+		NonDatapathCores: in.NonDatapath,
+		Policy:           in.CPUPolicy,
 	}
-	return strings.Split(cfg.NetworkDevice, ",")
+	return cpuaffinity.FindFullCores(ctx, cpu, in.Cores)
 }
 
-// numCoresForMode returns the number of cores for the current config.
-// Python: NUM_CORES = int(os.environ.get("CORES", 0)) and the list is per-role.
-func numCoresForMode(cfg *config.Config) int {
-	if len(cfg.Cores) > 0 {
-		return cfg.Cores[0]
+// reconcileNetwork syncs the container's net devices to the desired set.
+func reconcileNetwork(ctx context.Context, in *ContainerInput) error {
+	var desired []string
+	if in.NetDevice != "" {
+		desired = strings.Split(in.NetDevice, ",")
 	}
-	return 0
+	return network.ReconcileNetDevices(ctx, in.Runner, network.ReconcileInput{
+		Name:      in.Name,
+		Devices:   desired,
+		Selectors: in.NetSelectors,
+		Subnets:   in.NetSubnets,
+		UDPMode:   in.UDPMode,
+	})
 }
 
-// isUDP mirrors Python is_udp().
-func isUDP(cfg *config.Config) bool {
-	return cfg.UDPMode || strings.EqualFold(cfg.NetworkDevice, "udp")
-}
+// patchResourceDoc applies the container-specific field edits to a fetched resources document.
+// Mirrors the resources-dict edits in Python ensure_weka_container() at weka_runtime.py:2400-2503.
+func patchResourceDoc(in *ContainerInput, isClient bool, doc *ResourceDoc, fullCores []string) error {
+	if in.Mode == "s3" || in.Mode == "nfs" || in.Mode == "smbw" {
+		doc.SetAllowProtocols(true)
+	}
+	doc.SetReserve1GHugepages(false)
+	doc.SetExcludedDrivers([]string{"igb_uio"})
+	doc.SetMemory(in.MemoryBytes)
 
-// parseNonDatapathCoreIDs parses a comma-separated string of core IDs into a []int.
-// Mirrors the explicit-list branch of Python ensure_weka_container():
-//
-//	resources['non_datapath_cores'] = [int(c) for c in NON_DATAPATH_CORE_IDS.split(',')]
-func parseNonDatapathCoreIDs(s string) ([]int, error) {
-	parts := strings.Split(s, ",")
-	result := make([]int, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
+	doc.SetAutoDiscoveryEnabled(false)
+	doc.SetIPs(in.ManagementIPs)
+
+	doc.SetDPDKBaseMemoryMB(in.DPDKBaseMiB)
+
+	if in.Features.WekaManagesNonIonodeAffinity {
+		if !in.NonDatapath.Auto {
+			doc.SetNonDatapathCores(in.NonDatapath.IDs)
+		} else if len(fullCores) > 0 {
+			ndp, err := cpuaffinity.DeriveNonDatapathCores("/proc/1/status", fullCores)
+			if err == nil && len(ndp) > 0 {
+				sort.Ints(ndp)
+				doc.SetNonDatapathCores(ndp)
+			}
+		}
+	}
+
+	doc.SetAutoRemoveTimeout(in.AutoRemoveTimeout)
+
+	if len(in.JoinIPs) > 0 {
+		endpoints := make([]Endpoint, 0, len(in.JoinIPs))
+		for _, joinIP := range in.JoinIPs {
+			ipPart, portPart, ok := strings.Cut(joinIP, ":")
+			if !ok {
+				continue
+			}
+			port, aerr := strconv.Atoi(portPart)
+			if aerr != nil {
+				continue
+			}
+			endpoints = append(endpoints, Endpoint{IP: ipPart, Port: port})
+		}
+		doc.SetBackendEndpoints(endpoints)
+	}
+
+	if in.Features.SupportsBindingToNotAllInterfaces {
+		doc.SetRestrictListen(!in.BindManagementAll)
+	}
+
+	if in.NvidiaVFSingleIP != nil {
+		doc.SetNvidiaVFSingleIP(*in.NvidiaVFSingleIP)
+	}
+
+	if in.Gateway != "" || in.Netmask != 0 {
+		if network.IsUDP(in.UDPMode, in.NetDevice) {
+			// Not applicable in UDP mode; ignore.
+		} else {
+			count, err := doc.NetDeviceCount()
+			if err != nil && !errors.Is(err, ErrFieldMissing) {
+				return err
+			}
+			if count != 1 {
+				return fmt.Errorf("gateway/netmask configuration is not supported with multiple or zero NICs")
+			}
+			if in.Gateway != "" {
+				if err := doc.SetNetDeviceGateway(0, in.Gateway); err != nil {
+					return err
+				}
+			}
+			if in.Netmask != 0 {
+				if err := doc.SetNetDeviceNetmask(0, in.Netmask); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	nodeIDs, err := doc.NodeIDs()
+	if err != nil {
+		if errors.Is(err, ErrFieldMissing) {
+			return nil
+		}
+		return err
+	}
+
+	needCores := 0
+	for _, id := range nodeIDs {
+		roles, rerr := doc.NodeRoles(id)
+		if rerr != nil {
+			roles = nil
+		}
+		if !slices.Contains(roles, "MANAGEMENT") {
+			needCores++
+		}
+	}
+	if needCores > len(fullCores) {
+		return fmt.Errorf("not enough cores: %d nodes need a core, %d cores allocated", needCores, len(fullCores))
+	}
+
+	coresCursor := 0
+	for _, id := range nodeIDs {
+		roles, rerr := doc.NodeRoles(id)
+		if rerr != nil {
+			roles = nil
+		}
+		if slices.Contains(roles, "MANAGEMENT") {
 			continue
 		}
-		v, err := strconv.Atoi(p)
-		if err != nil {
-			return nil, fmt.Errorf("parseNonDatapathCoreIDs: invalid core ID %q: %w", p, err)
+		dedicate := true
+		dedicatedMode := ""
+		if in.CPUPolicy == "shared" {
+			dedicate = false
+			dedicatedMode = "NONE"
 		}
-		result = append(result, v)
+		coreID, convErr := strconv.Atoi(fullCores[coresCursor])
+		if convErr == nil {
+			if err := doc.SetNodeCore(id, coreID, dedicate, dedicatedMode); err != nil {
+				return err
+			}
+		}
+		coresCursor++
 	}
-	if len(result) == 0 {
-		return nil, fmt.Errorf("parseNonDatapathCoreIDs: no valid core IDs in %q", s)
+
+	return nil
+}
+
+// LinkResourcesFile atomically points resources.json / resources.json.stable /
+// resources.json.staging at fileName, replicating `ln -sf fileName dir/link` for each without
+// shelling out. ctx is accepted only for external signature compatibility (see ssdproxy.go).
+func LinkResourcesFile(_ context.Context, fileName, resourcesDir string) error {
+	for _, link := range resourceLinkNames {
+		if err := relink(resourcesDir, fileName, link); err != nil {
+			return fmt.Errorf("LinkResourcesFile: %w", err)
+		}
+	}
+	return nil
+}
+
+// StartContainer starts the named container.
+// Mirrors Python start_weka_container() at weka_runtime.py:2827.
+func StartContainer(ctx context.Context, runner process.CommandRunner, name string) error {
+	_, err := runner.Run(ctx, process.Command{Path: "weka", Args: []string{"local", "start", name}})
+	return err
+}
+
+// GetContainers runs "weka local ps --json" and returns the parsed array.
+func GetContainers(ctx context.Context, runner process.CommandRunner) ([]map[string]interface{}, error) {
+	res, err := runner.Run(ctx, process.Command{Path: "weka", Args: []string{"local", "ps", "--json"}})
+	if err != nil {
+		return nil, fmt.Errorf("GetContainers: %w", err)
+	}
+	var result []map[string]interface{}
+	if err := json.Unmarshal(res.Stdout, &result); err != nil {
+		return nil, fmt.Errorf("GetContainers: parse JSON: %w", err)
 	}
 	return result, nil
 }
 
-// ConvertToBytes parses a human-readable size string like "1GiB", "512MiB" into bytes.
-// Mirrors Python convert_to_bytes() at weka_runtime.py:2511.
-func ConvertToBytes(memory string) (int64, error) {
-	upper := strings.ToUpper(strings.TrimSpace(memory))
-	re := regexp.MustCompile(`^(\d+)([KMGTPE]I?B?)$`)
-	matches := re.FindStringSubmatch(upper)
-	if len(matches) != 3 {
-		return 0, fmt.Errorf("invalid size: %q", memory)
+// GetWekaLocalResources runs "weka local resources -C name --json" and returns the raw stdout,
+// letting callers parse it directly into a ResourceDoc without a lossy map round-trip.
+func GetWekaLocalResources(ctx context.Context, runner process.CommandRunner, name string) ([]byte, error) {
+	res, err := runner.Run(ctx, process.Command{
+		Path: "weka",
+		Args: []string{"local", "resources", "-C", name, "--json"},
+		Log:  process.LogExecution,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("GetWekaLocalResources(%s): %w", name, err)
 	}
-	size, parseErr := strconv.ParseInt(matches[1], 10, 64)
-	if parseErr != nil {
-		return 0, fmt.Errorf("ConvertToBytes: parse size %q: %w", matches[1], parseErr)
-	}
-	multipliers := map[string]int64{
-		"B":  1,
-		"KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12, "PB": 1e15, "EB": 1e18,
-		"KIB": 1 << 10, "MIB": 1 << 20, "GIB": 1 << 30,
-		"TIB": 1 << 40, "PIB": 1 << 50,
-	}
-	unit := matches[2]
-	mult, ok := multipliers[unit]
-	if !ok {
-		return 0, fmt.Errorf("unknown unit: %q", unit)
-	}
-	return size * mult, nil
+	return res.Stdout, nil
 }

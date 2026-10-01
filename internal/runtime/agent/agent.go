@@ -7,28 +7,39 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/osinfo"
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
+	"github.com/weka/weka-operator/internal/runtime/clock"
 	"github.com/weka/weka-operator/internal/runtime/config"
 	"github.com/weka/weka-operator/internal/runtime/drivers"
+	"github.com/weka/weka-operator/internal/runtime/paths"
+	"github.com/weka/weka-operator/internal/runtime/process"
 )
 
 // agentPortScript rewrites the port key under the [agent] section only, then verifies
-// the rewrite landed. sed exits 0 on no-match, and Go's cmdutil does not run scripts
+// the rewrite landed. sed exits 0 on no-match, and the runner does not run scripts
 // under "set -e" (unlike Python's run_command), so the verification failure is made
 // explicit here rather than relying on shell abort semantics.
 const agentPortScript = `sed -i "/^\[agent\]/,/^\[/ s/^port=.*/port=%d/" /etc/wekaio/service.conf
 sed -n "/^\[agent\]/,/^\[/p" /etc/wekaio/service.conf | grep -qx "port=%d" || { echo "agent port rewrite verification failed" >&2; exit 1; }
 `
 
+// ConfigureInput is the narrow set of config sections Configure needs.
+type ConfigureInput struct {
+	Mode        string
+	Identity    config.Identity
+	Agent       config.Agent
+	Ports       config.Ports
+	Persistence config.Persistence
+	Paths       paths.Roots
+}
+
 // Configure patches /etc/wekaio/service.conf and writes /etc/wekaio/service.json.
 // handleDrivers=false means agent should NOT handle drivers (compute/drive/client pass false).
 // Mirrors Python configure_agent() at weka_runtime.py:2924.
-func Configure(ctx context.Context, cfg *config.Config, handleDrivers bool) error {
+func Configure(ctx context.Context, runner process.CommandRunner, in ConfigureInput, handleDrivers bool) error { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
 	_, logger := instrumentation.CreateLogSpan(ctx, "agent.Configure")
 	defer logger.End()
 
@@ -38,19 +49,19 @@ func Configure(ctx context.Context, cfg *config.Config, handleDrivers bool) erro
 	}
 
 	expandConditionMounts := ""
-	if cfg.Mode == "s3" || cfg.Mode == "envoy" {
+	if in.Mode == "s3" || in.Mode == "envoy" {
 		expandConditionMounts = ",envoy-data"
 	}
 
 	skipEnvoySetup := ""
-	if cfg.Mode == "s3" {
+	if in.Mode == "s3" {
 		skipEnvoySetup = "sed -i 's/skip_envoy_setup=.*/skip_envoy_setup=true/g' /etc/wekaio/service.conf || true"
 	}
 
 	// weka images do not always ship a [mounts] section, so create it before setting the key.
 	// Mirrors Python configure_agent() no_reserve_space_cmd at weka_runtime.py:3327.
 	noReserveSpaceCmd := ""
-	if cfg.NoReserveSpace {
+	if in.Agent.NoReserveSpace {
 		noReserveSpaceCmd = `
 grep -q "^\[mounts\]" /etc/wekaio/service.conf || printf '\n[mounts]\n' >> /etc/wekaio/service.conf
 if grep -qE "^[[:space:]]*allocate_reserved_space[[:space:]]*=" /etc/wekaio/service.conf; then
@@ -67,13 +78,13 @@ fi
 	//       env_vars['RESTART_EPOCH_WANTED'] = str(int(os.environ.get("envoy_restart_epoch", time.time())))
 	//       env_vars['BASE_ID'] = PORT
 	envoyEnvExports := ""
-	if cfg.Mode == "envoy" {
-		restartEpoch := os.Getenv("envoy_restart_epoch")
+	if in.Mode == "envoy" {
+		restartEpoch := in.Agent.EnvoyEpoch
 		if restartEpoch == "" {
 			restartEpoch = fmt.Sprintf("%d", time.Now().Unix())
 		}
 		envoyEnvExports = fmt.Sprintf("export RESTART_EPOCH_WANTED=%s\nexport BASE_ID=%d\n",
-			restartEpoch, cfg.Port)
+			restartEpoch, in.Ports.Weka)
 	}
 
 	script := fmt.Sprintf(`%s
@@ -105,20 +116,21 @@ echo '{"agent": {"port": %d}}' > /etc/wekaio/service.json
 		envoyEnvExports,
 		ignoreDriverFlag, ignoreDriverFlag, ignoreDriverFlag, ignoreDriverFlag,
 		expandConditionMounts, skipEnvoySetup, noReserveSpaceCmd,
-		fmt.Sprintf(agentPortScript, cfg.AgentPort, cfg.AgentPort), cfg.AgentPort,
+		fmt.Sprintf(agentPortScript, in.Ports.Agent, in.Ports.Agent), in.Ports.Agent,
 	)
 
-	if err := cmdutil.Run(ctx, "sh", "-c", script); err != nil {
+	if _, err := runner.Run(ctx, process.Command{Path: "sh", Args: []string{"-c", script}}); err != nil {
 		return fmt.Errorf("agent.Configure: %w", err)
 	}
 
-	if cfg.MachineIdentifier != "" {
-		logger.Info("setting machine-id", "id", cfg.MachineIdentifier)
-		if err := os.MkdirAll("/opt/weka/data/agent", 0o755); err != nil {
+	if in.Identity.MachineIdentifier != "" {
+		logger.Info("setting machine-id", "id", in.Identity.MachineIdentifier)
+		agentDataDir := in.Paths.OptWeka + "/data/agent"
+		if err := os.MkdirAll(agentDataDir, 0o755); err != nil {
 			return err
 		}
-		idPath := "/opt/weka/data/agent/machine-identifier"
-		if err := os.WriteFile(idPath, []byte(cfg.MachineIdentifier), 0o644); err != nil {
+		idPath := agentDataDir + "/machine-identifier"
+		if err := os.WriteFile(idPath, []byte(in.Identity.MachineIdentifier), 0o644); err != nil {
 			return fmt.Errorf("agent.Configure machine-identifier: %w", err)
 		}
 	}
@@ -126,63 +138,58 @@ echo '{"agent": {"port": %d}}' > /etc/wekaio/service.json
 	return nil
 }
 
-// GetCmd returns the shell command string that starts the weka agent.
+// Command returns the weka-agent daemon command. It does not start it.
 // Mirrors Python get_agent_cmd() at weka_runtime.py:3126.
-func GetCmd(cfg *config.Config) string {
-	return fmt.Sprintf("exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_%d", cfg.AgentPort)
+func Command(agentPort int) process.Command {
+	return process.Command{
+		Path: "/usr/bin/weka",
+		Args: []string{"--agent", "--socket-name", fmt.Sprintf("weka_agent_ud_socket_%d", agentPort)},
+	}
 }
 
-// AwaitReady polls "weka local ps" until exit 0, with a timeout.
-// Timeout is 60s normally, 1500s for global persistence mode.
+// AwaitReady polls "weka local ps" until exit 0, or until timeout elapses.
 // Mirrors Python await_agent() at weka_runtime.py:2075.
-func AwaitReady(ctx context.Context, cfg *config.Config) error {
+func AwaitReady(ctx context.Context, runner process.CommandRunner, c clock.Clock, timeout time.Duration) error {
 	_, logger := instrumentation.CreateLogSpan(ctx, "agent.AwaitReady")
 	defer logger.End()
 
-	timeout := 60 * time.Second
-	if cfg.WekaPersistenceMode == "global" {
-		timeout = 1500 * time.Second
-	}
-
-	start := time.Now()
+	start := c.Now()
 	deadline := start.Add(timeout)
 	for {
 		// Mirror Python await_agent (weka_runtime.py:2137): poll `weka local ps`.
-		if err := cmdutil.Run(ctx, "weka", "local", "ps"); err == nil {
+		if _, err := runner.Run(ctx, process.Command{Path: "weka", Args: []string{"local", "ps"}}); err == nil {
 			logger.Info("Weka-agent started successfully")
 			return nil
 		}
-		if time.Now().After(deadline) {
+		if c.Now().After(deadline) {
 			return fmt.Errorf("agent.AwaitReady: agent did not come up in %s", timeout)
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(300 * time.Millisecond):
+		if err := clock.Sleep(ctx, c, 300*time.Millisecond); err != nil {
+			return err
 		}
-		logger.Info("Waiting for weka-agent to start", "elapsed_s", int(time.Since(start).Seconds()))
+		logger.Info("Waiting for weka-agent to start", "elapsed_s", int(c.Now().Sub(start).Seconds()))
 	}
 }
 
 // OverrideDependenciesFlag hard-codes the dependency success marker so the dist container can start.
-// Mirrors Python override_dependencies_flag() at weka_runtime.py:2988.
-func OverrideDependenciesFlag(ctx context.Context, cfg *config.Config) error {
+// Mirrors Python override_dependencies_flag().
+func OverrideDependenciesFlag(ctx context.Context, runner process.CommandRunner, imageName string) error {
 	_, logger := instrumentation.CreateLogSpan(ctx, "agent.OverrideDependenciesFlag")
 	defer logger.End()
 
 	logger.Info("overriding dependencies flag")
 
 	// M2: drive both branch and dep version from ResolveVersionParams.
-	// Mirrors Python weka_runtime.py:2988-3010:
+	// Mirrors Python override_dependencies_flag():
 	//   dep_version = version_params.get('dependencies', DEFAULT_DEPENDENCY_VERSION)
 	//   if WEKA_DRIVERS_HANDLING: touch .../skip  else: mkdir .../dep_version/$(uname -r)/ && touch .../successful
-	vp := drivers.ResolveVersionParams(cfg.ImageName)
+	vp := drivers.ResolveVersionParams(imageName)
 	if vp.WekaDriversHandling {
 		script := `
 mkdir -p /opt/weka/data/dependencies
 touch /opt/weka/data/dependencies/skip
 `
-		if err := cmdutil.Run(ctx, "sh", "-c", script); err != nil {
+		if _, err := runner.Run(ctx, process.Command{Path: "sh", Args: []string{"-c", script}}); err != nil {
 			return fmt.Errorf("agent.OverrideDependenciesFlag (new): %w", err)
 		}
 		return nil
@@ -193,7 +200,7 @@ touch /opt/weka/data/dependencies/skip
 mkdir -p /opt/weka/data/dependencies/%s/$(uname -r)/
 touch /opt/weka/data/dependencies/%s/$(uname -r)/successful
 `, depVersion, depVersion)
-	if err := cmdutil.Run(ctx, "sh", "-c", script); err != nil {
+	if _, err := runner.Run(ctx, process.Command{Path: "sh", Args: []string{"-c", script}}); err != nil {
 		return fmt.Errorf("agent.OverrideDependenciesFlag (legacy): %w", err)
 	}
 	return nil
@@ -201,33 +208,33 @@ touch /opt/weka/data/dependencies/%s/$(uname -r)/successful
 
 // EnsureDrivers polls until all required kernel drivers are loaded.
 // Mirrors Python ensure_drivers() at weka_runtime.py:1208.
-func EnsureDrivers(ctx context.Context, cfg *config.Config) error {
+func EnsureDrivers(ctx context.Context, runner process.CommandRunner, c clock.Clock, mode, imageName, optWekaRoot string) error {
 	_, logger := instrumentation.CreateLogSpan(ctx, "agent.EnsureDrivers")
 	defer logger.End()
 
-	logger.Info("waiting for drivers", "mode", cfg.Mode)
+	logger.Info("waiting for drivers", "mode", mode)
 
 	// Client / s3 / nfs: use "weka driver ready" command (new driver mode).
-	if !isLegacyDriverMode(cfg) && isClientLikeMode(cfg.Mode) {
+	if !isLegacyDriverMode(ctx, runner) && isClientLikeMode(mode) {
 		// M6: read version from release spec (as Python's get_weka_version() does),
 		// instead of shelling out to "weka version | grep '*' | awk ..." which requires
 		// the agent to already be running.
 		// Mirrors Python ensure_drivers() at weka_runtime.py:1217-1221:
 		//   version = await get_weka_version()
 		//   run_command(f"weka driver ready --without-agent --version {version}")
-		wekaVersion, err := drivers.GetWekaVersion()
+		wekaVersion, err := drivers.GetWekaVersion(optWekaRoot)
 		if err != nil {
 			return fmt.Errorf("EnsureDrivers: get weka version: %w", err)
 		}
-		if err := cmdutil.PollUntil(ctx, 1*time.Second, func() bool {
-			if err := cmdutil.Run(ctx, "weka", "driver", "ready", "--without-agent", "--version", wekaVersion); err == nil {
-				return true
+		if err := clock.Poll(ctx, c, 1*time.Second, func() (bool, error) {
+			if _, err := runner.Run(ctx, process.Command{Path: "weka", Args: []string{"driver", "ready", "--without-agent", "--version", wekaVersion}}); err == nil {
+				return true, nil
 			}
 			logger.Warn("drivers not ready, waiting")
 			if e := writeDriverLog("weka-drivers-loading"); e != nil {
 				logger.Warn("failed to write driver status log", "err", e)
 			}
-			return false
+			return false, nil
 		}); err != nil {
 			return err
 		}
@@ -245,21 +252,22 @@ func EnsureDrivers(ctx context.Context, cfg *config.Config) error {
 	isCOS := err == nil && nodeInfo.IsCos()
 	if !isCOS {
 		driverModules = append(driverModules, "igb_uio")
-		if !skipUIOPCIGeneric(cfg) {
+		if !skipUIOPCIGeneric(imageName) {
 			driverModules = append(driverModules, "uio_pci_generic")
 		}
 	}
 
 	for _, driver := range driverModules {
-		if err := cmdutil.PollUntil(ctx, 1*time.Second, func() bool {
-			if err := cmdutil.Run(ctx, "sh", "-c", fmt.Sprintf("lsmod | grep -w %s", driver)); err == nil {
-				return true
+		driver := driver
+		if err := clock.Poll(ctx, c, 1*time.Second, func() (bool, error) {
+			if _, err := runner.Run(ctx, process.Command{Path: "sh", Args: []string{"-c", fmt.Sprintf("lsmod | grep -w %s", driver)}}); err == nil {
+				return true, nil
 			}
 			logger.Info("driver not loaded, waiting", "driver", driver)
 			if e := writeDriverLog(driver); e != nil {
 				logger.Warn("failed to write driver status log", "err", e)
 			}
-			return false
+			return false, nil
 		}); err != nil {
 			return err
 		}
@@ -277,8 +285,8 @@ func EnsureDrivers(ctx context.Context, cfg *config.Config) error {
 // isLegacyDriverMode returns true when the old lsmod-based driver check should be used.
 // Python: is_legacy_driver_cmd() at weka_runtime.py:3215 — checks if "weka driver --help | grep pack" succeeds.
 // In Go we run the same check.
-func isLegacyDriverMode(cfg *config.Config) bool {
-	err := exec.Command("sh", "-c", "weka driver --help | grep pack").Run() //nolint:gosec // command args are operator-controlled, not user input
+func isLegacyDriverMode(ctx context.Context, runner process.CommandRunner) bool {
+	_, err := runner.Run(ctx, process.Command{Path: "sh", Args: []string{"-c", "weka driver --help | grep pack"}})
 	if err == nil {
 		return false // new mode: "pack" command available
 	}
@@ -296,12 +304,12 @@ func isClientLikeMode(mode string) bool {
 
 // skipUIOPCIGeneric returns true when uio_pci_generic should not be loaded.
 // On COS we always skip it.
-func skipUIOPCIGeneric(cfg *config.Config) bool {
+func skipUIOPCIGeneric(imageName string) bool {
 	// M1: mirror Python should_skip_uio_pci_generic() at weka_runtime.py:1416-1417:
 	//   return version_params.get('uio_pci_generic') is False or should_skip_uio()
 	// where should_skip_uio() == is_google_cos(). The version-params branch is what makes
 	// all 4.3.x and DEFAULT_PARAMS images skip uio_pci_generic even on non-COS nodes.
-	if drivers.ResolveVersionParams(cfg.ImageName).ShouldSkipUioPciGeneric() {
+	if drivers.ResolveVersionParams(imageName).ShouldSkipUioPciGeneric() {
 		return true
 	}
 	nodeInfo, err := osinfo.Load()

@@ -12,6 +12,7 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/runtime/config"
+	"github.com/weka/weka-operator/internal/runtime/paths"
 )
 
 const (
@@ -19,36 +20,26 @@ const (
 	maxPort      = 65535
 )
 
-// SavePorts writes the current ports in cfg to the runtime vars files.
-// Called after port allocation (client) and after loading resources.json (compute/drive/etc).
-// Mirrors Python save_weka_ports_data() at weka_runtime.py:3554.
-func SavePorts(_ context.Context, cfg *config.Config) error {
-	return savePorts(cfg)
-}
-
-// AllocateClientPorts finds free ports and writes them to runtime files.
-// Mirrors Python ensure_client_ports() at weka_runtime.py:3527.
-// No-op when cfg.Port != 0 (ports already assigned via resources).
-func AllocateClientPorts(ctx context.Context, cfg *config.Config) error {
-	_, logger := instrumentation.CreateLogSpan(ctx, "ports.AllocateClientPorts")
+// AllocateClient finds free ports for client mode when they are not already assigned.
+// Mirrors Python ensure_client_ports() at weka_runtime.py:3527; the caller persists the result
+// with Save once persistent storage is mounted.
+func AllocateClient(ctx context.Context, cp config.ClientPorts, in config.Ports) (config.Ports, error) { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
+	_, logger := instrumentation.CreateLogSpan(ctx, "ports.AllocateClient")
 	defer logger.End()
 
-	if cfg.Port != 0 && cfg.AgentPort != 0 {
-		// Already have ports from environment; just persist them.
-		return savePorts(cfg)
+	if in.Weka != 0 && in.Agent != 0 {
+		return in, nil
 	}
 
 	// Mirror Python assert base_port > 0, "BASE_PORT is not set" at weka_runtime.py:3537.
-	base := cfg.BasePort
+	base := cp.Base
 	if base == 0 {
-		return fmt.Errorf("ports: BASE_PORT is not set")
+		return in, fmt.Errorf("ports: BASE_PORT is not set")
 	}
-	portRange := cfg.PortRange
 	// Mirror Python: max_port = base_port + port_range if port_range > 0 else MAX_PORT (weka_runtime.py:3538).
-	// MAX_PORT = 65535.
 	top := maxPort
-	if portRange > 0 {
-		top = base + portRange
+	if cp.Range > 0 {
+		top = base + cp.Range
 		if top > maxPort {
 			top = maxPort
 		}
@@ -56,39 +47,41 @@ func AllocateClientPorts(ctx context.Context, cfg *config.Config) error {
 
 	inUse, err := readInUsePorts()
 	if err != nil {
-		return fmt.Errorf("ports: reading in-use ports: %w", err)
+		return in, fmt.Errorf("ports: reading in-use ports: %w", err)
 	}
 
-	if cfg.AgentPort == 0 {
+	if in.Agent == 0 {
 		agentPort, err := findFreePort(base, top, inUse, nil)
 		if err != nil {
-			return fmt.Errorf("ports: find agent port: %w", err)
+			return in, fmt.Errorf("ports: find agent port: %w", err)
 		}
-		cfg.AgentPort = agentPort
+		in.Agent = agentPort
 	}
 
-	if cfg.Port == 0 {
-		p, err := getFreeSubrange(base, top, subrangeSize, inUse, []int{cfg.AgentPort})
+	if in.Weka == 0 {
+		weka, err := getFreeSubrange(base, top, subrangeSize, inUse, []int{in.Agent})
 		if err != nil {
-			return fmt.Errorf("ports: find port subrange: %w", err)
+			return in, fmt.Errorf("ports: find port subrange: %w", err)
 		}
-		cfg.Port = p
+		in.Weka = weka
 	}
 
-	return savePorts(cfg)
+	return in, nil
 }
 
-// savePorts writes the port vars files.
+// Save writes the port vars files the operator reads (vars/agent_port for its agent calls).
+// It must run after persistent storage is mounted, which would otherwise hide the files.
 // Mirrors Python save_weka_ports_data() at weka_runtime.py:3554-3557 which writes ONLY
 // vars/port and vars/agent_port — no weka-ports-data.json (that file is never written by Python).
-func savePorts(cfg *config.Config) error {
-	if err := os.MkdirAll("/opt/weka/k8s-runtime/vars", 0o755); err != nil {
+func Save(p paths.Roots, ports config.Ports) error { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
+	varsDir := p.K8sRuntime + "/vars"
+	if err := os.MkdirAll(varsDir, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile("/opt/weka/k8s-runtime/vars/port", []byte(strconv.Itoa(cfg.Port)), 0o644); err != nil {
+	if err := os.WriteFile(varsDir+"/port", []byte(strconv.Itoa(ports.Weka)), 0o644); err != nil {
 		return err
 	}
-	return os.WriteFile("/opt/weka/k8s-runtime/vars/agent_port", []byte(strconv.Itoa(cfg.AgentPort)), 0o644)
+	return os.WriteFile(varsDir+"/agent_port", []byte(strconv.Itoa(ports.Agent)), 0o644)
 }
 
 // readInUsePorts parses /proc/net/tcp, tcp6, udp, udp6 and returns the set of in-use ports.

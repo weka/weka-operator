@@ -190,3 +190,43 @@ func TestWekaDriversHandling(t *testing.T) {
 		})
 	}
 }
+
+// ---- BuilderKernelBuildID tests ----
+
+func TestBuilderKernelBuildID(t *testing.T) {
+	tests := []struct {
+		name     string
+		nodeInfo *osinfo.NodeInfo
+		want     string
+	}{
+		{
+			name:     "Ubuntu 24 → ubuntu24.04",
+			nodeInfo: &osinfo.NodeInfo{Os: osinfo.OsNameUbuntu, OsBuildId: "24.04"},
+			want:     "ubuntu24.04",
+		},
+		{
+			name:     "COS → empty (no OS_BUILD_ID fallback for the builder)",
+			nodeInfo: &osinfo.NodeInfo{Os: osinfo.OsNameCos, OsBuildId: "105"},
+			want:     "",
+		},
+		{
+			name:     "RHCOS → empty",
+			nodeInfo: &osinfo.NodeInfo{Os: osinfo.OsNameRhCos, OsBuildId: "24.04"},
+			want:     "",
+		},
+		{
+			name:     "Ubuntu 22 → empty",
+			nodeInfo: &osinfo.NodeInfo{Os: osinfo.OsNameUbuntu, OsBuildId: "22.04"},
+			want:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BuilderKernelBuildID(tt.nodeInfo)
+			if got != tt.want {
+				t.Errorf("BuilderKernelBuildID(%+v) = %q, want %q", tt.nodeInfo, got, tt.want)
+			}
+		})
+	}
+}

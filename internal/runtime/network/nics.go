@@ -9,95 +9,176 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
-	"github.com/weka/weka-operator/internal/runtime/config"
+	"github.com/weka/weka-operator/internal/runtime/paths"
+	"github.com/weka/weka-operator/internal/runtime/process"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
-// ManagementIPs is updated by WriteManagementIPs and used when building the Weka container.
-var ManagementIPs []string
-
-// AutodiscoverNetDevices resolves cfg.NetworkDevice from selectors or subnets when it is empty.
-// Mirrors the discovery at weka_runtime.py:2333–2339.
-func AutodiscoverNetDevices(ctx context.Context, cfg *config.Config) error {
-	if cfg.NetworkDevice != "" {
-		return nil
-	}
-	if len(cfg.NetworkSelectors) > 0 {
-		raw := mustJSONMarshal(cfg.NetworkSelectors)
-		devInfos, err := getDevicesBySelectors(ctx, raw)
-		if err != nil {
-			return fmt.Errorf("network: selectors discovery: %w", err)
-		}
-		var names []string
-		for _, d := range devInfos {
-			names = append(names, d.device)
-		}
-		cfg.NetworkDevice = strings.Join(names, ",")
-		return nil
-	}
-	if len(cfg.Subnets) > 0 {
-		pairs, err := getDevicesBySubnets(ctx, cfg.Subnets)
-		if err != nil {
-			return fmt.Errorf("network: subnet discovery: %w", err)
-		}
-		names := make([]string, len(pairs))
-		for i, p := range pairs {
-			names[i] = p.device
-		}
-		cfg.NetworkDevice = strings.Join(names, ",")
-	}
-	return nil
+// ManagementInput carries the fields WriteManagementIPs consumes from config.Network /
+// config.Runtime.
+type ManagementInput struct {
+	Mode                  string
+	NetworkDevice         string
+	ManagementIP          string
+	ManagementIPSelectors []weka.NetworkSelector
+	NetworkSelectors      []weka.NetworkSelector
+	Subnets               []string
+	IsIPv6                bool
+	UDPMode               bool
 }
 
-// ReconcileNetDevices syncs the container's net devices to match the desired list.
-// Mirrors Python reconcile_net_devices() at weka_runtime.py:2594.
-func ReconcileNetDevices(ctx context.Context, containerName string, desired []string) error {
-	_, logger := instrumentation.CreateLogSpan(ctx, "network.ReconcileNetDevices", "container", containerName)
+// ReconcileInput carries what ReconcileNetDevices needs to sync a container's net devices.
+type ReconcileInput struct {
+	Name      string // container name, passed as `-C`
+	Devices   []string
+	Selectors []weka.NetworkSelector
+	Subnets   []string
+	UDPMode   bool
+}
+
+// ReconcileNetDevices syncs the container's net devices, including RDMA flags, to match the
+// selectors/subnets/device list. A no-op under VF-per-IOnode or UDP topologies, which manage
+// devices outside `weka local resources net`. Mirrors Python reconcile_net_devices() at
+// weka_runtime.py:2878–2930.
+func ReconcileNetDevices(ctx context.Context, runner process.CommandRunner, in ReconcileInput) error { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
+	networkDeviceStr := strings.Join(in.Devices, ",")
+	if ShouldAllocateVFPerIoNode(networkDeviceStr) || IsUDP(in.UDPMode, networkDeviceStr) {
+		return nil
+	}
+
+	_, logger := instrumentation.CreateLogSpan(ctx, "network.ReconcileNetDevices", "container", in.Name)
 	defer logger.End()
 
-	current, err := getContainerNetDevices(ctx, containerName)
+	target := make(map[string]struct{}, len(in.Devices))
+	for _, d := range in.Devices {
+		target[d] = struct{}{}
+	}
+	flags := make(map[string]deviceInfo)
+
+	switch {
+	case len(in.Selectors) > 0:
+		devInfos, err := getDevicesBySelectors(ctx, runner, in.Selectors)
+		if err != nil {
+			return fmt.Errorf("network: get devices by selectors: %w", err)
+		}
+		target = make(map[string]struct{}, len(devInfos))
+		for _, d := range devInfos {
+			target[d.device] = struct{}{}
+			flags[d.device] = d
+		}
+	case len(in.Subnets) > 0:
+		pairs, err := getDevicesBySubnets(ctx, runner, in.Subnets)
+		if err != nil {
+			return fmt.Errorf("network: get devices by subnets: %w", err)
+		}
+		target = make(map[string]struct{}, len(pairs))
+		for _, p := range pairs {
+			target[p.device] = struct{}{}
+		}
+	}
+
+	netDevices, rdmaDevices, err := getContainerNetDevices(ctx, runner, in.Name)
 	if err != nil {
 		return fmt.Errorf("network: get container net devices: %w", err)
 	}
-
-	desiredSet := make(map[string]struct{}, len(desired))
-	for _, d := range desired {
-		desiredSet[d] = struct{}{}
+	current := make(map[string]struct{}, len(netDevices)+len(rdmaDevices))
+	for d := range netDevices {
+		current[d] = struct{}{}
 	}
-	currentSet := make(map[string]struct{}, len(current))
-	for _, c := range current {
-		currentSet[c] = struct{}{}
+	for d := range rdmaDevices {
+		current[d] = struct{}{}
 	}
 
-	for dev := range currentSet {
-		if _, ok := desiredSet[dev]; !ok {
-			if err := cmdutil.Run(ctx, "weka", "local", "resources", "net", "-C", containerName, "remove", dev); err != nil {
-				return fmt.Errorf("network: remove %s: %w", dev, err)
+	toRemove := make(map[string]struct{})
+	for d := range current {
+		if _, ok := target[d]; !ok {
+			toRemove[d] = struct{}{}
+		}
+	}
+	toAdd := make(map[string]struct{})
+	for d := range target {
+		if _, ok := current[d]; !ok {
+			toAdd[d] = struct{}{}
+		}
+	}
+	// A device already present but whose selector now says disable_rdma, while it is still
+	// RDMA-registered, must be removed and re-added to pick up the flag change.
+	toReadd := make(map[string]struct{})
+	for d := range target {
+		if _, ok := current[d]; !ok {
+			continue
+		}
+		if info, ok := flags[d]; ok && info.disableRDMA {
+			if _, isRdma := rdmaDevices[d]; isRdma {
+				toReadd[d] = struct{}{}
 			}
 		}
 	}
-	for dev := range desiredSet {
-		if _, ok := currentSet[dev]; !ok {
-			if err := cmdutil.Run(ctx, "weka", "local", "resources", "net", "-C", containerName, "add", dev); err != nil {
-				return fmt.Errorf("network: add %s: %w", dev, err)
-			}
+
+	for d := range toRemove {
+		if err := removeNetDevice(ctx, runner, in.Name, d); err != nil {
+			return err
+		}
+	}
+	for d := range toReadd {
+		if err := removeNetDevice(ctx, runner, in.Name, d); err != nil {
+			return err
+		}
+	}
+	for d := range toAdd {
+		if err := addNetDevice(ctx, runner, in.Name, d, flags[d]); err != nil {
+			return err
+		}
+	}
+	for d := range toReadd {
+		if err := addNetDevice(ctx, runner, in.Name, d, flags[d]); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// WriteManagementIPs discovers management IPs and writes them atomically.
-// Mirrors Python write_management_ips() at weka_runtime.py:3797.
-func WriteManagementIPs(ctx context.Context, cfg *config.Config) error {
-	switch cfg.Mode {
+func removeNetDevice(ctx context.Context, runner process.CommandRunner, name, dev string) error {
+	if _, err := runner.Run(ctx, process.Command{
+		Path: "weka",
+		Args: []string{"local", "resources", "net", "-C", name, "remove", dev},
+		Log:  process.LogAll,
+	}); err != nil {
+		return fmt.Errorf("network: remove %s: %w", dev, err)
+	}
+	return nil
+}
+
+func addNetDevice(ctx context.Context, runner process.CommandRunner, name, dev string, info deviceInfo) error {
+	args := []string{"local", "resources", "net", "-C", name, "add", dev}
+	if info.rdmaOnly {
+		args = append(args, "--rdma-only")
+	}
+	if info.disableRDMA {
+		args = append(args, "--rdma-off")
+	}
+	if _, err := runner.Run(ctx, process.Command{
+		Path: "weka",
+		Args: args,
+		Log:  process.LogAll,
+	}); err != nil {
+		return fmt.Errorf("network: add %s: %w", dev, err)
+	}
+	return nil
+}
+
+// WriteManagementIPs discovers management IPs and writes them atomically, returning the IPs
+// written. Mirrors Python write_management_ips() at weka_runtime.py:3797.
+func WriteManagementIPs(ctx context.Context, runner process.CommandRunner, in ManagementInput, roots paths.Roots) ([]string, error) { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
+	switch in.Mode {
 	case "drive", "compute", "s3", "nfs", "smbw", "client", "data-services":
 	default:
-		return nil
+		return nil, nil
 	}
 
 	_, logger := instrumentation.CreateLogSpan(ctx, "network.WriteManagementIPs")
@@ -106,104 +187,102 @@ func WriteManagementIPs(ctx context.Context, cfg *config.Config) error {
 	var ipAddresses []string
 
 	switch {
-	case cfg.ManagementIP != "" && ShouldAllocateVFPerIoNode(cfg.NetworkDevice):
-		ipAddresses = []string{cfg.ManagementIP}
+	case in.ManagementIP != "" && ShouldAllocateVFPerIoNode(in.NetworkDevice):
+		ipAddresses = []string{in.ManagementIP}
 
-	case len(cfg.ManagementIPSelectors) > 0:
-		raw := mustJSONMarshal(cfg.ManagementIPSelectors)
-		devInfos, err := getDevicesBySelectors(ctx, raw)
+	case len(in.ManagementIPSelectors) > 0:
+		devInfos, err := getDevicesBySelectors(ctx, runner, in.ManagementIPSelectors)
 		if err != nil {
-			return fmt.Errorf("network.WriteManagementIPs selectors: %w", err)
+			return nil, fmt.Errorf("network.WriteManagementIPs selectors: %w", err)
 		}
 		for _, d := range devInfos {
-			ip, err := getSingleDeviceIP(ctx, d.device, d.subnet, cfg.IsIPv6)
+			ip, err := getSingleDeviceIP(ctx, runner, d.device, d.subnet, in.IsIPv6)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			ipAddresses = append(ipAddresses, ip)
 		}
 
-	case cfg.NetworkDevice == "" && len(cfg.NetworkSelectors) > 0:
-		raw := mustJSONMarshal(cfg.NetworkSelectors)
-		allDevInfos, err := getDevicesBySelectors(ctx, raw)
+	case in.NetworkDevice == "" && len(in.NetworkSelectors) > 0:
+		allDevInfos, err := getDevicesBySelectors(ctx, runner, in.NetworkSelectors)
 		if err != nil {
-			return fmt.Errorf("network.WriteManagementIPs network selectors: %w", err)
+			return nil, fmt.Errorf("network.WriteManagementIPs network selectors: %w", err)
 		}
 		for _, d := range allDevInfos {
 			if d.rdmaOnly {
 				continue
 			}
-			ip, err := getSingleDeviceIP(ctx, d.device, d.subnet, cfg.IsIPv6)
+			ip, err := getSingleDeviceIP(ctx, runner, d.device, d.subnet, in.IsIPv6)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			ipAddresses = append(ipAddresses, ip)
 		}
 		if len(ipAddresses) == 0 {
-			return fmt.Errorf("network: no non-rdma-only devices available; configure managementIpsSelectors separately")
+			return nil, fmt.Errorf("network: no non-rdma-only devices available; configure managementIpsSelectors separately")
 		}
 
-	case cfg.NetworkDevice == "" && len(cfg.Subnets) > 0:
-		pairs, err := getDevicesBySubnets(ctx, cfg.Subnets)
+	case in.NetworkDevice == "" && len(in.Subnets) > 0:
+		pairs, err := getDevicesBySubnets(ctx, runner, in.Subnets)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, p := range pairs {
-			ip, err := getSingleDeviceIP(ctx, p.device, p.subnet, cfg.IsIPv6)
+			ip, err := getSingleDeviceIP(ctx, runner, p.device, p.subnet, in.IsIPv6)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			ipAddresses = append(ipAddresses, ip)
 		}
 
-	case isUDP(cfg):
-		device := cfg.NetworkDevice
+	case IsUDP(in.UDPMode, in.NetworkDevice):
+		device := in.NetworkDevice
 		if device == "udp" {
 			device = "default"
 		}
-		ip, err := getSingleDeviceIP(ctx, device, "", cfg.IsIPv6)
+		ip, err := getSingleDeviceIP(ctx, runner, device, "", in.IsIPv6)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		ipAddresses = []string{ip}
 
-	case !strings.Contains(cfg.NetworkDevice, ","):
-		ip, err := getSingleDeviceIP(ctx, cfg.NetworkDevice, "", cfg.IsIPv6)
+	case !strings.Contains(in.NetworkDevice, ","):
+		ip, err := getSingleDeviceIP(ctx, runner, in.NetworkDevice, "", in.IsIPv6)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		ipAddresses = []string{ip}
 
 	default:
 		// Multiple NICs.
-		devices := strings.Split(cfg.NetworkDevice, ",")
+		devices := strings.Split(in.NetworkDevice, ",")
 		for _, dev := range devices {
-			ip, err := getSingleDeviceIP(ctx, dev, "", cfg.IsIPv6)
+			ip, err := getSingleDeviceIP(ctx, runner, dev, "", in.IsIPv6)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			ipAddresses = append(ipAddresses, ip)
 		}
 	}
 
 	if len(ipAddresses) == 0 {
-		return fmt.Errorf("network: failed to discover management IPs")
+		return nil, fmt.Errorf("network: failed to discover management IPs")
 	}
 
 	// Atomic write.
-	tmpPath := "/opt/weka/k8s-runtime/management_ips.tmp"
-	if err := os.MkdirAll("/opt/weka/k8s-runtime", 0o755); err != nil {
-		return err
+	finalPath := filepath.Join(roots.K8sRuntime, "management_ips")
+	tmpPath := finalPath + ".tmp"
+	if err := os.MkdirAll(roots.K8sRuntime, 0o755); err != nil {
+		return nil, err
 	}
 	if err := os.WriteFile(tmpPath, []byte(strings.Join(ipAddresses, "\n")), 0o644); err != nil {
-		return err
+		return nil, err
 	}
-	if err := os.Rename(tmpPath, "/opt/weka/k8s-runtime/management_ips"); err != nil {
-		return err
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		return nil, err
 	}
 	logger.Info("management IPs written", "ips", ipAddresses)
-	ManagementIPs = ipAddresses
-	return nil
+	return ipAddresses, nil
 }
 
 // ---- helpers ----------------------------------------------------------------
@@ -222,35 +301,20 @@ type devSubnetPair struct {
 	subnet string
 }
 
-// getDevicesBySelectors filters devices from a JSON-encoded selector list.
+// getDevicesBySelectors resolves each typed selector to its matching devices.
 // Mirrors Python get_devices_by_selectors() at weka_runtime.py:3750.
-func getDevicesBySelectors(ctx context.Context, selectorsJSON string) ([]deviceInfo, error) {
-	var selectors []struct {
-		Min         int      `json:"min"`
-		Max         int      `json:"max"`
-		DeviceNames []string `json:"deviceNames"`
-		Subnet      string   `json:"subnet"`
-		RdmaOnly    bool     `json:"rdmaOnly"`
-		DisableRdma bool     `json:"disableRdma"`
-	}
-	if err := json.Unmarshal([]byte(selectorsJSON), &selectors); err != nil {
-		return nil, fmt.Errorf("getDevicesBySelectors: parse JSON: %w", err)
-	}
-
+func getDevicesBySelectors(ctx context.Context, runner process.CommandRunner, selectors []weka.NetworkSelector) ([]deviceInfo, error) {
 	var devices []deviceInfo
 	seen := make(map[string]struct{})
 
 	for _, sel := range selectors {
-		minDev := sel.Min
-		maxDev := sel.Max
-
 		if len(sel.DeviceNames) > 0 {
-			available := filterMissingDevices(ctx, sel.DeviceNames, sel.RdmaOnly)
-			if len(available) < minDev {
-				return nil, fmt.Errorf("not enough devices by deviceNames: want %d, got %d", minDev, len(available))
+			available := filterMissingDevices(ctx, runner, sel.DeviceNames, sel.RdmaOnly)
+			if len(available) < sel.Min {
+				return nil, fmt.Errorf("not enough devices by deviceNames: want %d, got %d", sel.Min, len(available))
 			}
-			if maxDev > 0 && len(available) > maxDev {
-				available = available[:maxDev]
+			if sel.Max > 0 && len(available) > sel.Max {
+				available = available[:sel.Max]
 			}
 			for _, name := range available {
 				if _, ok := seen[name]; !ok {
@@ -263,15 +327,15 @@ func getDevicesBySelectors(ctx context.Context, selectorsJSON string) ([]deviceI
 		if sel.Subnet == "" {
 			return nil, fmt.Errorf("selector must have deviceNames or subnet")
 		}
-		subnetDevs, err := waitForSubnet(ctx, sel.Subnet)
+		subnetDevs, err := waitForSubnet(ctx, runner, sel.Subnet)
 		if err != nil {
 			return nil, err
 		}
-		if len(subnetDevs) < minDev {
-			return nil, fmt.Errorf("not enough devices in subnet %s: want %d, got %d", sel.Subnet, minDev, len(subnetDevs))
+		if len(subnetDevs) < sel.Min {
+			return nil, fmt.Errorf("not enough devices in subnet %s: want %d, got %d", sel.Subnet, sel.Min, len(subnetDevs))
 		}
-		if maxDev > 0 && len(subnetDevs) > maxDev {
-			subnetDevs = subnetDevs[:maxDev]
+		if sel.Max > 0 && len(subnetDevs) > sel.Max {
+			subnetDevs = subnetDevs[:sel.Max]
 		}
 		for _, name := range subnetDevs {
 			if _, ok := seen[name]; !ok {
@@ -286,10 +350,10 @@ func getDevicesBySelectors(ctx context.Context, selectorsJSON string) ([]deviceI
 // getDevicesBySubnets finds interfaces whose IP is in any of the given subnets,
 // paired with the subnet each was found in. Mirrors Python get_devices_by_subnets()
 // / get_devices_waiting_for_all_subnets_to_have_device() at weka_runtime.py:3742 / 3680.
-func getDevicesBySubnets(ctx context.Context, subnets []string) ([]devSubnetPair, error) {
+func getDevicesBySubnets(ctx context.Context, runner process.CommandRunner, subnets []string) ([]devSubnetPair, error) {
 	perSubnetDevices := make([][]string, len(subnets))
 	for i, subnet := range subnets {
-		devs, err := waitForSubnet(ctx, subnet)
+		devs, err := waitForSubnet(ctx, runner, subnet)
 		if err != nil {
 			return nil, err
 		}
@@ -317,7 +381,7 @@ func pairDevicesBySubnet(subnets []string, perSubnetDevices [][]string) []devSub
 // waitForSubnet polls ip -o addr until at least one device is in the subnet (up to 300s).
 // Mirrors Python get_devices_waiting_for_all_subnets_to_have_device() at weka_runtime.py:3680
 // (5s poll interval, 300s timeout, error on timeout).
-func waitForSubnet(ctx context.Context, subnetStr string) ([]string, error) {
+func waitForSubnet(ctx context.Context, runner process.CommandRunner, subnetStr string) ([]string, error) {
 	_, logger := instrumentation.CreateLogSpan(ctx, "network.waitForSubnet")
 	defer logger.End()
 
@@ -330,7 +394,7 @@ func waitForSubnet(ctx context.Context, subnetStr string) ([]string, error) {
 
 	deadline := time.Now().Add(300 * time.Second)
 	for {
-		devs, discoverErr := autodiscoverInSubnet(ipNet)
+		devs, discoverErr := autodiscoverInSubnet(ctx, runner, ipNet)
 		switch {
 		case discoverErr != nil:
 			logger.Warn("autodiscover in subnet failed, will retry", "subnet", subnetStr, "err", discoverErr)
@@ -390,19 +454,24 @@ func filterDevicesInSubnet(ipAddrOutput []byte, ipNet *net.IPNet) []string {
 
 // autodiscoverInSubnet runs ip -o addr and returns interfaces with IPs in subnet.
 // Mirrors Python autodiscover_network_devices() at weka_runtime.py:2217.
-func autodiscoverInSubnet(ipNet *net.IPNet) ([]string, error) {
-	out, err := exec.Command("ip", "-o", "addr").Output() //nolint:gosec // ip with fixed args, no user input
+func autodiscoverInSubnet(ctx context.Context, runner process.CommandRunner, ipNet *net.IPNet) ([]string, error) {
+	res, err := runner.Run(ctx, process.Command{
+		Path:   "ip",
+		Args:   []string{"-o", "addr"},
+		Output: process.Capture,
+		Log:    process.LogExecution,
+	})
 	if err != nil {
 		return nil, err
 	}
-	return filterDevicesInSubnet(out, ipNet), nil
+	return filterDevicesInSubnet(res.Stdout, ipNet), nil
 }
 
 // getSingleDeviceIP gets the primary IP of a network interface. When subnet is
 // non-empty, it picks the address in that subnet specifically, since a device
 // can carry several addresses and position alone cannot pick the right one.
 // Mirrors Python get_single_device_ip() at weka_runtime.py:3647.
-func getSingleDeviceIP(ctx context.Context, device, subnet string, isIPv6 bool) (string, error) {
+func getSingleDeviceIP(ctx context.Context, runner process.CommandRunner, device, subnet string, isIPv6 bool) (string, error) {
 	var script string
 	switch {
 	case device == "" || device == "default":
@@ -426,18 +495,18 @@ func getSingleDeviceIP(ctx context.Context, device, subnet string, isIPv6 bool) 
 		}
 	}
 
-	out, err := cmdutil.Output(ctx, "sh", "-c", script)
+	res, err := runner.Run(ctx, process.Shell(script))
 	if err != nil {
 		return "", fmt.Errorf("getSingleDeviceIP(%s): %w", device, err)
 	}
-	ip := strings.TrimSpace(string(out))
+	ip := strings.TrimSpace(string(res.Stdout))
 
 	// Fallback for default IPv4 device.
 	if ip == "" && (device == "" || device == "default") && !isIPv6 {
 		fallback := "ip -4 addr show dev $(ip route show default | awk '{print $5}') | grep inet | awk '{print $2}' | cut -d/ -f1"
-		out, err = cmdutil.Output(ctx, "sh", "-c", fallback)
+		res, err = runner.Run(ctx, process.Shell(fallback))
 		if err == nil {
-			ip = strings.TrimSpace(string(out))
+			ip = strings.TrimSpace(string(res.Stdout))
 		}
 	}
 	if ip == "" {
@@ -448,16 +517,20 @@ func getSingleDeviceIP(ctx context.Context, device, subnet string, isIPv6 bool) 
 
 // filterMissingDevices removes devices that have no IP (or no interface for rdmaOnly).
 // Mirrors Python filter_out_missing_devices() at weka_runtime.py:3720.
-func filterMissingDevices(ctx context.Context, names []string, rdmaOnly bool) []string {
+func filterMissingDevices(ctx context.Context, runner process.CommandRunner, names []string, rdmaOnly bool) []string {
 	var available []string
 	for _, name := range names {
 		if rdmaOnly {
 			// Just check if the interface exists.
-			if err := cmdutil.Run(ctx, "ip", "link", "show", "dev", name); err == nil {
+			if _, err := runner.Run(ctx, process.Command{
+				Path: "ip",
+				Args: []string{"link", "show", "dev", name},
+				Log:  process.LogExecution,
+			}); err == nil {
 				available = append(available, name)
 			}
 		} else {
-			ip, err := getSingleDeviceIP(ctx, name, "", false)
+			ip, err := getSingleDeviceIP(ctx, runner, name, "", false)
 			if err == nil && ip != "" {
 				available = append(available, name)
 			}
@@ -466,25 +539,42 @@ func filterMissingDevices(ctx context.Context, names []string, rdmaOnly bool) []
 	return available
 }
 
-// getContainerNetDevices reads the current net_devices from weka local resources.
-func getContainerNetDevices(ctx context.Context, name string) ([]string, error) {
-	out, err := cmdutil.Output(ctx, "weka", "local", "resources", "-C", name, "--json")
+// getContainerNetDevices reads the container's current net devices and RDMA-registered
+// devices from `weka local resources`. Mirrors resources['net_devices'] /
+// resources['rdma_devices']['devices'] read in Python reconcile_net_devices() at
+// weka_runtime.py:2893-2896.
+func getContainerNetDevices(ctx context.Context, runner process.CommandRunner, name string) (netDevices, rdmaDevices map[string]struct{}, err error) {
+	res, err := runner.Run(ctx, process.Command{
+		Path:   "weka",
+		Args:   []string{"local", "resources", "-C", name, "--json"},
+		Output: process.Capture,
+		Log:    process.LogExecution,
+	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var res struct {
+	var parsed struct {
 		NetDevices []struct {
 			Device string `json:"device"`
 		} `json:"net_devices"`
+		RdmaDevices struct {
+			Devices []struct {
+				Name string `json:"name"`
+			} `json:"devices"`
+		} `json:"rdma_devices"`
 	}
-	if err := json.Unmarshal(out, &res); err != nil {
-		return nil, err
+	if err := json.Unmarshal(res.Stdout, &parsed); err != nil {
+		return nil, nil, err
 	}
-	result := make([]string, len(res.NetDevices))
-	for i, d := range res.NetDevices {
-		result[i] = d.Device
+	netDevices = make(map[string]struct{}, len(parsed.NetDevices))
+	for _, d := range parsed.NetDevices {
+		netDevices[d.Device] = struct{}{}
 	}
-	return result, nil
+	rdmaDevices = make(map[string]struct{}, len(parsed.RdmaDevices.Devices))
+	for _, d := range parsed.RdmaDevices.Devices {
+		rdmaDevices[d.Name] = struct{}{}
+	}
+	return netDevices, rdmaDevices, nil
 }
 
 // ShouldAllocateVFPerIoNode reports whether the given network device string uses
@@ -494,16 +584,7 @@ func ShouldAllocateVFPerIoNode(networkDevice string) bool {
 	return strings.Contains(networkDevice, "vf_")
 }
 
-// isUDP mirrors Python is_udp().
-func isUDP(cfg *config.Config) bool {
-	return cfg.UDPMode || strings.EqualFold(cfg.NetworkDevice, "udp")
-}
-
-// mustJSONMarshal marshals v or panics. Only used with compile-time-known string slices.
-func mustJSONMarshal(v interface{}) string {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return string(b)
+// IsUDP mirrors Python is_udp().
+func IsUDP(udpMode bool, networkDevice string) bool {
+	return udpMode || strings.EqualFold(networkDevice, "udp")
 }

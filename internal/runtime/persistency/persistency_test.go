@@ -1,9 +1,14 @@
 package persistency
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/weka/weka-operator/internal/runtime/config"
+	"github.com/weka/weka-operator/internal/runtime/paths"
+	"github.com/weka/weka-operator/internal/runtime/process"
 )
 
 // TestConfigureScript_OptWekaBlock verifies that the generated shell script for the
@@ -111,5 +116,60 @@ func TestFilterCACertContent(t *testing.T) {
 				t.Errorf("filterCACertContent() = %q, want %q", got, tc.wantBytes)
 			}
 		})
+	}
+}
+
+// fakeRunner records issued commands and returns scripted results, keyed by Path.
+type fakeRunner struct {
+	commands []process.Command
+}
+
+func (f *fakeRunner) Run(_ context.Context, c process.Command) (process.Result, error) {
+	f.commands = append(f.commands, c)
+	return process.Result{}, nil
+}
+
+// TestConfigure_RunsMountAndFinalScripts verifies Configure issues the bind-mount script
+// and the final (shared-configs + persistency-configured marker) script via the runner,
+// using the given paths.Roots and config.Persistence instead of hardcoded defaults.
+func TestConfigure_RunsMountAndFinalScripts(t *testing.T) {
+	runner := &fakeRunner{}
+	p := paths.Roots{HostBinds: "/host-binds"}
+	persistence := config.Persistence{Mode: "local"}
+
+	if err := Configure(context.Background(), runner, persistence, p); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
+
+	if len(runner.commands) != 2 {
+		t.Fatalf("got %d commands, want 2", len(runner.commands))
+	}
+	for _, cmd := range runner.commands {
+		if cmd.Path != "sh" || len(cmd.Args) != 2 || cmd.Args[0] != "-c" {
+			t.Errorf("command = %+v, want sh -c <script>", cmd)
+		}
+	}
+	if !strings.Contains(runner.commands[0].Args[1], "/host-binds/opt-weka") {
+		t.Errorf("mount script = %q, want it to reference /host-binds/opt-weka", runner.commands[0].Args[1])
+	}
+	if !strings.Contains(runner.commands[1].Args[1], persistencyConfiguredPath) {
+		t.Errorf("final script = %q, want it to touch %q", runner.commands[1].Args[1], persistencyConfiguredPath)
+	}
+}
+
+// TestConfigure_GlobalPersistenceDir verifies global persistence mode derives the
+// persistence directory from the container ID rather than HostBinds.
+func TestConfigure_GlobalPersistenceDir(t *testing.T) {
+	runner := &fakeRunner{}
+	p := paths.Roots{HostBinds: "/host-binds"}
+	persistence := config.Persistence{Mode: "global", ContainerID: "abc123"}
+
+	if err := Configure(context.Background(), runner, persistence, p); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
+
+	want := "/opt/weka-global-persistence/containers/abc123"
+	if !strings.Contains(runner.commands[0].Args[1], want) {
+		t.Errorf("mount script = %q, want it to reference %q", runner.commands[0].Args[1], want)
 	}
 }

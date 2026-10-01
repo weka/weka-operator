@@ -1,67 +1,32 @@
-// Package syslog adds a syslog daemon to the process supervisor.
+// Package syslog builds the syslog daemon command for the process supervisor.
 // Mirrors start_syslog() at weka_runtime.py:3995.
 package syslog
 
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
-	"github.com/weka/weka-operator/internal/runtime/config"
-	"github.com/weka/weka-operator/internal/runtime/daemon"
+	"github.com/weka/weka-operator/internal/runtime/process"
 )
 
-const logrotateConfigPath = "/etc/logrotate.conf"
-
-// Paths must match the file() destinations in resources/syslog-ng.conf. A path that
-// does not exist is skipped silently by missingok, so that file never rotates.
-// Mirrors Python write_logrotate_config() at weka_runtime.py:2413.
-const logrotateConfig = `/var/log/syslog /var/log/error {
-    size 1M
-    rotate 10
-    missingok
-    notifempty
-    compress
-    delaycompress
-    postrotate
-      if [ -f /var/run/syslog-ng.pid ]; then
-        kill -HUP $(cat /var/run/syslog-ng.pid)
-      else
-        echo "syslog-ng.pid not found, skipping reload" >&2
-      fi
-    endscript
-}
-`
-
-// AddToDaemon registers the appropriate syslog daemon with the supervisor and,
-// for syslog-ng, starts the periodic logrotate loop.
-// Mirrors Python start_syslog() at weka_runtime.py:4462 and the periodic_logrotate
-// task creation gated on `MODE not in ["adhoc-op"] and not use_go_syslog()`.
-func AddToDaemon(ctx context.Context, sup *daemon.Supervisor, cfg *config.Config) {
-	cmd, args := chooseSyslog(cfg.SyslogPackage)
-	if !useGoSyslog(cfg.SyslogPackage) {
-		stripMongodbModule(ctx)
-		if cfg.Mode != "adhoc-op" {
-			go periodicLogrotate(ctx)
-		}
+// Command returns the syslog daemon command to run, choosing go-syslog or syslog-ng
+// per pkg. It does not start the process.
+// Mirrors Python start_syslog() at weka_runtime.py:4462.
+func Command(pkg string) (process.Command, error) {
+	if UseGoSyslog(pkg) {
+		return process.Command{Path: "/usr/sbin/go-syslog"}, nil
 	}
-	sup.Add("syslog", func() *exec.Cmd {
-		return exec.Command(cmd, args...) //nolint:gosec // path is a known binary
-	})
+	return process.Command{
+		Path: "/usr/sbin/syslog-ng",
+		Args: []string{"-F", "-f", "/etc/syslog-ng/syslog-ng.conf", "--pidfile", "/var/run/syslog-ng.pid"},
+	}, nil
 }
 
-func chooseSyslog(pkg string) (cmd string, args []string) {
-	if useGoSyslog(pkg) {
-		return "/usr/sbin/go-syslog", nil
-	}
-	return "/usr/sbin/syslog-ng", []string{"-F", "-f", "/etc/syslog-ng/syslog-ng.conf", "--pidfile", "/var/run/syslog-ng.pid"}
-}
-
-func useGoSyslog(pkg string) bool {
+// UseGoSyslog reports whether pkg resolves to go-syslog: explicitly, or ("auto"/empty)
+// by probing for the go-syslog binary.
+func UseGoSyslog(pkg string) bool {
 	switch pkg {
 	case "go-syslog":
 		return true
@@ -73,13 +38,13 @@ func useGoSyslog(pkg string) bool {
 	}
 }
 
-// stripMongodbModule removes syslog-ng's mongodb output module. syslog-ng auto-loads
+// StripMongodbModule removes syslog-ng's mongodb output module. syslog-ng auto-loads
 // every module in its module path, and libafmongodb.so links libmongoc, whose
 // constructor orphans a deleted-but-open /dev/shm counters inode on every reload.
 // No destination here uses mongodb(), so the module is only a liability.
 // Mirrors Python strip_syslog_ng_mongodb_module() at weka_runtime.py:300.
-func stripMongodbModule(ctx context.Context) {
-	_, logger := instrumentation.CreateLogSpan(ctx, "syslog.stripMongodbModule")
+func StripMongodbModule(ctx context.Context) {
+	_, logger := instrumentation.CreateLogSpan(ctx, "syslog.StripMongodbModule")
 	defer logger.End()
 
 	found, err := filepath.Glob("/usr/lib*/syslog-ng/*/libafmongodb.so")
@@ -97,25 +62,5 @@ func stripMongodbModule(ctx context.Context) {
 			continue
 		}
 		logger.Info("removed unused syslog-ng module", "path", so)
-	}
-}
-
-// periodicLogrotate rewrites the logrotate config and runs logrotate every 60s
-// until ctx is cancelled. Mirrors Python periodic_logrotate() at weka_runtime.py:2436.
-func periodicLogrotate(ctx context.Context) {
-	_, logger := instrumentation.CreateLogSpan(ctx, "syslog.periodicLogrotate")
-	defer logger.End()
-
-	for {
-		if err := os.WriteFile(logrotateConfigPath, []byte(logrotateConfig), 0o644); err != nil {
-			logger.Warn("failed to write logrotate config", "err", err)
-		} else if err := cmdutil.Run(ctx, "logrotate", logrotateConfigPath); err != nil {
-			logger.Warn("logrotate failed", "err", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(60 * time.Second):
-		}
 	}
 }
