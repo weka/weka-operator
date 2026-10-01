@@ -1,6 +1,6 @@
 module github.com/weka/weka-operator/pkg/weka-k8s-api
 
-go 1.27.0
+go 1.27.1
 
 require (
 	k8s.io/api v0.36.3
