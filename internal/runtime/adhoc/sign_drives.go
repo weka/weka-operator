@@ -11,10 +11,11 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/runtime/blockdev"
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
-	"github.com/weka/weka-operator/internal/runtime/config"
+	"github.com/weka/weka-operator/internal/runtime/clock"
+	"github.com/weka/weka-operator/internal/runtime/process"
 	"github.com/weka/weka-operator/internal/runtime/results"
 	"github.com/weka/weka-operator/internal/runtime/wekadrive"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 const (
@@ -25,16 +26,16 @@ const (
 )
 
 // RunSignDrives implements the sign-drives adhoc instruction.
-// It reads a domain.SignedDrivesExtendedPayload from cfg.Instructions.Payload,
+// It reads a domain.SignedDrivesExtendedPayload from payloadJSON,
 // enumerates target devices according to the payload type, optionally excludes
 // already-claimed drives, and either signs for proxy mode or regular mode.
-func RunSignDrives(ctx context.Context, cfg *config.Config) error {
+func RunSignDrives(ctx context.Context, runner process.CommandRunner, clk clock.Clock, payloadJSON, resultsPath string) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "RunSignDrives")
 	defer logger.End()
 
 	// 1. Parse payload
 	var payload domain.SignedDrivesExtendedPayload
-	if err := json.Unmarshal([]byte(cfg.Instructions.Payload), &payload); err != nil {
+	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
 		return fmt.Errorf("sign-drives: unmarshal payload: %w", err)
 	}
 
@@ -49,7 +50,7 @@ func RunSignDrives(ctx context.Context, cfg *config.Config) error {
 	}
 
 	// 3. Get drives with cluster GUID to know which excluded serials map to real paths
-	guidMap, err := wekadrive.GetDrivesWithClusterGUID(ctx, payload.Shared)
+	guidMap, err := wekadrive.GetDrivesWithClusterGUID(ctx, runner, payload.Shared)
 	if err != nil {
 		logger.Warn("sign-drives: GetDrivesWithClusterGUID failed, proceeding without exclusions", "err", err)
 		guidMap = map[string]string{}
@@ -67,7 +68,7 @@ func RunSignDrives(ctx context.Context, cfg *config.Config) error {
 	}
 
 	if payload.DriveExclusions != nil && len(payload.DriveExclusions.Rules) > 0 {
-		drives, dErr := wekadrive.GetDrivesWithSignTool(ctx, payload.Shared)
+		drives, dErr := wekadrive.GetDrivesWithSignTool(ctx, runner, payload.Shared)
 		if dErr != nil {
 			return fmt.Errorf("sign-drives: GetDrivesWithSignTool: %w", dErr)
 		}
@@ -77,7 +78,7 @@ func RunSignDrives(ctx context.Context, cfg *config.Config) error {
 	}
 
 	// 5. Enumerate device paths by payload type
-	paths, pathErr := enumerateDevicePaths(ctx, &payload)
+	paths, pathErr := enumerateDevicePaths(ctx, runner, &payload)
 	if pathErr != nil {
 		return fmt.Errorf("sign-drives: enumerate paths: %w", pathErr)
 	}
@@ -96,49 +97,48 @@ func RunSignDrives(ctx context.Context, cfg *config.Config) error {
 
 	// 7. Sign and write results
 	if payload.Shared {
-		if _, signErr := wekadrive.SignBatchProxy(ctx, filtered, opts); signErr != nil {
+		if _, signErr := wekadrive.SignBatchProxy(ctx, runner, filtered, opts); signErr != nil {
 			return fmt.Errorf("sign-drives: SignBatchProxy: %w", signErr)
 		}
 		// Mirror Python asyncio.sleep(3) hack at weka_runtime.py:4298 — DO NOT remove.
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(3 * time.Second):
+		if sleepErr := clock.Sleep(ctx, clk, 3*time.Second); sleepErr != nil {
+			return sleepErr
 		}
-		proxyDrives, listErr := wekadrive.ListAllProxyDrives(ctx)
+		proxyDrives, listErr := wekadrive.ListAllProxyDrives(ctx, runner)
 		if listErr != nil {
 			return fmt.Errorf("sign-drives: ListAllProxyDrives: %w", listErr)
 		}
 		// Mirror Python discover_ssdproxy_drives() (commit 44c5d512): also return
 		// raw_drives and kernel_view_complete alongside proxy_drives.
-		return results.Write(domain.DriveNodeResults{
+		return results.Write(ctx, resultsPath, domain.DriveNodeResults{
 			ProxyDrives:        proxyDrives,
-			RawDrives:          collectRawDrives(ctx),
+			RawDrives:          collectRawDrives(ctx, runner),
 			KernelViewComplete: blockdev.IsKernelViewComplete(ctx),
 		})
 	}
 
 	// Regular signing — signed paths themselves are not needed in result; discover-drives populates it
-	if _, signErr := wekadrive.SignBatch(ctx, filtered, opts); signErr != nil {
+	if _, signErr := wekadrive.SignBatch(ctx, runner, filtered, opts); signErr != nil {
 		return fmt.Errorf("sign-drives: SignBatch: %w", signErr)
 	}
 	// Mirror Python asyncio.sleep(3) hack at weka_runtime.py:4316 — DO NOT remove.
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(3 * time.Second):
+	if sleepErr := clock.Sleep(ctx, clk, 3*time.Second); sleepErr != nil {
+		return sleepErr
 	}
-	return RunDiscoverDrives(ctx, cfg)
+	return RunDiscoverDrives(ctx, runner, resultsPath)
 }
 
 // enumerateDevicePaths resolves which device paths should be signed based on the payload type.
-func enumerateDevicePaths(ctx context.Context, payload *domain.SignedDrivesExtendedPayload) ([]string, error) {
+func enumerateDevicePaths(ctx context.Context, runner process.CommandRunner, payload *domain.SignedDrivesExtendedPayload) ([]string, error) {
 	switch payload.Type {
 	case "device-paths":
 		return payload.DevicePaths, nil
 
+	case weka.SignDrivesTypeDeviceSerials:
+		return resolveDevicePathsBySerials(ctx, runner, payload.DeviceSerials)
+
 	case "all-not-root":
-		disks, err := blockdev.FindDisks(ctx)
+		disks, err := blockdev.FindDisks(ctx, runner)
 		if err != nil {
 			return nil, fmt.Errorf("all-not-root: FindDisks: %w", err)
 		}
@@ -151,7 +151,7 @@ func enumerateDevicePaths(ctx context.Context, payload *domain.SignedDrivesExten
 		return paths, nil
 
 	case "aws-all":
-		return pciToDevicePaths(ctx, awsVendorID, awsDeviceID)
+		return pciToDevicePaths(ctx, runner, awsVendorID, awsDeviceID)
 
 	case "gcp-all":
 		return gcpSysfsDevicePaths(ctx, gcpVendorID, gcpDeviceID)
@@ -161,27 +161,40 @@ func enumerateDevicePaths(ctx context.Context, payload *domain.SignedDrivesExten
 			return nil, fmt.Errorf("device-identifiers: pciDevices is required")
 		}
 		pci := payload.PCIDevices
-		return pciToDevicePaths(ctx, pci.VendorId, pci.DeviceId)
+		return pciToDevicePaths(ctx, runner, pci.VendorId, pci.DeviceId)
 
 	default:
 		return nil, fmt.Errorf("unknown sign-drives type: %q", payload.Type)
 	}
 }
 
+// resolveDevicePathsBySerials fails if any serial does not resolve to a block device.
+func resolveDevicePathsBySerials(ctx context.Context, runner process.CommandRunner, serials []string) ([]string, error) {
+	paths := make([]string, 0, len(serials))
+	for _, serial := range serials {
+		p, err := blockdev.GetDevicePathBySerial(ctx, runner, serial)
+		if err != nil {
+			return nil, fmt.Errorf("could not resolve device path for serial %s: %w", serial, err)
+		}
+		paths = append(paths, p)
+	}
+	return paths, nil
+}
+
 // pciToDevicePaths runs lspci and maps matching PCI addresses to /dev/disk/by-path/ paths.
-func pciToDevicePaths(ctx context.Context, vendorID, deviceID string) ([]string, error) {
+func pciToDevicePaths(ctx context.Context, runner process.CommandRunner, vendorID, deviceID string) ([]string, error) {
 	if vendorID == "" || deviceID == "" {
 		return nil, fmt.Errorf("pciToDevicePaths: vendorId and deviceId are required")
 	}
 	// -D shows full PCI domain numbers (e.g. "0000:00:1f.0"); mirrors Python commit 587db35e.
 	// The first whitespace-delimited field is still the BDF address, so downstream parsing is unaffected.
-	out, err := cmdutil.Output(ctx, "lspci", "-D", "-d", vendorID+":"+deviceID)
+	res, err := runner.Run(ctx, process.Command{Path: "lspci", Args: []string{"-D", "-d", vendorID + ":" + deviceID}})
 	if err != nil {
 		instrumentation.CurrentSpanLogger(ctx).Warn("pciToDevicePaths: lspci found no devices", "err", err)
 		return nil, nil
 	}
 	var paths []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(string(res.Stdout)), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

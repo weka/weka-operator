@@ -4,81 +4,84 @@ package generation
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
-	"github.com/weka/weka-operator/internal/runtime/config"
+	"github.com/weka/weka-operator/internal/runtime/clock"
+	"github.com/weka/weka-operator/internal/runtime/paths"
 )
 
-const (
-	wekaK8sRuntimeDir = "/opt/weka/k8s-runtime"
-	generationPath    = "/opt/weka/k8s-runtime/runtime-generation"
-	persistencyMarker = "/opt/weka/k8s-runtime/persistency-configured"
-	persistBindsDir   = "/host-binds/opt-weka"
-)
+const persistBindsSubdir = "opt-weka"
+const generationFile = "runtime-generation"
+const persistencyMarkerFile = "persistency-configured"
 
-// currentGeneration is set once at program start as a float-like string (matching Python str(time.time())).
-var currentGeneration = fmt.Sprintf("%f", float64(time.Now().UnixNano())/1e9)
-
-// Write waits for persistency to be configured (if needed), then writes the current generation.
+// Publish waits for persistency to be configured (if needed), then writes a fresh generation
+// marker and returns it.
 // Mirrors Python write_generation() at weka_runtime.py:3290.
-func Write(ctx context.Context, _ *config.Config) error {
-	_, logger := instrumentation.CreateLogSpan(ctx, "generation.Write")
+func Publish(ctx context.Context, p paths.Roots) (string, error) { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
+	_, logger := instrumentation.CreateLogSpan(ctx, "generation.Publish")
 	defer logger.End()
 
-	// Wait while /host-binds/opt-weka exists but persistency is not yet configured.
-	if err := cmdutil.PollUntil(ctx, 1*time.Second, func() bool {
+	persistBindsDir := p.HostBinds + "/" + persistBindsSubdir
+	persistencyMarker := p.K8sRuntime + "/" + persistencyMarkerFile
+	generationPath := p.K8sRuntime + "/" + generationFile
+
+	// Wait while the persist-binds dir exists but persistency is not yet configured.
+	if err := clock.Poll(ctx, clock.System, 1*time.Second, func() (bool, error) {
 		_, errBinds := os.Stat(persistBindsDir)
 		_, errMarker := os.Stat(persistencyMarker)
 		if os.IsNotExist(errBinds) || errMarker == nil {
-			return true
+			return true, nil
 		}
 		logger.Info("Waiting for persistency to be configured")
-		return false
+		return false, nil
 	}); err != nil {
-		return fmt.Errorf("generation.Write: waiting for persistency: %w", err)
+		return "", fmt.Errorf("generation.Publish: waiting for persistency: %w", err)
 	}
 
-	logger.Info("Writing generation", "generation", currentGeneration)
-	if err := os.MkdirAll(wekaK8sRuntimeDir, 0o755); err != nil {
-		return fmt.Errorf("generation.Write mkdir: %w", err)
+	marker := fmt.Sprintf("%f", float64(time.Now().UnixNano())/1e9)
+	logger.Info("Writing generation", "generation", marker)
+	if err := os.MkdirAll(p.K8sRuntime, 0o755); err != nil {
+		return "", fmt.Errorf("generation.Publish mkdir: %w", err)
 	}
-	if err := os.WriteFile(generationPath, []byte(currentGeneration), 0o644); err != nil {
-		return fmt.Errorf("generation.Write: %w", err)
+	if err := os.WriteFile(generationPath, []byte(marker), 0o644); err != nil {
+		return "", fmt.Errorf("generation.Publish: %w", err)
 	}
-	return nil
+	return marker, nil
 }
 
-// ObtainLock binds an abstract-namespace UNIX socket to provide an exclusive runtime lock.
+// AcquireLock binds an abstract-namespace UNIX socket to provide an exclusive runtime lock,
+// with a single bind attempt (no retries): the second bind on an already-held name fails.
 // Mirrors Python obtain_lock() at weka_runtime.py:3312.
-func ObtainLock(name string) (net.PacketConn, error) {
+func AcquireLock(name string) (io.Closer, error) {
 	return net.ListenPacket("unixgram", "\x00weka_runtime_"+name)
 }
 
-// IsWrongGeneration returns true when the on-disk generation differs from the current process.
+// IsTakenOver reports whether the on-disk generation marker differs from marker, meaning
+// another instance has taken over. A missing or whitespace-only on-disk marker is not a
+// takeover.
 // Mirrors Python is_wrong_generation() at weka_runtime.py:4325.
-func IsWrongGeneration(cfg *config.Config) bool {
-	switch cfg.Mode {
-	case "drivers-loader", "discovery", "drivers-builder":
-		return false
-	}
+func IsTakenOver(p paths.Roots, marker string) (bool, error) { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
+	generationPath := p.K8sRuntime + "/" + generationFile
 
 	content, err := os.ReadFile(generationPath)
-	if err != nil || len(content) == 0 {
-		return false
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("generation.IsTakenOver: %w", err)
 	}
 	onDisk := strings.TrimSpace(string(content))
-	if onDisk == currentGeneration {
-		return false
+	if onDisk == "" {
+		return false, nil
 	}
-	// Log at error level (non-fatal — caller decides what to do).
-	fmt.Fprintf(os.Stderr, "generation mismatch: expected %s got %s\n", currentGeneration, onDisk)
-	return true
+	return onDisk != marker, nil
 }
 
 // ReadBootID reads /proc/sys/kernel/random/boot_id.

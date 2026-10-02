@@ -9,24 +9,17 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 )
 
-const defaultResultsPath = "/weka-runtime/results.json"
+// DefaultPath is the results file location used when no config-driven path is available.
+const DefaultPath = "/weka-runtime/results.json"
 
-func resultsPath() string {
-	if p := os.Getenv("WEKA_RUNTIME_RESULTS_PATH"); p != "" {
-		return p
-	}
-	return defaultResultsPath
-}
-
-func Write(result any) error {
+// Write marshals result to JSON and writes it to path, creating parent directories as needed.
+func Write(ctx context.Context, path string, result any) error {
 	data, err := json.Marshal(result)
 	if err != nil {
 		return err
 	}
-	path := resultsPath()
 
-	// Mirror Python write_results: logging.info("Writing result into /weka-runtime/results.json, results: \n%s", results)
-	_, logger := instrumentation.CreateLogSpan(context.Background(), "results.Write", "path", path)
+	_, logger := instrumentation.CreateLogSpan(ctx, "results.Write", "path", path)
 	defer logger.End()
 	logger.Info("Writing result", "path", path, "results", string(data))
 
@@ -34,8 +27,4 @@ func Write(result any) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
-}
-
-func Read() ([]byte, error) {
-	return os.ReadFile(resultsPath())
 }

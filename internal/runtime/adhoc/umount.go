@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
-	"github.com/weka/weka-operator/internal/runtime/config"
+	"github.com/weka/weka-operator/internal/pkg/osinfo"
+	"github.com/weka/weka-operator/internal/runtime/process"
 	"github.com/weka/weka-operator/internal/runtime/results"
 )
 
@@ -18,25 +18,22 @@ type umountResult struct {
 // RunUmount unmounts all active wekafs mounts in the host namespace,
 // then attempts to remove the wekafsio kernel module.
 // Matches Python umount_drivers() behaviour.
-func RunUmount(ctx context.Context, _ *config.Config) error {
+func RunUmount(ctx context.Context, runner process.CommandRunner, resultsPath string) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "RunUmount")
 	defer logger.End()
 
 	// 1. List wekafs mounts: 3rd whitespace-separated field of each line
-	out, err := cmdutil.Output(ctx,
-		"nsenter", "--mount", "--pid", "--target", "1", "--",
-		"mount", "-t", "wekafs",
-	)
+	res, err := runner.Run(ctx, process.Command{Path: "nsenter", Args: osinfo.HostNsenterArgs("mount", "-t", "wekafs")})
 	if err != nil {
 		logger.Warn("umount: failed to list wekafs mounts", "err", err)
 		// Proceed with empty mount list — write empty results
-		return results.Write(umountResult{})
+		return results.Write(ctx, resultsPath, umountResult{})
 	}
 
 	var errs []string
 	var umounted []string
 
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(string(res.Stdout), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -48,10 +45,7 @@ func RunUmount(ctx context.Context, _ *config.Config) error {
 		}
 		mountPoint := fields[2]
 
-		if umountErr := cmdutil.Run(ctx,
-			"nsenter", "--mount", "--pid", "--target", "1", "--",
-			"umount", mountPoint,
-		); umountErr != nil {
+		if _, umountErr := runner.Run(ctx, process.Command{Path: "nsenter", Args: osinfo.HostNsenterArgs("umount", mountPoint)}); umountErr != nil {
 			errs = append(errs, umountErr.Error())
 			continue
 		}
@@ -60,17 +54,17 @@ func RunUmount(ctx context.Context, _ *config.Config) error {
 
 	// 2. If no errors, attempt to remove the kernel module
 	if len(errs) == 0 {
-		if rmErr := cmdutil.Run(ctx,
-			"nsenter", "--mount", "--pid", "--target", "1", "--",
+		if _, rmErr := runner.Run(ctx, process.Command{Path: "nsenter", Args: []string{
+			"--mount", "--pid", "--target", "1", "--",
 			"rmmod", "wekafsio",
-		); rmErr != nil {
+		}}); rmErr != nil {
 			logger.Warn("umount: rmmod wekafsio failed (non-fatal)", "err", rmErr)
 		}
 	}
 
 	logger.Info("umount complete", "umounted", len(umounted), "errors", len(errs))
 
-	return results.Write(umountResult{
+	return results.Write(ctx, resultsPath, umountResult{
 		Error:         errs,
 		UmountedPaths: umounted,
 	})
