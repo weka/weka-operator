@@ -61,17 +61,12 @@ func KernelBuildID(driversBuildID, distService string) (string, error) {
 	case nodeInfo.IsNixos():
 		return nodeInfo.OsBuildId, nil
 
-	case isUbuntu24(nodeInfo):
-		if distService != "" {
-			return ubuntu24BuildID, nil
-		}
-		// No dist service: weka will use uname -r internally.
-		return "", nil
-
-	default:
-		// RHCOS and others use the OS build ID.
-		return nodeInfo.OsBuildId, nil
+	case isUbuntu24(nodeInfo) && distService != "":
+		return ubuntu24BuildID, nil
 	}
+	// Elsewhere weka resolves drivers by uname -r: drivers.weka.io has no packages keyed by
+	// other OS build IDs (e.g. "22.04"), so passing one fails the download.
+	return "", nil
 }
 
 // BuilderKernelBuildID returns the kernel build ID for the drivers-builder mode: "ubuntu24.04"

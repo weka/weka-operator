@@ -32,7 +32,7 @@ func (r *backendRuntime) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	err = ports.SaveBackend(r.deps.Paths, state.Ports)
+	err = ports.Save(r.deps.Paths, state.Ports)
 	if err != nil {
 		return err
 	}

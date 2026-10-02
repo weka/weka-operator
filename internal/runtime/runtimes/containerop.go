@@ -56,12 +56,12 @@ func (r *containerOpRuntime) Start(ctx context.Context) error {
 		return fmt.Errorf("ensure container exec: %w", err)
 	}
 
-	if cfg.Operation.Raw == "" {
+	if cfg.Operation.Type == "" {
 		return fmt.Errorf("no instructions provided")
 	}
 	switch cfg.Operation.Type {
 	case "ensure-nics":
-		return adhoc.RunEnsureNICs(ctx, deps.Runner, cfg.Operation.Raw, cfg.AWS, cfg.Results.Path)
+		return adhoc.RunEnsureNICs(ctx, deps.Runner, cfg.Operation.Payload, cfg.AWS, cfg.Results.Path)
 	case "feature-flags-update":
 		return adhoc.RunFeatureFlagsUpdate(ctx, features, cfg.Results.Path)
 	default:

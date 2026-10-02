@@ -70,6 +70,20 @@ func TestMalformedInstructionsDeferredByFamily(t *testing.T) {
 	}
 }
 
+// The operator nests the payload as a JSON string; consumers must get the inner document, not the envelope.
+func TestOperationPayloadIsInnerDocument(t *testing.T) {
+	inner := `{"type":"all-not-root","nodeSelector":{"weka.io/supports-backends":"true"}}`
+	raw := `{"type":"sign-drives","payload":"{\"type\":\"all-not-root\",\"nodeSelector\":{\"weka.io/supports-backends\":\"true\"}}"}`
+
+	cfg, err := ParseAdhoc(Env{"INSTRUCTIONS": raw})
+	if err != nil {
+		t.Fatalf("ParseAdhoc = %v", err)
+	}
+	if cfg.Operation.Type != "sign-drives" || cfg.Operation.Payload != inner {
+		t.Errorf("Operation = %+v", cfg.Operation)
+	}
+}
+
 func TestDriverBuilderServePortRule(t *testing.T) {
 	cfg, err := ParseDriverBuilder(Env{})
 	if err != nil || cfg.ServePort != 60002 {

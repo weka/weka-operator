@@ -23,12 +23,16 @@ func newClient(cfg *config.ClientConfig, deps *Deps) *clientRuntime {
 func (r *clientRuntime) Start(ctx context.Context) error {
 	id := r.cfg.Identity
 
-	allocatedPorts, err := ports.AllocateClient(ctx, r.deps.Paths, r.cfg.ClientPorts, r.cfg.Ports)
+	allocatedPorts, err := ports.AllocateClient(ctx, r.cfg.ClientPorts, r.cfg.Ports)
 	if err != nil {
 		return err
 	}
 
 	state, err := acquirePersistentState(ctx, r.deps, "client", &r.cfg.ContainerConfig, allocatedPorts)
+	if err != nil {
+		return err
+	}
+	err = ports.Save(r.deps.Paths, state.Ports)
 	if err != nil {
 		return err
 	}

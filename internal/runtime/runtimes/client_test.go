@@ -13,7 +13,7 @@ import (
 
 // testClientConfig builds a minimal, valid ClientConfig, reusing the same real-filesystem
 // hazard avoidance as testBackendConfig (explicit CoreIDs, UDP mode), plus non-zero ports so
-// ports.AllocateClient just persists them instead of probing /proc/net/tcp.
+// ports.AllocateClient keeps them instead of probing /proc/net/tcp.
 func testClientConfig(name string) *config.ClientConfig {
 	return &config.ClientConfig{
 		ContainerConfig: config.ContainerConfig{

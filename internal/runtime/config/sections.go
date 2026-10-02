@@ -280,28 +280,25 @@ func parseDrivers(e Env) Drivers {
 	}
 }
 
-// Operation carries the raw instruction envelope; payloads decode at the consuming operation.
+// Operation is the decoded INSTRUCTIONS envelope; Payload is the operation's own JSON document,
+// which each operation decodes into its payload type.
 type Operation struct {
-	Raw  string // INSTRUCTIONS, verbatim
-	Type weka.InstructionType
+	Type    weka.InstructionType
+	Payload string
 }
 
-// parseOperation decodes only the envelope's type field. A malformed envelope is an error
+// parseOperation decodes the envelope's type and payload fields. A malformed envelope is an error
 // here; whether that error is fatal depends on the family (only Operation-carrying ones fail).
 func parseOperation(e Env) (Operation, error) {
 	raw := e.Get("INSTRUCTIONS")
-	op := Operation{Raw: raw}
 	if raw == "" {
-		return op, nil
+		return Operation{}, nil
 	}
-	var envelope struct {
-		Type weka.InstructionType `json:"type"`
-	}
+	var envelope weka.Instructions
 	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
 		return Operation{}, fmt.Errorf("INSTRUCTIONS: %w", err)
 	}
-	op.Type = envelope.Type
-	return op, nil
+	return Operation{Type: envelope.Type, Payload: envelope.Payload}, nil
 }
 
 // AWS holds IRSA inputs used only by the ensure-nics container operation.
@@ -323,24 +320,26 @@ func parseAWS(e Env) AWS {
 
 // Observability holds OTEL exporter settings and pod/node attributes.
 type Observability struct {
-	Endpoint       string // OTEL_EXPORTER_OTLP_ENDPOINT
-	LogsEndpoint   string // OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
-	Headers        string // OTEL_EXPORTER_OTLP_HEADERS
-	LogsHeaders    string // OTEL_EXPORTER_OTLP_LOGS_HEADERS
-	ServiceName    string // OTEL_SERVICE_NAME
-	ServiceVersion string // OTEL_SERVICE_VERSION
-	LogsEnabled    bool   // OTEL_LOGS_ENABLED, default true
+	Endpoint             string // OTEL_EXPORTER_OTLP_ENDPOINT
+	LogsEndpoint         string // OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+	Headers              string // OTEL_EXPORTER_OTLP_HEADERS
+	LogsHeaders          string // OTEL_EXPORTER_OTLP_LOGS_HEADERS
+	ServiceName          string // OTEL_SERVICE_NAME
+	ServiceVersion       string // OTEL_SERVICE_VERSION
+	DeploymentIdentifier string // OTEL_DEPLOYMENT_IDENTIFIER
+	LogsEnabled          bool   // OTEL_LOGS_ENABLED, default true
 }
 
 func parseObservability(e Env) Observability {
 	return Observability{
-		Endpoint:       e.Get("OTEL_EXPORTER_OTLP_ENDPOINT"),
-		LogsEndpoint:   e.Get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"),
-		Headers:        e.Get("OTEL_EXPORTER_OTLP_HEADERS"),
-		LogsHeaders:    e.Get("OTEL_EXPORTER_OTLP_LOGS_HEADERS"),
-		ServiceName:    e.Get("OTEL_SERVICE_NAME"),
-		ServiceVersion: e.Get("OTEL_SERVICE_VERSION"),
-		LogsEnabled:    parseFoldBool(e, "OTEL_LOGS_ENABLED", true),
+		Endpoint:             e.Get("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		LogsEndpoint:         e.Get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"),
+		Headers:              e.Get("OTEL_EXPORTER_OTLP_HEADERS"),
+		LogsHeaders:          e.Get("OTEL_EXPORTER_OTLP_LOGS_HEADERS"),
+		ServiceName:          e.Get("OTEL_SERVICE_NAME"),
+		ServiceVersion:       e.Get("OTEL_SERVICE_VERSION"),
+		DeploymentIdentifier: e.Get("OTEL_DEPLOYMENT_IDENTIFIER"),
+		LogsEnabled:          parseFoldBool(e, "OTEL_LOGS_ENABLED", true),
 	}
 }
 

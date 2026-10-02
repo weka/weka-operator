@@ -16,7 +16,7 @@ func TestRunAdhoc_NoInstructions(t *testing.T) {
 }
 
 func TestRunAdhoc_UnknownInstruction(t *testing.T) {
-	cfg := config.AdhocConfig{Operation: config.Operation{Raw: "{}", Type: "bogus"}}
+	cfg := config.AdhocConfig{Operation: config.Operation{Type: "bogus"}}
 	err := runAdhoc(context.Background(), &cfg, &Deps{Runner: fakeRunner{}})
 	if err == nil {
 		t.Fatal("runAdhoc: want error for unknown instruction type, got nil")
@@ -25,7 +25,7 @@ func TestRunAdhoc_UnknownInstruction(t *testing.T) {
 
 func TestRunAdhoc_KnownInstruction(t *testing.T) {
 	cfg := config.AdhocConfig{
-		Operation: config.Operation{Raw: "{}", Type: "umount"},
+		Operation: config.Operation{Type: "umount"},
 		Results:   config.Results{Path: filepath.Join(t.TempDir(), "result.json")},
 	}
 	if err := runAdhoc(context.Background(), &cfg, &Deps{Runner: fakeRunner{}}); err != nil {

@@ -35,7 +35,7 @@ func TestContainerOpRuntime_Start_UsesAdhocContainerName(t *testing.T) {
 			Identity: config.Identity{Name: "my-pod-identity"},
 			Results:  config.Results{Path: resultsPath},
 		},
-		Operation: config.Operation{Raw: "{}", Type: "feature-flags-update"},
+		Operation: config.Operation{Type: "feature-flags-update"},
 	}
 
 	rt := newContainerOp(cfg, deps)

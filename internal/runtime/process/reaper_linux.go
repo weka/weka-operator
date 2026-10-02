@@ -49,10 +49,9 @@ func (r *reaper) stopAndJoin() {
 
 // sweep reaps every child of this process not tracked by Manager. A finished entry's pid is
 // stale (the OS may have recycled it for a real orphan since), so it must not shadow that pid.
+// It runs every second for the pod's lifetime, so it opens a span only when it has something to
+// report; a span per sweep exports one span per second per pod.
 func (r *reaper) sweep(ctx context.Context) {
-	_, logger := instrumentation.CreateLogSpan(ctx, "process.reaper.sweep")
-	defer logger.End()
-
 	self := os.Getpid()
 	for _, pid := range scanChildren(self) {
 		r.m.mu.Lock()
@@ -69,7 +68,9 @@ func (r *reaper) sweep(ctx context.Context) {
 			// not actionable. Anything else is unexpected and worth logging.
 			if _, err := syscall.Wait4(pid, &ws, syscall.WNOHANG, nil); err != nil &&
 				err != syscall.ECHILD && err != syscall.ESRCH {
+				_, logger := instrumentation.CreateLogSpan(ctx, "process.reaper.sweep")
 				logger.Error(err, "unexpected error reaping orphan", "pid", pid)
+				logger.End()
 			}
 		}
 		r.m.mu.Unlock()

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -30,7 +33,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	otelShutdown, err := instrumentation.SetupOTelSDKWithOptions(root, "weka-pod-runtime", rt.BinaryVersion, logger)
+	obs := config.ParseObservabilitySection(env)
+	var otelOpts []instrumentation.OTelOption
+	if obs.DeploymentIdentifier != "" {
+		otelOpts = append(otelOpts, instrumentation.WithResourceAttributes("deployment_identifier", obs.DeploymentIdentifier))
+	}
+	otelShutdown, err := instrumentation.SetupOTelSDKWithOptions(root,
+		cmp.Or(obs.ServiceName, "weka-pod-runtime"), cmp.Or(obs.ServiceVersion, rt.BinaryVersion), logger, otelOpts...)
 	if err != nil {
 		// observability is non-critical, log and continue
 		logger.Info("failed to set up OTel SDK", "err", err)
@@ -38,6 +47,15 @@ func main() {
 
 	pm := process.NewManager(root)
 	coord := lifecycle.New(root, pm)
+	// Keep SIGTERM/SIGINT caught for the whole process, not only inside Run: teardown can deliver
+	// one during the flush and exit wait below, which would otherwise kill the process with 143.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		for range sigs {
+			coord.RequestShutdown(lifecycle.ReasonSignal)
+		}
+	}()
 	deps := &runtimes.Deps{
 		Runner:    pm,
 		Processes: pm,

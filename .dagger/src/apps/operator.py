@@ -4,7 +4,7 @@ from typing import List, Optional
 import dagger
 from dagger import dag, Container, Directory, Socket, Secret
 
-from containers.builders import build_go_multiple
+from containers.builders import build_go, build_go_multiple
 
 PLATFORMS = ["linux/amd64", "linux/arm64"]
 

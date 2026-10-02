@@ -20,17 +20,15 @@ const (
 	maxPort      = 65535
 )
 
-// AllocateClient finds free ports for client mode (if not already assigned) and persists
-// them to the runtime vars files.
-// Mirrors Python ensure_client_ports() at weka_runtime.py:3527.
-// No-op allocation when in.Weka != 0 (ports already assigned via resources) — still persists.
-func AllocateClient(ctx context.Context, p paths.Roots, cp config.ClientPorts, in config.Ports) (config.Ports, error) { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
+// AllocateClient finds free ports for client mode when they are not already assigned.
+// Mirrors Python ensure_client_ports() at weka_runtime.py:3527; the caller persists the result
+// with Save once persistent storage is mounted.
+func AllocateClient(ctx context.Context, cp config.ClientPorts, in config.Ports) (config.Ports, error) { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
 	_, logger := instrumentation.CreateLogSpan(ctx, "ports.AllocateClient")
 	defer logger.End()
 
 	if in.Weka != 0 && in.Agent != 0 {
-		// Already have ports from environment; just persist them.
-		return in, savePorts(p, in)
+		return in, nil
 	}
 
 	// Mirror Python assert base_port > 0, "BASE_PORT is not set" at weka_runtime.py:3537.
@@ -68,18 +66,14 @@ func AllocateClient(ctx context.Context, p paths.Roots, cp config.ClientPorts, i
 		in.Weka = weka
 	}
 
-	return in, savePorts(p, in)
+	return in, nil
 }
 
-// SaveBackend persists resolved ports for non-client modes. Client persists via AllocateClient.
-func SaveBackend(p paths.Roots, ports config.Ports) error { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
-	return savePorts(p, ports)
-}
-
-// savePorts writes the port vars files.
+// Save writes the port vars files the operator reads (vars/agent_port for its agent calls).
+// It must run after persistent storage is mounted, which would otherwise hide the files.
 // Mirrors Python save_weka_ports_data() at weka_runtime.py:3554-3557 which writes ONLY
 // vars/port and vars/agent_port — no weka-ports-data.json (that file is never written by Python).
-func savePorts(p paths.Roots, ports config.Ports) error { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
+func Save(p paths.Roots, ports config.Ports) error { //nolint:gocritic // value semantics preferred over pointer churn for this cold-path config struct
 	varsDir := p.K8sRuntime + "/vars"
 	if err := os.MkdirAll(varsDir, 0o755); err != nil {
 		return err

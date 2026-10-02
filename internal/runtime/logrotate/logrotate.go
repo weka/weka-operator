@@ -56,7 +56,7 @@ func Rotate(ctx context.Context, runner process.CommandRunner) error {
 	if _, err := runner.Run(ctx, process.Command{
 		Path: "logrotate",
 		Args: []string{logrotateConfigPath},
-		Log:  process.LogAll,
+		Log:  process.LogOutput,
 	}); err != nil {
 		return fmt.Errorf("run logrotate: %w", err)
 	}

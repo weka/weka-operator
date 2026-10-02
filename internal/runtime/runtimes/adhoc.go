@@ -12,7 +12,7 @@ import (
 // runAdhoc dispatches a single host operation with no agent and no container involved, so
 // there is nothing for Shutdown to stop. Mirrors Python adhoc-op mode at weka_runtime.py.
 func runAdhoc(ctx context.Context, cfg *config.AdhocConfig, deps *Deps) error {
-	if cfg.Operation.Raw == "" {
+	if cfg.Operation.Type == "" {
 		return fmt.Errorf("adhoc-op: no instructions provided")
 	}
 
@@ -24,9 +24,9 @@ func runAdhoc(ctx context.Context, cfg *config.AdhocConfig, deps *Deps) error {
 	case "discover-drives":
 		return adhoc.RunDiscoverDrives(ctx, deps.Runner, cfg.Results.Path)
 	case "sign-drives":
-		return adhoc.RunSignDrives(ctx, deps.Runner, deps.Clock, cfg.Operation.Raw, cfg.Results.Path)
+		return adhoc.RunSignDrives(ctx, deps.Runner, deps.Clock, cfg.Operation.Payload, cfg.Results.Path)
 	case "force-resign-drives":
-		return adhoc.RunForceResignDrives(ctx, deps.Runner, cfg.Operation.Raw, cfg.Results.Path)
+		return adhoc.RunForceResignDrives(ctx, deps.Runner, cfg.Operation.Payload, cfg.Results.Path)
 	case "kernelize":
 		return adhoc.RunKernelize(ctx, deps.Runner, cfg.Results.Path)
 	case "umount":
