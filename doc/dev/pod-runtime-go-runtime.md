@@ -226,6 +226,8 @@ Per spec §7, these are deliberate, not oversights:
   weka container is always created under that fixed name regardless of the
   pod/identity name, and `shutdown.isContainerRunning` filters `weka local
   ps` by it.
+- adhoc-op skips persistent and agent preparation (bind mounts, generation, management IPs,
+  dependencies flag); Python ran them although no adhoc operation reads their results.
 - SSD proxy fails on an empty `MEMORY` before persistent preparation, rather
   than after taking the generation lock and starting the agent.
 - The driver builder binds its HTTP listener before publishing success results
