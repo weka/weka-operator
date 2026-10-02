@@ -191,4 +191,16 @@
         <tags>reference site, GitHub Pages, mkdocs, website, crd-ref-docs, helm-docs, preview-docs.sh, docs.yaml, NAV_GROUPS</tags>
         <summary>How the public Helm chart and CRD reference site in website/ is generated, previewed locally and published to GitHub Pages.</summary>
     </file>
+    <file relpath="dev/pod-runtime-go-runtime.md">
+        <tags>pod runtime, weka_runtime.py, Go rewrite, runtime families, lifecycle coordinator, shutdown policy, process manager, orphan reaping, mode runtime, startup order</tags>
+        <summary>Architecture explanation of the Go rewrite of weka_runtime.py: runtime families and mode mapping, startup order, the lifecycle coordinator's state machine and context tree, process ownership and reaping, the shutdown approval policy table, intentional differences from Python, retained-limitation TODOs, and pending real-system validation.</summary>
+    </file>
+    <file relpath="dev/pod-runtime-parity-findings.md">
+        <tags>pod runtime, weka_runtime.py, parity, known differences, open findings, driver loader, kernel build id</tags>
+        <summary>Unresolved behavioral differences between the Go pod-runtime and weka_runtime.py plus related open findings, each with location, impact, and what is needed to close it.</summary>
+    </file>
+    <file relpath="dev/pod-runtime-fixture-capture.md">
+        <tags>fixture capture, real-system fixtures, KUBECONFIG, testdata, sanitization, read-only allowlist, capture metadata, synthetic vs real</tags>
+        <summary>guide for an agent with a KUBECONFIG to capture sanitized real-cluster fixtures into internal/runtime/testdata/captures/ with a read-only command allowlist and metadata schema.</summary>
+    </file>
 </documentation>
