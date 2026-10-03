@@ -1983,7 +1983,7 @@
           "name": "Subnet",
           "jsonName": "subnet",
           "type": "string",
-          "description": "CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.",
+          "description": "CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.\nWhen set together with deviceNames, both conditions apply: only the named interfaces that also hold an\naddress in this subnet are selected. For management IPs, the address picked is the one within this subnet.",
           "optional": true
         },
         {
@@ -2007,6 +2007,7 @@
             "type": "array",
             "items": "string"
           },
+          "description": "Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface\nholding an address in that subnet, which lets one selector cover nodes on different subnets.\nThe subnet narrowing is skipped for rdmaOnly selectors, whose interfaces may carry no address at all.",
           "optional": true
         },
         {

@@ -4389,19 +4389,24 @@ async def device_interface_exists(device_name: str) -> bool:
 
 
 
-async def filter_out_missing_devices(device_names: List[str], rdma_only: bool = False) -> List[str]:
-    """Filter out devices that are not available in the system."""
+async def filter_out_missing_devices(device_names: List[str], rdma_only: bool = False,
+                                     subnet: Optional[str] = None) -> List[str]:
+    """Filter out devices that are not available in the system.
+
+    When subnet is given, a device is available only if it carries an address in it.
+    """
     available_devices = []
     for device_name in device_names:
         try:
             if rdma_only:
+                # rdma-only NICs are allowed to carry no address at all, so subnet cannot narrow them
                 exists = await device_interface_exists(device_name)
                 if exists:
                     available_devices.append(device_name)
                 else:
                     logging.warning(f"Device {device_name} is not available: interface not found")
             else:
-                ip = await get_single_device_ip(device_name)
+                ip = await get_single_device_ip(device_name, subnet)
                 if ip:
                     available_devices.append(device_name)
                 else:
@@ -4432,7 +4437,10 @@ async def get_devices_by_selectors(selectors_str: str) -> List[dict]:
         disable_rdma = selector.get("disableRdma", False)
 
         if device_names:
-            device_names = await filter_out_missing_devices(device_names, rdma_only=rdma_only)
+            requested_device_names = device_names
+            device_names = await filter_out_missing_devices(device_names, rdma_only=rdma_only, subnet=subnet)
+            if subnet and not device_names:
+                raise Exception(f"No device in {requested_device_names} has an address in subnet {subnet}.")
             if len(device_names) < min_devices:
                 raise Exception(f"Not enough devices found by deviceNames selector. Expected at least {min_devices}, found {len(device_names)}.")
 
@@ -4442,7 +4450,9 @@ async def get_devices_by_selectors(selectors_str: str) -> List[dict]:
             for device_name in device_names:
                 if device_name not in seen_devices:
                     seen_devices.add(device_name)
-                    devices.append({"device": device_name, "subnet": None, "rdma_only": rdma_only, "disable_rdma": disable_rdma})
+                    # subnet was not applied to rdma-only devices above, so it must not reach
+                    # get_single_device_ip in write_management_ips either - it raises on no match
+                    devices.append({"device": device_name, "subnet": None if rdma_only else subnet, "rdma_only": rdma_only, "disable_rdma": disable_rdma})
 
             continue
 
