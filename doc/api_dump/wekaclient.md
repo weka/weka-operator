@@ -236,10 +236,10 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| subnet | string | CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible. |
+| subnet | string | CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.<br>When set together with deviceNames, both conditions apply: only the named interfaces that also hold an<br>address in this subnet are selected. For management IPs, the address picked is the one within this subnet. |
 | min | int | Minimum number of interfaces required from nodes matching this selector. |
 | max | int | Maximum number of interfaces to select per node matching this selector. |
-| deviceNames | []string |  |
+| deviceNames | []string | Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface<br>holding an address in that subnet, which lets one selector cover nodes on different subnets.<br>The subnet narrowing is skipped for rdmaOnly selectors, whose interfaces may carry no address at all. |
 | rdmaOnly | bool |  |
 | disableRdma | bool |  |
 
