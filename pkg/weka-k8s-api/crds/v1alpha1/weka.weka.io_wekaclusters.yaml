@@ -658,6 +658,10 @@ spec:
                     items:
                       properties:
                         deviceNames:
+                          description: |-
+                            Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                            holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                            Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                           items:
                             type: string
                           type: array
@@ -674,9 +678,10 @@ spec:
                         rdmaOnly:
                           type: boolean
                         subnet:
-                          description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                            interfaces. Only interfaces with an IP in this subnet
-                            are eligible.
+                          description: |-
+                            CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                            When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                            address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                           type: string
                       type: object
                     type: array
@@ -698,6 +703,10 @@ spec:
                     items:
                       properties:
                         deviceNames:
+                          description: |-
+                            Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                            holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                            Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                           items:
                             type: string
                           type: array
@@ -714,9 +723,10 @@ spec:
                         rdmaOnly:
                           type: boolean
                         subnet:
-                          description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                            interfaces. Only interfaces with an IP in this subnet
-                            are eligible.
+                          description: |-
+                            CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                            When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                            address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                           type: string
                       type: object
                     type: array
@@ -1210,6 +1220,10 @@ spec:
                         items:
                           properties:
                             deviceNames:
+                              description: |-
+                                Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                                holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                                Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                               items:
                                 type: string
                               type: array
@@ -1226,9 +1240,10 @@ spec:
                             rdmaOnly:
                               type: boolean
                             subnet:
-                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                                interfaces. Only interfaces with an IP in this subnet
-                                are eligible.
+                              description: |-
+                                CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1250,6 +1265,10 @@ spec:
                         items:
                           properties:
                             deviceNames:
+                              description: |-
+                                Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                                holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                                Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                               items:
                                 type: string
                               type: array
@@ -1266,9 +1285,10 @@ spec:
                             rdmaOnly:
                               type: boolean
                             subnet:
-                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                                interfaces. Only interfaces with an IP in this subnet
-                                are eligible.
+                              description: |-
+                                CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1325,6 +1345,10 @@ spec:
                         items:
                           properties:
                             deviceNames:
+                              description: |-
+                                Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                                holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                                Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                               items:
                                 type: string
                               type: array
@@ -1341,9 +1365,10 @@ spec:
                             rdmaOnly:
                               type: boolean
                             subnet:
-                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                                interfaces. Only interfaces with an IP in this subnet
-                                are eligible.
+                              description: |-
+                                CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1365,6 +1390,10 @@ spec:
                         items:
                           properties:
                             deviceNames:
+                              description: |-
+                                Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                                holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                                Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                               items:
                                 type: string
                               type: array
@@ -1381,9 +1410,10 @@ spec:
                             rdmaOnly:
                               type: boolean
                             subnet:
-                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                                interfaces. Only interfaces with an IP in this subnet
-                                are eligible.
+                              description: |-
+                                CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1440,6 +1470,10 @@ spec:
                         items:
                           properties:
                             deviceNames:
+                              description: |-
+                                Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                                holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                                Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                               items:
                                 type: string
                               type: array
@@ -1456,9 +1490,10 @@ spec:
                             rdmaOnly:
                               type: boolean
                             subnet:
-                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                                interfaces. Only interfaces with an IP in this subnet
-                                are eligible.
+                              description: |-
+                                CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1480,6 +1515,10 @@ spec:
                         items:
                           properties:
                             deviceNames:
+                              description: |-
+                                Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                                holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                                Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                               items:
                                 type: string
                               type: array
@@ -1496,9 +1535,10 @@ spec:
                             rdmaOnly:
                               type: boolean
                             subnet:
-                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                                interfaces. Only interfaces with an IP in this subnet
-                                are eligible.
+                              description: |-
+                                CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1555,6 +1595,10 @@ spec:
                         items:
                           properties:
                             deviceNames:
+                              description: |-
+                                Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                                holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                                Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                               items:
                                 type: string
                               type: array
@@ -1571,9 +1615,10 @@ spec:
                             rdmaOnly:
                               type: boolean
                             subnet:
-                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                                interfaces. Only interfaces with an IP in this subnet
-                                are eligible.
+                              description: |-
+                                CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1595,6 +1640,10 @@ spec:
                         items:
                           properties:
                             deviceNames:
+                              description: |-
+                                Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                                holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                                Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                               items:
                                 type: string
                               type: array
@@ -1611,9 +1660,10 @@ spec:
                             rdmaOnly:
                               type: boolean
                             subnet:
-                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                                interfaces. Only interfaces with an IP in this subnet
-                                are eligible.
+                              description: |-
+                                CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1670,6 +1720,10 @@ spec:
                         items:
                           properties:
                             deviceNames:
+                              description: |-
+                                Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                                holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                                Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                               items:
                                 type: string
                               type: array
@@ -1686,9 +1740,10 @@ spec:
                             rdmaOnly:
                               type: boolean
                             subnet:
-                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                                interfaces. Only interfaces with an IP in this subnet
-                                are eligible.
+                              description: |-
+                                CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1710,6 +1765,10 @@ spec:
                         items:
                           properties:
                             deviceNames:
+                              description: |-
+                                Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                                holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                                Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                               items:
                                 type: string
                               type: array
@@ -1726,9 +1785,10 @@ spec:
                             rdmaOnly:
                               type: boolean
                             subnet:
-                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                                interfaces. Only interfaces with an IP in this subnet
-                                are eligible.
+                              description: |-
+                                CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1785,6 +1845,10 @@ spec:
                         items:
                           properties:
                             deviceNames:
+                              description: |-
+                                Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                                holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                                Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                               items:
                                 type: string
                               type: array
@@ -1801,9 +1865,10 @@ spec:
                             rdmaOnly:
                               type: boolean
                             subnet:
-                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                                interfaces. Only interfaces with an IP in this subnet
-                                are eligible.
+                              description: |-
+                                CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1825,6 +1890,10 @@ spec:
                         items:
                           properties:
                             deviceNames:
+                              description: |-
+                                Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+                                holding an address in that subnet, which lets one selector cover nodes on different subnets.
+                                Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
                               items:
                                 type: string
                               type: array
@@ -1841,9 +1910,10 @@ spec:
                             rdmaOnly:
                               type: boolean
                             subnet:
-                              description: CIDR subnet (e.g. 192.168.10.0/24) to filter
-                                interfaces. Only interfaces with an IP in this subnet
-                                are eligible.
+                              description: |-
+                                CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array

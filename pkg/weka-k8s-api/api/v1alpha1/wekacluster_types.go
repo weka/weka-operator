@@ -47,11 +47,16 @@ const (
 
 type NetworkSelector struct {
 	// CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
+	// When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
+	// address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
 	Subnet string `json:"subnet,omitempty"`
 	// Minimum number of interfaces required from nodes matching this selector.
 	Min int `json:"min,omitempty"`
 	// Maximum number of interfaces to select per node matching this selector.
-	Max         int      `json:"max,omitempty"`
+	Max int `json:"max,omitempty"`
+	// Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface
+	// holding an address in that subnet, which lets one selector cover nodes on different subnets.
+	// Ignored for rdmaOnly selectors, whose interfaces may carry no address at all.
 	DeviceNames []string `json:"deviceNames,omitempty"`
 	RdmaOnly    bool     `json:"rdmaOnly,omitempty"`
 	DisableRdma bool     `json:"disableRdma,omitempty"`
