@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/pkg/weka-k8s-api/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -42,33 +40,34 @@ type CsiControllerHashableSpec struct {
 	KubeletPath           string
 	HostNetwork           bool
 	MetricsEnabled        bool
+	ForceNfs              bool
 }
 
 // GetCsiControllerDeploymentHash generates a hash for the CSI Controller Deployment
 // that includes only the fields that are relevant for updates
-func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaClient, settings services.CsiSettings) (string, error) {
-	csiDriverName := GetCsiDriverName(csiGroupName)
-	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+func GetCsiControllerDeploymentHash(p *DeploymentParams, settings services.CsiSettings) (string, error) {
+	csiDriverName := p.CsiDriverName()
+	tolerations := append([]corev1.Toleration{}, p.BaseTolerations...)
 
 	var csiLabels map[string]string
 	var enforceTrustedHttps bool
 	var skipGarbageCollection bool
 
-	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
-		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.ControllerTolerations...)
-		csiLabels = wekaClient.Spec.CsiConfig.Advanced.ControllerLabels
-		enforceTrustedHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceTrustedHttps
-		skipGarbageCollection = wekaClient.Spec.CsiConfig.Advanced.SkipGarbageCollection
+	if p.Advanced != nil {
+		tolerations = append(tolerations, p.Advanced.ControllerTolerations...)
+		csiLabels = p.Advanced.ControllerLabels
+		enforceTrustedHttps = p.Advanced.EnforceTrustedHttps
+		skipGarbageCollection = p.Advanced.SkipGarbageCollection
 	}
 
 	// Get the complete labels that would be applied to the deployment
-	labels := GetCsiLabels(csiDriverName, CSIController, wekaClient.Labels, csiLabels)
+	labels := GetCsiLabels(csiDriverName, CSIController, p.OwnerLabels, csiLabels)
 
 	// Convert maps to HashableMap for consistent hashing
 	labelsHashable := util2.NewHashableMap(labels)
 	var nodeSelectorHashable *util2.HashableMap
-	if wekaClient.Spec.NodeSelector != nil {
-		nodeSelectorHashable = util2.NewHashableMap(wekaClient.Spec.NodeSelector)
+	if p.ControllerNodeSelector != nil {
+		nodeSelectorHashable = util2.NewHashableMap(p.ControllerNodeSelector)
 	}
 
 	spec := CsiControllerHashableSpec{
@@ -85,11 +84,12 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		SkipGarbageCollection: skipGarbageCollection,
 		LogLevel:              config.Config.Csi.LogLevel,
 		PriorityClassName:     config.Config.PriorityClasses.Targeted,
-		WekaContainerName:     resources.GetWekaClientContainerName(wekaClient),
+		WekaContainerName:     p.WekafsContainerName,
 		SelinuxSupport:        config.Config.Csi.SelinuxSupport,
 		KubeletPath:           config.Config.Csi.KubeletPath,
-		HostNetwork:           config.Config.Csi.HostNetwork,
+		HostNetwork:           csiHostNetwork(p),
 		MetricsEnabled:        settings.MetricsEnabled,
+		ForceNfs:              p.ForceNfs,
 	}
 
 	return util2.HashStruct(spec)
@@ -103,43 +103,42 @@ func GetCsiDriverName(csiGroup string) string {
 	return fmt.Sprintf("%s.weka.io", csiGroup)
 }
 
-func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient, settings services.CsiSettings) (*appsv1.Deployment, error) {
+func NewCsiControllerDeployment(ctx context.Context, p *DeploymentParams, settings services.CsiSettings) (*appsv1.Deployment, error) {
 	_, logger := instrumentation.CreateLogSpan(ctx, "NewCsiControllerDeployment")
 	defer logger.End()
 
-	name := GetCSIControllerName(csiGroupName)
-	csiDriverName := GetCsiDriverName(csiGroupName)
-	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+	name := GetCSIControllerName(p.CsiGroup)
+	csiDriverName := p.CsiDriverName()
+	tolerations := append([]corev1.Toleration{}, p.BaseTolerations...)
 	csiLabels := map[string]string{
 		"app.kubernetes.io/created-by": "weka-operator",
 	}
 	var enforceTrustedHttps bool
 	var skipGarbageCollection bool
-	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
-		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.ControllerTolerations...)
-		csiLabels = util2.MergeMaps(csiLabels, wekaClient.Spec.CsiConfig.Advanced.ControllerLabels)
-		enforceTrustedHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceTrustedHttps
-		skipGarbageCollection = wekaClient.Spec.CsiConfig.Advanced.SkipGarbageCollection
+	if p.Advanced != nil {
+		tolerations = append(tolerations, p.Advanced.ControllerTolerations...)
+		csiLabels = util2.MergeMaps(csiLabels, p.Advanced.ControllerLabels)
+		enforceTrustedHttps = p.Advanced.EnforceTrustedHttps
+		skipGarbageCollection = p.Advanced.SkipGarbageCollection
 	}
-	labels := GetCsiLabels(csiDriverName, CSIController, wekaClient.Labels, csiLabels)
+	labels := GetCsiLabels(csiDriverName, CSIController, p.OwnerLabels, csiLabels)
 
-	targetHash, err := GetCsiControllerDeploymentHash(csiGroupName, wekaClient, settings)
+	targetHash, err := GetCsiControllerDeploymentHash(p, settings)
 	if err != nil {
 		logger.Error(err, "Failed to get CSI controller deployment hash")
 		return nil, fmt.Errorf("failed to get CSI controller deployment hash: %w", err)
 	}
 
-	nodeSelector := wekaClient.Spec.NodeSelector
+	nodeSelector := p.ControllerNodeSelector
 	namespace, _ := util2.GetPodNamespace() //nolint:errcheck // namespace used for object metadata only; failure falls back to empty string
 
 	privileged := true
 	replicas := int32(2)
 
-	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
+	wekaContainerName := p.WekafsContainerName
 
 	args := []string{
 		"--drivername=$(CSI_DRIVER_NAME)",
-		"--wekafscontainername=$(WEKAFS_CONTAINER_NAME)",
 		"--v=$(LOG_LEVEL)",
 		"--endpoint=$(CSI_ENDPOINT)",
 		"--nodeid=$(KUBE_NODE_NAME)",
@@ -167,6 +166,13 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 		args = append(args, "--enablemetrics", fmt.Sprintf("--metricsport=%d", ControllerMetricsPort))
 	}
 
+	args = append(args, mountProtocolArgs(p)...)
+
+	// See wekafsContainerNameEnv: flag and env var must appear or vanish together.
+	if p.WekafsContainerName != "" {
+		args = append(args, "--wekafscontainername=$(WEKAFS_CONTAINER_NAME)")
+	}
+
 	if !enforceTrustedHttps {
 		args = append(args, "--allowinsecurehttps")
 	}
@@ -189,9 +195,9 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 		"weka.io/csi-controller-hash": targetHash,
 		// link the deployment to the client for easier identification of "owner"
 		// NOTE: we cannot use owner references because the client and controller are in different namespaces
-		"weka.io/csi-controller-owner":           string(wekaClient.GetUID()),
-		"weka.io/csi-controller-owner-name":      wekaClient.Name,
-		"weka.io/csi-controller-owner-namespace": wekaClient.Namespace,
+		"weka.io/csi-controller-owner":           p.OwnerUID,
+		"weka.io/csi-controller-owner-name":      p.OwnerName,
+		"weka.io/csi-controller-owner-namespace": p.OwnerNamespace,
 	}
 
 	wekafsPorts := []corev1.ContainerPort{
@@ -291,7 +297,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 				Spec: corev1.PodSpec{
 					SecurityContext:    resources.GetSecurityProfile(),
 					NodeSelector:       nodeSelector,
-					HostNetwork:        config.Config.Csi.HostNetwork,
+					HostNetwork:        csiHostNetwork(p),
 					ServiceAccountName: "csi-wekafs-controller-sa",
 					PriorityClassName:  config.Config.PriorityClasses.Targeted,
 					InitContainers: []corev1.Container{
@@ -333,7 +339,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									},
 								},
 							},
-							Env: []corev1.EnvVar{
+							Env: append([]corev1.EnvVar{
 								{
 									Name:  "CSI_ENDPOINT",
 									Value: "unix:///csi/csi.sock",
@@ -375,10 +381,6 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									},
 								},
 								{
-									Name:  "WEKAFS_CONTAINER_NAME",
-									Value: wekaContainerName,
-								},
-								{
 									Name: "POD_NAMESPACE",
 									ValueFrom: &corev1.EnvVarSource{
 										FieldRef: &corev1.ObjectFieldSelector{
@@ -390,7 +392,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Name:  "HEALTH_PORT",
 									Value: "8081",
 								},
-							},
+							}, wekafsContainerNameEnv(wekaContainerName)...),
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									MountPath: "/csi",

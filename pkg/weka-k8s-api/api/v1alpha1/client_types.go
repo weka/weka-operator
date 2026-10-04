@@ -134,6 +134,8 @@ type AdvancedCsiConfig struct {
 }
 
 // WekaClientSpec defines the desired state of WekaClient
+//
+// +kubebuilder:validation:XValidation:rule="(has(self.useNfs) ? self.useNfs : false) == (has(oldSelf.useNfs) ? oldSelf.useNfs : false)",message="useNfs is immutable: create a new WekaClient instead"
 type WekaClientSpec struct {
 	// full container image in format of quay.io/weka.io/weka-in-container:VERSION
 	// +kubebuilder:validation:Pattern=`^.+:\d+\.\d+\.\d+.*$`
@@ -199,6 +201,13 @@ type WekaClientSpec struct {
 
 	// Numa configures NUMA confinement for this client container
 	Numa *WekaNuma `json:"numa,omitempty"`
+
+	// UseNfs deploys this client's CSI installation - the CSIDriver, the controller, the node
+	// plugin - and creates no weka client containers, with CSI mounting over NFS.
+	//
+	// Immutable. Setting it on a client that already has containers would leave them running and
+	// stamping topology labels while the node plugin stamps the same ones.
+	UseNfs bool `json:"useNfs,omitempty"`
 }
 
 func (c *WekaClientSpec) GetCsiConfig() ClientCsiConfig {

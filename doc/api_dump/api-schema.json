@@ -4024,6 +4024,13 @@
           "description": "Numa configures NUMA confinement for this client container",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "UseNfs",
+          "jsonName": "useNfs",
+          "type": "bool",
+          "description": "UseNfs deploys this client's CSI installation - the CSIDriver, the controller, the node\nplugin - and creates no weka client containers, with CSI mounting over NFS.\nImmutable. Setting it on a client that already has containers would leave them running and\nstamping topology labels while the node plugin stamps the same ones.",
+          "optional": true
         }
       ],
       "usedBy": [

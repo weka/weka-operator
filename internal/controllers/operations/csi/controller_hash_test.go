@@ -58,7 +58,7 @@ func TestGetCsiControllerDeploymentHash(t *testing.T) {
 	}
 
 	// Test hash generation
-	hash1, err := GetCsiControllerDeploymentHash("test-group", wekaClient, services.DefaultConfigurationSettings().Csi)
+	hash1, err := GetCsiControllerDeploymentHash(testParams("test-group", wekaClient), services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("Failed to generate hash: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestGetCsiControllerDeploymentHash(t *testing.T) {
 	}
 
 	// Test hash consistency - same input should produce same hash
-	hash2, err := GetCsiControllerDeploymentHash("test-group", wekaClient, services.DefaultConfigurationSettings().Csi)
+	hash2, err := GetCsiControllerDeploymentHash(testParams("test-group", wekaClient), services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("Failed to generate hash: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestGetCsiControllerDeploymentHash(t *testing.T) {
 	wekaClient2 := wekaClient.DeepCopy()
 	wekaClient2.Spec.CsiConfig.Advanced.EnforceTrustedHttps = false
 
-	hash3, err := GetCsiControllerDeploymentHash("test-group", wekaClient2, services.DefaultConfigurationSettings().Csi)
+	hash3, err := GetCsiControllerDeploymentHash(testParams("test-group", wekaClient2), services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("Failed to generate hash: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestGetCsiControllerDeploymentHashWithoutAdvancedConfig(t *testing.T) {
 	}
 
 	// Test hash generation
-	hash, err := GetCsiControllerDeploymentHash("test-group", wekaClient, services.DefaultConfigurationSettings().Csi)
+	hash, err := GetCsiControllerDeploymentHash(testParams("test-group", wekaClient), services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("Failed to generate hash: %v", err)
 	}

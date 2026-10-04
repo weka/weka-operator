@@ -170,9 +170,20 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				Run: loop.ValidateClientVersionCompatibility,
 				Predicates: lifecycle.Predicates{
 					func() bool { return loop.targetCluster != nil },
+					// Nothing runs the weka image when useNfs is set, so its version cannot be
+					// incompatible with anything.
+					func() bool { return !wekaClient.Spec.UseNfs },
 				},
 			},
-			&lifecycle.SimpleStep{Run: loop.EnsureClientsWekaContainers},
+			&lifecycle.SimpleStep{
+				Name: "EnsureClientsWekaContainers",
+				Run:  loop.EnsureClientsWekaContainers,
+				Predicates: lifecycle.Predicates{
+					// useNfs deploys CSI and nothing else. Everything below still runs: the CSI
+					// steps do not depend on a container existing.
+					func() bool { return !wekaClient.Spec.UseNfs },
+				},
+			},
 			// Deliberately not gated on Csi.Enabled: the claims may have been made while CSI was
 			// enabled and CSI disabled afterwards, and the per-container release in finalizeContainer
 			// is gated the same way -- so gating here too would leak them permanently.
@@ -1445,6 +1456,13 @@ func (c *clientReconcilerLoop) GetCSIGroup() string {
 	return csi.ResolveGroup(c.targetCluster, c.wekaClient)
 }
 
+// csiParams describes this client's CSI installation for the shared builders. Built in one place
+// so the DaemonSet, the controller and their hashes cannot disagree about their own inputs.
+func (c *clientReconcilerLoop) csiParams() *csi.DeploymentParams {
+	group := c.GetCSIGroup()
+	return csi.ParamsFromWekaClient(c.wekaClient, group, csi.CsiSecretForWekaClient(c.wekaClient, group))
+}
+
 func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
@@ -1457,7 +1475,7 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 		return nil
 	}
 
-	targetDeployment, err := csi.NewCsiControllerDeployment(ctx, c.GetCSIGroup(), c.wekaClient, services.GetSettings(ctx).Csi)
+	targetDeployment, err := csi.NewCsiControllerDeployment(ctx, c.csiParams(), services.GetSettings(ctx).Csi)
 	if err != nil {
 		return err
 	}
@@ -1659,7 +1677,7 @@ func (c *clientReconcilerLoop) DeployCsiNodeDaemonSetForClient(ctx context.Conte
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "DeployCsiNodeDaemonSetForClient")
 	defer logger.End()
 
-	daemonSetSpec, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient, c.wekaClient.Name, c.wekaClient.Namespace, c.nodes, services.GetSettings(ctx).Csi)
+	daemonSetSpec, err := csi.NewCsiNodeDaemonSet(ctx, c.csiParams(), c.nodes, services.GetSettings(ctx).Csi)
 	if err != nil {
 		return err
 	}
@@ -1748,7 +1766,7 @@ func (c *clientReconcilerLoop) UpdateCsiNodeDaemonSet(ctx context.Context) error
 		return nil
 	}
 
-	targetDaemonSet, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient, c.wekaClient.Name, c.wekaClient.Namespace, c.nodes, services.GetSettings(ctx).Csi)
+	targetDaemonSet, err := csi.NewCsiNodeDaemonSet(ctx, c.csiParams(), c.nodes, services.GetSettings(ctx).Csi)
 	if err != nil {
 		return err
 	}

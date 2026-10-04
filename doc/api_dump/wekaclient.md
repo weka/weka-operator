@@ -74,6 +74,7 @@
 | globalPVC | *PVCConfig |  |
 | csiConfig | *ClientCsiConfig | EXPERIMENTAL, ALPHA STATE, should not be used in production: if set, allows to reuse the same csi resources for multiple clients |
 | numa | *WekaNuma | Numa configures NUMA confinement for this client container |
+| useNfs | bool | UseNfs deploys this client's CSI installation - the CSIDriver, the controller, the node<br>plugin - and creates no weka client containers, with CSI mounting over NFS.<br>Immutable. Setting it on a client that already has containers would leave them running and<br>stamping topology labels while the node plugin stamps the same ones. |
 
 ---
 

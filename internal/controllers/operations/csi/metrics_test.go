@@ -16,7 +16,7 @@ func TestNewCsiNodeDaemonSet_MetricsDisabled(t *testing.T) {
 	settings := services.DefaultConfigurationSettings().Csi
 	settings.MetricsEnabled = false
 
-	ds, err := NewCsiNodeDaemonSet(t.Context(), "csi", testWekaClient(nil), "clients", "default", nil, settings)
+	ds, err := NewCsiNodeDaemonSet(t.Context(), testParams("csi", testWekaClient(nil)), nil, settings)
 	if err != nil {
 		t.Fatalf("NewCsiNodeDaemonSet: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestNewCsiNodeDaemonSet_MetricsDisabled(t *testing.T) {
 }
 
 func TestNewCsiNodeDaemonSet_MetricsEnabledByDefault(t *testing.T) {
-	ds, err := NewCsiNodeDaemonSet(t.Context(), "csi", testWekaClient(nil), "clients", "default", nil, services.DefaultConfigurationSettings().Csi)
+	ds, err := NewCsiNodeDaemonSet(t.Context(), testParams("csi", testWekaClient(nil)), nil, services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("NewCsiNodeDaemonSet: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestNewCsiControllerDeployment_MetricsDisabledIncludingSidecars(t *testing.
 	settings := services.DefaultConfigurationSettings().Csi
 	settings.MetricsEnabled = false
 
-	deployment, err := NewCsiControllerDeployment(t.Context(), "csi", testWekaClient(nil), settings)
+	deployment, err := NewCsiControllerDeployment(t.Context(), testParams("csi", testWekaClient(nil)), settings)
 	if err != nil {
 		t.Fatalf("NewCsiControllerDeployment: %v", err)
 	}
@@ -92,14 +92,14 @@ func TestNewCsiControllerDeployment_MetricsDisabledIncludingSidecars(t *testing.
 func TestGetCsiControllerDeploymentHash_ChangesWithMetrics(t *testing.T) {
 	client := testWekaClient(nil)
 
-	enabled, err := GetCsiControllerDeploymentHash("csi", client, services.DefaultConfigurationSettings().Csi)
+	enabled, err := GetCsiControllerDeploymentHash(testParams("csi", client), services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("hash with metrics enabled: %v", err)
 	}
 
 	settings := services.DefaultConfigurationSettings().Csi
 	settings.MetricsEnabled = false
-	disabled, err := GetCsiControllerDeploymentHash("csi", client, settings)
+	disabled, err := GetCsiControllerDeploymentHash(testParams("csi", client), settings)
 	if err != nil {
 		t.Fatalf("hash with metrics disabled: %v", err)
 	}

@@ -26,9 +26,11 @@ import (
 )
 
 type DeployCsiOperation struct {
-	client        client.Client
-	results       DeployCsiResult
-	wekaClient    *weka.WekaClient
+	client  client.Client
+	results DeployCsiResult
+	// params describes the installation and who asked for it. The operation no longer knows
+	// which WekaClient it came from.
+	params        *csi.DeploymentParams
 	namespace     string
 	csiGroupName  string
 	csiDriverName string
@@ -46,7 +48,16 @@ type DeployCsiResult struct {
 	Result string `json:"result"`
 }
 
+// NewDeployCsiOperation deploys the CSI installation belonging to a WekaClient. It is a thin
+// adapter over NewDeployCsiOperationFromParams.
 func NewDeployCsiOperation(k8sClient client.Client, targetClient *weka.WekaClient, csiGroupName string, undeploy bool) (*DeployCsiOperation, error) {
+	params := csi.ParamsFromWekaClient(
+		targetClient, csiGroupName, csi.CsiSecretForWekaClient(targetClient, csiGroupName))
+	return NewDeployCsiOperationFromParams(k8sClient, params, undeploy)
+}
+
+// NewDeployCsiOperationFromParams deploys whichever installation the params describe.
+func NewDeployCsiOperationFromParams(k8sClient client.Client, params *csi.DeploymentParams, undeploy bool) (*DeployCsiOperation, error) {
 	namespace, err := util.GetPodNamespace()
 	if err != nil {
 		return nil, err
@@ -54,9 +65,9 @@ func NewDeployCsiOperation(k8sClient client.Client, targetClient *weka.WekaClien
 
 	return &DeployCsiOperation{
 		client:        k8sClient,
-		wekaClient:    targetClient,
-		csiDriverName: csi.GetCsiDriverName(csiGroupName),
-		csiGroupName:  csiGroupName,
+		params:        params,
+		csiDriverName: csi.GetCsiDriverName(params.CsiGroup),
+		csiGroupName:  params.CsiGroup,
 		namespace:     namespace,
 		undeploy:      undeploy,
 	}, nil
@@ -86,17 +97,14 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 			Run:  o.deployStorageClasses,
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(!config.Config.Csi.StorageClassCreationDisabled),
-				func() bool {
-					emptyRef := weka.ObjectReference{}
-					return o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != ""
-				},
+				func() bool { return o.params.CreateStorageClasses },
 				func() bool { return !o.storageClassesExist },
 			}},
 		&lifecycle.SimpleStep{
 			Name: "DeployCsiController",
 			Run:  o.deployCsiController,
 			Predicates: lifecycle.Predicates{
-				lifecycle.BoolValue(o.wekaClient.Spec.CsiConfig == nil || !o.wekaClient.Spec.CsiConfig.DisableControllerCreation),
+				lifecycle.BoolValue(!o.params.DisableControllerCreation),
 				func() bool { return !o.csiControllerExists },
 			}},
 		&lifecycle.SimpleStep{
@@ -117,16 +125,13 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 			Run:  o.undeployStorageClasses,
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(!config.Config.Csi.StorageClassCreationDisabled),
-				func() bool {
-					emptyRef := weka.ObjectReference{}
-					return o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != ""
-				},
+				func() bool { return o.params.CreateStorageClasses },
 			}},
 		&lifecycle.SimpleStep{
 			Name: "UndeployCsiController",
 			Run:  o.undeployCsiController,
 			Predicates: lifecycle.Predicates{
-				lifecycle.BoolValue(o.wekaClient.Spec.CsiConfig == nil || !o.wekaClient.Spec.CsiConfig.DisableControllerCreation),
+				lifecycle.BoolValue(!o.params.DisableControllerCreation),
 			}},
 	}
 	if o.undeploy {
@@ -237,7 +242,7 @@ func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "deployCsiController")
 	defer logger.End()
 
-	deploymentSpec, err := csi.NewCsiControllerDeployment(ctx, o.csiGroupName, o.wekaClient, o.settings)
+	deploymentSpec, err := csi.NewCsiControllerDeployment(ctx, o.params, o.settings)
 	if err != nil {
 		return err
 	}
@@ -340,20 +345,10 @@ func (o *DeployCsiOperation) getExistingCsiResources(ctx context.Context) error 
 	return nil
 }
 
+// getCsiSecret is the Secret the storage classes reference. Resolved when the params were built,
+// so the deploy and undeploy paths resolve it the same way.
 func (o *DeployCsiOperation) getCsiSecret() client.ObjectKey {
-	emptyRef := weka.ObjectReference{}
-	if o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != "" {
-		name := fmt.Sprintf("weka-csi-%s", o.wekaClient.Spec.TargetCluster.Name)
-		return client.ObjectKey{
-			Name:      name,
-			Namespace: o.wekaClient.Spec.TargetCluster.Namespace,
-		}
-	}
-	name := fmt.Sprintf("weka-csi-%s", o.csiGroupName)
-	return client.ObjectKey{
-		Name:      name,
-		Namespace: o.wekaClient.Namespace,
-	}
+	return o.params.SecretRef
 }
 
 type CsiTopologyLabelsService struct {

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -53,8 +52,8 @@ const csiNodePlacementScheme = "node-affinity-with-retain-v1"
 
 // GetCsiNodeDaemonSetHash generates a hash for the CSI Node DaemonSet
 // that includes only the fields that are relevant for updates
-func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, clientName, clientNamespace string, settings services.CsiSettings) (string, error) {
-	csiDriverName := GetCsiDriverName(csiGroupName)
+func GetCsiNodeDaemonSetHash(p *DeploymentParams, settings services.CsiSettings) (string, error) {
+	csiDriverName := p.CsiDriverName()
 	// CSI node plugins are infrastructure components and must run on all nodes
 	tolerations := []corev1.Toleration{
 		{
@@ -65,26 +64,26 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, c
 	var csiLabels map[string]string
 	var enforceTrustedHttps bool
 
-	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
-		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.NodeTolerations...)
-		csiLabels = wekaClient.Spec.CsiConfig.Advanced.NodeLabels
-		enforceTrustedHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceTrustedHttps
+	if p.Advanced != nil {
+		tolerations = append(tolerations, p.Advanced.NodeTolerations...)
+		csiLabels = p.Advanced.NodeLabels
+		enforceTrustedHttps = p.Advanced.EnforceTrustedHttps
 	}
 
 	// Get the complete labels that would be applied to the daemonset
-	labels := GetCsiLabels(csiDriverName, CSINode, wekaClient.Labels, csiLabels)
+	labels := GetCsiLabels(csiDriverName, CSINode, p.OwnerLabels, csiLabels)
 
 	// Convert maps to HashableMap for consistent hashing
 	labelsHashable := util2.NewHashableMap(labels)
 	var nodeSelectorHashable *util2.HashableMap
-	if wekaClient.Spec.NodeSelector != nil {
-		nodeSelectorHashable = util2.NewHashableMap(wekaClient.Spec.NodeSelector)
+	if p.NodeSelector != nil {
+		nodeSelectorHashable = util2.NewHashableMap(p.NodeSelector)
 	}
 
 	spec := CsiNodeHashableSpec{
 		CsiDriverName:             csiDriverName,
-		ClientName:                clientName,
-		ClientNamespace:           clientNamespace,
+		ClientName:                p.OwnerName,
+		ClientNamespace:           p.OwnerNamespace,
 		CsiImage:                  config.Config.Csi.WekafsImage,
 		CsiRegistrarImage:         config.Config.Csi.RegistrarImage,
 		CsiLivenessProbeImage:     config.Config.Csi.LivenessProbeImage,
@@ -97,7 +96,7 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, c
 		PriorityClassName:         config.Config.PriorityClasses.Targeted,
 		SelinuxSupport:            config.Config.Csi.SelinuxSupport,
 		KubeletPath:               config.Config.Csi.KubeletPath,
-		HostNetwork:               config.Config.Csi.HostNetwork,
+		HostNetwork:               csiHostNetwork(p),
 		PlacementScheme:           csiNodePlacementScheme,
 		MetricsEnabled:            settings.MetricsEnabled,
 	}
@@ -107,6 +106,17 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, c
 
 func GetCSINodeDaemonSetName(csiGroupName string) string {
 	return strings.ReplaceAll(csiGroupName, ".", "-") + "-weka-csi-node"
+}
+
+// wekafsContainerNameEnv renders the WEKAFS_CONTAINER_NAME env var, or nothing when there is no
+// weka client container on these nodes. It must stay in step with the --wekafscontainername flag:
+// the flag's value is $(WEKAFS_CONTAINER_NAME), and Kubernetes leaves that literal text in argv
+// when the variable is undefined.
+func wekafsContainerNameEnv(name string) []corev1.EnvVar {
+	if name == "" {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: "WEKAFS_CONTAINER_NAME", Value: name}}
 }
 
 func GetCSINodeDaemonSetNameForClient(csiGroupName, clientName, clientNamespace string) string {
@@ -131,6 +141,10 @@ func GetCSINodeDaemonSetNameForClient(csiGroupName, clientName, clientNamespace 
 // An empty selector keeps its existing "run everywhere" meaning by rendering no affinity at all: a
 // nodeSelectorTerm with no matchExpressions is not valid, and nothing ever deschedules the plugin in
 // that configuration, so a retain term would be pointless.
+//
+// An empty retainLabel renders only the selector term. That is the standalone case: with no weka
+// client containers there are no mounts to drain and nobody to release the label, and a term
+// keyed on "" would match nothing while still widening the OR.
 func buildCsiNodeAffinity(nodeSelector map[string]string, retainLabel string) *corev1.Affinity {
 	if len(nodeSelector) == 0 {
 		return nil
@@ -153,30 +167,34 @@ func buildCsiNodeAffinity(nodeSelector map[string]string, retainLabel string) *c
 		})
 	}
 
+	terms := []corev1.NodeSelectorTerm{{MatchExpressions: selectorExpressions}}
+	if retainLabel != "" {
+		terms = append(terms, corev1.NodeSelectorTerm{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      retainLabel,
+					Operator: corev1.NodeSelectorOpIn,
+					Values:   []string{CsiNodeRetainLabelValue},
+				},
+			},
+		})
+	}
+
 	return &corev1.Affinity{
 		NodeAffinity: &corev1.NodeAffinity{
 			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-				NodeSelectorTerms: []corev1.NodeSelectorTerm{
-					{MatchExpressions: selectorExpressions},
-					{MatchExpressions: []corev1.NodeSelectorRequirement{
-						{
-							Key:      retainLabel,
-							Operator: corev1.NodeSelectorOpIn,
-							Values:   []string{CsiNodeRetainLabelValue},
-						},
-					}},
-				},
+				NodeSelectorTerms: terms,
 			},
 		},
 	}
 }
 
-func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient, clientName, clientNamespace string, nodes []corev1.Node, settings services.CsiSettings) (*appsv1.DaemonSet, error) {
+func NewCsiNodeDaemonSet(ctx context.Context, p *DeploymentParams, nodes []corev1.Node, settings services.CsiSettings) (*appsv1.DaemonSet, error) {
 	_, logger := instrumentation.CreateLogSpan(ctx, "NewCsiNodeDaemonSet")
 	defer logger.End()
 
-	name := GetCSINodeDaemonSetNameForClient(csiGroupName, clientName, clientNamespace)
-	csiDriverName := GetCsiDriverName(csiGroupName)
+	name := p.NodeDaemonSetName
+	csiDriverName := p.CsiDriverName()
 	// CSI node plugins are infrastructure components and must run on all nodes
 	// Use wildcard toleration to ensure CSI runs everywhere, like node-agent
 	tolerations := []corev1.Toleration{
@@ -188,27 +206,26 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		"app.kubernetes.io/created-by": "weka-operator",
 	}
 	var enforceTrustedHttps bool
-	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
-		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.NodeTolerations...)
-		csiLabels = wekaClient.Spec.CsiConfig.Advanced.NodeLabels
-		enforceTrustedHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceTrustedHttps
+	if p.Advanced != nil {
+		tolerations = append(tolerations, p.Advanced.NodeTolerations...)
+		csiLabels = p.Advanced.NodeLabels
+		enforceTrustedHttps = p.Advanced.EnforceTrustedHttps
 	}
-	labels := GetCsiLabels(csiDriverName, CSINode, wekaClient.Labels, csiLabels)
+	labels := GetCsiLabels(csiDriverName, CSINode, p.OwnerLabels, csiLabels)
 
-	targetHash, err := GetCsiNodeDaemonSetHash(csiGroupName, wekaClient, clientName, clientNamespace, settings)
+	targetHash, err := GetCsiNodeDaemonSetHash(p, settings)
 	if err != nil {
 		logger.Error(err, "Failed to get CSI node daemonset hash")
 		return nil, fmt.Errorf("failed to get CSI node daemonset hash: %w", err)
 	}
 
-	nodeSelector := wekaClient.Spec.NodeSelector
+	nodeSelector := p.NodeSelector
 	namespace, _ := util2.GetPodNamespace() //nolint:errcheck // namespace used for object metadata only; failure falls back to empty string
 
 	privileged := true
 
 	args := []string{
 		"--v=$(LOG_LEVEL)",
-		"--wekafscontainername=$(WEKAFS_CONTAINER_NAME)",
 		"--drivername=$(CSI_DRIVER_NAME)",
 		"--endpoint=$(CSI_ENDPOINT)",
 		"--nodeid=$(KUBE_NODE_NAME)",
@@ -231,6 +248,21 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		args = append(args, "--enablemetrics", fmt.Sprintf("--metricsport=%d", NodeMetricsPort))
 	}
 
+	args = append(args, mountProtocolArgs(p)...)
+
+	// Gated together with the WEKAFS_CONTAINER_NAME env var below: the flag's value is
+	// $(WEKAFS_CONTAINER_NAME), so rendering the flag without the env var leaves that literal
+	// string in argv and the plugin reads it as a container name.
+	if p.WekafsContainerName != "" {
+		args = append(args, "--wekafscontainername=$(WEKAFS_CONTAINER_NAME)")
+	}
+
+	// Hand the plugin its own topology.<driver>/* node labels. Only where no weka client container
+	// exists to derive them from — the operator stamps them otherwise, and two writers would flap.
+	if p.ManageNodeTopologyLabels {
+		args = append(args, "--managenodetopologylabels")
+	}
+
 	if !enforceTrustedHttps {
 		args = append(args, "--allowinsecurehttps")
 	}
@@ -244,7 +276,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		args = append(args, tracingFlag)
 	}
 
-	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
+	wekaContainerName := p.WekafsContainerName
 
 	var selinuxEnabled bool
 	switch config.Config.Csi.SelinuxSupport {
@@ -323,9 +355,9 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		"weka.io/csi-node-hash": targetHash,
 		// link the daemonset to the client for easier identification of "owner"
 		// NOTE: we cannot use owner references because the client and node are in different namespaces
-		"weka.io/csi-node-owner":           string(wekaClient.GetUID()),
-		"weka.io/csi-node-owner-name":      wekaClient.Name,
-		"weka.io/csi-node-owner-namespace": wekaClient.Namespace,
+		"weka.io/csi-node-owner":           p.OwnerUID,
+		"weka.io/csi-node-owner-name":      p.OwnerName,
+		"weka.io/csi-node-owner-namespace": p.OwnerNamespace,
 	}
 
 	wekafsPorts := []corev1.ContainerPort{
@@ -372,8 +404,8 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 				},
 				Spec: corev1.PodSpec{
 					SecurityContext:    resources.GetSecurityProfile(),
-					Affinity:           buildCsiNodeAffinity(nodeSelector, GetCsiNodeRetainLabel(clientNamespace, clientName)),
-					HostNetwork:        config.Config.Csi.HostNetwork,
+					Affinity:           buildCsiNodeAffinity(nodeSelector, p.RetainLabel),
+					HostNetwork:        csiHostNetwork(p),
 					ServiceAccountName: "csi-wekafs-node-sa",
 					PriorityClassName:  config.Config.PriorityClasses.Targeted,
 					Containers: []corev1.Container{
@@ -399,7 +431,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 								TimeoutSeconds:      7,
 								PeriodSeconds:       10,
 							},
-							Env: []corev1.EnvVar{
+							Env: append([]corev1.EnvVar{
 								{
 									Name:  "CSI_DRIVER_NAME",
 									Value: csiDriverName,
@@ -436,11 +468,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 									Name:  "LOG_LEVEL",
 									Value: strconv.Itoa(config.Config.Csi.LogLevel),
 								},
-								{
-									Name:  "WEKAFS_CONTAINER_NAME",
-									Value: wekaContainerName,
-								},
-							},
+							}, wekafsContainerNameEnv(wekaContainerName)...),
 							VolumeMounts: wekafsVolumeMounts,
 						},
 						{
