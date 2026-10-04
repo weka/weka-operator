@@ -1176,13 +1176,6 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	file, err := os.Open(filePath)
-	if err != nil && os.IsNotExist(err) && shouldCheckContainerSpecific {
-		// If container-specific path doesn't exist and feature flag was enabled, fallback to default path
-		logger.Debug("Container-specific interface file not found, falling back to default", "tried_path", filePath)
-		filePath = "/proc/wekafs/interface"
-		file, err = os.Open(filePath)
-	}
-
 	if err != nil && os.IsNotExist(err) {
 		// file does not exist, respond with not found
 		http.Error(w, err.Error(), http.StatusNotFound)
