@@ -4,7 +4,7 @@
 
 Starting from version 1.7.0, the Weka Operator features embedded CSI (Container Storage Interface) deployment capabilities. This integration enables automatic deployment and management of CSI components alongside Weka clusters.
 
-The embedded CSI plugin is disabled by default. To enable it, set `csi.installationEnabled: true` in your Helm values or operator configuration.
+The embedded CSI plugin is enabled by default. To disable it, set `csi.installationEnabled: false` in your Helm values or operator configuration.
 
 The embedded CSI plugin will be deployed only when there are running clients.
 
@@ -170,7 +170,7 @@ kubectl get pods -n <csi-namespace> -l component=<csi-group>-weka-csi-node
 
 
 ## Migration from Separate CSI to Embedded CSI
-- Upgrade the operator to 1.7.0 or later (`csi.installationEnabled: false` by default)
+- Upgrade the operator to 1.7.0 or later, setting `csi.installationEnabled: false` so the embedded CSI does not come up alongside the separate one
 - Undeploy the separate CSI
 - Assuming the separate CSI was deployed with the default csi driver name `csi.weka.io`, set the WekaCluster `spec.csiConfig.csiGroup: csi`
 - Install the operator with `csi.installationEnabled: true`
