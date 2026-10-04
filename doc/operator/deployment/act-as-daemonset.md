@@ -168,13 +168,22 @@ never chooses. What the spec can set, and how the planner treats it:
    # ratio unset (default): try 2.0; if compute is infeasible, retry one core lower at a time down to
    # totalDriveCores and keep the largest target that fits. Infeasible only when even 1:1 does not fit.
    # ratio set explicitly: that target is enforced as-is.
-   computeContainers    = smallest n ≥ 5 whose n best nodes fit ceil(required / n) cores + hugepages
-   computeCores         = ceil(requiredComputeCores / computeContainers)      # floor is 3 under ALLOW_SINGLE_PARITY
+   minCount             = max(5, compute-eligible nodes that host a drive container)  # 5 is 3 under ALLOW_SINGLE_PARITY
+   computeContainers    = smallest n ≥ minCount whose n best nodes fit ceil(required / n) cores + hugepages
+   computeCores         = ceil(requiredComputeCores / computeContainers)
    ```
 
-   Containers are spread round-robin across failure domains, best-headroom node first in each. An
-   existing compute container whose node cannot grow it stays at its current size and the deficit goes
-   to additional containers.
+   Every compute-eligible drive node gets a compute container, so no single compute container is the
+   last one keeping compute above Weka's failure-domain minimum. If they do not all fit, compute is
+   sized as with a floor of 5 and each drive node left without one gets a container of that size
+   anyway; its pod stays Pending until the node has room (`AutoFullDrivesComputeLayout` warning, cause
+   `compute-drive-node-pending`). This happens before the ratio is relaxed, so a full node never lowers
+   the ratio. A node whose compute container is still being deleted gets its replacement only after the
+   old pod is gone. Containers are spread round-robin across failure domains, best-headroom node first
+   in each. An existing compute container whose node cannot grow it stays at its current size and the
+   deficit goes to additional containers. Containers added to an existing cluster to reach `minCount`
+   get the size they would have in a layout derived from scratch (`ceil(requiredComputeCores /
+   minCount)`), not just the cores still missing.
 5. **Apply or refuse.** Infeasible: `AutoFullDrivesInfeasible` fires and nothing is created or grown.
    Feasible: creates and growths are written, `AutoFullDrivesPlanned` fires, plus any advisories below.
 

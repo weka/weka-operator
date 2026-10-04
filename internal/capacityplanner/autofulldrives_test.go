@@ -3937,10 +3937,13 @@ func hazardStateAfterPassB(t *testing.T) ([]ExistingContainer, []ExistingCompute
 	t.Helper()
 	cons := hazardCons()
 	computeNodes := computeNodeSet("d1", "d2")
+	// d2 turns compute-eligible only at pass B: eligible from the start, daemonset mode would put compute on
+	// both drive nodes at create and never reach the single-compute intermediate state this hazard needs.
+	earlyComputeNodes := computeNodeSet("d1")
 
 	// create: both pins set, 2 drives at 2 cores each.
 	inv := hazardInventory(nil, nil, cons)
-	create := PlanAutoFullDrives(AutoFullDrivesDesired{NumDrives: 2, DriveCores: 2}, nil, nil, inv, computeNodes, cons)
+	create := PlanAutoFullDrives(AutoFullDrivesDesired{NumDrives: 2, DriveCores: 2}, nil, nil, inv, earlyComputeNodes, cons)
 	if create.Infeasible != "" {
 		t.Fatalf("create pass infeasible: %s", create.Infeasible)
 	}
@@ -3956,10 +3959,10 @@ func hazardStateAfterPassB(t *testing.T) ([]ExistingContainer, []ExistingCompute
 		t.Fatalf("create pass RequiredComputeCores = %d, want 4 (2 nodes x 2 drive cores x ratio 1.0)", create.RequiredComputeCores)
 	}
 	if len(create.ComputeLayout) != 1 {
-		t.Fatalf("create pass: want exactly 1 compute container (d1's headroom wins placement), got %+v", create.ComputeLayout)
+		t.Fatalf("create pass: want exactly 1 compute container (d1 is the only compute node), got %+v", create.ComputeLayout)
 	}
 	if create.ComputeLayout[0].Node != "d1" {
-		t.Fatalf("create pass compute landed on %s, want d1 (higher core headroom)", create.ComputeLayout[0].Node)
+		t.Fatalf("create pass compute landed on %s, want d1 (the only compute node)", create.ComputeLayout[0].Node)
 	}
 	if create.ComputeLayout[0].NumCores != 4 || create.ComputeLayout[0].HugepagesMiB != 12000 {
 		t.Fatalf("create pass compute = %+v, want 4 cores/12000 MiB", create.ComputeLayout[0])
@@ -3970,7 +3973,7 @@ func hazardStateAfterPassB(t *testing.T) ([]ExistingContainer, []ExistingCompute
 
 	// pass A: numDrives relaxed to 4, driveCores still pinned at 2 -> no growth, nothing changes.
 	inv = hazardInventory(existingDrives, existingCompute, cons)
-	passA := PlanAutoFullDrives(AutoFullDrivesDesired{NumDrives: 4, DriveCores: 2}, existingDrives, existingCompute, inv, computeNodes, cons)
+	passA := PlanAutoFullDrives(AutoFullDrivesDesired{NumDrives: 4, DriveCores: 2}, existingDrives, existingCompute, inv, earlyComputeNodes, cons)
 	if passA.Infeasible != "" {
 		t.Fatalf("pass A infeasible: %s", passA.Infeasible)
 	}
@@ -4600,3 +4603,98 @@ func TestPlanAutoFullDrives_AdaptiveRatio(t *testing.T) {
 
 // adaptiveTightCPU: 3 compute nodes this size host at least the 6-core 1:1 floor but less than the 12-core 2:1 target.
 const adaptiveTightCPU = 3
+
+// Daemonset mode puts compute on every compute-eligible drive node, not just enough for the form-cluster floor.
+// A fleet already at the floor (5 compute on 6 drive nodes, cores covered) gains the 6th, sized as if all six
+// were derived at once: required 12 (6 drive cores at 2:1) over 6 containers = 2 cores, not a 1-core top-up.
+func TestPlanAutoFullDrives_ComputeOnEveryDriveNode_TopUpSizedAsFreshLayout(t *testing.T) {
+	cons := testCons()
+	cons.MinComputeContainers = 5
+	const bigFree = 1 << 28
+
+	nodes := []string{"n1", "n2", "n3", "n4", "n5", "n6"}
+	var existingDrives []ExistingContainer
+	var inv []NodeCapacity
+	for _, n := range nodes {
+		existingDrives = append(existingDrives, ExistingContainer{Name: "drv-" + n, Node: n, FDValue: n, NumCores: 1, NumDrives: 1})
+		inv = append(inv, NodeCapacity{
+			NodeName: n, FDValue: n, OwnDriveCapacitiesGiB: uniformDrives(1, 5120),
+			AllocatableCPU: 40, AvailableHugepagesMiB: bigFree, AvailableMemoryMiB: bigFree,
+		})
+	}
+	existingCompute := []ExistingComputeContainer{
+		{Name: "ec-n1", Node: "n1", NumCores: 2, HugepagesMiB: 6000},
+		{Name: "ec-n2", Node: "n2", NumCores: 3, HugepagesMiB: 9000},
+		{Name: "ec-n3", Node: "n3", NumCores: 3, HugepagesMiB: 9000},
+		{Name: "ec-n4", Node: "n4", NumCores: 2, HugepagesMiB: 6000},
+		{Name: "ec-n5", Node: "n5", NumCores: 2, HugepagesMiB: 6000},
+	}
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{}, existingDrives, existingCompute, inv, computeNodeSet(nodes...), cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if plan.RequiredComputeCores != 12 {
+		t.Fatalf("RequiredComputeCores = %d, want 12 (6 drive cores x 2.0) — the kept 12 cores leave no deficit", plan.RequiredComputeCores)
+	}
+	if len(plan.ComputeLayout) != 6 {
+		t.Fatalf("ComputeLayout = %+v, want 6 entries (one per compute-eligible drive node)", plan.ComputeLayout)
+	}
+	for _, l := range plan.ComputeLayout {
+		if l.Node == "n6" && l.NumCores != 2 {
+			t.Errorf("new compute on n6 has %d cores, want 2 (12 required / 6 containers)", l.NumCores)
+		}
+	}
+}
+
+// A compute-eligible drive node without room for compute still gets its container, sized like the rest, and
+// waits Pending: it neither fails the plan nor shrinks the others. Before, the plan placed compute on the 5
+// roomy nodes only; requiring all 6 to fit made the whole plan infeasible.
+func TestPlanAutoFullDrives_TightDriveNodeGetsPendingCompute(t *testing.T) {
+	cons := testCons()
+	cons.MinComputeContainers = 5
+	const big = 1 << 28
+	nodes := []string{"n1", "n2", "n3", "n4", "n5", "n6"}
+	var inv []NodeCapacity
+	for _, n := range nodes {
+		cpu := 200
+		if n == "n6" {
+			cpu = 3 // its drive container fits, a compute container does not
+		}
+		inv = append(inv, NodeCapacity{NodeName: n, FDValue: n, DriveCapacitiesGiB: uniformDrives(1, 5120), TlcGiB: 5120,
+			AllocatableCPU: cpu, AvailableHugepagesMiB: big, AvailableMemoryMiB: big})
+	}
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{}, nil, nil, inv, computeNodeSet(nodes...), cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.ComputeLayout) != 6 {
+		t.Fatalf("ComputeLayout = %+v, want 6 entries (one per compute-eligible drive node)", plan.ComputeLayout)
+	}
+	roomyCores := 0
+	for _, l := range plan.ComputeLayout {
+		if l.Node == "n6" {
+			if l.NumCores != plan.ComputeCores {
+				t.Errorf("n6 compute has %d cores, want the plan's %d", l.NumCores, plan.ComputeCores)
+			}
+			continue
+		}
+		roomyCores += l.NumCores
+	}
+	if roomyCores < plan.RequiredComputeCores {
+		t.Errorf("the 5 roomy nodes carry %d cores, want >= the required %d — n6's Pending pod must not be counted on",
+			roomyCores, plan.RequiredComputeCores)
+	}
+	found := false
+	for _, w := range plan.Warnings {
+		if w.Cause == CauseComputeDriveNodePending && strings.Contains(w.Message, "n6") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Warnings = %+v, want a %q warning naming n6", plan.Warnings, CauseComputeDriveNodePending)
+	}
+}
