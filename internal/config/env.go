@@ -684,7 +684,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.NetnsEnabled = getBoolEnvOrDefault("NETNS_ENABLED", true)
 
 	// CSI configuration
-	Config.Csi.Enabled = getBoolEnvOrDefault("CSI_INSTALLATION_ENABLED", false)
+	Config.Csi.Enabled = getBoolEnvOrDefault("CSI_INSTALLATION_ENABLED", true)
 	Config.Csi.StorageClassCreationDisabled = getBoolEnvOrDefault("CSI_STORAGE_CLASS_CREATION_DISABLED", false)
 	Config.Csi.SelinuxSupport = getEnvOrDefault("CSI_SELINUX_SUPPORT", "auto")
 	Config.Csi.KubeletPath = strings.TrimRight(getEnvOrDefault("CSI_KUBELET_PATH", "/var/lib/kubelet"), "/")

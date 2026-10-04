@@ -59,7 +59,7 @@ Key configuration options in `charts/weka-operator/values.yaml`:
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `imagePullSecret` | Image pull secret name | `quay-io-robot-secret` |
-| `csi.installationEnabled` | Enable CSI driver | `false` |
+| `csi.installationEnabled` | Enable CSI driver | `true` |
 
 See [values](charts/weka-operator/values.yaml) for all configuration options.
 
