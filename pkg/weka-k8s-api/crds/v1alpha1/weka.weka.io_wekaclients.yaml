@@ -655,6 +655,11 @@ spec:
                     - all-at-once-force
                     type: string
                 type: object
+              useNfs:
+                description: |-
+                  UseNfs deploys CSI over NFS and creates no weka client containers.
+                  Immutable.
+                type: boolean
               wekaHome:
                 properties:
                   cacertSecret:
@@ -665,6 +670,10 @@ spec:
             required:
             - image
             type: object
+            x-kubernetes-validations:
+            - message: 'useNfs is immutable: create a new WekaClient instead'
+              rule: '(has(self.useNfs) ? self.useNfs : false) == (has(oldSelf.useNfs)
+                ? oldSelf.useNfs : false)'
           status:
             description: WekaClientStatus defines the observed state of WekaClient
             properties:
