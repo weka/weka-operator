@@ -194,6 +194,8 @@ const (
 	CausePlacementComputeDeleting WarningCause = "compute-container-deleting"
 	// CauseComputeRatioRelaxed: an unset full-drives ratio fell back below 2:1 (still >= 1:1) to fit compute.
 	CauseComputeRatioRelaxed WarningCause = "compute-ratio-relaxed"
+	// CauseComputeDriveNodePending: a compute-eligible drive node got its compute container without room for it.
+	CauseComputeDriveNodePending WarningCause = "compute-drive-node-pending"
 )
 
 // Warning is one classified planner advisory. Every auto-full-drives warning is fleet-wide: a condition

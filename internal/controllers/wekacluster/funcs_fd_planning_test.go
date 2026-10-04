@@ -1404,12 +1404,14 @@ func withFormClusterComputeFloor(t *testing.T, n int) {
 // compute cores and got 4 containers x 12, one below the 5 weka requires -- stuck forever on "expected 5,
 // got 4" with healthy idle pods). The floor must be enforced where the container count is derived.
 func TestPlanAutoFullDrivesHonorsFormClusterComputeFloor(t *testing.T) {
-	// 8 nodes x 3 drives: 24 drive cores -> 48 required compute cores, which 4 containers can carry.
-	nodes := make([]capacityplanner.NodeCapacity, 0, 8)
+	// 8 nodes x 3 drives: 24 drive cores -> 48 required compute cores, which 4 containers can carry. Compute
+	// runs on separate compute-only nodes, so the one-compute-per-drive-node rule does not set the count.
+	nodes := make([]capacityplanner.NodeCapacity, 0, 16)
 	computeNodes := map[string]bool{}
 	for _, name := range []string{"n1", "n2", "n3", "n4", "n5", "n6", "n7", "n8"} {
 		nodes = append(nodes, autoFullDrivesNode(name, name, []int{1024, 1024, 1024}))
-		computeNodes[name] = true
+		computeNodes["c"+name] = true
+		nodes = append(nodes, autoFullDrivesNode("c"+name, "c"+name, nil))
 	}
 	newLoop := func() *wekaClusterReconcilerLoop {
 		r, _ := newAutoFullDrivesLoop(nil, func() (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {

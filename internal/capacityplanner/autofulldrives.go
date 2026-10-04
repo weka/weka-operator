@@ -95,6 +95,7 @@ func PlanAutoFullDrives(
 			remaining:          remaining,
 			totalTlcGiB:        totals.tlcGiBTaken,
 			existingDriveCount: len(existingDrives),
+			driveNodes:         autoDriveNodes(existingDrives, plan.Create),
 			cons:               cons,
 		})
 	}
@@ -431,4 +432,17 @@ func buildDriveSizingRationale(
 		sizing, totals.drivesTaken, totals.drivesAvailable, totals.tlcGiBTaken, totals.tlcGiBAvailable,
 		plan.TotalTlcDriveCores, plan.RequiredComputeCores, plan.ComputeContainers)
 	return r
+}
+
+func autoDriveNodes(existing []ExistingContainer, created []NewContainer) map[string]struct{} {
+	nodes := make(map[string]struct{}, len(existing)+len(created))
+	for _, c := range existing {
+		if c.Node != "" {
+			nodes[c.Node] = struct{}{}
+		}
+	}
+	for _, c := range created {
+		nodes[c.Node] = struct{}{}
+	}
+	return nodes
 }

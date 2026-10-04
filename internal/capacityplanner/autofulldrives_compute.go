@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 // autofulldrives_compute.go sizes the compute side of an auto-full-drives plan. Compute is derived from the
@@ -25,7 +27,10 @@ type autoComputeInput struct {
 	// regardless of whether Status.Allocations has caught up and claimed the drives yet.
 	totalTlcGiB        int
 	existingDriveCount int
-	cons               *CapacityConstraints
+	// driveNodes are the nodes hosting a drive container after this plan; daemonset mode puts a compute
+	// container on each of them that is compute-eligible.
+	driveNodes map[string]struct{}
+	cons       *CapacityConstraints
 }
 
 // autoComputeEntry is one existing compute container carried into the plan: kept at its current size unless
@@ -64,8 +69,24 @@ func autoComputeSpecs(kept []autoComputeEntry) []ComputeContainerSpec {
 }
 
 // planComputeAutoFullDrives derives and lays out the compute containers, writing ComputeContainers,
-// ComputeCores, ComputeNodes and ComputeLayout on the plan (or an infeasibility).
+// ComputeCores, ComputeNodes and ComputeLayout on the plan (or an infeasibility). Every compute-eligible drive
+// node gets a compute container: first by deriving the layout with one per such node; if they do not all fit,
+// by deriving it as before and adding same-size containers on the rest, whose pods wait Pending for room.
+// Either way this runs per ratio, so a node without room never lowers the compute:drive ratio.
 func planComputeAutoFullDrives(in *autoComputeInput, plan *CapacityPlan) {
+	perDriveNode := *plan
+	planComputeAutoFullDrivesWithFloor(in, &perDriveNode, true)
+	if perDriveNode.Infeasible == "" {
+		*plan = perDriveNode
+		return
+	}
+	planComputeAutoFullDrivesWithFloor(in, plan, false)
+	if plan.Infeasible == "" {
+		addMissingDriveNodeCompute(in, plan)
+	}
+}
+
+func planComputeAutoFullDrivesWithFloor(in *autoComputeInput, plan *CapacityPlan, perDriveNode bool) {
 	if in.computeNodes == nil {
 		setInfeasible(plan, &InfeasibilityReport{Reason: "internal: compute node set not provided", Pool: "compute"})
 		return
@@ -95,7 +116,20 @@ func planComputeAutoFullDrives(in *autoComputeInput, plan *CapacityPlan) {
 	}
 
 	kept, pinned, keptCores := autoKeptCompute(in)
+	minCount := in.cons.MinComputeContainers
+	if perDriveNode {
+		minCount = max(minCount, len(driveComputeNodes(in)))
+	}
 	deficit := max(plan.RequiredComputeCores-keptCores, 0)
+	if len(kept) > 0 && len(kept) < minCount {
+		// Containers topping up to minCount are sized as if the whole layout were derived at once, not just to
+		// cover what the kept ones leave: otherwise a converged cluster gains 1-core containers.
+		freshCores := in.desired.ComputeCores
+		if freshCores == 0 {
+			freshCores = max(1, min(util.CeilDiv(plan.RequiredComputeCores, minCount), in.cons.MaxCoresPerContainer))
+		}
+		deficit = max(deficit, (minCount-len(kept))*freshCores)
+	}
 
 	// Already satisfied. Skipping the derivation is load-bearing, not an optimisation: deriveComputeLayout
 	// with a zero target returns max(floor,1) containers of one core each, which would manufacture phantom
@@ -141,7 +175,7 @@ func planComputeAutoFullDrives(in *autoComputeInput, plan *CapacityPlan) {
 	// A cluster cannot form below FormClusterMinComputeContainers, so the derivation must not return the
 	// fewest containers carrying the required cores (4x12 for 24 drive cores would hang forever on "expected
 	// 5, got 4"). The floor discounts what already exists: 3 kept against a floor of 5 needs 2 more, not 5.
-	floor := max(1, in.cons.MinComputeContainers-len(kept))
+	floor := max(1, minCount-len(kept))
 	// The hugepages divisor counts kept containers too — they share the same capacity-based term.
 	hugepagesFor := func(count, cores int) int {
 		return ComputeContainerHugepagesMiB(in.totalTlcGiB, 0, len(kept)+count, cores, in.cons)
@@ -539,4 +573,55 @@ func finishComputePlan(plan *CapacityPlan, layout []ComputeContainerSpec, derive
 			plan.ComputeCores = max(plan.ComputeCores, l.NumCores)
 		}
 	}
+}
+
+func (in *autoComputeInput) isDriveComputeNode(node string) bool {
+	_, isDrive := in.driveNodes[node]
+	return isDrive && in.computeNodes[node]
+}
+
+// driveComputeNodes are the compute-eligible drive nodes, sorted. A node whose compute container is still
+// being deleted is left out: its replacement waits until the old pod has released the node.
+func driveComputeNodes(in *autoComputeInput) []string {
+	nodes := make([]string, 0, len(in.driveNodes))
+	for node := range in.driveNodes {
+		nc, known := in.remaining[node]
+		if known && in.isDriveComputeNode(node) && !nc.HasDeletingComputeContainer {
+			nodes = append(nodes, node)
+		}
+	}
+	sort.Strings(nodes)
+	return nodes
+}
+
+// addMissingDriveNodeCompute gives each compute-eligible drive node still without a compute container one of
+// the plan's uniform size, without checking that the node has room: its pod waits Pending until it does.
+func addMissingDriveNodeCompute(in *autoComputeInput, plan *CapacityPlan) {
+	placed := make(map[string]struct{}, len(plan.ComputeLayout))
+	for _, l := range plan.ComputeLayout {
+		placed[l.Node] = struct{}{}
+	}
+	var missing []string
+	for _, node := range driveComputeNodes(in) {
+		if _, ok := placed[node]; !ok {
+			missing = append(missing, node)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	cores := in.desired.ComputeCores
+	if cores == 0 {
+		cores = plan.ComputeCores
+	}
+	total := len(plan.ComputeLayout) + len(missing)
+	hp := ComputeContainerHugepagesMiB(in.totalTlcGiB, 0, total, cores, in.cons)
+	layout := append([]ComputeContainerSpec(nil), plan.ComputeLayout...)
+	for _, node := range missing {
+		layout = append(layout, ComputeContainerSpec{Node: node, NumCores: cores, HugepagesMiB: hp})
+	}
+	plan.Warnings = append(plan.Warnings, fleetWarningWithCause(WarningKindComputeLayout, CauseComputeDriveNodePending,
+		"auto full drives: drive node(s) %s get a %d-core compute container without room for it; the pod(s) stay Pending until the node frees %d core(s) and %d MiB hugepages",
+		strings.Join(missing, ", "), cores, cores, hp))
+	finishComputePlan(plan, layout, plan.ComputeCores)
 }
