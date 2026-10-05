@@ -58,6 +58,12 @@ func TestClusterMinContainers(t *testing.T) {
 			dynamic:    &weka.WekaClusterTemplate{DriveContainers: 5, ComputeContainers: 5},
 		},
 		{
+			name:       "daemonset computeContainers pin at the minimum is allowed",
+			minDrive:   5,
+			minCompute: 5,
+			dynamic:    &weka.WekaClusterTemplate{ComputeContainers: 5},
+		},
+		{
 			name:       "above the minimum is allowed",
 			minDrive:   5,
 			minCompute: 5,
@@ -77,14 +83,13 @@ func TestClusterMinContainers(t *testing.T) {
 			},
 		},
 		{
-			name:       "computeContainers below the minimum is rejected",
+			name:       "daemonset computeContainers pin below the minimum is rejected",
 			minDrive:   5,
 			minCompute: 5,
 			dynamic:    &weka.WekaClusterTemplate{ComputeContainers: 2},
 			wantN:      1,
 			wantSubs:   []string{"computeContainers", "(2)", "below the 5 compute container(s)"},
-			// The auto-full-drives remedies are gone: they were unreachable (both counts are 0 in that
-			// mode, so the "unset" skip fires first) and their wording was wrong.
+			// The daemonset-mode remedies do not apply to a compute pin: the fix is to raise the pin.
 			wantNotSubs: []string{"caps how many eligible nodes are used", "remove the pin"},
 		},
 		{

@@ -5,8 +5,8 @@ as a **daemonset over its drive-role node selector**: one drive container per el
 consuming **every eligible full drive on that node**, with drive cores, hugepages and memory
 auto-calculated from the node's own drives.
 
-**There is no flag for this.** The mode is *implicit* — you get it by leaving `computeContainers` and
-`driveContainers` (and all three capacity fields) unset. An empty `dynamicTemplate: {}`, or no
+**There is no flag for this.** The mode is *implicit* — you get it by leaving `driveContainers` (and all
+three capacity fields) unset; `computeContainers` is an optional pin of the compute container count. An empty `dynamicTemplate: {}`, or no
 `dynamicTemplate` at all, is the shortest way to ask for it:
 
 ```yaml
@@ -29,27 +29,33 @@ created — see [When a node cannot fit its drives](#when-a-node-cannot-fit-its-
 | absent, or `{}` | daemonset |
 | `{numDrives: 4}` | daemonset, 4 largest drives per node |
 | `{numDrives: 4, driveCores: 3}` | daemonset, both pins honored |
+| `{computeContainers: 6}` | daemonset, exactly 6 compute containers |
+| `{computeContainers: 6, numDrives: 4}` | daemonset, 4 largest drives per node, exactly 6 compute containers |
+| `{computeContainers: 6, computeCores: 8}` | daemonset, 6 compute containers of exactly 8 cores |
 | `{computeContainers: 6, driveContainers: 6, numDrives: 4}` | manual container counts (unchanged) |
-| `{driveContainers: 6}` / `{computeContainers: 6, numDrives: 4}` | **rejected** |
+| `{driveContainers: 6}` | **rejected** |
 | `{clusterCapacity: 500TiB}` (± one count) | clusterCapacity (unchanged) |
 | `{numDrives: 4, driveCapacity: 3500}` | drive sharing (unchanged) |
 
-Read as a rule: the daemonset mode is active **if all** of `computeContainers`, `driveContainers`,
-`clusterCapacity`, `containerCapacity` and `driveCapacity` are unset (or zero). `numDrives`,
+Read as a rule: the daemonset mode is active **if all** of `driveContainers`, `clusterCapacity`,
+`containerCapacity` and `driveCapacity` are unset (or zero). `computeContainers`, `numDrives`,
 `driveCores` and `computeCores` are **pins, not mode selectors** — setting any of them does not take
 you out of the mode.
 
-### The both-or-neither rule
+### The driveContainers-requires-computeContainers rule
 
 When **no** capacity field (`clusterCapacity`, `containerCapacity`, `driveCapacity`) is set,
-`computeContainers` and `driveContainers` must be **both set or both unset**. Setting exactly one is
-rejected by a CEL rule on the CRD, so it fails at `kubectl apply` with:
+`driveContainers` requires `computeContainers`. `computeContainers` alone is allowed: it pins the
+compute container count of the daemonset mode (see [Compute sizing](#compute-sizing)). Setting
+`driveContainers` without `computeContainers` is rejected by a CEL rule on the CRD, so it fails at
+`kubectl apply` with:
 
-> *"computeContainers and driveContainers must be set together: setting both sizes the cluster by
-> container counts, while leaving both unset makes the operator act as a daemonset over its
-> drive-role nodeSelector (one drive container per eligible node, sized from that node's own full
-> drives). numDrives, driveCores and computeCores may be pinned either way. For capacity-based
-> sizing, use clusterCapacity, containerCapacity or driveCapacity instead"*
+> *"driveContainers requires computeContainers: setting both sizes the cluster by container counts,
+> while leaving driveContainers unset makes the operator act as a daemonset over its drive-role
+> nodeSelector (one drive container per eligible node, sized from that node's own full drives),
+> optionally with computeContainers pinning the compute container count. numDrives, driveCores and
+> computeCores may be pinned either way. For capacity-based sizing, use clusterCapacity,
+> containerCapacity or driveCapacity instead"*
 
 ## When to use this
 
@@ -139,6 +145,7 @@ never chooses. What the spec can set, and how the planner treats it:
 | Field on `dynamicTemplate` | Effect |
 |---|---|
 | `numDrives`, `driveCores`, `computeCores` | **Pins.** Honored verbatim, sized and fit by the planner. Unset means derive. |
+| `computeCores` on a running cluster | Also applied to existing compute containers, with or without a `computeContainers` pin: smaller ones grow to it (never shrink). One whose node lacks room grows anyway and its restarted pod stays Pending until there is room (`AutoFullDrivesComputeLayout` warning, cause `compute-cores-pin-short`). |
 | `overrides.dpdkBaseMemoryMb.drive` / `.compute` | Changes the `64` MiB/core DPDK term inside the derived figures; the planner fits with the changed value. |
 | `driveHugepages`, `computeHugepages` (and `*Offset`) | **Overrides, not pins.** Written to the container as given, but the planner still fits nodes against its *own* derived figure. See [the callout](#hugepages-budget). |
 
@@ -169,6 +176,7 @@ never chooses. What the spec can set, and how the planner treats it:
    # totalDriveCores and keep the largest target that fits. Infeasible only when even 1:1 does not fit.
    # ratio set explicitly: that target is enforced as-is.
    minCount             = max(5, compute-eligible nodes that host a drive container)  # 5 is 3 under ALLOW_SINGLE_PARITY
+                          # a computeContainers pin replaces minCount (and the per-drive-node rule) entirely
    computeContainers    = smallest n ≥ minCount whose n best nodes fit ceil(required / n) cores + hugepages
    computeCores         = ceil(requiredComputeCores / computeContainers)
    ```
@@ -360,6 +368,24 @@ The floor is the **total** drive-core count across the cluster, TLC **and** QLC.
 (such as the QLC default of 0.0) therefore reduces how much compute the *ratio term* asks for, but
 can never take the plan below one compute core per drive core. Both planners enforce the same floor
 when assessing feasibility, and admission validates it too for explicitly-sized clusters.
+
+#### Pinning the compute container count
+
+`computeContainers` in the daemonset mode sets the **exact total** number of compute containers. It
+**replaces** the default rule (one compute container on every compute-eligible drive node, at least the
+form-cluster minimum). Admission still rejects a pin below the form-cluster minimum.
+
+- The required compute cores are split over the pinned count as without a pin: sizes differ by at most
+  one core (48 over 5 gives 10, 10, 10, 9, 9), capped by the per-container core limit. A `computeCores`
+  pin is honored exactly instead, for new and existing containers alike.
+- If some compute containers already exist, only `computeContainers - existing` are added, each sized as
+  a fresh layout of the full pin.
+- If the pinned count does not fit on the eligible nodes, the plan is **infeasible** and nothing is
+  created; there is no place-anyway fallback with Pending pods.
+- Daemonset mode never deletes compute containers. If the cluster already has at least the pinned
+  number, all of them are kept and none are added. Lowering `computeContainers` below the number of
+  existing compute containers is accepted as given; the surplus keeps running until its
+  `WekaContainer`s are deleted, and the planner does not replace them.
 
 Because compute scales with **drive cores**, a `driveCores` pin is also a compute lever: pinning
 drive cores lower reduces the compute the ratio demands, at no cost in claimed drives.
@@ -645,8 +671,8 @@ makes fixing a mistyped spec possible.
 
 ### Adopting the daemonset mode (the allowed direction)
 
-Unset **both** `computeContainers` and `driveContainers` in the same update — the
-[both-or-neither rule](#the-both-or-neither-rule) still applies, so unsetting one is rejected by the
+Unset `driveContainers` in the same update (`computeContainers` may stay as a compute pin) — the
+[driveContainers-requires-computeContainers rule](#the-drivecontainers-requires-computecontainers-rule) still applies, so unsetting `computeContainers` while keeping `driveContainers` is rejected by the
 CRD before this policy is ever consulted:
 
 ```yaml
@@ -939,14 +965,14 @@ If your deployment needs QLC capacity, use a drive-sharing mode — `clusterCapa
 
 ## What admission checks
 
-Seven policies apply to this mode. All of them run both when you create a cluster **and** on any update
+Eight policies apply to this mode. All of them run both when you create a cluster **and** on any update
 that changes its spec, evaluated against the new spec — `cluster_sizing_mode_flip` is simply the only
 one that also needs the old spec, which is why it can catch a transition at all. Severities are
 `{strict, relaxed}`; the mode is set per policy in the operator's Helm values.
 
 | Policy | Severity | When | Catches |
 |---|---|---|---|
-| CRD CEL rule (not a policy) | rejection | create + update | Exactly one of `computeContainers`/`driveContainers` set — see [the both-or-neither rule](#the-both-or-neither-rule) |
+| CRD CEL rule (not a policy) | rejection | create + update | `driveContainers` set without `computeContainers` — see [the driveContainers-requires-computeContainers rule](#the-drivecontainers-requires-computecontainers-rule) |
 | `cluster_auto_full_drives_min_nodes` | Error / Warn | create + update | A role selector matching fewer nodes than the form-cluster floor — see [above](#the-node-selector-sets-the-container-count) |
 | `cluster_auto_full_drives_feasible` | Error / Warn | create + update | Any plan the capacity planner reports infeasible: no compute layout fits — not enough hugepages for the claimed capacity ([the ceiling](#compute-hugepages-are-the-practical-ceiling)), more cores required than the compute-eligible nodes can hold ([cores, not memory](#when-cores-not-memory-are-what-binds)), a pinned `computeCores` that fits neither — or `driveCores` above a node's effective drive count or `numDrives` above its signed count. Skipped before any drive is signed |
 | `cluster_cores_per_container_limit` | Error / Warn | create + update | A pinned `driveCores`/`computeCores` above [19](#per-container-core-limit) |
@@ -1032,9 +1058,9 @@ reports the plan infeasible instead. See [Drives and cores](#drives-and-cores).
 
 **The `WekaCluster` is rejected at creation with a message about `computeContainers` and
 `driveContainers`.**
-You set exactly one of the two container counts with no capacity field. Set both (to size by container
-counts) or neither (to act as a daemonset) — see
-[The both-or-neither rule](#the-both-or-neither-rule).
+You set `driveContainers` without `computeContainers` and with no capacity field. Set both (to size by
+container counts) or leave `driveContainers` unset (to act as a daemonset) — see
+[The driveContainers-requires-computeContainers rule](#the-drivecontainers-requires-computecontainers-rule).
 
 **The `WekaCluster` is rejected at creation with a message about compute hugepages.**
 The `cluster_auto_full_drives_feasible` policy ran the capacity planner against your node selector and
@@ -1046,12 +1072,12 @@ names **cores** rather than memory as what binds, see
 not help.
 
 **An update to a live cluster is rejected as a mode flip.**
-Expected for every mode change but two: adding `computeContainers`/`driveContainers` to a live
+Expected for every mode change but two: adding `driveContainers` (with `computeContainers`) to a live
 daemonset cluster, or setting or unsetting `clusterCapacity`/`containerCapacity`/`driveCapacity` in
 any other combination, is rejected once drive containers exist. Revert the change. The two
-transitions that are **accepted** are unsetting *both* container counts to adopt the daemonset mode,
-and moving a drive-sharing cluster to `clusterCapacity`. Note that unsetting only one count
-fails earlier, on the CRD's [both-or-neither rule](#the-both-or-neither-rule), with a different
+transitions that are **accepted** are unsetting `driveContainers` to adopt the daemonset mode (`computeContainers` may stay as a compute
+pin), and moving a drive-sharing cluster to `clusterCapacity`. Note that unsetting only
+`computeContainers` while `driveContainers` stays fails earlier, on the CRD's [driveContainers-requires-computeContainers rule](#the-drivecontainers-requires-computecontainers-rule), with a different
 message. See [Changing sizing mode on a live cluster](#changing-sizing-mode-on-a-live-cluster).
 
 **`AutoFullDrivesInfeasible` fires and nothing is created.**

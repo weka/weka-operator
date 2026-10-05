@@ -18,8 +18,8 @@ import (
 // MinContainersNotReady forever with its containers healthy but idle — a plan the planner happily
 // accepts, e.g. clusterCapacity alongside a single pinned count of 3.
 //
-// Only explicit pins are checked, which is why auto-full-drives never reaches the body: both counts are
-// 0 there by definition, so the "unset" skip fires first.
+// Only explicit pins are checked. The daemonset mode leaves driveContainers unset, so only a
+// computeContainers pin there is held to the compute minimum.
 type clusterMinContainers struct{}
 
 func (clusterMinContainers) ID() string {

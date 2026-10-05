@@ -43,12 +43,12 @@ type InfeasibilityReport struct {
 	Binding string
 	// ShortfallGiB is how much the pool/dimension is short, when quantifiable; 0 otherwise.
 	ShortfallGiB int
-	// SpecField names the dynamicTemplate field whose pin caused this rejection ("numDrives",
-	// "driveCores", "computeCores"), empty when no pinned field did. Distinct from Binding, which also
-	// carries resource dimensions ("cores" is physical CPU, not the driveCores pin) and so cannot be
-	// mapped to a field on its own: consumers that must blame a field — internal/validation's
-	// auto-full-drives feasibility rule, which turns this into a field.Error path — read this instead of
-	// inferring one, so a report caused by the fleet rather than the spec blames nothing.
+	// SpecField names the dynamicTemplate field whose pin caused this rejection ("numDrives", "driveCores",
+	// "computeCores", "computeContainers"), empty when no pinned field did. Distinct from Binding, which also
+	// carries resource dimensions ("cores" is physical CPU, not the driveCores pin) and so cannot be mapped
+	// to a field on its own: consumers that must blame a field — internal/validation's auto-full-drives
+	// feasibility rule, which turns this into a field.Error path — read this instead of inferring one, so a
+	// report caused by the fleet rather than the spec blames nothing.
 	SpecField string
 	// RejectedNodes is the per-node breakdown of why the candidate set fell short (drive pools only).
 	RejectedNodes []NodeRejection

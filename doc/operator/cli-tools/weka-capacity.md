@@ -175,7 +175,7 @@ value, with `--new-cluster` they **define** the synthetic spec from scratch — 
 | `--cluster-capacity` | `dynamicTemplate.clusterCapacity` (e.g. `11022TiB`) — **required** with `--new-cluster`, unless `--auto-full-drives` is given |
 | `--drive-types-ratio` | `driveTypesRatio`, as `tlc:qlc` (e.g. `1:90`) |
 | `--stripe-width`, `--redundancy`, `--hot-spare` | `stripeWidth` / `redundancyLevel` / `hotSpare` |
-| `--drive-containers`, `--drive-cores` | explicit drive sizing. Outside a capacity mode `--drive-containers` must be set together with `--compute-containers`, mirroring the CRD's both-or-neither rule |
+| `--drive-containers`, `--drive-cores` | explicit drive sizing. Outside a capacity mode `--drive-containers` requires `--compute-containers`, mirroring the CRD rule; `--compute-containers` alone pins the daemonset compute count |
 | `--compute-containers`, `--compute-cores` | explicit compute sizing |
 | `--num-drives` | `dynamicTemplate.numDrives`. In the daemonset mode this is a **per-node** override: every eligible node takes exactly this many of its **largest** signed full drives instead of all of them |
 

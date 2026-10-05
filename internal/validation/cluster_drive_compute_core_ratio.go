@@ -47,8 +47,8 @@ func (clusterDriveComputeCoreRatio) Validate(_ context.Context, _ client.Client,
 		return nil
 	}
 
-	// Auto-full-drives mode is not reachable here: it requires both counts unset, and both being set
-	// is what makes this function run at all.
+	// The daemonset mode is not reachable here: templateCoreSides skips planner-managed templates, including
+	// a computeContainers-only pin, since the planner owns the drive side.
 	exclusiveFullDrives := config.NumDrives > 0 && config.DriveCapacity == 0
 	var ratio float64
 	if exclusiveFullDrives {

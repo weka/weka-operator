@@ -10,8 +10,9 @@
 // order — it has no drive-sharing value, folding it into sizingCountBased. Each rule is scoped to the
 // modes whose numbers it can actually read:
 //
-//	auto-full-drives   no container count and no capacity field set (a nil template included) — one
-//	                   container per eligible node, both counts 0, every signed drive claimed.
+//	auto-full-drives   no driveContainers and no capacity field set (a nil template included) — one
+//	                   drive container per eligible node, every signed drive claimed; computeContainers
+//	                   optionally pins the compute count.
 //	                   numDrives/driveCores pins are legal here and stay in this mode.
 //	clusterCapacity    the planner derives counts and cores from a capacity target
 //	drive-sharing      containerCapacity or driveCapacity set — numDrives counts virtual drives

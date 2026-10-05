@@ -35,6 +35,12 @@ func (clusterSelectedNodesCount) Validate(ctx context.Context, c client.Client, 
 		if r.containers <= 0 {
 			continue
 		}
+		// A daemonset-mode compute pin above the eligible nodes is a planner infeasibility, reported by
+		// cluster_auto_full_drives_feasible: nothing is created, so "some will fail to schedule" would be
+		// wrong.
+		if r.role == wekav1alpha1.WekaContainerModeCompute && cluster.Spec.Dynamic.UsesAutoFullDrives() {
+			continue
+		}
 		selector := cluster.GetNodeSelectorForRole(r.role)
 		var nodes corev1.NodeList
 		if err := c.List(ctx, &nodes, client.MatchingLabels(selector)); err != nil {

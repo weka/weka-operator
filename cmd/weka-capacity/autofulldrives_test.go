@@ -101,10 +101,10 @@ func TestBuildSyntheticCluster_NumDrives(t *testing.T) {
 	}
 }
 
-// TestApplyOverrides_ContainerCountsBothOrNeither covers the flag-level mirror of the CRD's
-// both-or-neither CEL rule: a dry run must not model a spec the apiserver would reject, and one count
-// alone would silently knock a daemonset cluster out of its mode.
-func TestApplyOverrides_ContainerCountsBothOrNeither(t *testing.T) {
+// TestApplyOverrides_DriveContainersRequireCompute covers the flag-level mirror of the CRD's
+// driveContainers-requires-computeContainers CEL rule: a dry run must not model a spec the apiserver
+// would reject, and driveContainers alone would silently knock a daemonset cluster out of its mode.
+func TestApplyOverrides_DriveContainersRequireCompute(t *testing.T) {
 	cases := []struct {
 		name    string
 		args    []string
@@ -116,9 +116,9 @@ func TestApplyOverrides_ContainerCountsBothOrNeither(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "compute-containers alone on a daemonset cluster is rejected",
+			name:    "compute-containers alone on a daemonset cluster is accepted (pins the compute count)",
 			args:    []string{"plan", "--new-cluster", "--auto-full-drives", "--compute-containers", "6"},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:    "both together is accepted (explicit container counts)",
@@ -136,8 +136,13 @@ func TestApplyOverrides_ContainerCountsBothOrNeither(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "zero means unset, so --drive-containers 0 with a compute count set is still lopsided",
+			name:    "zero means unset, so --drive-containers 0 with a compute count set is the daemonset compute pin",
 			args:    []string{"plan", "--new-cluster", "--auto-full-drives", "--drive-containers", "0", "--compute-containers", "6"},
+			wantErr: false,
+		},
+		{
+			name:    "zero compute-containers with a drive count set is still rejected",
+			args:    []string{"plan", "--new-cluster", "--auto-full-drives", "--drive-containers", "6", "--compute-containers", "0"},
 			wantErr: true,
 		},
 	}
@@ -151,8 +156,8 @@ func TestApplyOverrides_ContainerCountsBothOrNeither(t *testing.T) {
 			if !tc.wantErr && err != nil {
 				t.Errorf("buildSyntheticCluster() = %v, want nil", err)
 			}
-			if tc.wantErr && err != nil && !strings.Contains(err.Error(), "must be set together") {
-				t.Errorf("error = %q, want it to name the both-or-neither rule", err)
+			if tc.wantErr && err != nil && !strings.Contains(err.Error(), "requires --compute-containers") {
+				t.Errorf("error = %q, want it to name the driveContainers rule", err)
 			}
 		})
 	}
@@ -169,12 +174,12 @@ func TestApplyOverrides_CountOverrideCompletesLiveSpec(t *testing.T) {
 		t.Errorf("applyOverrides() = %v, want nil (live computeContainers=6 + flag driveContainers=6 is both-set)", err)
 	}
 
-	// ...and dropping the live spec's only remaining count to 0 is what the guard must catch.
-	o2 := parseOpts(t, []string{"plan", "--cluster", "c", "--drive-containers", "0"})
+	// ...and zeroing computeContainers while driveContainers stays is what the guard must catch.
+	o2 := parseOpts(t, []string{"plan", "--cluster", "c", "--compute-containers", "0"})
 	cluster2 := weka.WekaCluster{}
 	cluster2.Spec.Dynamic = &weka.WekaClusterTemplate{ComputeContainers: 6, DriveContainers: 6}
 	if err := o2.Plan.applyOverrides(&cluster2); err == nil {
-		t.Errorf("applyOverrides() = nil, want rejection: zeroing driveContainers leaves computeContainers=6 alone")
+		t.Errorf("applyOverrides() = nil, want rejection: zeroing computeContainers leaves driveContainers=6 alone")
 	}
 }
 

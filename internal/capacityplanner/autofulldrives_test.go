@@ -4698,3 +4698,281 @@ func TestPlanAutoFullDrives_TightDriveNodeGetsPendingCompute(t *testing.T) {
 		t.Errorf("Warnings = %+v, want a %q warning naming n6", plan.Warnings, CauseComputeDriveNodePending)
 	}
 }
+
+// pinFleet is six hyperconverged drive nodes (4 drives each, so 24 drive cores) that are also the only
+// compute-eligible nodes, with headroom that never binds.
+func pinFleet() ([]NodeCapacity, map[string]bool) {
+	const big = 1 << 28
+	names := []string{"d1", "d2", "d3", "d4", "d5", "d6"}
+	inv := make([]NodeCapacity, 0, len(names))
+	for _, n := range names {
+		inv = append(inv, NodeCapacity{
+			NodeName: n, FDValue: "fd" + n,
+			DriveCapacitiesGiB: afdDrives(4, 5000), TlcGiB: 20000,
+			AllocatableCPU: 200, AvailableHugepagesMiB: big, AvailableMemoryMiB: big,
+		})
+	}
+	return inv, computeNodeSet(names...)
+}
+
+func pinExisting(cores int, nodes ...string) []ExistingComputeContainer {
+	out := make([]ExistingComputeContainer, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, ExistingComputeContainer{Name: "c-" + n, Node: n, NumCores: cores, HugepagesMiB: 1600 * cores})
+	}
+	return out
+}
+
+func TestPlanAutoFullDrives_ComputeContainersPin(t *testing.T) {
+	t.Run("no pin keeps one compute container per drive node", func(t *testing.T) {
+		inv, eligible := pinFleet()
+		plan := PlanAutoFullDrives(AutoFullDrivesDesired{}, nil, nil, inv, eligible, testCons())
+		if plan.Infeasible != "" || len(plan.ComputeLayout) != 6 {
+			t.Fatalf("want 6 compute containers, got %d (infeasible %q)", len(plan.ComputeLayout), plan.Infeasible)
+		}
+	})
+
+	t.Run("pin replaces the per-drive-node rule and derives cores from it", func(t *testing.T) {
+		inv, eligible := pinFleet()
+		plan := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeContainers: 5}, nil, nil, inv, eligible, testCons())
+		if plan.Infeasible != "" {
+			t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+		}
+		if plan.ComputeContainers != 5 || len(plan.ComputeLayout) != 5 {
+			t.Fatalf("want exactly 5 compute containers, got %d / %+v", plan.ComputeContainers, plan.ComputeLayout)
+		}
+		// Balanced split of exactly the required cores, as without a pin: sizes differ by at most one.
+		total, lo, hi := 0, plan.ComputeLayout[0].NumCores, plan.ComputeLayout[0].NumCores
+		for _, l := range plan.ComputeLayout {
+			total += l.NumCores
+			lo, hi = min(lo, l.NumCores), max(hi, l.NumCores)
+		}
+		if total != plan.RequiredComputeCores || hi-lo > 1 {
+			t.Errorf("layout %+v: want %d cores split evenly (sizes within one core)", plan.ComputeLayout, plan.RequiredComputeCores)
+		}
+		for _, w := range plan.Warnings {
+			if w.Cause == CauseComputeDriveNodePending {
+				t.Errorf("a pinned count must not take the place-anyway fallback: %s", w.Message)
+			}
+		}
+	})
+
+	t.Run("pin is below the formation minimum", func(t *testing.T) {
+		inv, eligible := pinFleet()
+		cons := testCons()
+		cons.MinComputeContainers = 5
+		plan := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeContainers: 3}, nil, nil, inv, eligible, cons)
+		if plan.Infeasible != "" || len(plan.ComputeLayout) != 3 {
+			t.Fatalf("want exactly 3 compute containers, got %d (infeasible %q)", len(plan.ComputeLayout), plan.Infeasible)
+		}
+	})
+
+	t.Run("computeCores pin is honored exactly", func(t *testing.T) {
+		inv, eligible := pinFleet()
+		plan := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeContainers: 5, ComputeCores: 12}, nil, nil, inv, eligible, testCons())
+		if plan.Infeasible != "" {
+			t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+		}
+		if len(plan.ComputeLayout) != 5 {
+			t.Fatalf("want 5 compute containers, got %+v", plan.ComputeLayout)
+		}
+		for _, l := range plan.ComputeLayout {
+			if l.NumCores != 12 {
+				t.Errorf("%s has %d cores, want the computeCores pin 12", l.Node, l.NumCores)
+			}
+		}
+	})
+
+	t.Run("pin above existing adds only the missing containers, sized as a fresh layout", func(t *testing.T) {
+		inv, eligible := pinFleet()
+		// Required cores are 48 at the production ratio; 4 existing 2-core containers leave a large deficit.
+		plan := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeContainers: 5}, nil, pinExisting(2, "d1", "d2", "d3", "d4"), inv, eligible, testCons())
+		if plan.Infeasible != "" {
+			t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+		}
+		if len(plan.ComputeLayout) != 5 {
+			t.Fatalf("want 5 compute containers in total, got %+v", plan.ComputeLayout)
+		}
+		fresh := (plan.RequiredComputeCores + 4) / 5
+		got := afdComputeCores(plan.ComputeLayout)
+		newCores := 0
+		for node, c := range got {
+			if node == "d5" || node == "d6" {
+				newCores = c
+			}
+		}
+		if newCores < fresh {
+			t.Errorf("new container has %d cores, want at least the fresh-layout %d (layout %+v)", newCores, fresh, plan.ComputeLayout)
+		}
+	})
+
+	t.Run("converged existing set at the pin adds nothing", func(t *testing.T) {
+		inv, eligible := pinFleet()
+		first := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeContainers: 5}, nil, nil, inv, eligible, testCons())
+		var existing []ExistingComputeContainer
+		for _, l := range first.ComputeLayout {
+			existing = append(existing, ExistingComputeContainer{Name: "c-" + l.Node, Node: l.Node, NumCores: l.NumCores, HugepagesMiB: l.HugepagesMiB})
+		}
+		inv, eligible = pinFleet()
+		plan := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeContainers: 5}, nil, existing, inv, eligible, testCons())
+		if plan.Infeasible != "" || len(plan.ComputeLayout) != 5 {
+			t.Fatalf("want the same 5 containers, got %d (infeasible %q)", len(plan.ComputeLayout), plan.Infeasible)
+		}
+	})
+
+	t.Run("pin below existing keeps every existing container and adds none", func(t *testing.T) {
+		inv, eligible := pinFleet()
+		plan := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeContainers: 3}, nil, pinExisting(12, "d1", "d2", "d3", "d4"), inv, eligible, testCons())
+		if plan.Infeasible != "" {
+			t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+		}
+		if len(plan.ComputeLayout) != 4 {
+			t.Fatalf("want the 4 existing containers kept and none added, got %+v", plan.ComputeLayout)
+		}
+	})
+
+	t.Run("pin that does not fit is infeasible", func(t *testing.T) {
+		inv, eligible := pinFleet()
+		plan := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeContainers: 8}, nil, nil, inv, eligible, testCons())
+		if plan.Infeasible == "" {
+			t.Fatalf("want infeasible for 8 containers on 6 nodes, got %+v", plan.ComputeLayout)
+		}
+		if !strings.Contains(plan.Infeasible, "computeContainers=8 needs 8 more compute container(s) but only 6") {
+			t.Errorf("Infeasible = %q, want it to name the pin and the eligible node count", plan.Infeasible)
+		}
+		if plan.Infeasibility == nil || plan.Infeasibility.SpecField != "computeContainers" {
+			t.Errorf("report = %+v, want SpecField computeContainers", plan.Infeasibility)
+		}
+	})
+}
+
+// An explicit computeCores is used as given for existing compute containers too, pinned count or not: below
+// the pin they grow to it (never shrink), and where the node lacks room they grow anyway with a warning.
+func TestPlanAutoFullDrives_ComputeCoresPinRaisesExistingCompute(t *testing.T) {
+	cons := testCons()
+	cons.MinComputeContainers = 5
+	const big = 1 << 28
+	nodes := []string{"n1", "n2", "n3", "n4", "n5", "n6"}
+	run := func(t *testing.T, desired AutoFullDrivesDesired, tightNode string) CapacityPlan {
+		var drives []ExistingContainer
+		var compute []ExistingComputeContainer
+		var inv []NodeCapacity
+		for _, n := range nodes {
+			cpu := 200
+			if n == tightNode {
+				cpu = 2 // free CPU after its containers: too little for 4 more compute cores
+			}
+			drives = append(drives, ExistingContainer{Name: "drv-" + n, Node: n, FDValue: n, NumCores: 1, NumDrives: 1})
+			compute = append(compute, ExistingComputeContainer{Name: "ec-" + n, Node: n, NumCores: 2, HugepagesMiB: 6000})
+			inv = append(inv, NodeCapacity{NodeName: n, FDValue: n, OwnDriveCapacitiesGiB: uniformDrives(1, 5120),
+				AllocatableCPU: cpu, AvailableHugepagesMiB: big, AvailableMemoryMiB: big})
+		}
+		plan := PlanAutoFullDrives(desired, drives, compute, inv, computeNodeSet(nodes...), cons)
+		if plan.Infeasible != "" {
+			t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+		}
+		return plan
+	}
+	for name, desired := range map[string]AutoFullDrivesDesired{
+		"unpinned count": {ComputeCores: 6},
+		"pinned count":   {ComputeCores: 6, ComputeContainers: 6},
+	} {
+		t.Run(name, func(t *testing.T) {
+			plan := run(t, desired, "")
+			for _, l := range plan.ComputeLayout {
+				if l.NumCores != 6 {
+					t.Errorf("%s has %d cores, want the computeCores pin 6", l.Node, l.NumCores)
+				}
+			}
+		})
+	}
+	t.Run("no headroom grows anyway with a warning", func(t *testing.T) {
+		plan := run(t, AutoFullDrivesDesired{ComputeCores: 6}, "n6")
+		for _, l := range plan.ComputeLayout {
+			if l.NumCores != 6 {
+				t.Errorf("%s has %d cores, want the computeCores pin 6", l.Node, l.NumCores)
+			}
+		}
+		found := false
+		for _, w := range plan.Warnings {
+			found = found || (w.Cause == CauseComputeCoresPinShort && strings.Contains(w.Message, "n6"))
+		}
+		if !found {
+			t.Errorf("Warnings = %+v, want a %q warning naming n6", plan.Warnings, CauseComputeCoresPinShort)
+		}
+	})
+	t.Run("a pin below the current size never shrinks", func(t *testing.T) {
+		plan := run(t, AutoFullDrivesDesired{ComputeCores: 1}, "")
+		for _, l := range plan.ComputeLayout {
+			if l.NumCores < 2 {
+				t.Errorf("%s shrank to %d cores, want >= its current 2", l.Node, l.NumCores)
+			}
+		}
+	})
+}
+
+// The per-drive-node attempt reserves headroom (here the computeCores raise) before it fails on n6, which has
+// no room for compute; the fallback must start from the original headroom, not charge the raise twice.
+func TestPlanAutoFullDrives_FallbackDoesNotDoubleChargeHeadroom(t *testing.T) {
+	cons := testCons()
+	cons.MinComputeContainers = 5
+	const big = 1 << 28
+	nodes := []string{"n1", "n2", "n3", "n4", "n5", "n6"}
+	var drives []ExistingContainer
+	var compute []ExistingComputeContainer
+	var inv []NodeCapacity
+	for _, n := range nodes {
+		cpu := 1 // free CPU for exactly one +1-core raise
+		if n == "n6" {
+			cpu = 0
+		} else {
+			compute = append(compute, ExistingComputeContainer{Name: "ec-" + n, Node: n, NumCores: 2, HugepagesMiB: 6000})
+		}
+		drives = append(drives, ExistingContainer{Name: "drv-" + n, Node: n, FDValue: n, NumCores: 1, NumDrives: 1})
+		inv = append(inv, NodeCapacity{NodeName: n, FDValue: n, OwnDriveCapacitiesGiB: uniformDrives(1, 5120),
+			AllocatableCPU: cpu, AvailableHugepagesMiB: big, AvailableMemoryMiB: big})
+	}
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeCores: 3}, drives, compute, inv, computeNodeSet(nodes...), cons)
+
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	for _, w := range plan.Warnings {
+		if w.Cause == CauseComputeCoresPinShort {
+			t.Errorf("n1-n5 have room for the raise, got %q — the fallback saw headroom already charged by the failed attempt", w.Message)
+		}
+	}
+}
+
+// A computeContainers pin is only infeasible when the containers still missing cannot be placed: a cluster
+// already at the pin stays feasible after a node loses compute eligibility.
+func TestPlanAutoFullDrives_ComputePinCheckedAgainstMissingContainers(t *testing.T) {
+	cons := testCons()
+	cons.MinComputeContainers = 5
+	const big = 1 << 28
+	nodes := []string{"n1", "n2", "n3", "n4", "n5", "n6"}
+	var drives []ExistingContainer
+	var compute []ExistingComputeContainer
+	var inv []NodeCapacity
+	for _, n := range nodes {
+		drives = append(drives, ExistingContainer{Name: "drv-" + n, Node: n, FDValue: n, NumCores: 1, NumDrives: 1})
+		if n != "n6" {
+			compute = append(compute, ExistingComputeContainer{Name: "ec-" + n, Node: n, NumCores: 3, HugepagesMiB: 9000})
+		}
+		inv = append(inv, NodeCapacity{NodeName: n, FDValue: n, OwnDriveCapacitiesGiB: uniformDrives(1, 5120),
+			AllocatableCPU: 200, AvailableHugepagesMiB: big, AvailableMemoryMiB: big})
+	}
+	// n5 lost its compute label and n6 never had one: 4 eligible nodes, all hosting kept compute.
+	eligible := computeNodeSet("n1", "n2", "n3", "n4")
+
+	plan := PlanAutoFullDrives(AutoFullDrivesDesired{ComputeContainers: 5}, drives, compute, inv, eligible, cons)
+	if plan.Infeasible != "" {
+		t.Errorf("pin 5 with 5 kept: want feasible, got %s", plan.Infeasible)
+	}
+
+	plan = PlanAutoFullDrives(AutoFullDrivesDesired{ComputeContainers: 6}, drives, compute, inv, eligible, cons)
+	if !strings.Contains(plan.Infeasible, "computeContainers=6 needs 1 more compute container(s) but only 0") {
+		t.Errorf("pin 6 with 5 kept and no free node: want an infeasibility naming the shortfall, got %q", plan.Infeasible)
+	}
+}

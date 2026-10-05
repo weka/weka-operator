@@ -196,6 +196,9 @@ const (
 	CauseComputeRatioRelaxed WarningCause = "compute-ratio-relaxed"
 	// CauseComputeDriveNodePending: a compute-eligible drive node got its compute container without room for it.
 	CauseComputeDriveNodePending WarningCause = "compute-drive-node-pending"
+	// CauseComputeCoresPinShort: an existing compute container grew to the computeCores pin without headroom
+	// for it.
+	CauseComputeCoresPinShort WarningCause = "compute-cores-pin-short"
 )
 
 // Warning is one classified planner advisory. Every auto-full-drives warning is fleet-wide: a condition

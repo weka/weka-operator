@@ -17,10 +17,10 @@ type roleSpec struct {
 	hugepages  int // MiB per container
 	containers int
 
-	// countDerived marks a role whose container count the operator supplies when the spec leaves it
-	// unset: Drive and Compute get a floor from allocator.GetWekaContainerNumbers, and a cluster acting
-	// as a daemonset leaves both unset by definition. For the frontend roles an unset count is literal —
-	// the role deploys nothing — so a per-container check on them has nothing to check.
+	// countDerived marks a role whose container count the operator supplies when the spec leaves it unset:
+	// Drive and Compute get a floor from allocator.GetWekaContainerNumbers, and a cluster acting as a
+	// daemonset leaves driveContainers unset by definition. For the frontend roles an unset count is literal
+	// — the role deploys nothing — so a per-container check on them has nothing to check.
 	countDerived bool
 }
 

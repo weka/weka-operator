@@ -39,9 +39,9 @@ type planCommand struct {
 	Redundancy      *int   `long:"redundancy" description:"Override redundancyLevel"`
 	HotSpare        *int   `long:"hot-spare" description:"Override hotSpare"`
 	//nolint:lll // struct tag: a go-flags description must be one string literal.
-	DriveContainers *int `long:"drive-containers" description:"Override dynamicTemplate.driveContainers. Outside a capacity mode this must be set together with --compute-containers, mirroring the CRD's both-or-neither rule"`
+	DriveContainers *int `long:"drive-containers" description:"Override dynamicTemplate.driveContainers. Outside a capacity mode this requires --compute-containers, mirroring the CRD rule"`
 	//nolint:lll // struct tag: a go-flags description must be one string literal.
-	ComputeContainers *int `long:"compute-containers" description:"Override dynamicTemplate.computeContainers. Outside a capacity mode this must be set together with --drive-containers, mirroring the CRD's both-or-neither rule"`
+	ComputeContainers *int `long:"compute-containers" description:"Override dynamicTemplate.computeContainers. Outside a capacity mode, alone (without --drive-containers) it pins the compute container count of the daemonset mode"`
 	ComputeCores      *int `long:"compute-cores" description:"Override dynamicTemplate.computeCores"`
 	DriveCores        *int `long:"drive-cores" description:"Override dynamicTemplate.driveCores"`
 	//nolint:lll // struct tag: a go-flags description must be one string literal.
@@ -213,8 +213,9 @@ func describeSizingMode(d *weka.WekaClusterTemplate) string {
 	case d.ComputeContainers > 0 && d.DriveContainers > 0:
 		return "computeContainers + driveContainers — explicit container counts"
 	default:
-		// Unreachable: exactly one count set is rejected by the CRD's both-or-neither rule, and neither set
-		// with no capacity field is the daemonset mode, which the switch above already claimed.
+		// Unreachable: driveContainers without computeContainers is rejected by the CRD, and no
+		// driveContainers with no capacity field is the daemonset mode, which the switch above already
+		// claimed.
 		return "an unrecognized combination of dynamicTemplate fields"
 	}
 }
@@ -297,14 +298,7 @@ func (cmd *planCommand) executeClusterCapacity(ctx context.Context, c client.Cli
 // capacityplanner.PlanAutoFullDrives), mirroring the controller; a dry run reports "no signed drives yet" as a
 // summary instead of retrying like the controller would (see autoFullDrivesPlanSummary).
 func (cmd *planCommand) executeAutoFullDrives(ctx context.Context, c client.Client, cluster *weka.WekaCluster, own []*weka.WekaContainer, cons *capacityplanner.CapacityConstraints, displayName string) error {
-	dyn := cluster.Spec.Dynamic
-	// Only the three pins survive: container counts are unrepresentable in this mode (setting either one
-	// is what takes a template OUT of it), so there is nothing else to forward.
-	desired := capacityplanner.AutoFullDrivesDesired{
-		ComputeCores: dyn.ComputeCores,
-		DriveCores:   dyn.DriveCores,
-		NumDrives:    dyn.NumDrives,
-	}
+	desired := capacityplanner.AutoFullDrivesDesiredFromTemplate(cluster.Spec.Dynamic)
 
 	fdByNode, nodeInv, computeNodes, err := inventory.NewCollector(c).FullDrivesInventory(ctx, cluster, own, cons)
 	if err != nil {
@@ -438,9 +432,9 @@ func (cmd *planCommand) applyOverrides(cluster *weka.WekaCluster) error {
 	return nil
 }
 
-// validateContainerCountOverrides mirrors the CRD's both-or-neither CEL rule on the flags, so a dry run
-// cannot model a spec the apiserver would reject. Without it, `--drive-containers 6` on a daemonset
-// cluster silently knocks it out of the mode and plans something that could never be applied.
+// validateContainerCountOverrides mirrors the CRD's driveContainers-requires-computeContainers CEL rule on
+// the flags, so a dry run cannot model a spec the apiserver would reject. Without it, `--drive-containers 6`
+// on a daemonset cluster silently knocks it out of the mode and plans something that could never be applied.
 //
 // Runs BEFORE any override lands, so it judges the POST-override state from (live spec + flags) rather
 // than a half-mutated template. The guard is skipped entirely when a capacity field is in play — from
@@ -461,12 +455,13 @@ func (cmd *planCommand) validateContainerCountOverrides(d *weka.WekaClusterTempl
 	if cmd.ComputeContainers != nil {
 		compute = *cmd.ComputeContainers
 	}
-	if (drive > 0) != (compute > 0) {
+	if drive > 0 && compute <= 0 {
 		return fmt.Errorf(
-			"--drive-containers and --compute-containers must be set together (resulting driveContainers=%d, "+
-				"computeContainers=%d): setting both sizes the cluster by container counts, leaving both unset "+
-				"makes the operator act as a daemonset over its drive-role nodeSelector. The CRD enforces the "+
-				"same rule, so a spec with only one of them cannot be applied. --num-drives, --drive-cores and "+
+			"--drive-containers requires --compute-containers (resulting driveContainers=%d, "+
+				"computeContainers=%d): setting both sizes the cluster by container counts, leaving "+
+				"driveContainers unset makes the operator act as a daemonset over its drive-role nodeSelector "+
+				"(computeContainers then pins the compute count). The CRD enforces the same rule, so a spec "+
+				"with only driveContainers cannot be applied. --num-drives, --drive-cores and "+
 				"--compute-cores are pins and may be set either way",
 			drive, compute)
 	}

@@ -145,20 +145,7 @@ func (r *wekaClusterReconcilerLoop) planAutoFullDrives(ctx context.Context) (*ca
 	defer logger.End()
 
 	cluster := r.cluster
-	// An omitted spec.dynamicTemplate is this mode — the shortest way to ask for it — so a nil here is the
-	// common case, not an edge one, and every pin below reads as unset.
-	dyn := cluster.Spec.Dynamic
-	if dyn == nil {
-		dyn = &weka.WekaClusterTemplate{}
-	}
-
-	// No ComputeContainers/DriveContainers fields here: under the both-or-neither CEL rule, reaching this
-	// planning path already means both are unset on dyn — see AutoFullDrivesDesired's doc comment.
-	desired := capacityplanner.AutoFullDrivesDesired{
-		ComputeCores: dyn.ComputeCores, // 0 == unset (auto-derive)
-		DriveCores:   dyn.DriveCores,   // 0 == unset (auto-derive)
-		NumDrives:    dyn.NumDrives,    // 0 == unset (take every signed drive)
-	}
+	desired := capacityplanner.AutoFullDrivesDesiredFromTemplate(cluster.Spec.Dynamic)
 
 	cons := allocator.ConstraintsForClusterSpec(&cluster.Spec)
 

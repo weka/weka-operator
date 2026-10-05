@@ -15,10 +15,10 @@ import (
 
 // clusterAutoFullDrivesMinNodes rejects an auto-full-drives cluster whose role nodeSelector matches
 // fewer nodes than the form-cluster floor (FormClusterMinDrive/ComputeContainers — 5 by default, 3
-// under ALLOW_SINGLE_PARITY). Both container counts are 0 in this mode and the operator places exactly
+// under ALLOW_SINGLE_PARITY). driveContainers is unset in this mode and the operator places exactly
 // one container per eligible node, so the matched node count IS the container count and no sizing field
-// can raise it — which is also why clusterSelectedNodesCount and clusterMinContainers, both driven by
-// pinned counts, no-op here. The two legs fail differently at runtime; see consequence below.
+// can raise it — which is also why clusterSelectedNodesCount, driven by pinned counts, no-ops here. The
+// two legs fail differently at runtime; see consequence below.
 //
 // Counts MATCHED nodes, not signed ones: labelling and drive-signing are independent, and a labelled
 // but unsigned node still hosts a container once signing runs. So there is no signing state to be
@@ -82,7 +82,7 @@ func (clusterAutoFullDrivesMinNodes) Validate(ctx context.Context, c client.Clie
 
 		detail := fmt.Sprintf(
 			"the %s-role nodeSelector (%s) matches %d node(s), below the %d %s container(s) weka needs "+
-				"to form a cluster. This cluster sets no container counts, so it acts as a daemonset and "+
+				"to form a cluster. This cluster sets no driveContainers, so it acts as a daemonset and "+
 				"places exactly one %s container per eligible node — the matched node count IS the "+
 				"container count, and no sizing field can raise it. %s. Label at least %d node(s) for "+
 				"%s (it falls back to spec.nodeSelector when unset).",

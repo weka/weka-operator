@@ -75,16 +75,7 @@ func (clusterAutoFullDrivesFeasible) Validate(ctx context.Context, c client.Clie
 		return nil
 	}
 
-	var desired capacityplanner.AutoFullDrivesDesired
-	if dyn != nil {
-		// Container counts are unrepresentable in this mode — setting either is what takes a template out
-		// of it — so only the three pins carry over.
-		desired = capacityplanner.AutoFullDrivesDesired{
-			ComputeCores: dyn.ComputeCores,
-			DriveCores:   dyn.DriveCores,
-			NumDrives:    dyn.NumDrives,
-		}
-	}
+	desired := capacityplanner.AutoFullDrivesDesiredFromTemplate(dyn)
 
 	plan := capacityplanner.PlanAutoFullDrives(
 		desired,
@@ -141,6 +132,8 @@ func infeasibilityField(dyn *weka.WekaClusterTemplate, report *capacityplanner.I
 		return path, dyn.DriveCores
 	case "computeCores":
 		return path, dyn.ComputeCores
+	case "computeContainers":
+		return path, dyn.ComputeContainers
 	}
 	return path, field.OmitValueType{}
 }

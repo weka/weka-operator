@@ -25,8 +25,8 @@ import (
 //
 // Only the aggregate check needs a container count. The single-fit one compares one container against
 // the weakest matched node, which is answerable from the pin alone — and must be for the countDerived
-// roles, since a cluster acting as a daemonset leaves driveContainers/computeContainers unset by
-// definition. An unset count on a frontend role instead means the role deploys nothing, so neither
+// roles, since a cluster acting as a daemonset leaves driveContainers (and usually computeContainers) unset
+// by definition. An unset count on a frontend role instead means the role deploys nothing, so neither
 // check applies and the role is skipped whole.
 type clusterCoresAvailable struct{}
 

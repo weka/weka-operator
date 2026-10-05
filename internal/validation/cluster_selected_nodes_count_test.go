@@ -46,7 +46,8 @@ func TestClusterSelectedNodesCount_CountBased(t *testing.T) {
 
 // Auto-full-drives: driveContainers is always 0 in that mode, so the drive-role branch is structurally
 // inert — this locks in that such a cluster is never flagged on the drive role, even with zero matched
-// nodes. A pinned computeContainers leaves the mode, and that role keeps behaving as before.
+// nodes. A computeContainers pin alone keeps the mode; its excess over the nodes is the planner's
+// infeasibility (cluster_auto_full_drives_feasible), so this rule stays out of it.
 func TestClusterSelectedNodesCount_AutoFullDrivesDriveRoleInert(t *testing.T) {
 	v := &clusterSelectedNodesCount{}
 	ctx := context.Background()
@@ -61,14 +62,14 @@ func TestClusterSelectedNodesCount_AutoFullDrivesDriveRoleInert(t *testing.T) {
 		}
 	})
 
-	t.Run("a pinned compute role is still enforced", func(t *testing.T) {
+	t.Run("a daemonset compute pin is left to the planner", func(t *testing.T) {
 		c := fakeClientWithNodes(t,
 			driveRoleNode(t, "n1", labels, nil),
 		)
 		dynamic := &weka.WekaClusterTemplate{ComputeContainers: 3}
 		errs := v.Validate(ctx, c, selectedNodesCluster(dynamic, labels))
-		if len(errs) == 0 {
-			t.Errorf("expected an error: 3 compute containers pinned against 1 matched node")
+		if len(errs) != 0 {
+			t.Errorf("expected no error (the planner reports a pin above the nodes as infeasible), got %v", errs)
 		}
 	})
 }

@@ -2,6 +2,7 @@ package capacityplanner
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -73,13 +74,21 @@ func autoComputeSpecs(kept []autoComputeEntry) []ComputeContainerSpec {
 // node gets a compute container: first by deriving the layout with one per such node; if they do not all fit,
 // by deriving it as before and adding same-size containers on the rest, whose pods wait Pending for room.
 // Either way this runs per ratio, so a node without room never lowers the compute:drive ratio.
+// A computeContainers pin replaces all of that: the total is exactly the pin and must fit on eligible nodes.
 func planComputeAutoFullDrives(in *autoComputeInput, plan *CapacityPlan) {
+	if in.desired.ComputeContainers > 0 {
+		planComputeAutoFullDrivesWithFloor(in, plan, false)
+		return
+	}
+	// Each pass reserves growth against in.remaining, so the fallback must start from the same headroom.
+	remaining := maps.Clone(in.remaining)
 	perDriveNode := *plan
 	planComputeAutoFullDrivesWithFloor(in, &perDriveNode, true)
 	if perDriveNode.Infeasible == "" {
 		*plan = perDriveNode
 		return
 	}
+	in.remaining = remaining
 	planComputeAutoFullDrivesWithFloor(in, plan, false)
 	if plan.Infeasible == "" {
 		addMissingDriveNodeCompute(in, plan)
@@ -116,8 +125,34 @@ func planComputeAutoFullDrivesWithFloor(in *autoComputeInput, plan *CapacityPlan
 	}
 
 	kept, pinned, keptCores := autoKeptCompute(in)
+	if in.desired.ComputeCores > 0 {
+		if short := autoRaiseKeptToComputeCoresPin(kept, in); len(short) > 0 {
+			plan.Warnings = append(plan.Warnings, fleetWarningWithCause(WarningKindComputeLayout, CauseComputeCoresPinShort,
+				"auto full drives: compute container(s) on %s grow to computeCores=%d without headroom for it; their pods stay Pending until the node has room",
+				strings.Join(short, ", "), in.desired.ComputeCores))
+		}
+		keptCores = 0
+		for _, e := range kept {
+			keptCores += e.spec.NumCores
+		}
+	}
+	pin := in.desired.ComputeContainers
+	if free := freeComputeNodeCount(in, pinned); pin-len(kept) > free {
+		setInfeasible(plan, &InfeasibilityReport{
+			Reason: fmt.Sprintf("compute: computeContainers=%d needs %d more compute container(s) but only %d "+
+				"compute-eligible node(s) have none; compute spreads one container per node, so nothing is created",
+				pin, pin-len(kept), free),
+			Pool:      "compute",
+			SpecField: "computeContainers",
+			Fixes: []string{fmt.Sprintf("lower computeContainers to at most %d, or make more nodes compute-eligible",
+				len(kept)+free)},
+		})
+		return
+	}
 	minCount := in.cons.MinComputeContainers
-	if perDriveNode {
+	if pin > 0 {
+		minCount = pin
+	} else if perDriveNode {
 		minCount = max(minCount, len(driveComputeNodes(in)))
 	}
 	deficit := max(plan.RequiredComputeCores-keptCores, 0)
@@ -191,9 +226,20 @@ func planComputeAutoFullDrivesWithFloor(in *autoComputeInput, plan *CapacityPlan
 		if deficit-growTake <= 0 && growTake > 0 {
 			return computeProbe{growthAlone: true}, "", ""
 		}
-		// specCount is hard 0: a pinned computeContainers means the cluster is not in this mode at all.
+		specCount := 0
+		if pin > 0 {
+			if len(kept) >= pin {
+				// Daemonset mode never deletes compute, so the pin cannot take part in a layout of
+				// existing containers; only in-place growth can cover the ratio.
+				return computeProbe{}, fmt.Sprintf(
+					"computeContainers=%d is already reached by the %d existing compute container(s); the compute:drive "+
+						"ratio needs %d more core(s) that in-place growth cannot supply",
+					pin, len(kept), deficit-growTake), bindingCores
+			}
+			specCount = pin - len(kept)
+		}
 		count, cores, infeasible, binding, warnings := deriveComputeLayout(
-			0, in.desired.ComputeCores, deficit-growTake,
+			specCount, in.desired.ComputeCores, deficit-growTake,
 			floor, in.cons.MaxCoresPerContainer, coreHeadroom, nodeHugepagesMiB, hugepagesFor,
 		)
 		return computeProbe{count: count, cores: cores, warnings: warnings}, infeasible, binding
@@ -410,22 +456,47 @@ func autoCommitComputeGrowth(kept []autoComputeEntry, need, totalCount int, in *
 		e := &kept[i]
 		take := min(e.growHeadroom, need)
 		need -= take
-
-		newCores := e.spec.NumCores + take
-		// Never below what the container already reserves: the pod's hugepages limit is immutable, and this
-		// plan's headroom accounting charges hugepages from the spec — a lower figure would credit back
-		// capacity the pod has not released, and the apply layer would refuse to write it anyway.
-		newHP := max(ComputeContainerHugepagesMiB(in.totalTlcGiB, 0, max(totalCount, 1), newCores, in.cons),
-			e.spec.HugepagesMiB)
-
-		nc := in.remaining[e.spec.Node]
-		nc.AllocatableCPU = max(nc.AllocatableCPU-physicalCPUCost(&nc, take, in.cons, false), 0)
-		nc.AvailableHugepagesMiB = max(nc.AvailableHugepagesMiB-(newHP-e.spec.HugepagesMiB), 0)
-		nc.AvailableMemoryMiB = max(nc.AvailableMemoryMiB-take*in.cons.MemoryPerCoreMiB, 0)
-		in.remaining[e.spec.Node] = nc
-
-		e.spec.NumCores, e.spec.HugepagesMiB = newCores, newHP
+		autoGrowKept(e, take, totalCount, in)
 	}
+}
+
+// autoGrowKept grows one kept container in place by take cores, charging the delta against its node.
+func autoGrowKept(e *autoComputeEntry, take, totalCount int, in *autoComputeInput) {
+	newCores := e.spec.NumCores + take
+	// Never below what the container already reserves: the pod's hugepages limit is immutable, and this
+	// plan's headroom accounting charges hugepages from the spec — a lower figure would credit back
+	// capacity the pod has not released, and the apply layer would refuse to write it anyway.
+	newHP := max(ComputeContainerHugepagesMiB(in.totalTlcGiB, 0, max(totalCount, 1), newCores, in.cons),
+		e.spec.HugepagesMiB)
+
+	nc := in.remaining[e.spec.Node]
+	nc.AllocatableCPU = max(nc.AllocatableCPU-physicalCPUCost(&nc, take, in.cons, false), 0)
+	nc.AvailableHugepagesMiB = max(nc.AvailableHugepagesMiB-(newHP-e.spec.HugepagesMiB), 0)
+	nc.AvailableMemoryMiB = max(nc.AvailableMemoryMiB-take*in.cons.MemoryPerCoreMiB, 0)
+	in.remaining[e.spec.Node] = nc
+
+	e.spec.NumCores, e.spec.HugepagesMiB = newCores, newHP
+	e.growHeadroom = max(e.growHeadroom-take, 0)
+}
+
+// autoRaiseKeptToComputeCoresPin grows every kept container below an explicit computeCores pin up to it
+// (increase-only, as count-based sizing does), even without headroom: the pin is the user's call, and such a
+// container's restarted pod waits Pending until its node has room. Returns those nodes.
+func autoRaiseKeptToComputeCoresPin(kept []autoComputeEntry, in *autoComputeInput) (short []string) {
+	pin := in.desired.ComputeCores
+	for i := range kept {
+		e := &kept[i]
+		take := pin - e.spec.NumCores
+		if take <= 0 {
+			continue
+		}
+		if take > e.growHeadroom {
+			short = append(short, e.spec.Node)
+		}
+		autoGrowKept(e, take, len(kept), in)
+	}
+	sort.Strings(short)
+	return short
 }
 
 // autoRederiveKeptHugepages re-derives every kept container's hugepages at the plan's final container count:
@@ -505,7 +576,7 @@ func autoPlaceNewCompute(
 
 	// The fill target is at least one core per container: the form-cluster floor can ask for more containers
 	// than the shortfall needs, and the balanced split below must not hand a container zero cores. A
-	// computeCores pin fixes each container's size instead.
+	// computeCores or computeContainers pin fixes each container's size instead.
 	shortfall := max(target, count)
 	if in.desired.ComputeCores > 0 {
 		shortfall = count * cores
@@ -573,6 +644,19 @@ func finishComputePlan(plan *CapacityPlan, layout []ComputeContainerSpec, derive
 			plan.ComputeCores = max(plan.ComputeCores, l.NumCores)
 		}
 	}
+}
+
+// freeComputeNodeCount counts the compute-eligible nodes that do not already host a kept compute container.
+func freeComputeNodeCount(in *autoComputeInput, pinned map[string]struct{}) int {
+	n := 0
+	for node, eligible := range in.computeNodes {
+		_, known := in.remaining[node]
+		_, hasCompute := pinned[node]
+		if eligible && known && !hasCompute {
+			n++
+		}
+	}
+	return n
 }
 
 func (in *autoComputeInput) isDriveComputeNode(node string) bool {

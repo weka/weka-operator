@@ -345,6 +345,14 @@ func TestSizingModeFlip_SameModeIgnored(t *testing.T) {
 			{ComputeContainers: 6, DriveContainers: 6},
 			{ComputeContainers: 8, DriveContainers: 8},
 		},
+		"daemonset to daemonset with a compute pin": {
+			{},
+			{ComputeContainers: 6},
+		},
+		"daemonset compute pin changed": {
+			{ComputeContainers: 6},
+			{ComputeContainers: 8, ComputeCores: 4},
+		},
 		"same mode, different clusterCapacity": {
 			{ClusterCapacity: "500TiB"},
 			{ClusterCapacity: "800TiB"},

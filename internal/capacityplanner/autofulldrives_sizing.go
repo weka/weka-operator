@@ -1,14 +1,21 @@
 package capacityplanner
 
-import "fmt"
+import (
+	"fmt"
+
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
+)
 
 // autofulldrives_sizing.go is the pure sizing layer of the auto-full-drives mode: every semantics rule about
 // how big a container is, with no resource model at all. The create and growth paths share it verbatim.
 
 // AutoFullDrivesDesired carries the spec pins that apply in auto-full-drives mode. All fields are optional
-// and 0 means auto-derive. There are no ComputeContainers/DriveContainers fields: an explicit container count
-// means the cluster is not in this mode at all (see WekaClusterTemplate.UsesAutoFullDrives).
+// and 0 means auto-derive. There is no DriveContainers field: a drive container count means the cluster is
+// not in this mode at all (see WekaClusterTemplate.UsesAutoFullDrives).
 type AutoFullDrivesDesired struct {
+	// ComputeContainers pins the exact total compute container count, replacing the per-drive-node rule and
+	// the formation minimum. 0 means one per compute-eligible drive node.
+	ComputeContainers int
 	// ComputeCores mirrors DesiredCapacity's identically-named field: an explicit pin is honored exactly
 	// (deriveComputeLayout fails fast rather than clamping). 0 means auto-derive.
 	ComputeCores int
@@ -21,6 +28,20 @@ type AutoFullDrivesDesired struct {
 	// largest signed full drives instead of all of them. A pin above a node's signed count is infeasible.
 	// 0 means "take every drive". Stranding under this pin is expected and reported Normal.
 	NumDrives int
+}
+
+// AutoFullDrivesDesiredFromTemplate reads the daemonset-mode pins off the template; a nil template pins
+// nothing.
+func AutoFullDrivesDesiredFromTemplate(dyn *weka.WekaClusterTemplate) AutoFullDrivesDesired {
+	if dyn == nil {
+		return AutoFullDrivesDesired{}
+	}
+	return AutoFullDrivesDesired{
+		ComputeContainers: dyn.ComputeContainers,
+		ComputeCores:      dyn.ComputeCores,
+		DriveCores:        dyn.DriveCores,
+		NumDrives:         dyn.NumDrives,
+	}
 }
 
 // autoFullDrivesTotals is the fleet-wide accounting one planning pass produces, for DriveSizingRationale.

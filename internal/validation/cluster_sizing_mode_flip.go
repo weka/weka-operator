@@ -71,8 +71,8 @@ func (clusterSizingModeFlip) ValidateUpdate(ctx context.Context, c client.Client
 		"this update changes the cluster's derived sizing mode from %s to %s while drive containers "+
 			"already exist. The mode is not a field — it follows from which sizing fields are set (%s) — "+
 			"so the operator would start planning the running drive containers under different rules: "+
-			"%s. Once drive containers exist the only supported switches are unsetting both "+
-			"spec.dynamicTemplate.computeContainers and spec.dynamicTemplate.driveContainers, which "+
+			"%s. Once drive containers exist the only supported switches are unsetting "+
+			"spec.dynamicTemplate.driveContainers (computeContainers may stay as a compute pin), which "+
 			"adopts the daemonset mode by growing the existing drive containers in place; moving a "+
 			"drive-sharing cluster to spec.dynamicTemplate.clusterCapacity; and moving an explicit-counts "+
 			"cluster to drive-sharing with annotation %s: %s set on this update, for the "+
