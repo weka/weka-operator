@@ -423,9 +423,6 @@ func (r *containerReconcilerLoop) deletePod(ctx context.Context, pod *v1.Pod) er
 // which can never complete when the node/process is gone (DeactivateWekaContainer waits forever on a
 // container the cluster reports as DEACTIVATING). Reaping the terminal pod up front lets it disappear
 // immediately regardless of whether deactivation can progress.
-//
-// Unlike reapExitedBackendPod (active flow) this does not wait for recreation — the container is being
-// torn down, so there is nothing to recreate.
 func (r *containerReconcilerLoop) releaseTerminalPodOnDeletion(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
