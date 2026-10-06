@@ -246,15 +246,20 @@ jobs:
         run: |
           mention="$LOGIN"
 
-          email=$(gh api "users/$LOGIN" --jq '.email // empty' 2>/dev/null)
-          if [[ -z "$email" ]]; then
-            email=$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.commit.author.email // empty' 2>/dev/null)
-          fi
-          [[ "$email" == *@users.noreply.github.com ]] && email=""
+          # A public profile email that is personal rather than corporate shadows the commit
+          # author email, which is the one that actually matches Slack, so try both.
+          candidates=(
+            "$(gh api "users/$LOGIN" --jq '.email // empty' 2>/dev/null || true)"
+            "$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.commit.author.email // empty' 2>/dev/null || true)"
+          )
 
-          if [[ -z "$email" || -z "$SLACK_BOT_TOKEN" ]]; then
-            echo "::notice::No email to look up for $LOGIN, naming them without a mention"
-          else
+          tried=""
+          for email in "${candidates[@]}"; do
+            [[ -z "$email" || "$email" == *@users.noreply.github.com ]] && continue
+            [[ "$tried" == *"<$email>"* ]] && continue
+            [[ -z "$SLACK_BOT_TOKEN" ]] && break
+            tried="$tried<$email>"
+
             response=$(curl -sS --get "https://slack.com/api/users.lookupByEmail" \
               --connect-timeout 10 --max-time 30 \
               --data-urlencode "email=$email" \
@@ -262,10 +267,16 @@ jobs:
             id=$(echo "$response" | jq -r 'if .ok then .user.id // empty else empty end')
             if [[ -n "$id" ]]; then
               mention="<@${id}>"
-            else
-              # `missing_scope` here means the app lacks `users:read.email`; see doc/dev/ci-gate.md.
-              echo "::notice::Slack lookup for $LOGIN: $(echo "$response" | jq -r '.error // "no match"')"
+              break
             fi
+            error=$(echo "$response" | jq -r '.error // "no match"')
+            # `missing_scope` here means the app lacks `users:read.email`; see doc/dev/ci-gate.md.
+            echo "::notice::Slack lookup for $LOGIN via $email: $error"
+            [[ "$error" == "missing_scope" ]] && break
+          done
+
+          if [[ "$mention" == "$LOGIN" ]]; then
+            echo "::notice::No Slack match for $LOGIN, naming them without a mention"
           fi
 
           echo "mention=$mention" >> "$GITHUB_OUTPUT"
