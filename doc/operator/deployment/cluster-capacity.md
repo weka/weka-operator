@@ -326,8 +326,7 @@ At the defaults the ratio term equals `totalTlcDriveCores` for a TLC-only cluste
 QLC drive cores too**, so a mixed TLC/QLC cluster requires at least
 one compute core per drive core of *either* type — raising a ratio above 1.0 asks for more, but no
 setting can ever take the plan below 1:1. Full-drives mode uses the same function with its own ratio
-(unset by default: prefer **2.0**, relaxed toward 1:1 when compute cannot host it); see
-[Act As Daemonset](act-as-daemonset.md#compute-sizing).
+(default **2.0**); see [Act As Daemonset](act-as-daemonset.md#sizing).
 
 Compute
 carries its **own** role node selector (`roleNodeSelector.compute`, falling back to the cluster
@@ -336,8 +335,7 @@ may include **diskless** nodes. On a node shared by both roles, compute draws fr
 cores/hugepages left **after** drives; a diskless compute node contributes its full headroom. Each
 new compute container is **node-pinned** (best-fit on post-drive headroom) so it never lands where
 it cannot host both drives and compute — which also means a pinned node that later can't schedule it
-is handled by the same stuck-node GC as the daemonset mode's compute leg (see
-[`UnschedulableComputeContainer`](#events)). A compute core/hugepage
+is handled by the stuck-node GC (see [`UnschedulableComputeContainer`](#events)). A compute core/hugepage
 change applies per
 [§Rules](#rules-that-apply-everywhere) (deferred until you manually terminate the pod).
 
@@ -992,7 +990,7 @@ advisories are suppressed for that reconcile (they describe placement that does 
 | `ClusterCapacityPlanned` | Normal | A feasible plan that actually places capacity (≥1 create or grow) — a positive signal, e.g. after recovering from infeasible by adding a node. Steady-state reconciles stay silent. Example: *"clusterCapacity plan applied: creating 3 drive container(s) [2 mixed, 1 TLC] across 3 node(s) / 3 failure domain(s) @ ~10.7TiB/FD, placing T/Q 24.0/8.0 TiB; growing 1 existing container(s) (+T 2.0TiB, cores 6→8); compute 3 container(s), 24 cores on 3 node(s); minFdNum 11; target raw T/Q 24.0/12.0 TiB (placed 34.0TiB), protection 8+2+1"*. |
 | `ClusterCapacityDeferred` | Normal | A drive container is alive but never scheduled — planning deferred and retried (see [§Rules](#rules-that-apply-everywhere)). Routine pod deletion does **not** cause this. |
 | `UnschedulableDriveContainer` | Warning | **Lands on the WekaContainer, not the Cluster.** The scheduler rejected the drive container's pod (`PodScheduled=False`/`Reason=Unschedulable`) for longer than the GC timeout, so it is deleted and its capacity re-placed on the next plan — possibly on a different node. Distinct from `ClusterCapacityDeferred` above: that fires while the pod might still schedule, this only once the scheduler has actually rejected it, so a pod merely `Pending` during a slow drive-signing step is left alone. |
-| `UnschedulableComputeContainer` | Warning | **Lands on the WekaContainer, not the Cluster.** The same rule applied to a compute container, so its cores are re-planned onto a node that can take them instead of being counted but never served. See [Act As Daemonset](act-as-daemonset.md#troubleshooting). |
+| `UnschedulableComputeContainer` | Warning | **Lands on the WekaContainer, not the Cluster.** The same rule applied to a compute container, so its cores are re-planned onto a node that can take them instead of being counted but never served. |
 | `ClusterCapacityShrink` | Normal | A pool's current capacity exceeds desired by **more than `maxOverProvisionFraction` × desired**. **Never auto-applied** — delete WekaContainers manually to shrink. (An in-cap over-provision from create-new rounding stays silent — see `ClusterCapacityOverProvisioned`.) |
 | `ClusterCapacityHeterogeneousGrowth` | Warning | The heterogeneous-fallback notice: a fresh balanced (uniform) set was created on spare nodes because a fresh per-FD chunk would dwarf the existing FDs; the old smaller drive containers can be deleted manually once data has migrated. |
 | `ClusterCapacityOverProvisioned` | Normal | A pool was realized with uniformly-sized failure domains, and ceiling that uniform size lands up to one chunk above the desired raw (at most `maxOverProvisionFraction` × desired) — an intentional rounding, not reclaimable excess. The message names the pool, states the placement (growing existing FDs, adding new ones, or both), and reports the overshoot: `"<pool>: +N GiB covered by growing K existing failure domain(s), each sized to a uniform T GiB; this over-provisions the target by M GiB (within maxOverProvisionFraction=0.20) — intentional rounding to keep failure domains uniformly sized, not reclaimable excess (no manual shrink needed)"`. |
@@ -1009,7 +1007,7 @@ that fails fast via `ClusterCapacityInfeasible`.)
 | `capacityPlannerConstraints.maxCoresPerContainer` | `19` | `CAPACITY_MAX_CORES_PER_CONTAINER` | Per-container core cap for **drive and compute** containers in **both** planners (0 disables the *policy* cap; real per-node headroom still binds). 19 is weka's own per-container limit; `driveCores`/`computeCores` above 19 are rejected at admission regardless of this value |
 | `capacityPlannerConstraints.driveSharing.computeToTlcDriveCoreRatio` | `1.0` | `CAPACITY_COMPUTE_TO_TLC_DRIVE_CORE_RATIO` | Compute cores wanted per **TLC** drive core (see [Compute sizing](#compute-sizing)); the 1:1 total-drive-core floor still applies |
 | `capacityPlannerConstraints.driveSharing.computeToQlcDriveCoreRatio` | `0.0` | `CAPACITY_COMPUTE_TO_QLC_DRIVE_CORE_RATIO` | Compute cores wanted per **QLC** drive core; `0` sizes compute from TLC cores alone (QLC drive cores excluded from the ratio term) |
-| `capacityPlannerConstraints.fullDrives.computeToDriveCoreRatio` | unset (prefer `2.0`, relax toward `1.0`) | `CAPACITY_FULL_DRIVES_COMPUTE_TO_DRIVE_CORE_RATIO` | Compute cores wanted per drive core in **full-drives** mode (including the [daemonset mode](act-as-daemonset.md)), see [Act As Daemonset](act-as-daemonset.md#compute-sizing) |
+| `capacityPlannerConstraints.fullDrives.computeToDriveCoreRatio` | unset (default `2.0`) | `CAPACITY_FULL_DRIVES_COMPUTE_TO_DRIVE_CORE_RATIO` | Compute cores wanted per drive core in **full-drives** mode (including the [daemonset mode](act-as-daemonset.md)), see [Act As Daemonset](act-as-daemonset.md#sizing) |
 | `hugepagesTlcRatio` | `1000` | `HUGEPAGES_TLC_RATIO` | Divisor for the TLC term of the compute hugepages [capacity-based formula](#compute-sizing) |
 | `hugepagesQlcRatio` | `6000` | `HUGEPAGES_QLC_RATIO` | Divisor for the QLC term of the compute hugepages [capacity-based formula](#compute-sizing) |
 | `computeMaxHugepagesMiB` | `360000` | `COMPUTE_MAX_HUGEPAGES_MIB` | Hard cap on a single compute container's hugepages, applied after the [per-core floor](#compute-sizing) |

@@ -66,10 +66,6 @@ type wekaClusterReconcilerLoop struct {
 	// buildNodeInventoryFn overrides the node-inventory builder for tests (nil => use the real method);
 	// lets a test assert the inventory rebuild is skipped on the steady-state fast path.
 	buildNodeInventoryFn func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error)
-	// buildFullDrivesInventoryFn is the same test seam for planAutoFullDrives, kept separate from
-	// buildNodeInventoryFn because it reads the full-drives (exclusive) population, not the
-	// shared TLC/QLC drives the other seam reads — never fold the two together.
-	buildFullDrivesInventoryFn func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error)
 }
 
 // GetAllSteps combines all reconciliation steps into a single ordered list

@@ -5,7 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weka/weka-operator/internal/consts"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 func minDrivesCluster(dynamic *weka.WekaClusterTemplate, minNumDrives int) *weka.WekaCluster {
@@ -118,6 +120,28 @@ func TestClusterMinDrivesFeasibility_AutoFullDrives(t *testing.T) {
 		}
 	})
 
+	t.Run("unparsable annotations contribute nothing and raise no internal error", func(t *testing.T) {
+		bad := driveRoleNode(t, "bad", labels, nil)
+		bad.Annotations = map[string]string{consts.AnnotationWekaFullDrives: "not-json", consts.AnnotationSharedDrives: "{"}
+		c := fakeClientWithNodes(t, bad, driveRoleNode(t, "n1", labels, []int{1000, 1000}))
+		if errs := v.Validate(ctx, c, emptyTemplate(2)); len(errs) != 0 {
+			t.Errorf("expected no error at minNumDrives=2, got %v", errs)
+		}
+		errs := v.Validate(ctx, c, emptyTemplate(3))
+		if len(errs) != 1 || errs[0].Type == field.ErrorTypeInternal {
+			t.Errorf("expected one feasibility error at minNumDrives=3, got %v", errs)
+		}
+	})
+
+	t.Run("all-unsigned or unparsable fleet returns nil", func(t *testing.T) {
+		bad := driveRoleNode(t, "bad", labels, nil)
+		bad.Annotations = map[string]string{consts.AnnotationWekaFullDrives: "not-json"}
+		c := fakeClientWithNodes(t, bad, driveRoleNode(t, "unsigned", labels, nil))
+		if errs := v.Validate(ctx, c, emptyTemplate(5)); errs != nil {
+			t.Errorf("expected nil, got %v", errs)
+		}
+	})
+
 	// The over-count bug: a pinned numDrives caps each node's contribution, so the reachable total is
 	// min(signed, numDrives) per node, not the raw sum.
 	t.Run("pinned numDrives caps each node's contribution", func(t *testing.T) {
@@ -141,19 +165,14 @@ func TestClusterMinDrivesFeasibility_AutoFullDrives(t *testing.T) {
 		}
 	})
 
-	// No bootstrap skip: unsigned nodes mean the mode has nothing to consume, so any positive
-	// minNumDrives is rejected rather than silently admitted.
-	t.Run("pre-signing (no annotations) rejected", func(t *testing.T) {
+	// Nothing signed yet is cluster_drives_unsigned_advisory's territory, not an error here.
+	t.Run("pre-signing (no annotations) passes", func(t *testing.T) {
 		c := fakeClientWithNodes(t,
 			driveRoleNode(t, "n1", labels, nil),
 			driveRoleNode(t, "n2", labels, nil),
 		)
-		errs := v.Validate(ctx, c, emptyTemplate(100))
-		if len(errs) != 1 {
-			t.Fatalf("expected 1 error, got %v", errs)
-		}
-		if !strings.Contains(errs[0].Detail, "has any signed") {
-			t.Errorf("expected the unsigned-specific message, got %q", errs[0].Detail)
+		if errs := v.Validate(ctx, c, emptyTemplate(100)); len(errs) != 0 {
+			t.Errorf("expected no error, got %v", errs)
 		}
 	})
 

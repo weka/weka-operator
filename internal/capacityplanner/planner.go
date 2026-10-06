@@ -76,14 +76,9 @@ type CapacityConstraints struct {
 	ComputeHugepagesTlcRatio int
 	ComputeHugepagesQlcRatio int
 	ComputeMaxHugepagesMiB   int
-	// MinComputeContainers is the form-cluster floor (5 default, 3 under ALLOW_SINGLE_PARITY), distinct
-	// from the protection-scheme FD floor. Only auto-full-drives consults it (clusterCapacity's scheme floor
-	// already exceeds it); 0 disables it. Populated from config via ConstraintsForClusterSpec.
-	MinComputeContainers int
 	// Compute:drive core ratios: requiredComputeCores = max(totalDriveCores, ceil(tlcRatio*tlcCores +
 	// qlcRatio*qlcCores)) — total drive cores is a HARD 1:1 floor no ratio can undercut. The
-	// drive-sharing pair applies to clusterCapacity/containerCapacity; FullDrives... to auto-full-drives.
-	// FullDrivesComputeToDriveCoreRatio < 0 is unset (adaptive): prefer 2:1, relax toward 1:1 to fit compute.
+	// drive-sharing pair applies to clusterCapacity/containerCapacity; FullDrives... to the act-as-daemonset sizing in wekacluster/daemonset.go.
 	ComputeToTlcDriveCoreRatio        float64
 	ComputeToQlcDriveCoreRatio        float64
 	FullDrivesComputeToDriveCoreRatio float64
@@ -117,9 +112,6 @@ type ExistingContainer struct {
 	QlcGiB      int
 	NumCores    int
 	Unscheduled bool // pod not yet scheduled — counted as committed capacity but not grown
-	// NumDrives: full-drive count, meaningful only for auto-full-drives containers (0 for
-	// clusterCapacity/shared-drives). PlanAutoFullDrives diffs it against live count for expand-only growth.
-	NumDrives int
 }
 
 // ExistingComputeContainer is the planner's view of one of THIS cluster's healthy compute containers;
@@ -138,8 +130,6 @@ type ContainerGrowth struct {
 	NewTlcGiB int    `json:"newTlcGiB"`
 	NewQlcGiB int    `json:"newQlcGiB"`
 	NewCores  int    `json:"newCores"`
-	// NewNumDrives: new full-drive count for an auto-full-drives container; only set by PlanAutoFullDrives.
-	NewNumDrives int `json:"newNumDrives"`
 }
 
 // NewContainer is a drive container to create, pinned to Node, in failure domain FDValue.
@@ -151,81 +141,6 @@ type NewContainer struct {
 	NumCores int                   `json:"numCores"`
 	Ratio    *weka.DriveTypesRatio `json:"ratio"`
 	Type     string                `json:"type"` // tlc / qlc / mixed
-	// NumDrives: full-drive count; only set by PlanAutoFullDrives (0 for shared-drive containers).
-	NumDrives int `json:"numDrives"`
-}
-
-// WarningKind classifies a planner warning by cause, mapping to a distinct Kubernetes event reason so an
-// operator can filter on `reason=` instead of grepping message prose (see each const below).
-type WarningKind string
-
-const (
-	// WarningKindDrivesStranded: a pinned dynamicTemplate.numDrives leaves signed full drives unused. This
-	// is the remaining cause — a node that cannot fit its drives is now a plan-wide infeasibility, not
-	// a warning — so it describes an operator choice and maps to a Normal event.
-	WarningKindDrivesStranded WarningKind = "DrivesStranded"
-	// WarningKindTransient: a condition that clears on its own (e.g. a container still being deleted).
-	WarningKindTransient WarningKind = "Transient"
-	// WarningKindComputeLayout: compute-sizing advisory, shared by both planners.
-	WarningKindComputeLayout WarningKind = "ComputeLayout"
-	// WarningKindNodeIneligible: a node with signed full drives and no drive container of its own is cordoned,
-	// not ready, or carries an untolerated taint, so it is withheld from Create rather than treated as a plan
-	// failure. Maps to a Normal event for the cordoned reason, Warning otherwise (spans both operator
-	// actions and conditions outside the operator's control).
-	WarningKindNodeIneligible WarningKind = "NodeIneligible"
-)
-
-// WarningCause further subdivides a WarningKind so the controller's per-reason event throttle can key on
-// more than the reason alone: two Warnings of the same Kind but different Cause get independent throttle
-// windows, so one cannot silently suppress the other. Empty is legal — a Kind with exactly one cause today
-// (DrivesStranded, ComputeLayout) carries "", which reproduces the old reason-only key for it.
-type WarningCause string
-
-const (
-	// NodeIneligible has no constants here: it aggregates every ineligible node into one Warning, and its
-	// Cause is the sorted, "+"-joined set of the distinct resources.NodeIneligibleReason values actually
-	// present, used verbatim. A reason added there therefore becomes its own cause with no change here, and
-	// a node going NotReady is never masked by one already cordoned.
-	//
-	// CausePlacementUnscheduled / CausePlacementDriveDeleting / CausePlacementComputeDeleting are the three
-	// PlacementDeferred causes, each rendered as its own Warning instead of merged into one.
-	CausePlacementUnscheduled     WarningCause = "unscheduled-pod"
-	CausePlacementDriveDeleting   WarningCause = "drive-container-deleting"
-	CausePlacementComputeDeleting WarningCause = "compute-container-deleting"
-	// CauseComputeRatioRelaxed: an unset full-drives ratio fell back below 2:1 (still >= 1:1) to fit compute.
-	CauseComputeRatioRelaxed WarningCause = "compute-ratio-relaxed"
-)
-
-// Warning is one classified planner advisory. Every auto-full-drives warning is fleet-wide: a condition
-// that can hit several nodes in one pass is reported once, naming every affected node in Message.
-type Warning struct {
-	Kind    WarningKind
-	Cause   WarningCause
-	Message string
-}
-
-// WarningMessages flattens warnings to their human-readable text, for renderers (the weka-capacity CLI) and
-// summaries that only ever showed the prose.
-func WarningMessages(warnings []Warning) []string {
-	if len(warnings) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(warnings))
-	for _, w := range warnings {
-		out = append(out, w.Message)
-	}
-	return out
-}
-
-// fleetWarning builds a classified warning (throttled per reason, not per node).
-func fleetWarning(kind WarningKind, format string, args ...any) Warning {
-	return fleetWarningWithCause(kind, "", format, args...)
-}
-
-// fleetWarningWithCause is fleetWarning plus a Cause, for a Kind whose Warnings need their own throttle key
-// per cause rather than sharing the one key the bare Kind/reason gives them.
-func fleetWarningWithCause(kind WarningKind, cause WarningCause, format string, args ...any) Warning {
-	return Warning{Kind: kind, Cause: cause, Message: fmt.Sprintf(format, args...)}
 }
 
 // CapacityPlan is the planner output.
@@ -233,7 +148,7 @@ type CapacityPlan struct {
 	Grow               []ContainerGrowth
 	Create             []NewContainer
 	TotalTlcDriveCores int
-	// TotalQlcDriveCores: always 0 in auto-full-drives mode (TLC-only by construction).
+	// TotalQlcDriveCores: always 0 for act-as-daemonset clusters (TLC-only by construction).
 	TotalQlcDriveCores int
 	// RequiredComputeCores: compute-core total this plan must supply. See RequiredComputeCores.
 	RequiredComputeCores int
@@ -248,9 +163,9 @@ type CapacityPlan struct {
 	// can't grow to the uniform target: it's FROZEN at its current size and the deficit covered by extra
 	// containers elsewhere. Downstream MUST prefer this over the uniform fields when non-empty.
 	ComputeLayout []ComputeContainerSpec
-	// Warnings are advisories CLASSIFIED by Kind so the controller maps each to its own Kubernetes event
-	// reason (bare strings under one reason made distinct conditions unfilterable/unalertable).
-	Warnings     []Warning
+	// Warnings are fleet-wide compute-layout advisories: a condition that can hit several nodes in one
+	// pass is reported once, naming every affected node.
+	Warnings     []string
 	ShrinkEvents []string
 	// OverProvisions: per-pool advisories that a uniform failure-domain size lands slightly above
 	// desiredRaw (within MaxOverProvisionFraction). Emitted separately from Warnings.
@@ -258,31 +173,6 @@ type CapacityPlan struct {
 	Infeasible     string
 	// Infeasibility is the structured form of Infeasible; nil when feasible.
 	Infeasibility *InfeasibilityReport
-	// DriveSizing is the auto-full-drives planner's sizing rationale; nil for clusterCapacity.
-	DriveSizing *DriveSizingRationale
-}
-
-// DriveSizingRationale is the auto-full-drives planner's accounting for what it claimed and the compute
-// that implies, populated by PlanAutoFullDrives every call. Drive cores follow directly from each node's
-// drive count and pins and are never traded down to fit compute (see autofulldrives.go), so there is no
-// search outcome to explain.
-type DriveSizingRationale struct {
-	Reason string `json:"reason"`
-	// DrivesTaken/Available and TlcGiBTaken/Available: totals across every drive-having node this pass.
-	DrivesTaken     int `json:"drivesTaken"`
-	DrivesAvailable int `json:"drivesAvailable"`
-	TlcGiBTaken     int `json:"tlcGiBTaken"`
-	TlcGiBAvailable int `json:"tlcGiBAvailable"`
-
-	TotalTlcDriveCores int `json:"totalTlcDriveCores"`
-	TotalQlcDriveCores int `json:"totalQlcDriveCores"` // always 0 for auto-full-drives; kept for symmetry
-	// RequiredComputeCores: the compute-core total this plan must supply (full-drives ratio applied to
-	// TotalTlcDriveCores). With an unset ratio this is the relaxed target the plan actually satisfies,
-	// between the 1:1 floor and the 2:1 preferred; a fleet that cannot supply even the floor is infeasible.
-	RequiredComputeCores     int `json:"requiredComputeCores"`
-	ComputeContainers        int `json:"computeContainers"`
-	ComputeCoresPerContainer int `json:"computeCoresPerContainer"`
-	ComputeHugepagesMiB      int `json:"computeHugepagesMiB"`
 }
 
 // ComputeContainerSpec is one compute container in the planner's per-container layout: the node it is
@@ -340,13 +230,7 @@ func (ns *nodeState) topo() NodeCPUTopology {
 // cpuCost returns the PHYSICAL CPU a container of dataCores reserves under cpuPolicy. includeBase adds
 // the per-container management core (once per NEW container).
 func (ns *nodeState) cpuCost(policy weka.CpuPolicy, dataCores int, includeBase bool) int {
-	return cpuCostShared(ns.topo(), policy, dataCores, includeBase)
-}
-
-// cpuCostShared is the physical-CPU-cost formula shared by nodeState.cpuCost and autofulldrives.go's
-// physicalCPUCost — kept identical so the two never drift apart.
-func cpuCostShared(topo NodeCPUTopology, policy weka.CpuPolicy, dataCores int, includeBase bool) int {
-	perCore, base := cpuModel(policy, topo)
+	perCore, base := cpuModel(policy, ns.topo())
 	c := perCore * dataCores
 	if includeBase {
 		c += base
@@ -362,14 +246,8 @@ func (ns *nodeState) dataCoresFit(policy weka.CpuPolicy, includeBase bool) int {
 // dataCoresCapacity is dataCoresFit plus extraCPU physical CPU reclaimed from a container the caller
 // will keep hosting (a frozen/grown existing compute); extraCPU=0 reduces to plain headroom.
 func (ns *nodeState) dataCoresCapacity(policy weka.CpuPolicy, extraCPU int, includeBase bool) int {
-	return dataCoresCapacityShared(ns.topo(), policy, ns.coresFree, extraCPU, includeBase)
-}
-
-// dataCoresCapacityShared is shared by nodeState.dataCoresCapacity and autofulldrives.go's
-// physicalCPUToDataCores (same split as cpuCostShared).
-func dataCoresCapacityShared(topo NodeCPUTopology, policy weka.CpuPolicy, coresFree, extraCPU int, includeBase bool) int {
-	perCore, base := cpuModel(policy, topo)
-	avail := coresFree + extraCPU
+	perCore, base := cpuModel(policy, ns.topo())
+	avail := ns.coresFree + extraCPU
 	if includeBase {
 		avail -= base
 	}
@@ -751,9 +629,7 @@ func planCompute(
 		desired.ComputeContainers, desired.ComputeCores, plan.RequiredComputeCores,
 		floor, cons.MaxCoresPerContainer, coreHeadroom, nodeHugepagesMiB, hugepagesFor,
 	)
-	for _, w := range warnings {
-		plan.Warnings = append(plan.Warnings, Warning{Kind: WarningKindComputeLayout, Message: w})
-	}
+	plan.Warnings = append(plan.Warnings, warnings...)
 	if infeasible != "" {
 		// ShortfallGiB stays 0: the deficit here is in cores or MiB-hugepages, never GiB, and converting
 		// either into GiB would invent a number this report never measured.
@@ -1229,7 +1105,7 @@ func planPoolFreshUniform(
 	finalizePoolFeasibility(p, desiredRaw, minFd, existingDrives, growth, newByNode, cons, plan, true)
 	if isFallback && plan.Infeasible == "" {
 		// Every chosen FD reached T (finalize passed), so len(chosen) is the fresh FD count for the advisory.
-		plan.Warnings = append(plan.Warnings, fleetWarning(WarningKindComputeLayout,
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf(
 			"%s capacity grew heterogeneously: created a fresh balanced set of ~%d GiB across %d failure domain(s). "+
 				"The older, smaller drive containers can be deleted manually once data has migrated.",
 			p, T, len(chosen)))

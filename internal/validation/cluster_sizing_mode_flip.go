@@ -18,7 +18,7 @@ import (
 // nothing else makes the flip loud. Left unchecked, adding driveContainers to a live auto-full-drives
 // cluster starts creating count-based single-drive containers alongside the node-sized ones already
 // running, and the two regimes fight over the same drives forever; the capacity modes fail the same way
-// in their own idiom (see modeFlipConsequence). Two switches are supported, allowlisted in
+// in their own idiom (see modeFlipConsequence). A few switches are supported, allowlisted in
 // modeSwitchSupported.
 //
 // Scoped to clusters that already HAVE drive containers: before any exist the mode is still free to
@@ -73,7 +73,9 @@ func (clusterSizingModeFlip) ValidateUpdate(ctx context.Context, c client.Client
 			"so the operator would start planning the running drive containers under different rules: "+
 			"%s. Once drive containers exist the only supported switches are unsetting both "+
 			"spec.dynamicTemplate.computeContainers and spec.dynamicTemplate.driveContainers, which "+
-			"adopts the daemonset mode by growing the existing drive containers in place; moving a "+
+			"adopts the daemonset mode by growing the existing drive containers in place; setting "+
+			"explicit counts on a daemonset cluster, which keeps the running containers and only "+
+			"creates new ones while fewer than the counts exist; moving a "+
 			"drive-sharing cluster to spec.dynamicTemplate.clusterCapacity; and moving an explicit-counts "+
 			"cluster to drive-sharing with annotation %s: %s set on this update, for the "+
 			"migrate-to-drive-sharing operation.",
@@ -123,6 +125,10 @@ func modeSwitchSupported(oldMode, newMode string, newCluster *weka.WekaCluster) 
 		// — is still matched to its node and grown in place to that node's full drive set, rather than
 		// joined by a second population.
 		return true
+	case oldMode == sizingModeAutoFullDrives && newMode == sizingModeCounts:
+		// Existing pinned containers are kept and never shrunk, and count mode only creates containers
+		// while it has fewer than the requested count.
+		return true
 	case oldMode == sizingModeDriveSharing && newMode == sizingModeClusterCapacity:
 		// The documented in-place migration (doc/operator/deployment/cluster-capacity.md). Both hold
 		// virtual drives, and inventory.DriveContainerCapacities reads containerCapacity and
@@ -142,7 +148,8 @@ func modeFlipConsequence(oldMode, newMode string) string {
 	switch {
 	case oldMode == sizingModeAutoFullDrives:
 		return "the per-node containers sized from each node's own signed drives would be joined by a " +
-			"second, differently sized population planned from the new fields"
+			"second, differently sized population planned from the new fields (clusterCapacity or " +
+			"drive-sharing capacity)"
 	case newMode == sizingModeAutoFullDrives:
 		return "the running containers hold virtual drives that the full-drives inventory accounts for " +
 			"on neither side, so they could be neither adopted nor grown, and every eligible node would " +

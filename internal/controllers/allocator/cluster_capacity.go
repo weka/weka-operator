@@ -30,9 +30,9 @@ func CapacityConstraintsFromConfig() *capacityplanner.CapacityConstraints {
 	// (0 growth-fraction = always allow in-place grow; 0 over-provision = never overshoot desiredRaw).
 	minGrowthFraction := globalconfig.Config.DriveSharing.MinGrowthFraction
 	maxOverProvisionFraction := globalconfig.Config.DriveSharing.MaxOverProvisionFraction
-	// Negative means genuinely unset: the drive-sharing pair falls back to their documented defaults, while
-	// the full-drives ratio keeps it as the planner's adaptive mode (prefer 2:1, relax toward 1:1). 0 is a
-	// meaningful "disable this ratio term" value (see CapacityConstraints doc comment).
+	// Negative means genuinely unset: the drive-sharing pair falls back to their documented defaults. 0 is a
+	// meaningful "disable this ratio term" value (see CapacityConstraints doc comment). The full-drives ratio
+	// is passed through as is; the chart schema (values.schema.json) requires it to be positive.
 	computeToTlcDriveCoreRatio := globalconfig.Config.CapacityPlanner.ComputeToTlcDriveCoreRatio
 	if computeToTlcDriveCoreRatio < 0 {
 		computeToTlcDriveCoreRatio = 1.0
@@ -42,17 +42,14 @@ func CapacityConstraintsFromConfig() *capacityplanner.CapacityConstraints {
 		computeToQlcDriveCoreRatio = 0.0
 	}
 	return &capacityplanner.CapacityConstraints{
-		TlcCapacityPerCoreGiB: cfg.TlcCapacityPerCoreGiB,
-		QlcCapacityPerCoreGiB: cfg.QlcCapacityPerCoreGiB,
-		MinChunkSizeGiB:       MinChunkSizeGiB,
-		ImbalanceFactor:       cfg.ImbalanceFactor, // env defaults to 8.0; <= 0 disables the heterogeneous fallback
-		HugepagesPerCoreMiB:   capacityplanner.HugepagesPerCoreMiB,
-		MemoryBaseMiB:         capacityplanner.MemoryBaseMiB,
-		MemoryPerCoreMiB:      capacityplanner.MemoryPerCoreMiB,
-		MaxCoresPerContainer:  globalconfig.Config.CapacityPlanner.MaxCoresPerContainer,
-		// Without this floor, auto-full-drives sizes the fewest compute containers that carry the required cores
-		// and the cluster never forms; cluster_min_containers can't catch it since the count is derived.
-		MinComputeContainers:              globalconfig.Consts.FormClusterMinComputeContainers,
+		TlcCapacityPerCoreGiB:             cfg.TlcCapacityPerCoreGiB,
+		QlcCapacityPerCoreGiB:             cfg.QlcCapacityPerCoreGiB,
+		MinChunkSizeGiB:                   MinChunkSizeGiB,
+		ImbalanceFactor:                   cfg.ImbalanceFactor, // env defaults to 8.0; <= 0 disables the heterogeneous fallback
+		HugepagesPerCoreMiB:               capacityplanner.HugepagesPerCoreMiB,
+		MemoryBaseMiB:                     capacityplanner.MemoryBaseMiB,
+		MemoryPerCoreMiB:                  capacityplanner.MemoryPerCoreMiB,
+		MaxCoresPerContainer:              globalconfig.Config.CapacityPlanner.MaxCoresPerContainer,
 		ComputeHugepagesTlcRatio:          tlcRatio,
 		ComputeHugepagesQlcRatio:          qlcRatio,
 		ComputeMaxHugepagesMiB:            globalconfig.Config.ComputeMaxHugepagesMiB,

@@ -242,9 +242,8 @@ func TestClusterDriveComputeCoreRatio_AutoDerivedCores(t *testing.T) {
 	}
 }
 
-// An unset (negative) full-drives ratio still advises against the preferred 2:1 rather than going silent.
-func TestClusterDriveComputeCoreRatio_FullDrivesUnsetUsesPreferred(t *testing.T) {
-	setRatioConfig(t, 1.0, -1)
+func TestClusterDriveComputeCoreRatio_FullDrivesDefaultRatio(t *testing.T) {
+	setRatioConfig(t, 1.0, 2.0)
 	dynamic := &weka.WekaClusterTemplate{
 		DriveContainers: 2, ComputeContainers: 2,
 		DriveCores: 1, ComputeCores: 1, NumDrives: 4, DriveCapacity: 0,

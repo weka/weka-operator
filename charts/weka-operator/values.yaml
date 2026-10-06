@@ -490,8 +490,9 @@ smbw:
 # `driveSharing.computeToTlcDriveCoreRatio` and `driveSharing.computeToQlcDriveCoreRatio` set the compute:drive-core
 # ratios for TLC and QLC drives: requiredComputeCores = max(totalDriveCores, ceil(tlcRatio*tlcCores + qlcRatio*qlcCores)),
 # and the drive-core count itself is always a hard 1:1 floor regardless of these ratios.
-# `fullDrives.computeToDriveCoreRatio`: when unset (null), the planner prefers 2:1 and, when the compute nodes cannot host
-# that, relaxes toward 1:1 (infeasible only below 1:1); set a number to enforce that ratio strictly.
+# `fullDrives.computeToDriveCoreRatio`: compute:drive core ratio for act-as-daemonset; must be greater than 0 (rendering
+# fails otherwise), null omits the env var and uses the operator default 2.0. Per-container compute cores are capped at
+# maxCoresPerContainer with a ComputeCoresCapped warning.
 # @section -- Drives & capacity
 capacityPlannerConstraints:
   maxCoresPerContainer: 19
@@ -499,7 +500,7 @@ capacityPlannerConstraints:
     computeToTlcDriveCoreRatio: 1.0
     computeToQlcDriveCoreRatio: 0.0
   fullDrives:
-    computeToDriveCoreRatio: null
+    computeToDriveCoreRatio: 2.0
 
 # Cluster capacity configuration
 # Used when spec.dynamicTemplate.clusterCapacity is set on a WekaCluster.
@@ -891,26 +892,22 @@ admissionPolicies:
   #   # capacity-carved virtual drives instead (see cluster_capacity_*).
   #   cluster_signed_drives:                default  # strict: error  | relaxed: warn
   #
-  #   # Auto-full-drives ("acts as a daemonset", i.e. no container-count or capacity field set): runs
-  #   # the capacity planner at apply time and rejects a plan it reports infeasible — one that would
-  #   # create nothing anywhere. Covers a pinned numDrives or driveCores above a node's signed full
-  #   # drive count, and compute hugepages (which scale with total claimed capacity) exceeding what any
-  #   # compute-eligible node has. The message is the planner's own, with its remedies. A driveCores
-  #   # pin BELOW the drive count is fine and not reported: every drive is still claimed, on fewer
-  #   # cores. Skipped before any drive is signed (see cluster_drives_unsigned_advisory).
-  #   cluster_auto_full_drives_feasible:    default  # strict: error | relaxed: warn
-  #
   #   # Auto-full-drives places one container per eligible node, so a role nodeSelector matching fewer
   #   # nodes than the form-cluster floor (FORM_CLUSTER_MIN_{DRIVE,COMPUTE}_CONTAINERS, 5 by default)
-  #   # can never form a cluster. The drive side is otherwise a silent hang on MinContainersNotReady —
-  #   # the planner calls that plan feasible — which is why this rule survives alongside
-  #   # cluster_auto_full_drives_feasible, and owns the too-few-nodes case for both roles.
-  #   cluster_auto_full_drives_min_nodes:   default  # strict: error | relaxed: warn
+  #   # can never form a cluster (a silent hang on MinContainersNotReady). Error in both modes.
+  #   cluster_auto_full_drives_min_nodes:   default  # strict: error | relaxed: error
+  #
+  #   # Auto-full-drives pins: numDrives must not exceed the signed full drives of any signed
+  #   # drive-role node, and driveCores must not exceed the drives a container takes (numDrives, or
+  #   # all signed drives when unset). Otherwise the container waits on InsufficientDrives forever.
+  #   # Unsigned nodes are skipped (see cluster_drives_unsigned_advisory).
+  #   cluster_auto_full_drives_pins:        default  # strict: error | relaxed: warn
   #
   #   # No matched drive-role node carries the drive annotation this cluster's mode consumes
   #   # (weka-shared-drives for drive-sharing, weka-full-drives otherwise) — covers unsigned and
-  #   # signed-in-the-other-mode alike, so the drive checks above are skipped. Advisory only:
-  #   # applying before signing is a valid order of operations.
+  #   # signed-in-the-other-mode alike, so the drive checks above are skipped. In auto-full-drives
+  #   # mode it instead lists every drive-role node lacking weka-full-drives (no container is created
+  #   # there). Advisory only: applying before signing is a valid order of operations.
   #   cluster_drives_unsigned_advisory:     default  # strict: warn   | relaxed: warn
   #
   #   # For each role, container count must not exceed the number of
@@ -941,7 +938,9 @@ admissionPolicies:
   #
   #   # startIoConditions.minNumDrives must not exceed
   #   # driveContainers × numDrives — otherwise the cluster can
-  #   # never satisfy its IO-start condition.
+  #   # never satisfy its IO-start condition. In auto-full-drives mode the total is the signed
+  #   # drives across drive-role nodes (capped per node by numDrives); zero signed is left to
+  #   # cluster_drives_unsigned_advisory.
   #   cluster_min_drives_feasibility:       default  # strict: error  | relaxed: error
   #
   #   # On large clusters (driveContainers > 10 AND numDrives > 2),
@@ -1009,10 +1008,12 @@ admissionPolicies:
   #
   #   # An update that changes the cluster's DERIVED sizing mode (auto-full-drives vs explicit
   #   # container counts vs capacity) while drive containers already exist is denied — the two sizing
-  #   # regimes would plan the same drives differently, and nothing ever removes the surplus. Two
-  #   # switches ARE supported and stay allowed: explicit container counts -> auto-full-drives (the
-  #   # running containers are adopted and grown in place), and containerCapacity/driveCapacity ->
-  #   # clusterCapacity (the in-place migration). Revert anything else to keep the current mode.
+  #   # regimes would plan the same drives differently, and nothing ever removes the surplus. Some
+  #   # switches ARE supported and stay allowed: explicit container counts <-> auto-full-drives (going
+  #   # to auto-full-drives adopts and grows the running containers in place; going to counts keeps them
+  #   # and only creates new ones while fewer than the counts exist), and
+  #   # containerCapacity/driveCapacity -> clusterCapacity (the in-place migration). Revert anything
+  #   # else to keep the current mode.
   #   cluster_sizing_mode_flip:             default  # strict: error  | relaxed: error
   #
   #   # Decreasing spec.numCores (or spec.dataServicesConfig.dataServicesFeCores)
