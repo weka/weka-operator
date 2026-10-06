@@ -7,8 +7,9 @@ protocols and management access. Source: `internal/controllers/wekacluster/`.
 |---|---|
 | `controller.go`, `reconciler_loop.go` | Watches and reconciliation flow |
 | `steps_cluster_creation.go` | `BuildMissingContainers`, count-based role creation |
-| `steps_planner_apply.go` | `plannerSizingMode`, `buildPlannerDriveContainers`, `applyPlannerDriveGrowth`, `applyPlannerComputeGrowth`, `updateContainerWithRetry` |
-| `funcs_fd_planning.go` | `planClusterCapacity`, `planAutoFullDrives` |
+| `steps_planner_apply.go` | `buildPlannerDriveContainers`, `applyPlannerDriveGrowth`, `applyPlannerComputeGrowth`, `updateContainerWithRetry` |
+| `funcs_fd_planning.go` | `planClusterCapacity` |
+| `daemonset.go` | `planDaemonset`, `buildDaemonsetContainers` |
 | `planner_events.go` | Event reasons, severity and throttling: `plannerEventSpecs`, `emitPlannerEvent` |
 | `funcs_clusterization.go` | Cluster formation |
 | `funcs_credentials.go`, `funcs_helpers.go` | Credentials and helpers |
@@ -21,7 +22,7 @@ protocols and management access. Source: `internal/controllers/wekacluster/`.
 ## Focused routes
 
 - [Capacity planning](wekacluster-drive-planning.md): shared apply path, inventory, pure planners and device allocation.
-- Sizing modes and constraints: [cluster capacity](../../doc/operator/deployment/cluster-capacity.md), [auto full drives](../../doc/operator/deployment/act-as-daemonset.md). `plannerSizingMode` detects the mode; [validation](../config/validation.md) owns admission rules.
+- Sizing modes and constraints: [cluster capacity](../../doc/operator/deployment/cluster-capacity.md), [daemonset mode](../../doc/operator/deployment/act-as-daemonset.md). [Validation](../config/validation.md) owns admission rules.
 - [Management proxy](management-proxy.md): bootstrap versus endpoint updates, probes and host networking.
 
 ## Weka Home CA cert

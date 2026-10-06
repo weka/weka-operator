@@ -104,8 +104,8 @@ type NodeDetail struct {
 	Mode string
 	// Full-drives (auto-full-drives) capacity from the weka-full-drives annotation, meaningful when Mode == "full".
 	// Phys* is the node's TOTAL signed full drives (free+allocated, any cluster/mode); Free* is the free
-	// subset. Computed here rather than via FullDrivesInventory, which skips a node with zero free drives
-	// (would hide "0/6 free, 6 total").
+	// subset. Includes nodes with zero free drives
+	// (so "0/6 free, 6 total" stays visible).
 	FreeFullDriveCount int
 	PhysFullDriveCount int
 	FreeFullTlcGiB     int
@@ -148,21 +148,21 @@ func (c Collector) Collect(ctx context.Context, cluster *weka.WekaCluster, ownCo
 	}, nil
 }
 
-// listRoleNodesAndTopos resolves the drive/compute role node lists and their CPU topology map; shared by
-// NodeInventory and FullDrivesInventory, which differ only in the error-message prefix. Both lists include
+// listRoleNodesAndTopos resolves the drive/compute role node lists and their CPU topology map; used by
+// NodeInventory. Both lists include
 // every matching node whether currently schedulable or not — an ineligible node still carries capacity
 // that must be accounted for; callers set IneligibleReason per node to bar it from new placement instead.
 func (c Collector) listRoleNodesAndTopos(ctx context.Context, cluster *weka.WekaCluster, errPrefix string) (driveNodes, computeNodeList []corev1.Node, topos map[string]capacityplanner.NodeCPUTopology, err error) {
 	driveSelector := cluster.GetNodeSelectorForRole(weka.WekaContainerModeDrive)
 	computeSelector := cluster.GetNodeSelectorForRole(weka.WekaContainerModeCompute)
 
-	driveNodes, err = listNodesForSelector(ctx, c.Client, driveSelector)
+	driveNodes, err = ListNodesForSelector(ctx, c.Client, driveSelector)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("%s: %w", errPrefix, err)
 	}
 	computeNodeList = driveNodes // equal selectors: list once and reuse
 	if !maps.Equal(driveSelector, computeSelector) {
-		if computeNodeList, err = listNodesForSelector(ctx, c.Client, computeSelector); err != nil {
+		if computeNodeList, err = ListNodesForSelector(ctx, c.Client, computeSelector); err != nil {
 			return nil, nil, nil, fmt.Errorf("%s: %w", errPrefix, err)
 		}
 	}
@@ -210,10 +210,6 @@ func (c Collector) nodeInventoryFromLists(ctx context.Context, cluster *weka.Wek
 	// TLC/QLC capacity re-enters the fresh-candidate pool — but while its pod lives, cores/hugepages/memory
 	// stay charged via chargeForeignPods. Flagged so the planner deprioritizes fresh placement.
 	deletingDriveNodes := nodesWithDeletingDriveContainer(ownContainers)
-	// Nodes hosting THIS cluster's compute container being deleted: its pod still holds hugepages/CPU/memory
-	// (charged via chargeForeignPods), so a drive container on the same node can fail a fit it would pass
-	// once the deletion lands. Flagged so the auto-full-drives walk defers rather than fails the plan.
-	deletingComputeNodes := nodesWithDeletingComputeContainer(ownContainers)
 
 	// Drive candidates: nodes with usable shared-drive capacity, carrying TLC/QLC headroom and an FD key.
 	fdByNode := map[string]string{}
@@ -245,152 +241,21 @@ func (c Collector) nodeInventoryFromLists(ctx context.Context, cluster *weka.Wek
 		cpu, hugepagesMiB, memoryMiB := nodeHeadroom(node, consumed)
 		topo := topos[node.Name]
 		driveInv = append(driveInv, capacityplanner.NodeCapacity{
-			NodeName:                    node.Name,
-			FDValue:                     fdValue,
-			TlcGiB:                      tlcGiB,
-			QlcGiB:                      qlcGiB,
-			AllocatableCPU:              cpu,
-			AvailableHugepagesMiB:       hugepagesMiB,
-			AvailableMemoryMiB:          memoryMiB,
-			IsHt:                        topo.IsHt,
-			FullPcpusOnly:               topo.FullPcpusOnly,
-			HasDeletingDriveContainer:   deletingDriveNodes[node.Name],
-			HasDeletingComputeContainer: deletingComputeNodes[node.Name],
-			IneligibleReason:            resources.NodeIneligibleReason(node, tolerations),
+			NodeName:                  node.Name,
+			FDValue:                   fdValue,
+			TlcGiB:                    tlcGiB,
+			QlcGiB:                    qlcGiB,
+			AllocatableCPU:            cpu,
+			AvailableHugepagesMiB:     hugepagesMiB,
+			AvailableMemoryMiB:        memoryMiB,
+			IsHt:                      topo.IsHt,
+			FullPcpusOnly:             topo.FullPcpusOnly,
+			HasDeletingDriveContainer: deletingDriveNodes[node.Name],
+			IneligibleReason:          resources.NodeIneligibleReason(node, tolerations),
 		})
 	}
 
 	// Compute candidates: every node matching the compute selector, with zero drive capacity.
-	var computeInv []capacityplanner.NodeCapacity
-	for i := range computeNodeList {
-		node := &computeNodeList[i]
-		fdValue, skip := resolveInventoryFDValue(node, fdConfig)
-		if skip {
-			continue
-		}
-		cpu, hugepagesMiB, memoryMiB := nodeHeadroom(node, consumed)
-		topo := topos[node.Name]
-		computeInv = append(computeInv, capacityplanner.NodeCapacity{
-			NodeName:              node.Name,
-			FDValue:               fdValue,
-			AllocatableCPU:        cpu,
-			AvailableHugepagesMiB: hugepagesMiB,
-			AvailableMemoryMiB:    memoryMiB,
-			IsHt:                  topo.IsHt,
-			FullPcpusOnly:         topo.FullPcpusOnly,
-			IneligibleReason:      resources.NodeIneligibleReason(node, tolerations),
-		})
-	}
-
-	inventory, computeNodes := mergeRoleNodes(driveInv, computeInv)
-	return fdByNode, inventory, computeNodes, nil
-}
-
-// FullDrivesInventory is NodeInventory's auto-full-drives counterpart: same drive/compute-candidate +
-// mergeRoleNodes shape, but reads info.AvailableDrives instead of info.SharedDrives. Consumed by
-// PlanAutoFullDrives, not PlanCapacity. It duplicates NodeInventory's candidate-building rather than
-// sharing it, to keep the clusterCapacity and auto-full-drives paths isolated; nodeHeadroom, listInventoryInputs, and resources.NodeIneligibleReason are the mode-agnostic pieces shared between them.
-func (c Collector) FullDrivesInventory(ctx context.Context, cluster *weka.WekaCluster, ownContainers []*weka.WekaContainer, cons *capacityplanner.CapacityConstraints) (fds map[string]string, inv []capacityplanner.NodeCapacity, eligible map[string]bool, err error) {
-	driveNodes, computeNodeList, topos, containers, err := c.listInventoryInputs(ctx, cluster, "FullDrivesInventory")
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	fdConfig := cluster.Spec.FailureDomain
-
-	consumed, err := c.consumedNodeResources(ctx, containers, cons, topos)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("FullDrivesInventory: %w", err)
-	}
-	// info.AvailableDrives carries no allocation exclusion of its own (unlike info.SharedDrives), so the
-	// drive loop below subtracts what any WekaContainer already holds.
-	allocatedDrives := allocatedNodeDrives(containers)
-	tolerations := resources.GetWekaPodTolerationsForCluster(cluster)
-
-	deletingDriveNodes := nodesWithDeletingDriveContainer(ownContainers)
-	deletingComputeNodes := nodesWithDeletingComputeContainer(ownContainers)
-
-	// ownDriveSerials is, per node, the serials allocated to THIS cluster's own drive container that still
-	// holds them, using the same IsDeletingDriveContainer predicate as ExistingDrives (see that function
-	// for the invariant). A container that no longer holds its drives keeps them charged via
-	// allocatedDrives, so they are neither offered as free nor double-counted as a growth base.
-	ownDriveSerials := map[string]map[string]bool{}
-	for _, cont := range ownContainers {
-		if cont.Spec.Mode != weka.WekaContainerModeDrive || IsDeletingDriveContainer(cont) {
-			continue
-		}
-		if cont.Status.Allocations == nil {
-			continue
-		}
-		node := string(cont.GetNodeAffinity())
-		if node == "" {
-			continue
-		}
-		set, ok := ownDriveSerials[node]
-		if !ok {
-			set = map[string]bool{}
-			ownDriveSerials[node] = set
-		}
-		for _, drive := range cont.Status.Allocations.Drives {
-			set[drive] = true
-		}
-	}
-
-	fdByNode := map[string]string{}
-	var driveInv []capacityplanner.NodeCapacity
-	for i := range driveNodes {
-		node := &driveNodes[i]
-		nodeName := weka.NodeName(node.Name)
-
-		fdValue, skip := resolveInventoryFDValue(node, fdConfig)
-		if skip {
-			continue
-		}
-
-		info, err := allocator.ParseAllocatorNodeInfo(node)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("FullDrivesInventory: reading node info for %q: %w", nodeName, err)
-		}
-
-		// info.AvailableDrives carries no allocation exclusion of its own (unlike info.SharedDrives), so
-		// exclude drives already committed to any WekaContainer here — otherwise PlanAutoFullDrives would request
-		// unsatisfiable drives and the growth diff would re-fire forever.
-		freeDrives := filterAllocatedDrives(info.AvailableDrives, allocatedDrives[node.Name])
-
-		// ownDrives is the subset allocated to THIS cluster's own non-deleting container, disjoint from
-		// freeDrives (so their sum recovers the node's true total); nil for a fresh-candidate node.
-		// Computed before the emptiness check below, which needs it.
-		ownDrives := selectDrivesBySerial(info.AvailableDrives, ownDriveSerials[node.Name])
-
-		// Skip only when no full drives exist at all (neither free nor owned): len(freeDrives)==0 alone
-		// would drop a fully-converged node, wrongly firing planAutoFullDrives's AutoFullDrivesNoSignedDrives guard and
-		// losing OwnDriveCapacitiesGiB's hugepages term.
-		if len(freeDrives) == 0 && len(ownDrives) == 0 {
-			continue
-		}
-		fdByNode[node.Name] = fdValue
-		driveCapacitiesGiB := fullDriveCapacities(freeDrives)
-		tlcGiB := sumFullDriveCapacity(freeDrives)
-		cpu, hugepagesMiB, memoryMiB := nodeHeadroom(node, consumed)
-		topo := topos[node.Name]
-		driveInv = append(driveInv, capacityplanner.NodeCapacity{
-			NodeName:                    node.Name,
-			FDValue:                     fdValue,
-			TlcGiB:                      tlcGiB,
-			QlcGiB:                      0,
-			DriveCapacitiesGiB:          driveCapacitiesGiB,
-			OwnDriveCapacitiesGiB:       fullDriveCapacities(ownDrives),
-			AllocatableCPU:              cpu,
-			AvailableHugepagesMiB:       hugepagesMiB,
-			AvailableMemoryMiB:          memoryMiB,
-			IsHt:                        topo.IsHt,
-			FullPcpusOnly:               topo.FullPcpusOnly,
-			HasDeletingDriveContainer:   deletingDriveNodes[node.Name],
-			HasDeletingComputeContainer: deletingComputeNodes[node.Name],
-			IneligibleReason:            resources.NodeIneligibleReason(node, tolerations),
-		})
-	}
-
 	var computeInv []capacityplanner.NodeCapacity
 	for i := range computeNodeList {
 		node := &computeNodeList[i]
@@ -421,7 +286,7 @@ func (c Collector) FullDrivesInventory(ctx context.Context, cluster *weka.WekaCl
 // resolveInventoryFDValue. Free headroom is each node's physical/allocatable resources minus every
 // WekaContainer charged to it (all clusters, all modes).
 func (c Collector) ExploreNodes(ctx context.Context, selector map[string]string, fdConfig *weka.FailureDomain, cons *capacityplanner.CapacityConstraints) ([]NodeDetail, error) {
-	nodes, err := listNodesForSelector(ctx, c.Client, selector)
+	nodes, err := ListNodesForSelector(ctx, c.Client, selector)
 	if err != nil {
 		return nil, fmt.Errorf("ExploreNodes: %w", err)
 	}
@@ -443,7 +308,7 @@ func (c Collector) ExploreNodes(ctx context.Context, selector map[string]string,
 		consumersByNode[node] = append(consumersByNode[node], consumerFrom(wc, cons, topos[node]))
 	}
 
-	// Cluster-agnostic here, so (unlike FullDrivesInventory's per-cluster own/free split) only
+	// Cluster-agnostic here, so only
 	// total vs. allocated-by-anyone vs. free is needed.
 	allocatedDrives := allocatedNodeDrives(allContainers)
 
@@ -514,23 +379,6 @@ func (c Collector) ExploreNodes(ctx context.Context, selector map[string]string,
 	return out, nil
 }
 
-// HasSignedFullDrives reports whether any candidate node in nodeInv carries a signed, non-blocked full
-// drive — free, or already owned by this cluster. nodeInv also holds compute-selector nodes with no drives
-// (they supply compute headroom), so len(nodeInv) says nothing about signing; and on a converged cluster
-// every drive is owned rather than free, so a free-only test would read a healthy fleet as unsigned.
-//
-// Note this is "no drive reached the inventory", which also covers drives still held by a drive container
-// being deleted — callers that must tell that apart inspect the containers themselves.
-func HasSignedFullDrives(nodeInv []capacityplanner.NodeCapacity) bool {
-	for i := range nodeInv {
-		n := &nodeInv[i]
-		if len(n.DriveCapacitiesGiB) > 0 || len(n.OwnDriveCapacitiesGiB) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // IsDeletingDriveContainer reports whether c is a drive container on its way out. Such a container still
 // physically holds its allocated drives — they stay out of the free pool via allocatedNodeDrives and out of
 // the own pool via ownDriveSerials — but can neither be grown nor planned against.
@@ -548,28 +396,6 @@ func nodesWithDeletingDriveContainer(ownContainers []*weka.WekaContainer) map[st
 	out := map[string]bool{}
 	for _, cont := range ownContainers {
 		if !IsDeletingDriveContainer(cont) {
-			continue
-		}
-		if n := string(cont.GetNodeAffinity()); n != "" {
-			out[n] = true
-		}
-	}
-	return out
-}
-
-// isDeletingComputeContainer reports whether c is a compute container on its way out. Such a container's
-// pod still physically holds its hugepages/CPU/memory until the pod is actually gone, so a node hosting one
-// can fail a drive-growth fit that would pass once the deletion lands.
-func isDeletingComputeContainer(c *weka.WekaContainer) bool {
-	return c.Spec.Mode == weka.WekaContainerModeCompute && c.IsMarkedForDeletion()
-}
-
-// nodesWithDeletingComputeContainer is the set of nodes hosting one — the source of each node's
-// NodeCapacity.HasDeletingComputeContainer. A container with no node resolves to nowhere and is skipped.
-func nodesWithDeletingComputeContainer(ownContainers []*weka.WekaContainer) map[string]bool {
-	out := map[string]bool{}
-	for _, cont := range ownContainers {
-		if !isDeletingComputeContainer(cont) {
 			continue
 		}
 		if n := string(cont.GetNodeAffinity()); n != "" {
@@ -606,9 +432,6 @@ func ExistingDrives(ctx context.Context, cluster *weka.WekaCluster, ownContainer
 			QlcGiB:      qlcGiB,
 			NumCores:    c.Spec.NumCores,
 			Unscheduled: c.Status.NodeAffinity == "",
-			// NumDrives is 0 for clusterCapacity/shared-drives containers (only ever set on auto-full-drives
-			// containers); PlanAutoFullDrives diffs it against the node's live full-drives count.
-			NumDrives: c.Spec.NumDrives,
 		})
 	}
 	return existingDrives
@@ -642,7 +465,7 @@ type nodeResources struct {
 }
 
 // nodeHeadroom returns node's free CPU (cores), hugepages (MiB), and memory (MiB): allocatable minus
-// whatever consumed already charges against it. Shared by NodeInventory and FullDrivesInventory.
+// whatever consumed already charges against it.
 func nodeHeadroom(node *corev1.Node, consumed nodeResources) (cpu, hugepagesMiB, memoryMiB int) {
 	cpu = max(0, int(node.Status.Allocatable.Cpu().Value())-consumed.cores[node.Name])
 	hugepagesMiB = max(0, nodeAllocatableHugepagesMiB(node)-consumed.hugepages[node.Name])
@@ -1126,8 +949,8 @@ func sumSharedDriveCapacity(drives []domain.SharedDriveInfo) (tlcGiB, qlcGiB int
 }
 
 // sumFullDriveCapacity sums the capacity of full (non-shared, non-proxy) drives — every full drive entry is
-// charged as TLC, QLC included (see FullDrivesInventory). A thin wrapper around fullDriveCapacities so the call site reads
-// as "the total", independent of how DriveCapacitiesGiB is built.
+// charged as TLC, QLC included. A thin wrapper around fullDriveCapacities so the call site reads
+// as "the total".
 func sumFullDriveCapacity(drives []domain.DriveEntry) (tlcGiB int) {
 	for _, gib := range fullDriveCapacities(drives) {
 		tlcGiB += gib
@@ -1136,8 +959,7 @@ func sumFullDriveCapacity(drives []domain.DriveEntry) (tlcGiB int) {
 }
 
 // fullDriveCapacities returns the per-drive capacity (GiB) of each full drive, in the same order as
-// drives — the exact per-drive sizes PlanAutoFullDrives needs to drop drives precisely (largest-first) rather
-// than approximating with a uniform average. Populates NodeCapacity.DriveCapacitiesGiB.
+// drives — the exact per-drive sizes, so callers need not approximate with a uniform average.
 func fullDriveCapacities(drives []domain.DriveEntry) []int {
 	if len(drives) == 0 {
 		return nil
@@ -1186,7 +1008,7 @@ func mergeRoleNodes(driveInv, computeInv []capacityplanner.NodeCapacity) (invent
 	return inventory, computeNodes
 }
 
-// listNodesForSelector lists every node matching a role node selector, unfiltered by scheduling
+// ListNodesForSelector lists every node matching a role node selector, unfiltered by scheduling
 // eligibility — every caller narrates or plans over the full matching set and applies its own eligibility
 // handling on top (planner callers via NodeCapacity.IneligibleReason, ExploreNodes via NodeDetail's field).
 // An empty selector matches every node in the cluster (standard Kubernetes label-selector semantics).
@@ -1194,14 +1016,14 @@ func mergeRoleNodes(driveInv, computeInv []capacityplanner.NodeCapacity) (invent
 // UnsafeDisableDeepCopy (contract in chargeForeignPods): nodes carry the KB-scale discovery.json and drive
 // annotations, so skipping their copy saves the most of any List in the pass. Every consumer only reads
 // maps or unmarshals annotation strings into fresh structs, and no *corev1.Node outlives its caller.
-func listNodesForSelector(ctx context.Context, c client.Client, selector map[string]string) ([]corev1.Node, error) {
+func ListNodesForSelector(ctx context.Context, c client.Client, selector map[string]string) ([]corev1.Node, error) {
 	listOpts := []client.ListOption{client.UnsafeDisableDeepCopy}
 	if len(selector) > 0 {
 		listOpts = append(listOpts, client.MatchingLabels(selector))
 	}
 	nodeList := &corev1.NodeList{}
 	if err := c.List(ctx, nodeList, listOpts...); err != nil {
-		return nil, fmt.Errorf("listNodesForSelector: failed to list nodes: %w", err)
+		return nil, fmt.Errorf("ListNodesForSelector: failed to list nodes: %w", err)
 	}
 	return nodeList.Items, nil
 }

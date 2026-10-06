@@ -16,8 +16,7 @@ import (
 // non-blocked full drives across matched drive-role nodes (bootstrap-skipped until any node carries
 // weka-full-drives). Only exclusive full drives count — shared drives are carved by capacity instead,
 // which makes numDrives a virtual-drive count there and the comparison a category error. Auto-full-drives
-// is excluded for the opposite reason: no fixed container count, so there is no product to compare
-// (clusterAutoFullDrivesFeasible owns its pins).
+// is excluded for the opposite reason: no fixed container count, so there is no product to compare.
 type clusterSignedDrives struct{}
 
 func (clusterSignedDrives) ID() string {

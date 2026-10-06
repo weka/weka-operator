@@ -604,3 +604,101 @@ func TestHandleSpecUpdates_PropagatesWekaHomeCacertSecret(t *testing.T) {
 		})
 	}
 }
+
+// A container holding more cores than the count-mode template (e.g. left by act-as-daemonset after a switch
+// to explicit counts) keeps its hugepages: the template's figure is sized for fewer cores.
+func TestHandleSpecUpdates_CountsKeepHugepagesOfLargerContainer(t *testing.T) {
+	prevDrive := globalconfig.Config.HugepagesUpdate.Drive
+	globalconfig.Config.HugepagesUpdate.Drive = true
+	t.Cleanup(func() { globalconfig.Config.HugepagesUpdate.Drive = prevDrive })
+
+	cluster := &weka.WekaCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "cl1", Namespace: "default", UID: "cluster-uid"},
+	}
+	cluster.Spec.Dynamic = &weka.WekaClusterTemplate{DriveContainers: 5, ComputeContainers: 5, NumDrives: 5}
+
+	container := autoFullDrivesDriveContainer("drive-1", 6, 9984, 1584, 64)
+	r := newUpgradeLoop(t, cluster, []*weka.WekaContainer{container})
+	if err := r.HandleSpecUpdates(context.Background()); err != nil {
+		t.Fatalf("HandleSpecUpdates: %v", err)
+	}
+
+	got := &weka.WekaContainer{}
+	if err := r.getClient().Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "drive-1"}, got); err != nil {
+		t.Fatalf("Get container after HandleSpecUpdates: %v", err)
+	}
+	if got.Spec.NumCores != 6 || got.Spec.Hugepages != 9984 || got.Spec.HugepagesOffset != 1584 {
+		t.Errorf("want cores/hugepages/offset unchanged 6/9984/1584, got %d/%d/%d",
+			got.Spec.NumCores, got.Spec.Hugepages, got.Spec.HugepagesOffset)
+	}
+}
+
+func getUpgradedContainer(t *testing.T, r *wekaClusterReconcilerLoop, name string) *weka.WekaContainer {
+	t.Helper()
+	got := &weka.WekaContainer{}
+	if err := r.getClient().Get(context.Background(), client.ObjectKey{Namespace: "default", Name: name}, got); err != nil {
+		t.Fatalf("Get container %s: %v", name, err)
+	}
+	return got
+}
+
+func TestHandleSpecUpdates_NonDriveComputeRoleIgnoresCoreCountOfLargerContainer(t *testing.T) {
+	cluster := &weka.WekaCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "cl1", Namespace: "default", UID: "cluster-uid"},
+	}
+	cluster.Spec.Dynamic = &weka.WekaClusterTemplate{S3Containers: 1, S3Cores: 1, S3FrontendHugepages: 4000}
+
+	container := autoFullDrivesDriveContainer("s3-1", 3, 8000, 0, 0)
+	container.Spec.Mode = weka.WekaContainerModeS3
+	r := newUpgradeLoop(t, cluster, []*weka.WekaContainer{container})
+	if err := r.HandleSpecUpdates(context.Background()); err != nil {
+		t.Fatalf("HandleSpecUpdates: %v", err)
+	}
+
+	if got := getUpgradedContainer(t, r, "s3-1"); got.Spec.Hugepages != 4000 {
+		t.Errorf("want template hugepages 4000 propagated to s3 container, got %d", got.Spec.Hugepages)
+	}
+}
+
+func TestHandleSpecUpdates_LargerDriveContainerIsRaisedToTemplateHugepages(t *testing.T) {
+	cluster := &weka.WekaCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "cl1", Namespace: "default", UID: "cluster-uid"},
+	}
+	cluster.Spec.Dynamic = &weka.WekaClusterTemplate{DriveContainers: 5, ComputeContainers: 5, NumDrives: 5, DriveHugepages: 20000}
+
+	container := autoFullDrivesDriveContainer("drive-1", 6, 9984, 1584, 64)
+	r := newUpgradeLoop(t, cluster, []*weka.WekaContainer{container})
+	if err := r.HandleSpecUpdates(context.Background()); err != nil {
+		t.Fatalf("HandleSpecUpdates: %v", err)
+	}
+
+	got := getUpgradedContainer(t, r, "drive-1")
+	if got.Spec.NumCores != 6 || got.Spec.Hugepages != 20000 {
+		t.Errorf("want cores 6 and hugepages raised to 20000, got %d/%d", got.Spec.NumCores, got.Spec.Hugepages)
+	}
+}
+
+// A drive container holding more drives than the template at the same core count keeps its larger hugepages.
+func TestHandleSpecUpdates_CountsKeepHugepagesOfContainerWithMoreDrives(t *testing.T) {
+	prevDrive := globalconfig.Config.HugepagesUpdate.Drive
+	globalconfig.Config.HugepagesUpdate.Drive = true
+	t.Cleanup(func() { globalconfig.Config.HugepagesUpdate.Drive = prevDrive })
+
+	cluster := &weka.WekaCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "cl1", Namespace: "default", UID: "cluster-uid"},
+	}
+	cluster.Spec.Dynamic = &weka.WekaClusterTemplate{DriveContainers: 5, ComputeContainers: 5, NumDrives: 6, DriveCores: 6}
+
+	container := autoFullDrivesDriveContainer("drive-1", 6, 12000, 2400, 64)
+	container.Spec.NumDrives = 12
+	r := newUpgradeLoop(t, cluster, []*weka.WekaContainer{container})
+	if err := r.HandleSpecUpdates(context.Background()); err != nil {
+		t.Fatalf("HandleSpecUpdates: %v", err)
+	}
+
+	got := getUpgradedContainer(t, r, "drive-1")
+	if got.Spec.NumDrives != 12 || got.Spec.Hugepages != 12000 || got.Spec.HugepagesOffset != 2400 {
+		t.Errorf("want drives/hugepages/offset unchanged 12/12000/2400, got %d/%d/%d",
+			got.Spec.NumDrives, got.Spec.Hugepages, got.Spec.HugepagesOffset)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
@@ -24,6 +25,31 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 		}
 		return ParseAllocatorNodeInfo(node)
 	}
+}
+
+// SignedFullDrivesGiB reports whether the node carries a full-drives annotation and, if it parses, the
+// capacities of its non-blocked drives, largest first.
+func SignedFullDrivesGiB(node *v1.Node) (drivesGiB []int, signed bool, err error) {
+	signed = node.Annotations[consts.AnnotationWekaFullDrives] != ""
+	if !signed {
+		return nil, false, nil
+	}
+	entries, err := domain.ReadDriveAnnotations(node.Annotations[consts.AnnotationWekaFullDrives])
+	if err != nil {
+		return nil, signed, fmt.Errorf("failed to read drive annotations: %w", err)
+	}
+	var blocked []string
+	if s, ok := node.Annotations[consts.AnnotationBlockedDrives]; ok {
+		if err := json.Unmarshal([]byte(s), &blocked); err != nil {
+			return nil, signed, fmt.Errorf("failed to unmarshal blocked-drives: %w", err)
+		}
+	}
+	for _, d := range entries {
+		if !slices.Contains(blocked, d.Serial) {
+			drivesGiB = append(drivesGiB, d.CapacityGiB)
+		}
+	}
+	return capacityplanner.SortDriveCapacitiesDesc(drivesGiB), signed, nil
 }
 
 // ParseAllocatorNodeInfo builds an AllocatorNodeInfo from an already-fetched node's annotations

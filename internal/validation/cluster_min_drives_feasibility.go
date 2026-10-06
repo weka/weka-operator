@@ -4,19 +4,18 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weka/weka-operator/internal/controllers/allocator"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/weka/weka-operator/internal/consts"
 )
 
 // clusterMinDrivesFeasibility rejects minNumDrives exceeding the total drive count the cluster can
 // ever reach — WaitForDrivesAdd() would poll forever. Total is driveContainers×numDrives, or in
 // auto-full-drives mode, the signed non-blocked full drives each drive-role-matched node contributes
-// (capped per node by a numDrives pin). Unlike clusterSignedDrives, auto-full-drives has no bootstrap
-// skip: zero signed drives is rejected as a real infeasibility.
+// (capped per node by a numDrives pin). Zero signed drives is not rejected here:
+// cluster_drives_unsigned_advisory owns it.
 type clusterMinDrivesFeasibility struct{}
 
 func (clusterMinDrivesFeasibility) ID() string {
@@ -78,29 +77,29 @@ func validateMinDrivesAutoFullDrives(ctx context.Context, c client.Client, clust
 		return nil
 	}
 
-	infos, errs := driveRoleNodeInfos(nodes, fldPath)
-	if errs != nil {
-		return errs
-	}
 	perNodeCap := 0 // 0 = unpinned, take everything the node signed
 	if cluster.Spec.Dynamic != nil {
 		perNodeCap = cluster.Spec.Dynamic.NumDrives
 	}
 	var total int
-	for _, ni := range infos {
-		n := len(ni.Info.AvailableDrives)
+	for i := range nodes {
+		// Unsigned, unparsable and empty nodes contribute nothing; cluster_drives_unsigned_advisory reports them.
+		drives, _, err := allocator.SignedFullDrivesGiB(&nodes[i])
+		if err != nil {
+			continue
+		}
+		n := len(drives)
 		if perNodeCap > 0 {
 			n = min(n, perNodeCap)
 		}
 		total += n
 	}
 
-	if minNumDrives <= total {
+	// total == 0 is "nothing signed yet", owned by cluster_drives_unsigned_advisory.
+	if total == 0 || minNumDrives <= total {
 		return nil
 	}
 
-	// total == 0: sign-drives hasn't run yet. Still a genuine infeasibility, but name the actual
-	// cause rather than the generic "exceeds N drives" wording.
 	pinNote := ""
 	if perNodeCap > 0 {
 		pinNote = fmt.Sprintf(", each node capped at the pinned numDrives=%d", perNodeCap)
@@ -112,16 +111,6 @@ func validateMinDrivesAutoFullDrives(ctx context.Context, c client.Client, clust
 			"drives, or label more nodes.",
 		minNumDrives, len(nodes), pinNote, total,
 	)
-	if total == 0 {
-		detail = fmt.Sprintf(
-			"spec.startIoConditions.minNumDrives (%d) cannot be satisfied: none of the %d matched "+
-				"drive-role node(s) has any signed, non-blocked full drive (no %s annotation, or "+
-				"every drive is blocked), so the cluster has no drives to consume and the IO-start "+
-				"condition would never be met. Sign drives on the drive-role nodes before applying "+
-				"the cluster, label more nodes, or unset minNumDrives.",
-			minNumDrives, len(nodes), consts.AnnotationWekaFullDrives,
-		)
-	}
 	return field.ErrorList{
 		field.Invalid(fldPath, minNumDrives, detail),
 	}

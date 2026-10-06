@@ -200,12 +200,17 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 
 	// calculate desired counts. Under a planner-managed template (clusterCapacity, or acting as a
 	// daemonset) the planner drives the container count dynamically, so a fixed "desired" is not known
-	// in advance — leave it 0 so the printer column omits it. This keys on IsPlannerManaged: in daemonset
-	// mode the template's counts are just placeholder floors/fallbacks, not a description of the cluster.
-	plannerManaged := r.plannerManaged()
+	// in advance: clusterCapacity leaves it 0 so the printer column omits it. The daemonset's container and
+	// drive counts are written by buildDaemonsetContainers when it plans, and left untouched here.
+	// This keys on IsPlannerManaged: in daemonset mode the template's counts are just placeholder
+	// floors/fallbacks, not a description of the cluster.
+	plannerManaged := allocator.IsPlannerManaged(cluster.Spec.Dynamic)
+	daemonset := cluster.Spec.Dynamic.UsesAutoFullDrives()
 	if plannerManaged {
-		cluster.Status.Stats.Containers.Compute.Containers.Desired = 0
-		cluster.Status.Stats.Containers.Drive.Containers.Desired = 0
+		if !daemonset {
+			cluster.Status.Stats.Containers.Compute.Containers.Desired = 0
+			cluster.Status.Stats.Containers.Drive.Containers.Desired = 0
+		}
 	} else {
 		cluster.Status.Stats.Containers.Compute.Containers.Desired = weka.IntMetric(template.Containers.Compute)
 		cluster.Status.Stats.Containers.Drive.Containers.Desired = weka.IntMetric(template.Containers.Drive)
@@ -238,7 +243,9 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 				computeCores += containers[i].Spec.NumCores
 			}
 		}
-		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(desiredDrives)
+		if !daemonset {
+			cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(desiredDrives)
+		}
 		cluster.Status.Stats.Containers.Drive.Processes.Desired = weka.IntMetric(driveCores)
 		cluster.Status.Stats.Containers.Compute.Processes.Desired = weka.IntMetric(computeCores)
 	case template.ContainerCapacity > 0:

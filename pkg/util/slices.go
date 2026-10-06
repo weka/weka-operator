@@ -1,7 +1,9 @@
 package util
 
 import (
+	"fmt"
 	"math/rand"
+	"strings"
 )
 
 func SliceEquals[T comparable](a, b []T) bool {
@@ -22,4 +24,12 @@ func Shuffle[T any](slice []T) {
 	rand.Shuffle(len(slice), func(i, j int) {
 		slice[i], slice[j] = slice[j], slice[i]
 	})
+}
+
+// JoinCapped joins at most n items with sep, then counts the rest as "(+N more)".
+func JoinCapped(items []string, sep string, n int) string {
+	if len(items) <= n {
+		return strings.Join(items, sep)
+	}
+	return fmt.Sprintf("%s (+%d more)", strings.Join(items[:n], sep), len(items)-n)
 }

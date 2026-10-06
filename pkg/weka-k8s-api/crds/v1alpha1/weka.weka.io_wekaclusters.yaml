@@ -383,8 +383,8 @@ spec:
                     description: |-
                       Number of virtual or physical drives per drive container. Mutually exclusive with containerCapacity.
                       When the cluster acts as a daemonset (computeContainers and driveContainers both unset), NumDrives
-                      instead acts as a per-node override, pinning the number of largest signed drives that each node's
-                      drive container takes instead of consuming all of them.
+                      is the per-node drive count: each drive container takes that many of the node's largest signed
+                      drives instead of all of them.
                     minimum: 0
                     type: integer
                   s3Containers:

@@ -119,10 +119,9 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*c
 	for _, msg := range plan.ShrinkEvents {
 		r.emitPlannerEvent(reasonClusterCapacityShrink, msg)
 	}
-	// clusterCapacity uses a single reason for all its warnings (layout advisories); only the message is
-	// read from the classified Warning. Auto full drives instead splits by cause (autoFullDrivesWarningReason).
+	// clusterCapacity uses a single reason for all its warnings (layout advisories).
 	for _, w := range plan.Warnings {
-		r.emitPlannerEvent(reasonClusterCapacityHeterogeneousGrowth, w.Message)
+		r.emitPlannerEvent(reasonClusterCapacityHeterogeneousGrowth, w)
 	}
 	for _, msg := range plan.OverProvisions {
 		r.emitPlannerEvent(reasonClusterCapacityOverProvisioned, msg)
@@ -134,140 +133,6 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*c
 			formatCapacityPlanSummary(&plan, desired, s, existingDrives))
 	}
 	return &plan, nil
-}
-
-// planAutoFullDrives is the entry point for auto-full-drives planning: one node-pinned container per
-// drive-role node, sized from that node's own signed drives (the opposite of clusterCapacity's uniform
-// whole-cluster target). It has neither a steady-state short-circuit nor a transient-churn guard: its
-// containers are pinned regardless of scheduling state, and it plans against the fleet's own drives.
-func (r *wekaClusterReconcilerLoop) planAutoFullDrives(ctx context.Context) (*capacityplanner.CapacityPlan, error) {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "planAutoFullDrives")
-	defer logger.End()
-
-	cluster := r.cluster
-	// An omitted spec.dynamicTemplate is this mode — the shortest way to ask for it — so a nil here is the
-	// common case, not an edge one, and every pin below reads as unset.
-	dyn := cluster.Spec.Dynamic
-	if dyn == nil {
-		dyn = &weka.WekaClusterTemplate{}
-	}
-
-	// No ComputeContainers/DriveContainers fields here: under the both-or-neither CEL rule, reaching this
-	// planning path already means both are unset on dyn — see AutoFullDrivesDesired's doc comment.
-	desired := capacityplanner.AutoFullDrivesDesired{
-		ComputeCores: dyn.ComputeCores, // 0 == unset (auto-derive)
-		DriveCores:   dyn.DriveCores,   // 0 == unset (auto-derive)
-		NumDrives:    dyn.NumDrives,    // 0 == unset (take every signed drive)
-	}
-
-	cons := allocator.ConstraintsForClusterSpec(&cluster.Spec)
-
-	// Full-drives inventory reads a disjoint annotation from NodeInventory (see FullDrivesInventory).
-	buildInventory := r.buildFullDrivesInventoryFn // test seam (nil in production)
-	if buildInventory == nil {
-		col := inventory.NewCollector(r.getClient())
-		buildInventory = func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
-			return col.FullDrivesInventory(ctx, cluster, r.containers, cons)
-		}
-	}
-	fdByNode, nodeInv, computeNodes, err := buildInventory(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if !inventory.HasSignedFullDrives(nodeInv) {
-		// A drive container on its way out still holds its drives, which the inventory reports as neither free
-		// nor own — so a fleet whose every drive is held by one reads exactly like an unsigned fleet here.
-		// Distinguish the two, or the operator is told to sign drives that are already signed.
-		if name, deleting := firstDeletingDriveContainer(r.containers); deleting {
-			r.emitPlannerEventWithCause(reasonAutoFullDrivesPlacementDeferred, causeAutoFullDrivesAllDrivesHeldByDeletion,
-				fmt.Sprintf("deferring auto full drives planning: every signed full drive is still held by a drive container being deleted (%s); the drives are signed, just not released yet, and planning resumes on its own once they are", name))
-			logger.Debug("deferring auto full drives planning while a drive container is being deleted", "container", name)
-			return nil, lifecycle.NewWaitErrorWithDuration(
-				fmt.Errorf("auto full drives: every signed full drive is still held by deleting drive container %s", name), time.Minute)
-		}
-		r.emitPlannerEvent(reasonAutoFullDrivesNoSignedDrives,
-			"deferring auto full drives planning: no node matching the drive-role selector has any signed, non-blocked full drive yet; sign drives (weka.io/weka-full-drives) and the operator will pick them up on its own")
-		logger.Debug("deferring auto full drives planning: no node has signed full drives yet", "candidateNodes", len(nodeInv))
-		return nil, lifecycle.NewWaitErrorWithDuration(fmt.Errorf("auto full drives: no node has signed full drives yet"), time.Minute)
-	}
-
-	existingDrives := inventory.ExistingDrives(ctx, cluster, r.containers, fdByNode)
-	existingCompute := inventory.ExistingCompute(ctx, r.containers)
-
-	plan := capacityplanner.PlanAutoFullDrives(desired, existingDrives, existingCompute, nodeInv, computeNodes, cons)
-
-	// Drive-core totals for the log line: DriveSizing is populated by PlanAutoFullDrives on every return
-	// path, but the nil-guard keeps this log statement safe even if that invariant ever slips. There are
-	// no cap/attempt fields to report — drive cores are min(driveCount, maxCoresPerContainer) or the pin,
-	// and are never traded down to fit compute, so there is no search and nothing to explain.
-	var dsDrivesTaken, dsDrivesAvailable, dsDriveCores int
-	if ds := plan.DriveSizing; ds != nil {
-		dsDrivesTaken, dsDrivesAvailable, dsDriveCores = ds.DrivesTaken, ds.DrivesAvailable, ds.TotalTlcDriveCores
-	}
-	logger.Info("auto full drives plan",
-		"candidateNodes", len(nodeInv), "existingDrives", len(existingDrives), "create", len(plan.Create),
-		"infeasible", plan.Infeasible,
-		"drivesTaken", dsDrivesTaken, "drivesAvailable", dsDrivesAvailable, "driveCores", dsDriveCores)
-	for i := range nodeInv {
-		n := &nodeInv[i]
-		logger.Debug("auto full drives node headroom", "node", n.NodeName, "driveCapacitiesGiB", n.DriveCapacitiesGiB,
-			"cores", n.AllocatableCPU, "hugepagesMiB", n.AvailableHugepagesMiB, "memoryMiB", n.AvailableMemoryMiB)
-	}
-
-	// An infeasible plan is the sole signal: emit only AutoFullDrivesInfeasible and return, skipping the
-	// warnings advisory (it would just be noise on a plan that creates nothing).
-	if plan.Infeasible != "" {
-		r.emitPlannerEvent(reasonAutoFullDrivesInfeasible, plan.Infeasible)
-		return nil, lifecycle.NewWaitErrorWithDuration(fmt.Errorf("auto full drives infeasible: %s", plan.Infeasible), time.Minute)
-	}
-	// Drive cores are never traded away to make compute fit — a fleet that cannot host the required
-	// compute is infeasible above, not silently converged at a smaller core count.
-	//
-	// plan.Grow is not announced here: applyPlannerDriveGrowth can decline an entry or fail its Update,
-	// and emits AutoFullDrivesGrowthDetected for what it actually wrote.
-
-	// One reason per cause: each Warning here is already an aggregate naming every node it affects, so one
-	// event per warning is one event per condition, not per node.
-	for _, w := range plan.Warnings {
-		r.emitPlannerEventWithCause(autoFullDrivesWarningReason(w.Kind), string(w.Cause), w.Message)
-	}
-	// Gated on Create only: plan.Grow is applied separately by applyPlannerDriveGrowth, whose caller emits
-	// own cluster-level AutoFullDrivesGrowthDetected and per-container CapacityGrowthApplied events.
-	if len(plan.Create) > 0 {
-		r.emitPlannerEvent(reasonAutoFullDrivesPlanned, formatAutoFullDrivesPlanSummary(&plan))
-	}
-	return &plan, nil
-}
-
-// formatAutoFullDrivesPlanSummary renders a one-line summary of a feasible auto-full-drives plan's Create
-// leg for the AutoFullDrivesPlanned event; plan.Grow gets its own CapacityGrowthApplied event from
-// announceDriveGrowth instead. Simpler than formatCapacityPlanSummary since auto full drives has no
-// TLC/QLC-ratio target or protection scheme.
-func formatAutoFullDrivesPlanSummary(plan *capacityplanner.CapacityPlan) string {
-	nodes := map[string]struct{}{}
-	var placedGiB int
-	for _, c := range plan.Create {
-		nodes[c.Node] = struct{}{}
-		placedGiB += c.TlcGiB + c.QlcGiB
-	}
-	summary := fmt.Sprintf("auto full drives plan applied: creating %d drive container(s) across %d node(s), placing %s",
-		len(plan.Create), len(nodes), util.HumanReadableGiB(placedGiB))
-	if len(plan.ComputeLayout) > 0 {
-		computeNodes := map[string]struct{}{}
-		var totalCores int
-		for _, c := range plan.ComputeLayout {
-			computeNodes[c.Node] = struct{}{}
-			totalCores += c.NumCores
-		}
-		summary += fmt.Sprintf("; compute %d container(s), %d cores on %d node(s)",
-			len(plan.ComputeLayout), totalCores, len(computeNodes))
-	}
-	// Always append the rationale when there is one — it states what was planned.
-	if ds := plan.DriveSizing; ds != nil && ds.Reason != "" {
-		summary += "; " + ds.Reason
-	}
-	return summary
 }
 
 // formatCapacityPlanSummary renders a one-line summary of a feasible clusterCapacity plan for the
@@ -431,29 +296,6 @@ func firstUnscheduledDriveContainer(containers []*weka.WekaContainer) (string, b
 		if c.Status.NodeAffinity == "" {
 			return c.Name, true
 		}
-	}
-	return "", false
-}
-
-// firstDeletingDriveContainer returns the name of the first of this cluster's drive containers that is on
-// its way out while still holding drives on a known node, or ok=false if none. Shares inventory's predicate,
-// so it cannot disagree with the inventory about which containers still hold their drives.
-//
-// The node and drive requirements are what make the caller's claim — that the fleet's drives are signed and
-// merely unreleased — true rather than merely plausible: a deleting container holding nothing, or pinned
-// nowhere, cannot be why the inventory reads as unsigned.
-func firstDeletingDriveContainer(containers []*weka.WekaContainer) (string, bool) {
-	for _, c := range containers {
-		if !inventory.IsDeletingDriveContainer(c) {
-			continue
-		}
-		if c.GetNodeAffinity() == "" {
-			continue
-		}
-		if c.Status.Allocations == nil || len(c.Status.Allocations.Drives) == 0 {
-			continue
-		}
-		return c.Name, true
 	}
 	return "", false
 }

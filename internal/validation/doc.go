@@ -6,9 +6,8 @@
 // A WekaCluster's sizing mode is derived from which spec.dynamicTemplate fields are set, not named by
 // a field. The four are mutually exclusive by precedence, in the order listed here — the same order
 // derivedSizingMode resolves them in (cluster_sizing_mode_flip.go). This is the validation-side split;
-// the controller's plannerSizingMode (steps_planner_apply.go) is coarser and resolves in the opposite
-// order — it has no drive-sharing value, folding it into sizingCountBased. Each rule is scoped to the
-// modes whose numbers it can actually read:
+// the controller resolves them with Spec.Dynamic.UsesClusterCapacity / UsesAutoFullDrives. Each rule
+// is scoped to the modes whose numbers it can actually read:
 //
 //	auto-full-drives   no container count and no capacity field set (a nil template included) — one
 //	                   container per eligible node, both counts 0, every signed drive claimed.
@@ -33,16 +32,12 @@
 //     cluster_capacity_min_drive_containers (clusterCapacity, unpinned) /
 //     cluster_auto_full_drives_min_nodes (auto-full-drives, where node count IS container count).
 //   - Drive count vs signed drives: cluster_signed_drives (exclusive full-drives) /
-//     cluster_auto_full_drives_feasible (auto-full-drives pins, via the planner's own verdict) / the
+//     cluster_auto_full_drives_pins (auto-full-drives numDrives/driveCores pins against each signed node) / the
 //     cluster_capacity_* rules (drive-sharing, where numDrives counts virtual drives).
-//   - Nothing signed yet: cluster_drives_unsigned_advisory. Drive rules bootstrap-skip to it, except
-//     cluster_min_drives_feasibility in auto-full-drives mode, which treats zero signed drives as a
-//     real infeasibility rather than a pre-signing state.
+//   - Nothing signed yet: cluster_drives_unsigned_advisory. Drive rules bootstrap-skip to it; in
+//     auto-full-drives mode it lists every drive-role node lacking the annotation.
 //   - Selector matches too few nodes: cluster_selected_nodes_count (against pinned counts) /
 //     cluster_auto_full_drives_min_nodes (against the form-cluster floor).
-//     cluster_auto_full_drives_feasible defers to min_nodes whenever either selector is below its
-//     floor: the planner reaches the same verdict for the compute leg, but only as a layout failure,
-//     and min_nodes names the selector and the labels to add.
 //   - Compute vs drive cores: cluster_compute_drive_cores_floor owns the hard 1:1 violation;
 //     cluster_drive_compute_core_ratio only advises on ratios above it.
 //   - driveCores below the configured capacity: cluster_drive_cores_below_capacity (an explicit
@@ -51,12 +46,10 @@
 //   - Sizing mode changes: cluster_sizing_mode_flip (update-only) owns every transition once drive
 //     containers exist; the create-shaped rules never see the old object.
 //
-// # Asking the planner instead of projecting it
+// # Auto-full-drives (daemonset) admission
 //
-// cluster_auto_full_drives_feasible runs FullDrivesInventory + PlanAutoFullDrives — the pair the
-// controller runs — and reports plan.Infeasibility. It replaces two rules that re-derived that verdict
-// from the same formulas: a projection has to be conservative where the planner is exact, and it drifts
-// as the planner changes. The one case the planner cannot supply is a drive selector below the
-// form-cluster floor: that plan is feasible, the containers run healthy, and the cluster waits on
-// MinContainersNotReady forever, so cluster_auto_full_drives_min_nodes still owns it.
+// The operator places one container per eligible node and claims every signed drive, so admission only
+// checks what it cannot recover from: the selector floor (cluster_auto_full_drives_min_nodes), pins no
+// signed node can satisfy (cluster_auto_full_drives_pins) and unsigned nodes
+// (cluster_drives_unsigned_advisory).
 package validation

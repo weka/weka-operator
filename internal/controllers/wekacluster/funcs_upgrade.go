@@ -476,7 +476,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		// clusterCapacity/auto full drives owns drive/compute cores, hugepages, drive-type ratio and capacity
 		// (reconciled in applyPlannerDriveGrowth/applyPlannerComputeGrowth); propagating
 		// updatableSpec's template defaults here would clobber that sizing. Other fields still propagate.
-		plannerManaged := r.plannerManaged() &&
+		plannerManaged := allocator.IsPlannerManaged(r.cluster.Spec.Dynamic) &&
 			(role == weka.WekaContainerModeDrive || role == weka.WekaContainerModeCompute)
 
 		// coresRaisedTo/drivesRaisedTo carry an increase applied below out to the post-Patch event
@@ -520,17 +520,26 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 				container.Spec.DpdkBaseMemoryMb = rv.HugepagesInfo.DpdkBaseMemoryMb
 			}
 
+			// The template's hugepages are sized for its own cores and drives; a drive/compute container holding more
+			// of either (e.g. one left by act-as-daemonset after a switch to explicit counts) may be raised but never
+			// cut below what it runs on.
+			keepLarger := (role == weka.WekaContainerModeDrive || role == weka.WekaContainerModeCompute) &&
+				(container.Spec.NumCores > rv.NumCores || container.Spec.NumDrives > rv.NumDrives)
+			floor := func(cur, tmpl int) int {
+				if keepLarger {
+					return max(cur, tmpl)
+				}
+				return tmpl
+			}
 			if coresUpdated || dpdkChanged || drivesUpdated {
-				container.Spec.Hugepages = rv.HugepagesInfo.Hugepages
-				container.Spec.HugepagesOffset = rv.HugepagesInfo.HugepagesOffset
+				container.Spec.Hugepages = floor(container.Spec.Hugepages, rv.HugepagesInfo.Hugepages)
+				container.Spec.HugepagesOffset = floor(container.Spec.HugepagesOffset, rv.HugepagesInfo.HugepagesOffset)
 			}
-
 			if rv.HugepagesInfo.ShouldPropagateHugepages() {
-				container.Spec.Hugepages = rv.HugepagesInfo.Hugepages
+				container.Spec.Hugepages = floor(container.Spec.Hugepages, rv.HugepagesInfo.Hugepages)
 			}
-
 			if rv.HugepagesInfo.ShouldPropagateHugepagesOffset() {
-				container.Spec.HugepagesOffset = rv.HugepagesInfo.HugepagesOffset
+				container.Spec.HugepagesOffset = floor(container.Spec.HugepagesOffset, rv.HugepagesInfo.HugepagesOffset)
 			}
 		}
 

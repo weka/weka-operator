@@ -77,14 +77,14 @@ func modeFlipFailingClient(t *testing.T) client.Client {
 }
 
 // TestSizingModeFlip_LeavingTheMode is the case the policy exists for: adding container counts to a
-// live daemonset cluster would start a second, differently sized drive-container population.
+// live daemonset cluster to capacity sizing would start a second, differently sized population.
 func TestSizingModeFlip_LeavingTheMode(t *testing.T) {
 	v := &clusterSizingModeFlip{}
 	ctx := context.Background()
 	c := modeFlipClient(t, 3)
 
 	old := modeFlipCluster(&weka.WekaClusterTemplate{})
-	updated := modeFlipCluster(&weka.WekaClusterTemplate{ComputeContainers: 6, DriveContainers: 6})
+	updated := modeFlipCluster(&weka.WekaClusterTemplate{ClusterCapacity: "500TiB"})
 
 	errs := v.ValidateUpdate(ctx, c, old, updated)
 	if len(errs) != 1 {
@@ -93,7 +93,7 @@ func TestSizingModeFlip_LeavingTheMode(t *testing.T) {
 	detail := errs[0].Detail
 	for _, want := range []string{
 		"auto-full-drives (acts as a daemonset)",
-		"explicit container counts",
+		"clusterCapacity",
 		"drive containers already exist",
 		"second, differently sized population",
 		// The message must name the switches that ARE available, so the one-way rule is discoverable
@@ -112,9 +112,9 @@ func TestSizingModeFlip_LeavingTheMode(t *testing.T) {
 	}
 }
 
-// TestSizingModeFlip_SupportedSwitches covers the two transitions the operator can carry over on a
-// live cluster: counts -> daemonset (existing containers are adopted via Status.NodeAffinity and grown
-// in place) and drive-sharing -> clusterCapacity (the documented in-place migration).
+// TestSizingModeFlip_SupportedSwitches covers the transitions the operator can carry over on a live
+// cluster: counts <-> daemonset (existing containers are adopted via Status.NodeAffinity and grown in
+// place, or kept and never shrunk) and drive-sharing -> clusterCapacity (the documented in-place migration).
 func TestSizingModeFlip_SupportedSwitches(t *testing.T) {
 	v := &clusterSizingModeFlip{}
 	ctx := context.Background()
@@ -132,6 +132,10 @@ func TestSizingModeFlip_SupportedSwitches(t *testing.T) {
 		"counts -> daemonset, keeping the numDrives pin": {
 			{ComputeContainers: 6, DriveContainers: 6, NumDrives: 4},
 			{NumDrives: 4},
+		},
+		"daemonset -> counts": {
+			{},
+			{ComputeContainers: 6, DriveContainers: 6},
 		},
 		"containerCapacity -> clusterCapacity": {
 			{ContainerCapacity: 6000, DriveContainers: 6, ComputeContainers: 6},
@@ -186,7 +190,6 @@ func TestSizingModeFlip_RejectedSwitches(t *testing.T) {
 		old, updated    *weka.WekaClusterTemplate
 		wantConsequence string
 	}{
-		"daemonset -> counts":            {auto, counts, "second, differently sized population"},
 		"daemonset -> clusterCapacity":   {auto, capacity, "second, differently sized population"},
 		"daemonset -> drive-sharing":     {auto, sharing, "second, differently sized population"},
 		"clusterCapacity -> daemonset":   {capacity, auto, "neither adopted nor grown"},
@@ -256,7 +259,7 @@ func TestSizingModeFlip_ListFailureFailsClosed(t *testing.T) {
 	c := modeFlipFailingClient(t)
 
 	old := modeFlipCluster(&weka.WekaClusterTemplate{})
-	updated := modeFlipCluster(&weka.WekaClusterTemplate{ComputeContainers: 6, DriveContainers: 6})
+	updated := modeFlipCluster(&weka.WekaClusterTemplate{ClusterCapacity: "500TiB"})
 
 	errs := v.ValidateUpdate(ctx, c, old, updated)
 	if len(errs) != 1 {

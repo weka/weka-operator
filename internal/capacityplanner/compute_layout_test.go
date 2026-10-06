@@ -188,8 +188,7 @@ func TestDeriveComputeLayout(t *testing.T) {
 
 // Pins the core cap binding ahead of hugepages: with 96 required cores over a 5-node floor,
 // ceil(96/5)=20 exceeds MaxCoresPerContainer=19, so the layout is infeasible on cores alone while
-// hugepages headroom is still ample. Admission reports this verdict through the planner
-// (clusterAutoFullDrivesFeasible), so these are the numbers an operator sees rejected.
+// hugepages headroom is still ample.
 func TestDeriveComputeLayout_CoreCapBindsBeforeHugepages(t *testing.T) {
 	const requiredComputeCores = 96
 	const maxCoresPerContainer = 19
@@ -214,7 +213,7 @@ func TestDeriveComputeLayout_CoreCapBindsBeforeHugepages(t *testing.T) {
 	}
 
 	// Pinned computeCores takes the specCores branch: cores is honored exactly, and count follows as
-	// max(floor, ceil(required/cores)) — mirrored by validateAutoFullDrivesPinnedComputeCores's own formula.
+	// max(floor, ceil(required/cores)).
 	// 18 pinned cores need ceil(96/18)=6 containers; 5 compute-eligible nodes cannot host 6 one-per-node.
 	const pinnedCores = 18
 	_, _, infeasible, _, _ = deriveComputeLayout(0, pinnedCores, requiredComputeCores, floor, maxCoresPerContainer, rep(5, bigHeadroom), nil, nil)
