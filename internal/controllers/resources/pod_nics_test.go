@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
+	"k8s.io/utils/ptr"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -123,7 +124,7 @@ func TestShouldRequestNICs(t *testing.T) {
 			name:     "allocateVfPerIoNode true, no explicit devices, unsupported provider -> request NICs",
 			provider: discovery.ProviderUnknown,
 			mode:     weka.WekaContainerModeCompute,
-			network:  weka.Network{AllocateVfPerIoNode: ptr(true)},
+			network:  weka.Network{AllocateVfPerIoNode: ptr.To(true)},
 			wantNICs: true,
 		},
 		{
@@ -132,7 +133,7 @@ func TestShouldRequestNICs(t *testing.T) {
 			name:     "allocateVfPerIoNode false, no explicit devices, supported provider -> no NICs requested",
 			provider: discovery.ProviderAWS,
 			mode:     weka.WekaContainerModeCompute,
-			network:  weka.Network{AllocateVfPerIoNode: ptr(false)},
+			network:  weka.Network{AllocateVfPerIoNode: ptr.To(false)},
 			wantNICs: false,
 		},
 		{
@@ -147,7 +148,7 @@ func TestShouldRequestNICs(t *testing.T) {
 			provider: discovery.ProviderAWS,
 			mode:     weka.WekaContainerModeCompute,
 			network: weka.Network{
-				AllocateVfPerIoNode: ptr(true),
+				AllocateVfPerIoNode: ptr.To(true),
 				DeviceSubnets:       []string{"10.0.0.0/24"},
 			},
 			wantNICs: false,

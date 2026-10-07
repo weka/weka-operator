@@ -232,6 +232,10 @@ func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
 	return r.container.Status.LastAppliedImage != r.container.Spec.Image
 }
 
+func (r *containerReconcilerLoop) podNotTerminating() bool {
+	return r.pod.GetDeletionTimestamp() == nil
+}
+
 func (r *containerReconcilerLoop) GetNode(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 

@@ -55,7 +55,7 @@
 | agentPort | int |  |
 | portRange | *PortRange |  |
 | image | string |  |
-| podConfigHash | string | a hash that represents the config state of a WekaContainer, will recreate the pod if stale |
+| rotatePod | bool | Set and cleared by the owning WekaCluster: approval to replace the pod because status.podOutdated is true. |
 | imagePullSecret | string |  |
 | name | string |  |
 | mode | string |  |
@@ -118,7 +118,6 @@
 | conditions | []metav1.Condition |  |
 | lastAppliedImage | string | Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later |
 | lastAppliedSpec | string | set by weka cluster or client or other higher level controller, to track if higher level spec was propagated |
-| lastAppliedPodConfigHash | string | to signal to a higher controller WekaContainer's pod status |
 | nodeAffinity | NodeName | active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity |
 | result | *string |  |
 | allocations | *ContainerAllocations |  |
@@ -127,6 +126,7 @@
 | printer | *ContainerPrinterColumns |  |
 | timestamps | map[string]metav1.Time |  |
 | notToleratedOnReschedule | bool |  |
+| podOutdated | bool | True while the pod does not match the current pod-affecting spec values, or its replacement is not ready yet. |
 
 ---
 

@@ -2,9 +2,7 @@ package wekacontainer
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -17,7 +15,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -98,64 +95,14 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 	}
 
-	// refresh container join ips (if there are any)
-	if len(container.Spec.JoinIps) > 0 {
-		ownerRef := container.GetOwnerReferences()
-		if len(ownerRef) == 0 {
-			return errors.New("no owner reference found")
-		}
-		owner := ownerRef[0]
-
-		joinIps, _ := services.ClustersCachedInfo.GetJoinIps(ctx, string(owner.UID), owner.Name, container.Namespace) //nolint:errcheck // error return value intentionally not checked
-		if len(joinIps) > 0 {
-			container.Spec.JoinIps = joinIps
-		}
-	}
-
-	// For drivers-builder containers, resolve the builder image and set instructions
-	// before creating the pod so setDriverDependencies handles init containers uniformly
-	if container.IsDriversBuilder() {
-		if override := container.Annotations[operations.ImageOverrideAnnotation]; override != "" {
-			image = override
-		} else {
-			node := &v1.Node{}
-			if getErr := r.Get(ctx, client.ObjectKey{Name: string(nodeAffinity)}, node); getErr != nil {
-				return errors.Wrap(getErr, "failed to get target node for drivers-builder")
-			}
-			image, err = drivers.GetBuilderImageForNode(node)
-			if err != nil {
-				return errors.Wrap(err, "failed to pick drivers-builder image")
-			}
-		}
-
-		forceBuilderCli := services.GetSettings(ctx).Drivers.ForceBuilderCli
-
-		builderFlags, ffErr := r.GetFeatureFlags(ctx)
-		if ffErr != nil {
-			return errors.Wrap(ffErr, "failed to get feature flags for drivers-builder")
-		}
-
-		payloadBytes, _ := json.Marshal(map[string]string{ //nolint:errcheck // error return value intentionally not checked
-			"targetImage": container.Spec.Image,
-			"cliImage":    drivers.GetBuilderCliImage(builderFlags, container.Spec.Image, image, forceBuilderCli),
-		})
-		container.Spec.Instructions = &weka.Instructions{
-			Type:    weka.InstructionCopyWekaFilesToDriverLoader,
-			Payload: string(payloadBytes),
-		}
-	}
-
-	var ff *domain.FeatureFlags
-	if container.Spec.Mode == weka.WekaContainerModeSSDProxy {
-		ff, err = r.GetFeatureFlags(ctx)
-		if err != nil {
-			return errors.Wrap(err, "failed to get feature flags")
-		}
-	}
-
-	desiredPod, err := resources.NewPodFactory(container, nodeInfo, ff, r.scheduling).Create(ctx, &image)
+	image, err = r.prepareContainerForPod(ctx, container, nodeAffinity, image)
 	if err != nil {
-		return errors.Wrap(err, "Failed to create pod spec")
+		return err
+	}
+
+	desiredPod, err := r.buildPod(ctx, container, nodeInfo, image)
+	if err != nil {
+		return err
 	}
 
 	// Annotate with discovery snapshot so we can detect node-info mismatch on reconcile.
@@ -169,14 +116,6 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 			}
 			desiredPod.Annotations[discovery.PodDiscoverySnapshotAnnotation] = string(snapshotJSON)
 		}
-	}
-
-	// Annotate pod with pod config version for crash-safe drift detection.
-	if podConfigVer := targetPodConfigHash(container); podConfigVer != "" {
-		if desiredPod.Annotations == nil {
-			desiredPod.Annotations = make(map[string]string)
-		}
-		desiredPod.Annotations[consts.PodConfigVersionAnnotation] = podConfigVer
 	}
 
 	if refErr := ctrl.SetControllerReference(container, desiredPod, r.Scheme); refErr != nil {
@@ -202,6 +141,76 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (r *containerReconcilerLoop) buildPod(ctx context.Context, container *weka.WekaContainer, nodeInfo *discovery.DiscoveryNodeInfo, image string) (*v1.Pod, error) {
+	var ff *domain.FeatureFlags
+	if container.Spec.Mode == weka.WekaContainerModeSSDProxy {
+		var err error
+		if ff, err = r.GetFeatureFlags(ctx); err != nil {
+			return nil, errors.Wrap(err, "failed to get feature flags")
+		}
+	}
+
+	pod, err := resources.NewPodFactory(container, nodeInfo, ff, r.scheduling).Create(ctx, &image)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to create pod spec")
+	}
+	setPodConfigHash(pod)
+	return pod, nil
+}
+
+// prepareContainerForPod mutates container in place (join IPs, drivers-builder instructions) and returns the image to build the pod with.
+func (r *containerReconcilerLoop) prepareContainerForPod(ctx context.Context, container *weka.WekaContainer, nodeAffinity weka.NodeName, image string) (string, error) {
+	// refresh container join ips (if there are any)
+	if len(container.Spec.JoinIps) > 0 {
+		ownerRef := container.GetOwnerReferences()
+		if len(ownerRef) == 0 {
+			return "", errors.New("no owner reference found")
+		}
+		owner := ownerRef[0]
+
+		joinIps, _ := services.ClustersCachedInfo.GetJoinIps(ctx, string(owner.UID), owner.Name, container.Namespace) //nolint:errcheck // error return value intentionally not checked
+		if len(joinIps) > 0 {
+			container.Spec.JoinIps = joinIps
+		}
+	}
+
+	// For drivers-builder containers, resolve the builder image and set instructions
+	// before creating the pod so setDriverDependencies handles init containers uniformly
+	if container.IsDriversBuilder() {
+		if override := container.Annotations[operations.ImageOverrideAnnotation]; override != "" {
+			image = override
+		} else {
+			node := &v1.Node{}
+			if getErr := r.Get(ctx, client.ObjectKey{Name: string(nodeAffinity)}, node); getErr != nil {
+				return "", errors.Wrap(getErr, "failed to get target node for drivers-builder")
+			}
+			var err error
+			image, err = drivers.GetBuilderImageForNode(node)
+			if err != nil {
+				return "", errors.Wrap(err, "failed to pick drivers-builder image")
+			}
+		}
+
+		forceBuilderCli := services.GetSettings(ctx).Drivers.ForceBuilderCli
+
+		builderFlags, ffErr := r.GetFeatureFlags(ctx)
+		if ffErr != nil {
+			return "", errors.Wrap(ffErr, "failed to get feature flags for drivers-builder")
+		}
+
+		payloadBytes, _ := json.Marshal(map[string]string{ //nolint:errcheck // error return value intentionally not checked
+			"targetImage": container.Spec.Image,
+			"cliImage":    drivers.GetBuilderCliImage(builderFlags, container.Spec.Image, image, forceBuilderCli),
+		})
+		container.Spec.Instructions = &weka.Instructions{
+			Type:    weka.InstructionCopyWekaFilesToDriverLoader,
+			Payload: string(payloadBytes),
+		}
+	}
+
+	return image, nil
 }
 
 func (r *containerReconcilerLoop) deletePodIfNodeInfoMismatch(ctx context.Context) error {
@@ -248,75 +257,9 @@ func (r *containerReconcilerLoop) deletePodIfNodeInfoMismatch(ctx context.Contex
 	return lifecycle.NewWaitError(errors.New("pod deleted due to node-info mismatch, waiting for recreation"))
 }
 
-// selfCalcSpecVersion returns the spec version computed from the image, pod config version, and optionally the code constant.
-func selfCalcSpecVersion(image string) string {
-	raw := image + "|" + config.Config.PodConfigVersion
-	if config.Config.EnablePodConfigCodeVersionRotation {
-		raw += "|" + consts.PodConfigCodeVersion
-	}
-	hash := sha256.Sum256([]byte(raw))
-	return fmt.Sprintf("%x", hash)[:12]
-}
-
-// targetPodConfigHash returns the spec version that should be applied to the pod.
-// If container.Spec.PodConfigHash is non-empty it is used directly (allows explicit per-container control).
-// For ownerless containers with no explicit SpecVersion, the version is self-calculated from the image,
-// the global helm podConfigVersion and the in-code WekaRuntimeVersion.
-// For containers with owners and no explicit SpecVersion, an empty string is returned (no spec-version tracking).
-func targetPodConfigHash(container *weka.WekaContainer) string {
-	if container.Spec.PodConfigHash != "" {
-		return container.Spec.PodConfigHash
-	}
-	if len(container.GetOwnerReferences()) == 0 {
-		return selfCalcSpecVersion(container.Spec.Image)
-	}
-	return ""
-}
-
-// handleSpecVersionMismatch combines image-upgrade handling with pod config version drift detection.
-// It runs image upgrade operations first (when the image is mismatched), then checks whether the
-// container's LastAppliedPodConfigHash matches the target. If mismatched, the pod is deleted for recreation.
-func (r *containerReconcilerLoop) handleSpecVersionMismatch(ctx context.Context) error {
-	logger := instrumentation.CurrentSpanLogger(ctx)
-
-	// Run image-upgrade operations first when the image is mismatched.
+func (r *containerReconcilerLoop) handleImageMismatch(ctx context.Context) error {
 	if r.container.Status.LastAppliedImage != "" && r.IsNotAlignedImage() {
-		if err := r.handleImageUpdate(ctx); err != nil {
-			return err
-		}
+		return r.handleImageUpdate(ctx)
 	}
-
-	target := targetPodConfigHash(r.container)
-	if target == "" {
-		return nil
-	}
-
-	// Check pod annotation first (crash-safe source of truth set at pod creation).
-	podAnnotation := r.pod.Annotations[consts.PodConfigVersionAnnotation]
-	if podAnnotation == target {
-		// Pod matches — sync status if needed.
-		if r.container.Status.LastAppliedPodConfigHash != target {
-			r.container.Status.LastAppliedPodConfigHash = target
-			return r.Status().Update(ctx, r.container)
-		}
-		return nil
-	}
-
-	// Also accept status match (annotation may be missing on pre-existing pods).
-	if r.container.Status.LastAppliedPodConfigHash == target {
-		return nil
-	}
-
-	// If both annotation and status are empty (pre-existing container), respect the allowRotateEmptyPodConfigHash flag.
-	if podAnnotation == "" && r.container.Status.LastAppliedPodConfigHash == "" && !config.Config.AllowRotateNonAnnotatedPodConfigHash {
-		return nil
-	}
-
-	logger.Info("Pod config version mismatch, deleting for recreation",
-		"podAnnotation", podAnnotation, "lastApplied", r.container.Status.LastAppliedPodConfigHash, "target", target)
-
-	if err := r.deletePod(ctx, r.pod); err != nil {
-		return err
-	}
-	return lifecycle.NewWaitError(errors.New("pod deleted due to pod-config-version mismatch, waiting for recreation"))
+	return nil
 }

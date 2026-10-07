@@ -558,15 +558,8 @@ func TestApplyPlannerComputeGrowth_AppliesHugepagesOnlyChanges(t *testing.T) {
 	for e := range recorder.Events {
 		events = append(events, e)
 	}
-	if len(events) != 1 {
-		t.Fatalf("events = %v, want exactly 1 (hp-down and hp-same are both no-ops)", events)
-	}
-	if !strings.Contains(events[0], "Warning CapacityGrowthApplied") {
-		t.Errorf("event %q, want the Warning CapacityGrowthApplied for hp-up", events[0])
-	}
-	if strings.Contains(events[0], "CapacityReservationReduced") {
-		t.Errorf("event %q must not be a CapacityReservationReduced — that reason is retired, a fall is "+
-			"never applied", events[0])
+	if len(events) != 0 {
+		t.Fatalf("events = %v, want none (no CapacityGrowthApplied; hp-down and hp-same are no-ops)", events)
 	}
 }
 
@@ -623,8 +616,8 @@ func TestApplyPlannerComputeGrowth_RatchetsCoresAndHugepagesIndependently(t *tes
 	for e := range recorder.Events {
 		events = append(events, e)
 	}
-	if len(events) != 1 || !strings.Contains(events[0], "Warning CapacityGrowthApplied") {
-		t.Fatalf("events = %v, want exactly 1 Warning CapacityGrowthApplied (the cores rise)", events)
+	if len(events) != 0 {
+		t.Fatalf("events = %v, want none (no CapacityGrowthApplied on the cores rise)", events)
 	}
 }
 
@@ -680,8 +673,6 @@ func TestApplyAutoFullDrivesComputeGrowth_GrowsToLayoutAndNeverShrinks(t *testin
 			"process", shrink.Spec.NumCores, shrink.Spec.Hugepages)
 	}
 
-	// Exactly one CapacityGrowthApplied Warning, naming the recreate requirement, for the one container
-	// that actually changed.
 	recorder, ok := loop.Recorder.(*events.FakeRecorder)
 	if !ok {
 		t.Fatalf("Recorder is %T, want *events.FakeRecorder", loop.Recorder)
@@ -691,13 +682,8 @@ func TestApplyAutoFullDrivesComputeGrowth_GrowsToLayoutAndNeverShrinks(t *testin
 	for e := range recorder.Events {
 		events = append(events, e)
 	}
-	if len(events) != 1 {
-		t.Fatalf("events = %v, want exactly 1 (only grow-me changed)", events)
-	}
-	for _, want := range []string{"Warning", "CapacityGrowthApplied", "pod must be recreated"} {
-		if !strings.Contains(events[0], want) {
-			t.Errorf("event %q does not contain %q", events[0], want)
-		}
+	if len(events) != 0 {
+		t.Fatalf("events = %v, want none (no CapacityGrowthApplied)", events)
 	}
 }
 
@@ -735,8 +721,8 @@ func growableAutoFullDrivesDriveContainer(name, node string, numDrives, cores in
 }
 
 // newAutoFullDrivesGrowthLoop is newUpgradeLoop plus what the growth apply+announce path needs: a non-nil Throttler
-// (RecordEventThrottled would nil-panic) and a recorder deep enough for the per-container
-// CapacityGrowthApplied events plus the cluster-level one — FakeRecorder drops silently once full.
+// (RecordEventThrottled would nil-panic) and a recorder deep enough for the cluster-level
+// events — FakeRecorder drops silently once full.
 func newAutoFullDrivesGrowthLoop(t *testing.T, containers []*weka.WekaContainer) *wekaClusterReconcilerLoop {
 	t.Helper()
 	loop := newUpgradeLoop(t, autoFullDrivesComputeCluster(t), containers)

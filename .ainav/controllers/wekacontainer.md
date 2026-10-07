@@ -19,7 +19,10 @@ Container states and their flow files:
 
 | File | Purpose |
 |------|---------|
-| `funcs_pod_ensure.go` | Pod creation/updates |
+| `funcs_pod_ensure.go` | Pod creation/updates; `handleImageMismatch` |
+| `resources/pod_compare.go` | `DiffPods` (outdated-pod compare) |
+| `funcs_pod_outdated.go` | `checkPodOutdated`, `rotateOutdatedPod`, `clearPodOutdated`, `podOutdatedDiff` |
+| `funcs_pod_readiness.go` | `waitPodReady`: readiness gates (image apply, `clearPodOutdated`) |
 | `funcs_pod_termination.go` | Pod shutdown handling |
 | `funcs_drivers.go` | Driver loading state |
 | `funcs_drives.go` | Drive management |
@@ -40,7 +43,7 @@ Container states and their flow files:
 | `funcs_status_updates.go` | Status field updates |
 | `funcs_events.go` | K8s event emission, routes through `util.RecordEvent` |
 | `funcs_migrations.go` | Data migrations |
-| `funcs_oneoff.go` | One-off operations, stuck adhoc-op reaping |
+| `funcs_oneoff.go` | One-off ops, adhoc-op reaping |
 
 ## CSI Integration
 
@@ -60,4 +63,5 @@ Container states and their flow files:
 
 ## Focused routes
 
+- [Pod rotation](../../doc/operator/operations/pod-rotation.md): scope in `inRotationScope` (`funcs_pod_outdated.go`); compare guards `resources/pod_compare_test.go`.
 - [NUMA alignment](../../doc/operator/concepts/numa-alignment.md), [CPU policy](../../doc/operator/concepts/cpu-policy.md): `funcs_numa_dra.go` is the DRA method only; the device-plugin method lives in `node_agent/deviceplugin/`.

@@ -7,16 +7,13 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
-	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/utils"
-	"github.com/weka/weka-operator/pkg/util"
 )
 
 // steps_planner_apply.go builds clusterCapacity containers from plan.Create and applies in-place growth; the
@@ -46,11 +43,6 @@ func (r *wekaClusterReconcilerLoop) updateContainerWithRetry(
 		return nil
 	})
 	return skipped, err
-}
-
-func computeGrowthMessage(c *weka.WekaContainer) string {
-	return fmt.Sprintf("applied compute growth to container (cores %d, hugepages %d MiB); the compute spec changed — the pod must be recreated to apply the new cores/hugepages",
-		c.Spec.NumCores, c.Spec.Hugepages)
 }
 
 // buildPlannerDriveContainers runs the clusterCapacity planner once and turns the result into work: existing
@@ -178,12 +170,6 @@ func (r *wekaClusterReconcilerLoop) applyPlannerDriveGrowth(ctx context.Context,
 			logger.Debug("skipping growth: container was already grown to the target concurrently", "name", c.Name)
 			continue
 		}
-
-		message := fmt.Sprintf("applied clusterCapacity growth to drive container live (capacity %d GiB); no restart required", newCap)
-		if coresChanged {
-			message = fmt.Sprintf("applied clusterCapacity growth to drive container (capacity %d GiB, cores %d); the drive spec changed — the pod must be recreated to apply the new cores/hugepages", newCap, c.Spec.NumCores)
-		}
-		util.RecordEvent(r.Recorder, c, v1.EventTypeWarning, reasonCapacityGrowthApplied, consts.ActionApplyCapacityGrowth, message)
 	}
 	return stderrors.Join(growErrs...)
 }
@@ -256,7 +242,6 @@ func (r *wekaClusterReconcilerLoop) applyPlannerComputeGrowth(ctx context.Contex
 			logger.Debug("skipping growth: container was already grown to the target concurrently", "name", c.Name)
 			continue
 		}
-		util.RecordEvent(r.Recorder, c, v1.EventTypeWarning, reasonCapacityGrowthApplied, consts.ActionApplyCapacityGrowth, computeGrowthMessage(c))
 	}
 	return stderrors.Join(errs...)
 }

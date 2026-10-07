@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -42,7 +43,7 @@ var _ = Describe("resolveClusterExecContainer", func() {
 					Kind:       "WekaClient",
 					Name:       wekaClient.Name,
 					UID:        wekaClient.UID,
-					Controller: ptr(true),
+					Controller: ptr.To(true),
 				}},
 			},
 			Spec: weka.WekaContainerSpec{Mode: weka.WekaContainerModeClient},
@@ -185,7 +186,7 @@ func operationalBackend(name, namespace string, cluster *weka.WekaCluster) *weka
 				Kind:       "WekaCluster",
 				Name:       cluster.Name,
 				UID:        cluster.UID,
-				Controller: ptr(true),
+				Controller: ptr.To(true),
 			}},
 		},
 		Spec: weka.WekaContainerSpec{Mode: weka.WekaContainerModeDrive},
@@ -198,5 +199,3 @@ func operationalBackend(name, namespace string, cluster *weka.WekaCluster) *weka
 		},
 	}
 }
-
-func ptr[T any](v T) *T { return &v }

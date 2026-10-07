@@ -34,6 +34,12 @@ type DriversSettings struct {
 	ForceBuilderCli bool
 }
 
+// PodRotationSettings holds the operator-wide settings for pod rotation.
+type PodRotationSettings struct {
+	// Enabled turns on pod rotation when pod-affecting config changes.
+	Enabled bool
+}
+
 // CsiSettings holds the operator-wide settings for the embedded CSI deployment.
 //
 // Garbage collection is deliberately absent: it is already configurable per client through
@@ -62,9 +68,10 @@ type SchedulingSettings struct {
 // configuration WekaPolicy applied over them. Every field is a resolved value, never a pointer, so
 // callers never repeat the nil-means-default decision.
 type ConfigurationSettings struct {
-	Drivers    DriversSettings
-	Csi        CsiSettings
-	Scheduling SchedulingSettings
+	Drivers     DriversSettings
+	Csi         CsiSettings
+	Scheduling  SchedulingSettings
+	PodRotation PodRotationSettings
 }
 
 // DefaultConfigurationSettings returns the built-in defaults, which apply when no configuration
@@ -81,6 +88,9 @@ func DefaultConfigurationSettings() ConfigurationSettings {
 		},
 		Scheduling: SchedulingSettings{
 			TolerateCordon: false,
+		},
+		PodRotation: PodRotationSettings{
+			Enabled: false,
 		},
 	}
 }
@@ -114,6 +124,10 @@ func SettingsFromPayload(payload *weka.ConfigurationPayload) ConfigurationSettin
 		resolved.Scheduling.TolerateCordon = *payload.Scheduling.TolerateCordon
 	}
 
+	if payload.PodRotation != nil && payload.PodRotation.Enabled != nil {
+		resolved.PodRotation.Enabled = *payload.PodRotation.Enabled
+	}
+
 	return resolved
 }
 
@@ -127,6 +141,12 @@ func SettingsFromPayload(payload *weka.ConfigurationPayload) ConfigurationSettin
 // into an error and a requeue.
 func GetSettings(ctx context.Context) ConfigurationSettings {
 	return settings.get(ctx)
+}
+
+// TryGetSettings returns the configuration without waiting or panicking: ok is false while it is unresolved,
+// and err says why once a resolution has failed. Only for callers whose built-in default is a safe no-op.
+func TryGetSettings() (resolved ConfigurationSettings, ok bool, err error) {
+	return settings.snapshot()
 }
 
 // RefreshSettings re-resolves the configuration immediately and reports whether the result is

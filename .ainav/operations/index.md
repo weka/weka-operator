@@ -27,7 +27,7 @@ Manual operations, policies, CSI, and driver management.
 | `stale_virtual_drives.go` | Stale virtual drive detection + gated cleanup |
 | `rotate_ssdproxy.go` | Rolling ssdproxy image rotation, node by node |
 | `kernelize.go` | Ad-hoc hostPID kernelize container before proxy pod (re)creation. See [doc](../../doc/operator/operations/drive-sharing.md) |
-| `proxy_disruption_gate.go` | Health gate before disrupting a shared proxy node |
+| `proxy_disruption_gate.go` | Proxy-node disruption gate; exports `EvaluateClusterHealth` |
 | `migrate_drive_sharing.go` | `migrate-to-drive-sharing`: per-cluster full-drives → drive-sharing campaign, one drive container at a time. See [doc](../../doc/operator/operations/migrate-to-drive-sharing.md) |
 | `migrate_drive_sharing_types.go` | `migrate-to-drive-sharing` campaign state (phases, sub-phases, `status.result` shape) |
 | `full_drives.go` | `RemoveFullDrivesFromNode`: drops serials from `weka.io/weka-full-drives` on a node |
@@ -48,8 +48,8 @@ See [driver-distribution.md](../../doc/operator/deployment/driver-distribution.m
 | `discover_node.go` | Node discovery; recreates discovery container on owner-spec drift (image/tolerations/pullSecret/serviceAccount) |
 | `ensure_nics.go` | NIC configuration |
 | `trace_session.go` | Remote trace collection |
-| `cleanup_persistent_dir.go` | Cleanup operations |
-| `deploy_csi.go` | CSI deployment coordination |
+| `cleanup_persistent_dir.go` | Cleanup |
+| `deploy_csi.go` | CSI deployment |
 | `operations.go` | Shared operation types |
 
 ## Container Sizing

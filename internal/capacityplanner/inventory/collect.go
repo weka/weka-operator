@@ -11,6 +11,7 @@ import (
 
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -749,7 +750,7 @@ func nodeCPUTopology(node *corev1.Node) capacityplanner.NodeCPUTopology {
 	if ann, present := node.Annotations[discovery.DiscoveryAnnotation]; present {
 		if info, ok := discovery.ParseNodeInfo(ann); ok {
 			topo.IsHt = info.IsHt
-			topo.FullPcpusOnly = info.NodeFullPcpusOnly
+			topo.FullPcpusOnly = ptr.Deref(info.NodeFullPcpusOnly, false)
 		} else {
 			log.Log.Info("capacityplanner/inventory: unparsable discovery.json; treating node as non-HT for CPU accounting", "node", node.Name)
 		}

@@ -7,14 +7,13 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 )
 
 func TestSecurityContext(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "SecurityContext Suite")
 }
-
-func ptr[T any](v T) *T { return &v }
 
 var (
 	appArmorUnconfined     = &corev1.AppArmorProfile{Type: corev1.AppArmorProfileTypeUnconfined}
@@ -41,16 +40,16 @@ var _ = DescribeTable("GetSecurityProfile",
 	Entry("non-appArmor fields pass through",
 		`{"runAsUser":1000,"fsGroup":2000,"seccompProfile":{"type":"RuntimeDefault"}}`,
 		&corev1.PodSecurityContext{
-			RunAsUser:      ptr(int64(1000)),
-			FSGroup:        ptr(int64(2000)),
+			RunAsUser:      ptr.To(int64(1000)),
+			FSGroup:        ptr.To(int64(2000)),
 			SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 		}),
 	Entry("appArmor combined with other fields passes through",
 		`{"appArmorProfile":{"type":"Unconfined"},"runAsUser":1000,"fsGroup":2000}`,
 		&corev1.PodSecurityContext{
 			AppArmorProfile: appArmorUnconfined,
-			RunAsUser:       ptr(int64(1000)),
-			FSGroup:         ptr(int64(2000)),
+			RunAsUser:       ptr.To(int64(1000)),
+			FSGroup:         ptr.To(int64(2000)),
 		}),
 )
 

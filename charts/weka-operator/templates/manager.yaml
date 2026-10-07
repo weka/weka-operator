@@ -312,8 +312,6 @@ spec:
               value: "{{ .Values.podConfigVersion }}"
             - name: ENABLE_POD_CONFIG_CODE_VERSION_ROTATION
               value: "{{ .Values.enablePodConfigCodeVersionRotation }}"
-            - name: ALLOW_ROTATE_NON_ANNOTATED_POD_CONFIG_HASH
-              value: "{{ .Values.allowRotateNonAnnotatedPodConfigHash }}"
             - name: MANAGEMENT_PROXY_HOST_NETWORK
               value: "{{ .Values.managementProxy.hostNetwork }}"
             {{- /* Omitted when unset so internal/config/env.go stays the only place a default is

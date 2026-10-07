@@ -18,8 +18,7 @@ const (
 
 // Event actions shared across wekacluster and wekacontainer capacity planning.
 const (
-	ActionApplyCapacityGrowth = "ApplyCapacityGrowth"
-	ActionPlanCapacity        = "PlanCapacity"
+	ActionPlanCapacity = "PlanCapacity"
 )
 
 // Event actions for wekacluster reconciliation steps.

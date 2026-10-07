@@ -19,7 +19,6 @@ import (
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/capacityplanner/inventory"
-	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -580,7 +579,7 @@ func (r *wekaClusterReconcilerLoop) buildDaemonsetContainers(ctx context.Context
 	}
 	if len(grown) > 0 {
 		r.emitPlannerEvent(reasonAutoFullDrivesResized,
-			fmt.Sprintf("auto full drives resized %d container(s): %s; the affected pod(s) must be recreated before the new sizing takes effect (see the per-container AutoFullDrivesResized events)", len(grown), strings.Join(grown, "; ")))
+			fmt.Sprintf("auto full drives resized %d container(s): %s; the affected containers are flagged podOutdated (the pod is recreated by pod rotation when enabled) before the new sizing takes effect", len(grown), strings.Join(grown, "; ")))
 	}
 	want := r.desiredRoleCounts(targets)
 	room := map[string]int{}
@@ -680,7 +679,6 @@ func (r *wekaClusterReconcilerLoop) raiseDaemonsetContainer(ctx context.Context,
 	cluster := r.cluster
 	drive := t.mode == weka.WekaContainerModeDrive
 	old := c.Spec
-	drivesLowered := t.drivesFollowFree && t.numDrives < c.Spec.NumDrives
 	mutate := func(latest *weka.WekaContainer) bool {
 		cores := max(latest.Spec.NumCores, t.cores)
 		drives := max(latest.Spec.NumDrives, t.numDrives)
@@ -740,14 +738,6 @@ func (r *wekaClusterReconcilerLoop) raiseDaemonsetContainer(ctx context.Context,
 		}
 	}
 	diff := strings.Join(changes, ", ")
-	msg := fmt.Sprintf("resized %s container: %s; the pod must be recreated to apply it", t.mode, diff)
-	switch {
-	case drivesLowered:
-		msg += fmt.Sprintf(" (the node can give this container only %d drive(s))", c.Spec.NumDrives)
-	case c.Spec.NumDrives > old.NumDrives:
-		msg += " (the new drives are reserved now but added to weka only after the pod is recreated)"
-	}
-	util.RecordEvent(r.Recorder, c, v1.EventTypeWarning, reasonAutoFullDrivesResized, consts.ActionApplyCapacityGrowth, msg)
 	return fmt.Sprintf("%s on %s (%s)", c.Name, t.node, diff), below, nil
 }
 

@@ -26,6 +26,7 @@
 - [CsiSpec](#csispec)
 - [DriversSpec](#driversspec)
 - [SchedulingSpec](#schedulingspec)
+- [PodRotationSpec](#podrotationspec)
 - [DriveTypeOverrideRule](#drivetypeoverriderule)
 - [DriveExclusionRule](#driveexclusionrule)
 - [PodResources](#podresources)
@@ -185,6 +186,7 @@
 | csi | *CsiSpec | Csi configures the embedded CSI deployment. |
 | drivers | *DriversSpec | Drivers configures the drivers build and distribution. |
 | scheduling | *SchedulingSpec | Scheduling configures scheduling behavior of operator-managed pods. |
+| podRotation | *PodRotationSpec | PodRotation sets the operator-wide default for replacing pods whose pod-affecting spec changed. |
 
 ---
 
@@ -273,6 +275,14 @@
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | tolerateCordon | *bool | TolerateCordon makes client containers and the node-local pods they depend on (drivers-loader,<br>drivers-dist, discovery, adhoc-op) tolerate the node.kubernetes.io/unschedulable:NoSchedule<br>taint, so they keep running and keep being created on a cordoned node. Backends never tolerate<br>it. False by default. |
+
+---
+
+## PodRotationSpec
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| enabled | *bool | Enabled makes WekaClusters without spec.overrides.podRotation replace outdated pods one at a time. False by default. |
 
 ---
 
