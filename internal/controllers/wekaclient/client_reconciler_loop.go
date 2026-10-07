@@ -170,9 +170,20 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				Run: loop.ValidateClientVersionCompatibility,
 				Predicates: lifecycle.Predicates{
 					func() bool { return loop.targetCluster != nil },
+					// Nothing runs the weka image when useNfs is set, so its version cannot be
+					// incompatible with anything.
+					func() bool { return !wekaClient.Spec.UseNfs },
 				},
 			},
-			&lifecycle.SimpleStep{Run: loop.EnsureClientsWekaContainers},
+			&lifecycle.SimpleStep{
+				Name: "EnsureClientsWekaContainers",
+				Run:  loop.EnsureClientsWekaContainers,
+				Predicates: lifecycle.Predicates{
+					// useNfs deploys CSI and nothing else; the CSI steps below do not depend on a
+					// container existing.
+					func() bool { return !wekaClient.Spec.UseNfs },
+				},
+			},
 			// Deliberately not gated on Csi.Enabled: the claims may have been made while CSI was
 			// enabled and CSI disabled afterwards, and the per-container release in finalizeContainer
 			// is gated the same way -- so gating here too would leak them permanently.
@@ -1116,8 +1127,13 @@ func (c *clientReconcilerLoop) updateMetrics(ctx context.Context) error {
 	changed := false
 
 	stats := c.wekaClient.Status.Stats
-	if int64(stats.Containers.Desired) != int64(len(c.toleratedNodes)) {
-		stats.Containers.Desired = weka.IntMetric(len(c.toleratedNodes))
+	desired := len(c.toleratedNodes)
+	if c.wekaClient.Spec.UseNfs {
+		// No containers are ever created for an NFS client.
+		desired = 0
+	}
+	if int64(stats.Containers.Desired) != int64(desired) {
+		stats.Containers.Desired = weka.IntMetric(desired)
 		changed = true
 	}
 

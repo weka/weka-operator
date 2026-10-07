@@ -125,7 +125,7 @@ helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
 | csi.attacherImage | string | `"registry.k8s.io/sig-storage/csi-attacher:v4.9.0"` | csi-attacher sidecar image. |
 | csi.controller | object | `{"resources":{"csiAttacher":{"limits":{"cpu":1,"memory":"1Gi"},"requests":{"cpu":"4m","memory":"48Mi"}},"csiProvisioner":{"limits":{"cpu":1,"memory":"3Gi"},"requests":{"cpu":"128m","memory":"128Mi"}},"csiResizer":{"limits":{"cpu":1,"memory":"2Gi"},"requests":{"cpu":"4m","memory":"48Mi"}},"csiSnapshotter":{"limits":{"cpu":1,"memory":"1Gi"},"requests":{"cpu":"4m","memory":"48Mi"}},"livenessProbe":{"limits":{"cpu":1,"memory":"1Gi"},"requests":{"cpu":"12m","memory":"48Mi"}},"wekafs":{"limits":{"cpu":1,"memory":"3Gi"},"requests":{"cpu":"128m","memory":"128Mi"}}}}` | CSI controller container resources, per container (wekafs, csiAttacher, csiProvisioner, csiResizer, csiSnapshotter, livenessProbe), each with `limits` and `requests`. |
 | csi.hostNetwork | bool | `false` | Run the CSI pods with hostNetwork. |
-| csi.image | string | `"quay.io/weka.io/csi-wekafs:v2.9.4"` | CSI driver (csi-wekafs) image. |
+| csi.image | string | `"quay.io/weka.io/csi-wekafs:v2.9.6"` | CSI driver (csi-wekafs) image. |
 | csi.installationEnabled | bool | `false` | Install the embedded CSI driver. |
 | csi.kubeletPath | string | `"/var/lib/kubelet"` | Kubelet path, in cases Kubernetes is installed not in the default folder. |
 | csi.livenessProbeImage | string | `"registry.k8s.io/sig-storage/livenessprobe:v2.16.0"` | livenessprobe sidecar image. |
