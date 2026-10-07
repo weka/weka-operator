@@ -218,10 +218,6 @@ type WekaClientStatus struct {
 	Status         WekaClientStatusEnum `json:"status,omitempty"`
 	Stats          *ClientMetrics       `json:"stats,omitempty"`
 	PrinterColumns ClientPrinterColumns `json:"printer,omitempty"`
-	// Pod config version this client has adopted. Mirrors the WekaCluster field: it gates
-	// the first-deploy adoption that lets tracking start on pods predating the annotation
-	// without rolling them.
-	LastAppliedPodConfigHash string `json:"lastAppliedPodConfigHash,omitempty"`
 }
 
 type ClientPrinterColumns struct {

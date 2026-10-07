@@ -16,40 +16,25 @@ import (
 )
 
 type UpgradeController struct {
-	Containers          []*v1alpha1.WekaContainer
-	TargetImage         string // non-empty only when the image itself changed
-	TargetPodConfigHash string
-	Client              client.Client
+	Containers  []*v1alpha1.WekaContainer
+	TargetImage string
+	Client      client.Client
 }
 
-func NewUpgradeController(k8sClient client.Client, containers []*v1alpha1.WekaContainer, targetImage, targetPodConfigHash string) *UpgradeController {
+func NewUpgradeController(k8sClient client.Client, containers []*v1alpha1.WekaContainer, targetImage string) *UpgradeController {
 	return &UpgradeController{
-		Containers:          containers,
-		TargetImage:         targetImage,
-		TargetPodConfigHash: targetPodConfigHash,
-		Client:              k8sClient,
+		Containers:  containers,
+		TargetImage: targetImage,
+		Client:      k8sClient,
 	}
 }
 
-// isContainerAligned returns true if the container already has the target spec applied.
 func (u *UpgradeController) isContainerAligned(container *v1alpha1.WekaContainer) bool {
-	if u.TargetPodConfigHash != "" {
-		return container.Spec.PodConfigHash == u.TargetPodConfigHash
-	}
 	return container.Spec.Image == u.TargetImage
 }
 
-// isContainerApplied returns true if the container's pod has successfully applied the target spec.
 func (u *UpgradeController) isContainerApplied(container *v1alpha1.WekaContainer) bool {
-	// During an image upgrade, LastAppliedPodConfigHash alone is not sufficient: it can be set
-	// by handleSpecVersionMismatch before the container is confirmed running with the new image.
-	if u.TargetImage != "" && container.Status.LastAppliedImage != u.TargetImage {
-		return false
-	}
-	if u.TargetPodConfigHash != "" {
-		return container.Status.LastAppliedPodConfigHash == u.TargetPodConfigHash
-	}
-	return true
+	return container.Status.LastAppliedImage == u.TargetImage
 }
 
 func (u *UpgradeController) UpdateContainer(ctx context.Context, container *v1alpha1.WekaContainer) error {
@@ -57,16 +42,7 @@ func (u *UpgradeController) UpdateContainer(ctx context.Context, container *v1al
 		return nil // already patched
 	}
 
-	specPatch := map[string]interface{}{}
-	if u.TargetPodConfigHash != "" {
-		specPatch["podConfigHash"] = u.TargetPodConfigHash
-	}
-	if u.TargetImage != "" && container.Spec.Image != u.TargetImage {
-		specPatch["image"] = u.TargetImage
-	}
-	if len(specPatch) == 0 {
-		return nil
-	}
+	specPatch := map[string]interface{}{"image": u.TargetImage}
 	patch := map[string]interface{}{
 		"spec": specPatch,
 	}

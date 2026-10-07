@@ -401,9 +401,8 @@ var Config struct {
 	HugepagesUpdate        HugepagesUpdateConfig
 	ComputeMaxHugepagesMiB int
 
-	PodConfigVersion                     string
-	EnablePodConfigCodeVersionRotation   bool
-	AllowRotateNonAnnotatedPodConfigHash bool
+	PodConfigVersion                   string
+	EnablePodConfigCodeVersionRotation bool
 
 	Webhook           WebhookConfig
 	AdmissionControl  AdmissionControlConfig
@@ -672,7 +671,6 @@ func ConfigureEnv(ctx context.Context) {
 	Config.AllowMultipleProtocolsPerNode = getBoolEnvOrDefault("ALLOW_MULTIPLE_PROTOCOLS_PER_NODE", false)
 	Config.PodConfigVersion = env.GetString("POD_CONFIG_VERSION", "1")
 	Config.EnablePodConfigCodeVersionRotation = getBoolEnvOrDefault("ENABLE_POD_CONFIG_CODE_VERSION_ROTATION", false)
-	Config.AllowRotateNonAnnotatedPodConfigHash = getBoolEnvOrDefault("ALLOW_ROTATE_NON_ANNOTATED_POD_CONFIG_HASH", false)
 	Config.ManagementProxyHostNetwork = getBoolEnvOrDefault("MANAGEMENT_PROXY_HOST_NETWORK", false)
 	Config.ManagementProxyIngressBaseDomain = env.GetString("MANAGEMENT_PROXY_INGRESS_BASE_DOMAIN", "")
 	Config.ManagementProxyIngressClass = env.GetString("MANAGEMENT_PROXY_INGRESS_CLASS", "")

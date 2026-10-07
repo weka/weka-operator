@@ -6,6 +6,14 @@ type ConfigurationPayload struct {
 	Csi *CsiSpec `json:"csi,omitempty"`
 	// Drivers configures the drivers build and distribution.
 	Drivers *DriversSpec `json:"drivers,omitempty"`
+	// PodRotation sets the operator-wide default for replacing pods whose pod-affecting spec changed.
+	PodRotation *PodRotationSpec `json:"podRotation,omitempty"`
+}
+
+// PodRotationSpec groups settings of config-change pod rotation
+type PodRotationSpec struct {
+	// Enabled makes WekaClusters without spec.overrides.podRotation replace outdated pods one at a time. False by default.
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // CsiSpec groups settings of the embedded CSI deployment

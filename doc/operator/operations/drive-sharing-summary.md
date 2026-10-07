@@ -113,6 +113,6 @@ flowchart TD
 ### Affected by `enableDynamicDriveScalingForSharedDrives` (default `false`)
 - Governs whether EXISTING containers may be extended in place when the spec changes
 - When `false`: existing containers are never extended; `clusterCapacity` grow is met by creating new
-  containers only (or reported infeasible if no free FDs/nodes) — no `CapacityGrowthApplied`, no manual
+  containers only (or reported infeasible if no free FDs/nodes) — no `PodOutdated`, no manual
   pod deletion
 - No effect on initial allocation

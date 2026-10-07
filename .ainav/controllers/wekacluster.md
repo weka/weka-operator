@@ -12,7 +12,8 @@ protocols and management access. Source: `internal/controllers/wekacluster/`.
 | `planner_events.go` | Event reasons, severity and throttling: `plannerEventSpecs`, `emitPlannerEvent` |
 | `funcs_clusterization.go` | Cluster formation |
 | `funcs_credentials.go`, `funcs_helpers.go` | Credentials and helpers |
-| `funcs_upgrade.go` | Upgrade orchestration and per-role spec propagation in `HandleSpecUpdates` |
+| `funcs_upgrade.go` | `handleUpgrade` dispatches to `handleImageUpgrade` (image roll) or `handlePodRotation`; per-role spec propagation in `HandleSpecUpdates` |
+| `funcs_pod_rotation.go` | `podRotationEnabled`, `handlePodRotation`, `clearFinishedRotations`, `rotationContainers`; health gate = `operations.EvaluateClusterHealth` |
 | `funcs_nfs.go`, `funcs_s3.go` | NFS interface groups and S3 configuration |
 | `steps_post_cluster.go` | Post-creation operations, including `configureWekaHome` |
 | `steps_metrics.go`, `steps_deletion.go` | Monitoring setup and deletion |
@@ -23,6 +24,8 @@ protocols and management access. Source: `internal/controllers/wekacluster/`.
 - [Capacity planning](wekacluster-drive-planning.md): shared apply path, inventory, pure planners and device allocation.
 - Sizing modes and constraints: [cluster capacity](../../doc/operator/deployment/cluster-capacity.md), [auto full drives](../../doc/operator/deployment/act-as-daemonset.md). `plannerSizingMode` detects the mode; [validation](../config/validation.md) owns admission rules.
 - [Management proxy](management-proxy.md): bootstrap versus endpoint updates, probes and host networking.
+
+- [Pod rotation](../../doc/operator/operations/pod-rotation.md): `spec.rotatePod` approvals; the container side is in [wekacontainer](wekacontainer.md).
 
 ## Weka Home CA cert
 

@@ -36,19 +36,6 @@ helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
 | nfs.notifyPort | int | `18002` | Port for the NFS notify service. |
 | smbw.shmSize | string | `"8Gi"` | Size of /dev/shm for SMB-W containers (for corosync shared memory). |
 
-### Advanced
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| allowRotateNonAnnotatedPodConfigHash | bool | `false` | If true, rotate pods for containers that have no pod-config-version annotation yet (pre-existing containers from before this feature). Default false to avoid mass restarts on upgrade. |
-| enableClusterApi | bool | `false` | Experimental: enables a custom HTTP API endpoint as an alternative to the K8s API. |
-| enablePodConfigCodeVersionRotation | bool | `false` | If true, include WekaRuntimeVersion in the pod config hash calculation. When enabled, bumping WekaRuntimeVersion triggers coordinated rolling pod rotation. Default false to avoid unexpected rotations on operator upgrade. |
-| localDataPvc | string | `""` | Name of a PVC used as the default local data PVC for containers that do not set one in their spec. |
-| podConfigVersion | string | `"1"` | Manual version bump to trigger pod rotation when pod config shape changes via helm. |
-| podSecurityContext | object | `{}` | Pod-level securityContext applied to every privileged / hostPath pod produced by the operator. Opt-in: leave empty for no override. Accepts any subset of the standard corev1.PodSecurityContext shape; every field you set flows through to the produced pods unchanged. Example to satisfy Kyverno's require-apparmor-on-privileged-or-hostpath (Unconfined is recommended for weka, as its containers rely on DPDK/RDMA/device access that RuntimeDefault may restrict): `{appArmorProfile: {type: Unconfined}}`. |
-| priorityClasses | object | `{"defaultValues":{"initial":900000000,"targeted":1000000000},"initial":"weka-initial-no-evict","targeted":"weka-targeted-no-evict"}` | Priority classes. `initial` and `targeted` are the priority class names for initial weka containers and for re-scheduled weka containers, node agents, CSI controller and CSI node server. The operator always creates the default priority classes weka-initial-no-evict and weka-targeted-no-evict; override the names to use your own existing priority classes instead. `defaultValues` holds the values of the default priority classes that are always created. |
-| syslogPackage | string | `"auto"` | Syslog package choice: "auto" (go-syslog if available, otherwise syslog-ng), "go-syslog" or "syslog-ng". |
-
 ### Drives & capacity
 
 | Key | Type | Default | Description |
@@ -195,6 +182,18 @@ helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
 | operatorMetricsBindAddress | string | `"127.0.0.1:8080"` | Bind address of the operator metrics endpoint. |
 | portAllocation.startingPort | int | `35000` | Starting port for Weka container port allocation: the base port from which the operator allocates port ranges for Weka clusters. |
 | proxy | string | `""` | Proxy configuration for the drivers loader pod and weka home. |
+
+### Advanced
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| enableClusterApi | bool | `false` | Experimental: enables a custom HTTP API endpoint as an alternative to the K8s API. |
+| enablePodConfigCodeVersionRotation | bool | `false` | If true, bumping the operator's PodConfigCodeVersion flags backend and ssdproxy pods outdated; pods are replaced only on clusters with pod rotation enabled. Default false to avoid unexpected rotations on operator upgrade. |
+| localDataPvc | string | `""` | Name of a PVC used as the default local data PVC for containers that do not set one in their spec. |
+| podConfigVersion | string | `"1"` | Bump to flag backend and ssdproxy pods outdated; pods are replaced only on clusters with pod rotation enabled. |
+| podSecurityContext | object | `{}` | Pod-level securityContext applied to every privileged / hostPath pod produced by the operator. Opt-in: leave empty for no override. Accepts any subset of the standard corev1.PodSecurityContext shape; every field you set flows through to the produced pods unchanged. Example to satisfy Kyverno's require-apparmor-on-privileged-or-hostpath (Unconfined is recommended for weka, as its containers rely on DPDK/RDMA/device access that RuntimeDefault may restrict): `{appArmorProfile: {type: Unconfined}}`. |
+| priorityClasses | object | `{"defaultValues":{"initial":900000000,"targeted":1000000000},"initial":"weka-initial-no-evict","targeted":"weka-targeted-no-evict"}` | Priority classes. `initial` and `targeted` are the priority class names for initial weka containers and for re-scheduled weka containers, node agents, CSI controller and CSI node server. The operator always creates the default priority classes weka-initial-no-evict and weka-targeted-no-evict; override the names to use your own existing priority classes instead. `defaultValues` holds the values of the default priority classes that are always created. |
+| syslogPackage | string | `"auto"` | Syslog package choice: "auto" (go-syslog if available, otherwise syslog-ng), "go-syslog" or "syslog-ng". |
 
 ### Platform compatibility
 

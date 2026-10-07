@@ -31,6 +31,10 @@ spec:
       jsonPath: .status.printer.nodeAffinity
       name: Node
       type: string
+    - description: Pod does not match the current spec
+      jsonPath: .status.podOutdated
+      name: Outdated
+      type: boolean
     - description: Number of processes per state
       jsonPath: .status.printer.processes
       name: Processes
@@ -1501,10 +1505,6 @@ spec:
                   upgradePreventEviction:
                     type: boolean
                 type: object
-              podConfigHash:
-                description: a hash that represents the config state of a WekaContainer,
-                  will recreate the pod if stale
-                type: string
               port:
                 type: integer
               portRange:
@@ -1587,6 +1587,10 @@ spec:
                         x-kubernetes-int-or-string: true
                     type: object
                 type: object
+              rotatePod:
+                description: 'Set and cleared by the owning WekaCluster: approval
+                  to replace the pod because status.podOutdated is true.'
+                type: boolean
               serviceAccountName:
                 type: string
               state:
@@ -2141,8 +2145,6 @@ spec:
                 type: string
               lastAppliedImage:
                 type: string
-              lastAppliedPodConfigHash:
-                type: string
               lastAppliedSpec:
                 type: string
               managementIP:
@@ -2175,6 +2177,10 @@ spec:
                   a custom DHCP domain it won't be."
                 type: string
               notToleratedOnReschedule:
+                type: boolean
+              podOutdated:
+                description: True while the pod does not match the current pod-affecting
+                  spec values, or its replacement is not ready yet.
                 type: boolean
               printer:
                 properties:

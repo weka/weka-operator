@@ -670,20 +670,14 @@ managementProxy:
 # @section -- Advanced
 syslogPackage: "auto"
 
-# -- Manual version bump to trigger pod rotation when pod config shape changes via helm.
+# -- Bump to flag backend and ssdproxy pods outdated; pods are replaced only on clusters with pod rotation enabled.
 # @section -- Advanced
 podConfigVersion: "1"
 
-# -- If true, include WekaRuntimeVersion in the pod config hash calculation.
-# When enabled, bumping WekaRuntimeVersion triggers coordinated rolling pod rotation.
-# Default false to avoid unexpected rotations on operator upgrade.
+# -- If true, bumping the operator's PodConfigCodeVersion flags backend and ssdproxy pods outdated; pods are replaced
+# only on clusters with pod rotation enabled. Default false to avoid unexpected rotations on operator upgrade.
 # @section -- Advanced
 enablePodConfigCodeVersionRotation: false
-
-# -- If true, rotate pods for containers that have no pod-config-version annotation yet
-# (pre-existing containers from before this feature). Default false to avoid mass restarts on upgrade.
-# @section -- Advanced
-allowRotateNonAnnotatedPodConfigHash: false
 
 # -- Proxy configuration for the drivers loader pod and weka home.
 # @section -- Networking & ports

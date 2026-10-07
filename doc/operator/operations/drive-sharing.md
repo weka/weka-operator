@@ -640,7 +640,7 @@ driveSharing:
 Controls whether containers automatically allocate additional virtual drives when `containerCapacity` is increased or `driveTypesRatio` is changed.
 
 - **When `false` (default):** Existing containers are **never extended in place** — neither their
-  capacity nor their cores/hugepages are bumped, so there is no `CapacityGrowthApplied` Warning and no
+  capacity nor their cores/hugepages are bumped, so there is no `PodOutdated` Warning and no
   manual pod deletion. Per-container this means a container keeps only its initial drive allocation; to
   grow a single container you must delete and recreate it.
 

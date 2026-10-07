@@ -8,16 +8,13 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
-	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/utils"
-	"github.com/weka/weka-operator/pkg/util"
 )
 
 // steps_planner_apply.go is the shared build/apply layer for both capacity-planner modes: building containers
@@ -279,8 +276,6 @@ func (r *wekaClusterReconcilerLoop) applyPlannerDriveGrowth(
 			summary:      r.driveGrowthSummary(mode, c, node, newCap),
 			coresChanged: coresChanged,
 		})
-		util.RecordEvent(r.Recorder, c, v1.EventTypeWarning, reasonCapacityGrowthApplied, consts.ActionApplyCapacityGrowth,
-			r.driveGrowthMessage(mode, c, coresChanged, newCap))
 	}
 	return applied, len(growErrs), stderrors.Join(growErrs...)
 }
@@ -291,22 +286,6 @@ func (r *wekaClusterReconcilerLoop) driveGrowthSummary(mode plannerSizing, c *we
 		return fmt.Sprintf("%s on %s to %d GiB/%d core(s)", c.Name, node, newCap, c.Spec.NumCores)
 	}
 	return fmt.Sprintf("%s on %s to %d drive(s)/%d core(s)", c.Name, node, c.Spec.NumDrives, c.Spec.NumCores)
-}
-
-// driveGrowthMessage is the per-container CapacityGrowthApplied text. Both cases are Warnings: a cores bump
-// changes the pod spec, and even a drives-only growth raises the hugepages reservation by 200 MiB per drive,
-// which a running pod's immutable hugepages limit does not cover until it is recreated.
-func (r *wekaClusterReconcilerLoop) driveGrowthMessage(mode plannerSizing, c *weka.WekaContainer, coresChanged bool, newCap int) string {
-	if mode == sizingClusterCapacity {
-		if coresChanged {
-			return fmt.Sprintf("applied clusterCapacity growth to drive container (capacity %d GiB, cores %d); the drive spec changed — the pod must be recreated to apply the new cores/hugepages", newCap, c.Spec.NumCores)
-		}
-		return fmt.Sprintf("applied clusterCapacity growth to drive container live (capacity %d GiB); no restart required", newCap)
-	}
-	if coresChanged {
-		return fmt.Sprintf("applied auto full drives growth to drive container (numDrives %d, cores %d); the drive spec changed — the pod must be recreated to apply the new cores/hugepages", c.Spec.NumDrives, c.Spec.NumCores)
-	}
-	return fmt.Sprintf("applied auto full drives growth to drive container (numDrives %d); drives were added live to the running weka container, but its hugepages reservation grew with them — recreate the pod so its hugepages limit and weka.io/drives request match the new drive count", c.Spec.NumDrives)
 }
 
 // announceDriveGrowth emits the cluster-level growth pair for what was actually written. A partial batch
@@ -322,7 +301,7 @@ func (r *wekaClusterReconcilerLoop) announceDriveGrowth(plan *capacityplanner.Ca
 		msg := fmt.Sprintf("auto full drives growth applied to %d drive container(s): %s",
 			len(applied), strings.Join(summaries, "; "))
 		if restartRequired {
-			msg += "; cores changed, so the affected pod(s) must be recreated before the new sizing takes effect (see the per-container CapacityGrowthApplied events)"
+			msg += "; cores changed, so the affected containers are flagged podOutdated (the pod is recreated by pod rotation when enabled) before the new sizing takes effect"
 		}
 		if err != nil {
 			msg += fmt.Sprintf("; %d of %d planned container(s) could not be grown and will be retried (see the operator log)",
@@ -406,9 +385,6 @@ func (r *wekaClusterReconcilerLoop) applyPlannerComputeGrowth(ctx context.Contex
 			logger.Debug("skipping growth: container was already grown to the target concurrently", "name", c.Name)
 			continue
 		}
-		util.RecordEvent(r.Recorder, c, v1.EventTypeWarning, reasonCapacityGrowthApplied, consts.ActionApplyCapacityGrowth,
-			fmt.Sprintf("applied compute growth to container (cores %d, hugepages %d MiB); the compute spec changed — the pod must be recreated to apply the new cores/hugepages",
-				c.Spec.NumCores, c.Spec.Hugepages))
 	}
 	return stderrors.Join(errs...)
 }

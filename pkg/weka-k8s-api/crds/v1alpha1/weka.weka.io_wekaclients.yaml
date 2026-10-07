@@ -724,12 +724,6 @@ spec:
                   - type
                   type: object
                 type: array
-              lastAppliedPodConfigHash:
-                description: |-
-                  Pod config version this client has adopted. Mirrors the WekaCluster field: it gates
-                  the first-deploy adoption that lets tracking start on pods predating the annotation
-                  without rolling them.
-                type: string
               lastAppliedSpec:
                 type: string
               printer:

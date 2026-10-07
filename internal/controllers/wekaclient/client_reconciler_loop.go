@@ -1058,8 +1058,7 @@ func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "HandleUpgrade")
 	defer logger.End()
 
-	// Client upgrade uses image-based tracking (TargetPodConfigHash="" triggers image fallback)
-	uController := upgrade.NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image, "")
+	uController := upgrade.NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image)
 	if uController.AreUpgraded() {
 		// Clear pre-pull annotation after successful upgrade
 		err := c.clearPrePullAnnotationForClient(ctx)

@@ -2,9 +2,7 @@ package wekacontainer
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -17,7 +15,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -169,13 +166,14 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 	}
 
-	// Annotate pod with pod config version for crash-safe drift detection.
-	if podConfigVer := targetPodConfigHash(container); podConfigVer != "" {
-		if desiredPod.Annotations == nil {
-			desiredPod.Annotations = make(map[string]string)
-		}
-		desiredPod.Annotations[consts.PodConfigVersionAnnotation] = podConfigVer
+	podSpecJSON, err := json.Marshal(snapshotPodSpec(container))
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal pod spec snapshot")
 	}
+	if desiredPod.Annotations == nil {
+		desiredPod.Annotations = make(map[string]string)
+	}
+	desiredPod.Annotations[consts.PodSpecAnnotation] = string(podSpecJSON)
 
 	if refErr := ctrl.SetControllerReference(container, desiredPod, r.Scheme); refErr != nil {
 		return errors.Wrapf(refErr, "Error setting controller reference")
@@ -246,75 +244,9 @@ func (r *containerReconcilerLoop) deletePodIfNodeInfoMismatch(ctx context.Contex
 	return lifecycle.NewWaitError(errors.New("pod deleted due to node-info mismatch, waiting for recreation"))
 }
 
-// selfCalcSpecVersion returns the spec version computed from the image, pod config version, and optionally the code constant.
-func selfCalcSpecVersion(image string) string {
-	raw := image + "|" + config.Config.PodConfigVersion
-	if config.Config.EnablePodConfigCodeVersionRotation {
-		raw += "|" + consts.PodConfigCodeVersion
-	}
-	hash := sha256.Sum256([]byte(raw))
-	return fmt.Sprintf("%x", hash)[:12]
-}
-
-// targetPodConfigHash returns the spec version that should be applied to the pod.
-// If container.Spec.PodConfigHash is non-empty it is used directly (allows explicit per-container control).
-// For ownerless containers with no explicit SpecVersion, the version is self-calculated from the image,
-// the global helm podConfigVersion and the in-code WekaRuntimeVersion.
-// For containers with owners and no explicit SpecVersion, an empty string is returned (no spec-version tracking).
-func targetPodConfigHash(container *weka.WekaContainer) string {
-	if container.Spec.PodConfigHash != "" {
-		return container.Spec.PodConfigHash
-	}
-	if len(container.GetOwnerReferences()) == 0 {
-		return selfCalcSpecVersion(container.Spec.Image)
-	}
-	return ""
-}
-
-// handleSpecVersionMismatch combines image-upgrade handling with pod config version drift detection.
-// It runs image upgrade operations first (when the image is mismatched), then checks whether the
-// container's LastAppliedPodConfigHash matches the target. If mismatched, the pod is deleted for recreation.
-func (r *containerReconcilerLoop) handleSpecVersionMismatch(ctx context.Context) error {
-	logger := instrumentation.CurrentSpanLogger(ctx)
-
-	// Run image-upgrade operations first when the image is mismatched.
+func (r *containerReconcilerLoop) handleImageMismatch(ctx context.Context) error {
 	if r.container.Status.LastAppliedImage != "" && r.IsNotAlignedImage() {
-		if err := r.handleImageUpdate(ctx); err != nil {
-			return err
-		}
+		return r.handleImageUpdate(ctx)
 	}
-
-	target := targetPodConfigHash(r.container)
-	if target == "" {
-		return nil
-	}
-
-	// Check pod annotation first (crash-safe source of truth set at pod creation).
-	podAnnotation := r.pod.Annotations[consts.PodConfigVersionAnnotation]
-	if podAnnotation == target {
-		// Pod matches — sync status if needed.
-		if r.container.Status.LastAppliedPodConfigHash != target {
-			r.container.Status.LastAppliedPodConfigHash = target
-			return r.Status().Update(ctx, r.container)
-		}
-		return nil
-	}
-
-	// Also accept status match (annotation may be missing on pre-existing pods).
-	if r.container.Status.LastAppliedPodConfigHash == target {
-		return nil
-	}
-
-	// If both annotation and status are empty (pre-existing container), respect the allowRotateEmptyPodConfigHash flag.
-	if podAnnotation == "" && r.container.Status.LastAppliedPodConfigHash == "" && !config.Config.AllowRotateNonAnnotatedPodConfigHash {
-		return nil
-	}
-
-	logger.Info("Pod config version mismatch, deleting for recreation",
-		"podAnnotation", podAnnotation, "lastApplied", r.container.Status.LastAppliedPodConfigHash, "target", target)
-
-	if err := r.deletePod(ctx, r.pod); err != nil {
-		return err
-	}
-	return lifecycle.NewWaitError(errors.New("pod deleted due to pod-config-version mismatch, waiting for recreation"))
+	return nil
 }

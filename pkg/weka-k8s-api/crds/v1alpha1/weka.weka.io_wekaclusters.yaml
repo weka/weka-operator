@@ -854,6 +854,11 @@ spec:
                       true: pause all containers.
                       false: actively unpause containers that are in paused state.
                     type: boolean
+                  podRotation:
+                    description: Replace pods one at a time when their pod-affecting
+                      spec changes. Nil uses the operator-wide default (configuration
+                      WekaPolicy podRotation.enabled).
+                    type: boolean
                   podTerminationDeactivationTimeout:
                     description: |-
                       Timeout duration for deactivating pods that are terminating longer than this duration.
@@ -2400,8 +2405,6 @@ spec:
                   type: object
                 type: array
               lastAppliedImage:
-                type: string
-              lastAppliedPodConfigHash:
                 type: string
               lastAppliedSpec:
                 type: string

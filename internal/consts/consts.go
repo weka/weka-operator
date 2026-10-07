@@ -76,12 +76,10 @@ const (
 	SizingModeMigrationDriveSharing = "drive-sharing"
 )
 
-// PodConfigVersionAnnotation is the annotation key set on pods at creation time
-// to record which pod config version the pod was created with.
-const PodConfigVersionAnnotation = "weka.io/pod-config-version"
+// Pod-affecting WekaContainer spec values (JSON) the pod was created with; compared on every reconcile to detect an outdated pod.
+const PodSpecAnnotation = "weka.io/pod-spec"
 
-// PodConfigCodeVersion should be bumped when the pod spec shape changes in code
-// (new env vars, volume mounts, container args, etc.) to trigger pod rotation.
+// PodConfigCodeVersion: bump when the pod shape or weka_runtime.py needs every pod restarted; a stamp value, compared only with ENABLE_POD_CONFIG_CODE_VERSION_ROTATION.
 const PodConfigCodeVersion = "1"
 
 // Kubernetes extended resource names
