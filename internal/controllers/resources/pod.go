@@ -773,6 +773,14 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 	}
 
+	if f.container.HasWekaCores() {
+		// Written by weka_runtime.py (EXEC_SHELL_PIN_SCRIPT_PATH); pins non-interactive bash execs off the I/O cores.
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "BASH_ENV",
+			Value: "/tmp/weka-k8s-runtime/exec_pin.sh",
+		})
+	}
+
 	if f.container.Spec.Mode == weka.WekaContainerModeDriversLoader && config.Config.Proxy != "" {
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "HTTPS_PROXY",
@@ -1291,7 +1299,7 @@ func (f *PodFactory) fullPcpusOnlyEffective() bool {
 
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetails HugePagesDetails) error {
 	totalNumCores := f.container.Spec.NumCores
-	if capacityplanner.SupportsExtraCores(f.container.Spec.Mode) {
+	if f.container.HasWekaCores() {
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
