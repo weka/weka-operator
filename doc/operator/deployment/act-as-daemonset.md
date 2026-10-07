@@ -382,8 +382,8 @@ actually run on.
 
 Growing compute raises a container's cores and hugepages, so the same
 [pod-restart caveat](#pod-restart-caveat) as drive growth applies: the operator updates the spec and
-emits a Warning `CapacityGrowthApplied`, and the new sizing takes effect when the pod is next
-recreated. Compute container **cores** are never reduced and no compute container is ever removed by
+the container flags `status.podOutdated` with a Warning `PodOutdated` event, and the new sizing takes effect when the pod is next
+recreated (automatically when [pod rotation](../operations/pod-rotation.md) is enabled). Compute container **cores** are never reduced and no compute container is ever removed by
 sizing logic.
 
 Their **hugepages** are re-derived on every plan, at the cluster's current claimed capacity and its
@@ -395,7 +395,7 @@ running pod's hugepages limit is immutable, so it keeps the larger value regardl
 computes, and the operator's own headroom accounting charges hugepages from the spec — writing the lower
 figure would make it believe capacity was freed that the pod has not actually released. A node that
 cannot absorb a rise makes the plan infeasible, the same as any other reservation this mode cannot
-satisfy. Every applied rise emits `CapacityGrowthApplied` and owes a pod recreation.
+satisfy. Every applied rise flags the container `podOutdated` and owes a pod recreation (done by [pod rotation](../operations/pod-rotation.md) when enabled).
 
 ## Compute hugepages are the practical ceiling
 
@@ -648,7 +648,7 @@ The operator then **adopts the drive containers you already have** rather than b
 beside them. Each existing drive container is matched to the node its **pod** is running on and grown
 in place to that node's full signed drive set, through exactly the same growth path as
 [Expand-only reconciliation](#expand-only-reconciliation): `AutoFullDrivesGrowthDetected` on the
-cluster, `CapacityGrowthApplied` on each container. Nothing is deleted and nothing shrinks. Nodes in
+cluster, `status.podOutdated` / `PodOutdated` on each container. Nothing is deleted and nothing shrinks. Nodes in
 the drive-role selector that had no container get a new node-pinned one.
 
 Drive cores are recomputed as part of that growth and will usually **rise** — a count-based container
@@ -775,7 +775,7 @@ which is what makes the added capacity available at all.
 Raising an existing container's core count changes the `WekaContainer` **spec**, but it does **not**
 by itself recreate the running **pod** — the new core count (and the hugepages/memory that go with
 it) only take effect the next time the pod is recreated (e.g. an image upgrade, a Helm
-`podConfigVersion` bump, or a manual pod delete).
+`podConfigVersion` bump where pod rotation is enabled, or a manual pod delete).
 
 A **drive-only** growth starts serving capacity immediately — weka adds the new drives to the running
 container — but it still owes a restart, for two reasons. The pod's declared `weka.io/drives` request
@@ -786,9 +786,8 @@ and the pod's hugepages limit is immutable *and enforced* — so until it is rec
 serving those drives on a budget that no longer covers them.
 
 The operator surfaces this distinction as an event on the affected `WekaContainer`:
-`CapacityGrowthApplied` fires as a **Warning** for any applied growth, with a message saying which
-kind it was: a cores bump needs the restart before the new sizing takes effect at all, while a
-drives-only growth is already serving capacity but on a hugepages limit that no longer covers it.
+`PodOutdated` fires as a **Warning** when the pod no longer matches the grown spec, naming the changed fields (for example `numCores 1→2, hugepages 1400→2800`). A cores bump needs the restart before the new sizing takes effect at all, while a
+drives-only growth is already serving capacity but on a hugepages limit that no longer covers it. [Pod rotation](../operations/pod-rotation.md) performs the restart when enabled.
 Treat either as an action item. The cluster-level
 `AutoFullDrivesGrowthDetected` event says the same thing in aggregate, so a restart owed on any grown
 container is visible from `kubectl describe wekacluster` without inspecting each container.
@@ -837,7 +836,7 @@ container that *did* grow would fail to start the next time its pod is recreated
 
 Expect a fleet-wide growth wave on that first reconcile: every affected drive container is written in
 one pass, aggregated into `AutoFullDrivesGrowthDetected` on the cluster. Per container,
-`CapacityGrowthApplied` fires as a **Warning** either way — a cores bump changes the pod spec, and a
+`PodOutdated` fires as a **Warning** either way — a cores bump changes the pod spec, and a
 drives-only growth raises the hugepages reservation, which a running pod's immutable limit does not
 cover. Both are action items until the pod is recreated. See the
 [Pod-restart caveat](#pod-restart-caveat).
@@ -868,10 +867,10 @@ carry only partially, and permanently so; see
 Raising `numDrives` propagates to the drive containers that already exist. Their drive count, cores
 and hugepages are rewritten together, and the change is **increase-only**: lowering `numDrives` leaves
 running containers alone, because weka cannot hand a drive back without a rebuild. Each affected
-container gets a Warning `CapacityGrowthApplied` naming what moved.
+container is flagged `podOutdated` with a Warning `PodOutdated` event naming what moved.
 
-**Two pod recreations are owed, and the second one is not optional.** Neither is performed by the
-operator — the spec changes immediately and the pods keep running as they were:
+**Two pod recreations are owed, and the second one is not optional.** Unless pod rotation is enabled,
+neither is performed by the operator — the spec changes immediately and the pods keep running as they were:
 
 - **The drive pods**, so the new hugepages limit and `weka.io/drives` request take effect. This is the
   usual [pod-restart caveat](#pod-restart-caveat).
@@ -953,7 +952,7 @@ means nothing obviously wrong was visible then, not that the cluster is certain 
 ## Events
 
 Every reason below lands on the **`WekaCluster`** except `UnschedulableDriveContainer`,
-`UnschedulableComputeContainer`, and `CapacityGrowthApplied`, which land on the affected
+`UnschedulableComputeContainer`, and `PodOutdated`, which land on the affected
 **`WekaContainer`** — so `kubectl describe wekacluster <name>` alone will not show them. Check
 `kubectl describe wekacontainer <name>` when you need per-container detail.
 
@@ -990,7 +989,7 @@ without matching message text, and the kinds that are not problems are Normal ra
 | `AutoFullDrivesNoSignedDrives` | Normal | Cluster | 1 min | No node matching the drive-role selector has a signed, non-blocked full drive yet. Planning is deferred; sign drives and the operator picks them up on its own. Drives held by a container being deleted are *not* this case — see `AutoFullDrivesPlacementDeferred`. |
 | `UnschedulableDriveContainer` | Warning | **Container** | none | A node-pinned drive container **whose pod never bound** was deleted, so its capacity can be re-placed, after the scheduler had been reporting `PodScheduled=False`/`Reason=Unschedulable` for longer than the GC timeout. The message carries the scheduler's own explanation. A pod still `Pending` for another reason (e.g. a slow DKMS build) is left alone. See [Troubleshooting](#troubleshooting). |
 | `UnschedulableComputeContainer` | Warning | **Container** | none | The same, for a compute container. See [Troubleshooting](#troubleshooting). |
-| `CapacityGrowthApplied` | Warning | **Container** | none | Growth committed to this container; a pod recreation is owed either way — see [Pod-restart caveat](#pod-restart-caveat). The message distinguishes a cores bump (new sizing does not apply until the restart) from a drives-only growth (capacity is already served, but the pod's hugepages limit has not caught up). |
+| `PodOutdated` | Warning | **Container** | none | The pod no longer matches this container's spec (for example after growth); a pod recreation is owed — see [Pod-restart caveat](#pod-restart-caveat) and [pod rotation](../operations/pod-rotation.md). The message names the changed fields. |
 
 An **infeasible** plan is the sole signal: when the plan is infeasible only `AutoFullDrivesInfeasible`
 is emitted and the advisories above are suppressed for that reconcile, since they would describe

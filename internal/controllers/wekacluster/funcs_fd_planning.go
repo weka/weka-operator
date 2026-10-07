@@ -233,7 +233,7 @@ func (r *wekaClusterReconcilerLoop) planAutoFullDrives(ctx context.Context) (*ca
 		r.emitPlannerEventWithCause(autoFullDrivesWarningReason(w.Kind), string(w.Cause), w.Message)
 	}
 	// Gated on Create only: plan.Grow is applied separately by applyPlannerDriveGrowth, whose caller emits
-	// own cluster-level AutoFullDrivesGrowthDetected and per-container CapacityGrowthApplied events.
+	// its own cluster-level AutoFullDrivesGrowthDetected event.
 	if len(plan.Create) > 0 {
 		r.emitPlannerEvent(reasonAutoFullDrivesPlanned, formatAutoFullDrivesPlanSummary(&plan))
 	}
@@ -241,7 +241,7 @@ func (r *wekaClusterReconcilerLoop) planAutoFullDrives(ctx context.Context) (*ca
 }
 
 // formatAutoFullDrivesPlanSummary renders a one-line summary of a feasible auto-full-drives plan's Create
-// leg for the AutoFullDrivesPlanned event; plan.Grow gets its own CapacityGrowthApplied event from
+// leg for the AutoFullDrivesPlanned event; plan.Grow gets its own AutoFullDrivesGrowthDetected event from
 // announceDriveGrowth instead. Simpler than formatCapacityPlanSummary since auto full drives has no
 // TLC/QLC-ratio target or protection scheme.
 func formatAutoFullDrivesPlanSummary(plan *capacityplanner.CapacityPlan) string {

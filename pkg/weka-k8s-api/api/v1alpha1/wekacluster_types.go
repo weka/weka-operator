@@ -1024,6 +1024,8 @@ type WekaClusterSpecOverrides struct {
 	UpgradePaused bool `json:"upgradePaused,omitempty"`
 	// Prevent from moving into compute phase
 	UpgradePausePreCompute bool `json:"upgradePausePreCompute,omitempty"`
+	// Replace pods one at a time when their pod-affecting spec changes. Nil uses the operator-wide default (configuration WekaPolicy podRotation.enabled).
+	PodRotation *bool `json:"podRotation,omitempty"`
 	// Timeout duration for deactivating pods that are terminating longer than this duration.
 	// When nil (default), the default timeout of 5 minutes is used.
 	// When set to 0, deactivation of terminating pods is disabled.
@@ -1082,18 +1084,17 @@ type ClusterPorts struct {
 
 // WekaClusterStatus defines the observed state of WekaCluster
 type WekaClusterStatus struct {
-	Status                   WekaClusterStatusEnum  `json:"status"`
-	Conditions               []metav1.Condition     `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	ClusterID                string                 `json:"clusterID,omitempty"`
-	TraceId                  string                 `json:"traceId,omitempty"`
-	SpanID                   string                 `json:"spanId,omitempty"`
-	LastAppliedImage         string                 `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
-	LastAppliedSpec          string                 `json:"lastAppliedSpec,omitempty"`
-	LastAppliedPodConfigHash string                 `json:"lastAppliedPodConfigHash,omitempty"`
-	Ports                    ClusterPorts           `json:"ports,omitempty"`
-	Stats                    *ClusterMetrics        `json:"stats,omitempty"`
-	PrinterColumns           ClusterPrinterColumns  `json:"printer,omitempty"`
-	Timestamps               map[string]metav1.Time `json:"timestamps,omitempty"`
+	Status           WekaClusterStatusEnum  `json:"status"`
+	Conditions       []metav1.Condition     `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	ClusterID        string                 `json:"clusterID,omitempty"`
+	TraceId          string                 `json:"traceId,omitempty"`
+	SpanID           string                 `json:"spanId,omitempty"`
+	LastAppliedImage string                 `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	LastAppliedSpec  string                 `json:"lastAppliedSpec,omitempty"`
+	Ports            ClusterPorts           `json:"ports,omitempty"`
+	Stats            *ClusterMetrics        `json:"stats,omitempty"`
+	PrinterColumns   ClusterPrinterColumns  `json:"printer,omitempty"`
+	Timestamps       map[string]metav1.Time `json:"timestamps,omitempty"`
 }
 
 // +kubebuilder:object:root=true

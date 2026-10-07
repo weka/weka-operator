@@ -582,6 +582,16 @@
           "description": "Drivers configures the drivers build and distribution.",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "PodRotation",
+          "jsonName": "podRotation",
+          "type": {
+            "$ref": "#/definitions/PodRotationSpec"
+          },
+          "description": "PodRotation sets the operator-wide default for replacing pods whose pod-affecting spec changed.",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -2246,6 +2256,23 @@
       "usedBy": [
         "WekaClient",
         "WekaContainer",
+        "WekaPolicy"
+      ]
+    },
+    "PodRotationSpec": {
+      "kind": "struct",
+      "description": "PodRotationSpec groups settings of config-change pod rotation",
+      "fields": [
+        {
+          "name": "Enabled",
+          "jsonName": "enabled",
+          "type": "bool",
+          "description": "Enabled makes WekaClusters without spec.overrides.podRotation replace outdated pods one at a time. False by default.",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
         "WekaPolicy"
       ]
     },
@@ -4158,13 +4185,6 @@
             "$ref": "#/definitions/ClientPrinterColumns"
           },
           "optional": true
-        },
-        {
-          "name": "LastAppliedPodConfigHash",
-          "jsonName": "lastAppliedPodConfigHash",
-          "type": "string",
-          "description": "Pod config version this client has adopted. Mirrors the WekaCluster field: it gates\nthe first-deploy adoption that lets tracking start on pods predating the annotation\nwithout rolling them.",
-          "optional": true
         }
       ],
       "usedBy": [
@@ -4720,6 +4740,14 @@
           "optional": true
         },
         {
+          "name": "PodRotation",
+          "jsonName": "podRotation",
+          "type": "bool",
+          "description": "Replace pods one at a time when their pod-affecting spec changes. Nil uses the operator-wide default (configuration WekaPolicy podRotation.enabled).",
+          "optional": true,
+          "pointer": true
+        },
+        {
           "name": "PodTerminationDeactivationTimeout",
           "jsonName": "podTerminationDeactivationTimeout",
           "type": "k8s:metav1.Duration",
@@ -4834,12 +4862,6 @@
         {
           "name": "LastAppliedSpec",
           "jsonName": "lastAppliedSpec",
-          "type": "string",
-          "optional": true
-        },
-        {
-          "name": "LastAppliedPodConfigHash",
-          "jsonName": "lastAppliedPodConfigHash",
           "type": "string",
           "optional": true
         },
@@ -5377,10 +5399,10 @@
           "optional": false
         },
         {
-          "name": "PodConfigHash",
-          "jsonName": "podConfigHash",
-          "type": "string",
-          "description": "a hash that represents the config state of a WekaContainer, will recreate the pod if stale",
+          "name": "RotatePod",
+          "jsonName": "rotatePod",
+          "type": "bool",
+          "description": "Set and cleared by the owning WekaCluster: approval to replace the pod because status.podOutdated is true.",
           "optional": true
         },
         {
@@ -5911,13 +5933,6 @@
           "optional": true
         },
         {
-          "name": "LastAppliedPodConfigHash",
-          "jsonName": "lastAppliedPodConfigHash",
-          "type": "string",
-          "description": "to signal to a higher controller WekaContainer's pod status",
-          "optional": true
-        },
-        {
           "name": "NodeAffinity",
           "jsonName": "nodeAffinity",
           "type": {
@@ -5986,6 +6001,13 @@
           "name": "NotToleratedOnReschedule",
           "jsonName": "notToleratedOnReschedule",
           "type": "bool",
+          "optional": true
+        },
+        {
+          "name": "PodOutdated",
+          "jsonName": "podOutdated",
+          "type": "bool",
+          "description": "True while the pod does not match the current pod-affecting spec values, or its replacement is not ready yet.",
           "optional": true
         }
       ],

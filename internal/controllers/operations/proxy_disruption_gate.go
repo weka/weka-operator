@@ -45,6 +45,11 @@ func EvaluateNodeDisruption(ctx context.Context, mgr ctrl.Manager, execSvc exec.
 		})
 }
 
+// EvaluateClusterHealth runs the cluster-wide disruption checks on one cluster's own weka status.
+func EvaluateClusterHealth(ctx context.Context, mgr ctrl.Manager, execSvc exec.ExecService, cluster *weka.WekaCluster) ClusterVerdict {
+	return newClusterEvaluator(mgr, execSvc).evaluateClusterWide(ctx, cluster)
+}
+
 // VerifyNodeRecovered is the post-rotation counterpart to EvaluateNodeDisruption: it confirms per
 // dependent cluster that node's drives are back to ACTIVE and the cluster is fully protected,
 // reusing the same per-cluster health checks plus a node-scoped drive check. proxy has the same

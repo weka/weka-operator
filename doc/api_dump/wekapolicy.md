@@ -25,6 +25,7 @@
 - [ObjectReference](#objectreference)
 - [CsiSpec](#csispec)
 - [DriversSpec](#driversspec)
+- [PodRotationSpec](#podrotationspec)
 - [DriveTypeOverrideRule](#drivetypeoverriderule)
 - [DriveExclusionRule](#driveexclusionrule)
 - [PodResources](#podresources)
@@ -183,6 +184,7 @@
 |------------|------|-------------|
 | csi | *CsiSpec | Csi configures the embedded CSI deployment. |
 | drivers | *DriversSpec | Drivers configures the drivers build and distribution. |
+| podRotation | *PodRotationSpec | PodRotation sets the operator-wide default for replacing pods whose pod-affecting spec changed. |
 
 ---
 
@@ -262,6 +264,14 @@
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | forceBuilderCli | *bool | ForceBuilderCli makes the drivers-builder init containers take the weka CLI from the builder<br>image instead of the cluster image. False by default. |
+
+---
+
+## PodRotationSpec
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| enabled | *bool | Enabled makes WekaClusters without spec.overrides.podRotation replace outdated pods one at a time. False by default. |
 
 ---
 

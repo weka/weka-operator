@@ -2,10 +2,11 @@ package wekacluster
 
 import (
 	"context"
+	"errors"
 	"reflect"
-	"strings"
 	"testing"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-steps-engine/throttling"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -28,9 +29,18 @@ import (
 type fakeManagerWithClient struct {
 	manager.Manager
 	c client.Client
+	// reader, when set, backs GetAPIReader separately from the cached GetClient view.
+	reader client.Reader
 }
 
 func (f fakeManagerWithClient) GetClient() client.Client { return f.c }
+
+func (f fakeManagerWithClient) GetAPIReader() client.Reader {
+	if f.reader != nil {
+		return f.reader
+	}
+	return f.c
+}
 
 // newFakeClient builds a scheme-registered fake client seeded with objs, with WekaContainer wired for
 // status subresource patches (HandleSpecUpdates ends with a Status().Patch) and WekaCluster wired for
@@ -125,21 +135,6 @@ func TestHandleSpecUpdates_DeferredComputeHugepagesDoNotBlockDrivePropagation(t 
 	}
 }
 
-// upgradeLoopEvents drains the loop's fake recorder.
-func upgradeLoopEvents(t *testing.T, r *wekaClusterReconcilerLoop) []string {
-	t.Helper()
-	rec, ok := r.Recorder.(*events.FakeRecorder)
-	if !ok {
-		t.Fatalf("Recorder is %T, want *events.FakeRecorder", r.Recorder)
-	}
-	close(rec.Events)
-	var out []string
-	for e := range rec.Events {
-		out = append(out, e)
-	}
-	return out
-}
-
 // A raised spec.dynamicTemplate.numDrives must reach the drive containers. The drive role's hugepages are
 // already computed from the template's numDrives, so a container left at the old count reserves for drives it
 // never takes — the reservation and the drive count must move together, in one patch.
@@ -165,19 +160,10 @@ func TestHandleSpecUpdates_PropagatesRaisedNumDrives(t *testing.T) {
 		t.Errorf("NumDrives = %d, want 8 — a raised template numDrives must propagate to the container",
 			got.Spec.NumDrives)
 	}
-
-	events := upgradeLoopEvents(t, r)
-	joined := strings.Join(events, "\n")
-	if !strings.Contains(joined, "CapacityGrowthApplied") || !strings.Contains(joined, "drives to 8") {
-		t.Errorf("events %q must announce the drive raise via CapacityGrowthApplied", joined)
-	}
-	if !strings.Contains(joined, "pod must be recreated") {
-		t.Errorf("events %q must state that a pod recreation is owed", joined)
-	}
 }
 
 // The drives-only case: numDrives rises while the capacity-derived core count does not. A drives-only raise
-// must still rewrite the hugepages reservation and emit the growth event.
+// must still rewrite the hugepages reservation.
 func TestHandleSpecUpdates_PropagatesDrivesOnlyRaise(t *testing.T) {
 	prevDrive := globalconfig.Config.HugepagesUpdate.Drive
 	globalconfig.Config.HugepagesUpdate.Drive = false // isolate: no independent hugepages propagation path
@@ -210,11 +196,6 @@ func TestHandleSpecUpdates_PropagatesDrivesOnlyRaise(t *testing.T) {
 	if got.Spec.Hugepages == 8520 {
 		t.Errorf("Hugepages still %d — a drives-only raise must still rewrite the reservation, which grows "+
 			"by 200 MiB per added drive", got.Spec.Hugepages)
-	}
-
-	joined := strings.Join(upgradeLoopEvents(t, r), "\n")
-	if !strings.Contains(joined, "drives to 7") {
-		t.Errorf("events %q must announce a drives-only raise; it was silent before", joined)
 	}
 }
 
@@ -602,5 +583,73 @@ func TestHandleSpecUpdates_PropagatesWekaHomeCacertSecret(t *testing.T) {
 				t.Errorf("container.Spec.AdditionalSecrets = %v, want %v", got.Spec.AdditionalSecrets, tc.want)
 			}
 		})
+	}
+}
+
+func newImageUpgradeLoop(t *testing.T, specImage, appliedImage, containerImage, containerApplied string, allAtOnce bool) *wekaClusterReconcilerLoop {
+	t.Helper()
+	cluster := &weka.WekaCluster{ObjectMeta: metav1.ObjectMeta{Name: "cl1", Namespace: "default"}}
+	cluster.Spec.Image = specImage
+	cluster.Status.LastAppliedImage = appliedImage
+	if allAtOnce {
+		cluster.Spec.Overrides = &weka.WekaClusterSpecOverrides{UpgradeAllAtOnce: true}
+	}
+	container := &weka.WekaContainer{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "default"}}
+	container.Spec.Image = containerImage
+	container.Status.LastAppliedImage = containerApplied
+	id := 1
+	container.Status.ClusterContainerID = &id
+	return newUpgradeLoop(t, cluster, []*weka.WekaContainer{container})
+}
+
+func getUpgradeContainer(t *testing.T, r *wekaClusterReconcilerLoop) *weka.WekaContainer {
+	t.Helper()
+	got := &weka.WekaContainer{}
+	if err := r.getClient().Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "c1"}, got); err != nil {
+		t.Fatalf("Get container: %v", err)
+	}
+	return got
+}
+
+func TestHandleUpgrade_NoImageChangeIsNoop(t *testing.T) {
+	r := newImageUpgradeLoop(t, "same", "same", "other", "other", false)
+	if err := r.handleUpgrade(context.Background()); err != nil {
+		t.Fatalf("handleUpgrade: %v", err)
+	}
+	if got := getUpgradeContainer(t, r); got.Spec.Image != "other" {
+		t.Errorf("container patched to %q, want untouched", got.Spec.Image)
+	}
+}
+
+func TestHandleUpgrade_AllAtOnceWritesLastAppliedImage(t *testing.T) {
+	r := newImageUpgradeLoop(t, "new", "old", "new", "new", true)
+	if err := r.handleUpgrade(context.Background()); err != nil {
+		t.Fatalf("handleUpgrade: %v", err)
+	}
+	got := &weka.WekaCluster{}
+	if err := r.getClient().Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "cl1"}, got); err != nil {
+		t.Fatalf("Get cluster: %v", err)
+	}
+	if got.Status.LastAppliedImage != "new" {
+		t.Errorf("cluster lastAppliedImage = %q, want new", got.Status.LastAppliedImage)
+	}
+}
+
+func TestHandleUpgrade_AllAtOnceWaitsForPods(t *testing.T) {
+	r := newImageUpgradeLoop(t, "new", "old", "old", "old", true)
+	err := r.handleUpgrade(context.Background())
+	var waitErr *lifecycle.WaitError
+	if !errors.As(err, &waitErr) {
+		t.Fatalf("handleUpgrade error = %v, want WaitError", err)
+	}
+	if got := getUpgradeContainer(t, r); got.Spec.Image != "new" {
+		t.Errorf("container image = %q, want new", got.Spec.Image)
+	}
+	got := &weka.WekaCluster{}
+	if err := r.getClient().Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "cl1"}, got); err != nil {
+		t.Fatalf("Get cluster: %v", err)
+	}
+	if got.Status.LastAppliedImage != "old" {
+		t.Errorf("cluster lastAppliedImage = %q, want old", got.Status.LastAppliedImage)
 	}
 }

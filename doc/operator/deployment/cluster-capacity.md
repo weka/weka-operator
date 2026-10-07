@@ -151,10 +151,11 @@ elsewhere you will see a pointer back to this section rather than a repeat.
   on fresh FDs (see [Growth in the default config](#growth-in-the-default-config-dynamic-scaling-disabled)),
   so none of the live/deferred mechanics below apply. **When the flag is opted into (`true`)**,
   growing an existing container adds virtual drives **live** when the increase fits the container's
-  current cores/hugepages (a drive *capacity*-only increase → `CapacityGrowthApplied` Normal); a grow
-  that needs **more cores or hugepages** is **deferred** — the operator writes the new spec and emits
-  `CapacityGrowthApplied` (Warning), but it takes effect only after you **manually terminate the
-  pod** (the operator never recreates it automatically). Terminate pods **one at a time**, letting
+  current cores/hugepages (a drive *capacity*-only increase); a grow
+  that needs **more cores or hugepages** is **deferred** — the operator writes the new spec, the container
+  sets `status.podOutdated` and emits `PodOutdated`, and the pod is replaced when
+  [pod rotation](../operations/pod-rotation.md) is enabled, otherwise only after you **manually terminate the
+  pod**. Terminate pods **one at a time**, letting
   each return to `Running`, to keep enough live FDs; when a grow bumps both compute and drive cores,
   terminate the **compute** pod(s) first, then the drive pod(s).
 
@@ -339,7 +340,7 @@ it cannot host both drives and compute — which also means a pinned node that l
 is handled by the same stuck-node GC as the daemonset mode's compute leg (see
 [`UnschedulableComputeContainer`](#events)). A compute core/hugepage
 change applies per
-[§Rules](#rules-that-apply-everywhere) (deferred until you manually terminate the pod).
+[§Rules](#rules-that-apply-everywhere) (deferred until you manually terminate the pod or pod rotation recreates it).
 
 Each compute container's **hugepages** reservation is capacity-based, not a fixed per-core amount —
 `hugepagesFor(count, cores)` below:
@@ -997,7 +998,7 @@ advisories are suppressed for that reconcile (they describe placement that does 
 | `ClusterCapacityHeterogeneousGrowth` | Warning | The heterogeneous-fallback notice: a fresh balanced (uniform) set was created on spare nodes because a fresh per-FD chunk would dwarf the existing FDs; the old smaller drive containers can be deleted manually once data has migrated. |
 | `ClusterCapacityOverProvisioned` | Normal | A pool was realized with uniformly-sized failure domains, and ceiling that uniform size lands up to one chunk above the desired raw (at most `maxOverProvisionFraction` × desired) — an intentional rounding, not reclaimable excess. The message names the pool, states the placement (growing existing FDs, adding new ones, or both), and reports the overshoot: `"<pool>: +N GiB covered by growing K existing failure domain(s), each sized to a uniform T GiB; this over-provisions the target by M GiB (within maxOverProvisionFraction=0.20) — intentional rounding to keep failure domains uniformly sized, not reclaimable excess (no manual shrink needed)"`. |
 | `ClusterCapacityInfeasible` | Warning | The plan is infeasible — no spare node has ≥ T free for a new FD, and either in-place growth is disabled, or the required grow is below `minGrowthFraction`, or the overshoot would exceed `maxOverProvisionFraction`. The operator waits (1-minute requeue) and creates/grows nothing. The message states the binding reason (e.g. "no spare node has N GiB free … Growing … would raise each by only X% (below minGrowthFraction=0.20)"). When a pool has **fewer than `minFdNum` candidate failure domains**, the message also appends a **breakdown** naming why each rejected node doesn't qualify — `no <pool> drive capacity`, `already hosts a <pool> container`, or `<drive capacity / cores / hugepages / memory> limits usable <pool> to N GiB (below the 384 GiB minimum chunk)` — with **nodes sharing a reason grouped into one clause** (e.g. `n4, n5, n6: no QLC drive capacity`; capped with `(+N more)` tails). |
-| `CapacityGrowthApplied` | Warning **or** Normal | Growth committed to an **existing** container. **Warning** when a core/hugepage change needs a manual pod termination; **Normal** when applied live (drive *capacity*-only increase). Emitted only while `enableDynamicDriveScalingForSharedDrives` is `true` — **never in the default config** (`false`), where no container is grown in place. |
+| `PodOutdated` | Warning | Emitted by the **container** when its pod no longer matches the spec, for example after growth of an **existing** container; it names what changed. The pod is replaced when [pod rotation](../operations/pod-rotation.md) is enabled, otherwise by manual termination. Growth of existing containers happens only while `enableDynamicDriveScalingForSharedDrives` is `true` — **never in the default config** (`false`). |
 
 (Explicit compute/drive sizing that can't be satisfied is **not** a warning — it is a Hard error
 that fails fast via `ClusterCapacityInfeasible`.)

@@ -180,7 +180,6 @@ func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
 		if isUninitializedCluster(wekaCluster) {
 			wekaCluster.Status.InitStatus()
 			wekaCluster.Status.LastAppliedImage = wekaCluster.Spec.Image
-			wekaCluster.Status.LastAppliedPodConfigHash = CalcClusterPodConfigVersion(&wekaCluster.Spec)
 
 			err := r.getClient().Status().Update(ctx, wekaCluster)
 			if err != nil {
@@ -344,13 +343,10 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		}
 	}
 
-	specVersion := CalcClusterPodConfigVersion(&cluster.Spec)
-
 	for _, container := range missingContainers {
 		if len(joinIps) != 0 {
 			container.Spec.JoinIps = joinIps
 		}
-		container.Spec.PodConfigHash = specVersion
 	}
 
 	results := workers.ProcessConcurrently(ctx, missingContainers, 32, func(ctx context.Context, container *weka.WekaContainer) error {

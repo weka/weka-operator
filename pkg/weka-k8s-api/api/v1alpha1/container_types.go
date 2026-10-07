@@ -23,6 +23,7 @@ type NodeName types.NodeName
 // +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".spec.mode",description="Weka container mode",priority=0
 // +kubebuilder:printcolumn:name="Management IPs",type="string",JSONPath=".status.printer.managementIPs",description="Management IPs",priority=0
 // +kubebuilder:printcolumn:name="Node",type="string",JSONPath=".status.printer.nodeAffinity",description="Node affinity of container",priority=0
+// +kubebuilder:printcolumn:name="Outdated",type="boolean",JSONPath=".status.podOutdated",description="Pod does not match the current spec",priority=0
 // +kubebuilder:printcolumn:name="Processes",type="string",JSONPath=".status.printer.processes",description="Number of processes per state",priority=1
 // +kubebuilder:printcolumn:name="Drives",type="string",JSONPath=".status.printer.drives",description="Number of drives per state",priority=1
 // +kubebuilder:printcolumn:name="Capacity",type="string",JSONPath=".status.printer.capacity",description="Per-drive-type capacity (TLC/QLC)",priority=1
@@ -253,8 +254,8 @@ type WekaContainerSpec struct {
 	AgentPort    int                `json:"agentPort,omitempty"`
 	PortRange    *PortRange         `json:"portRange,omitempty"`
 	Image        string             `json:"image"`
-	// a hash that represents the config state of a WekaContainer, will recreate the pod if stale
-	PodConfigHash     string `json:"podConfigHash,omitempty"`
+	// Set and cleared by the owning WekaCluster: approval to replace the pod because status.podOutdated is true.
+	RotatePod         bool   `json:"rotatePod,omitempty"`
 	ImagePullSecret   string `json:"imagePullSecret,omitempty"`
 	WekaContainerName string `json:"name"`
 	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs;smbw;telemetry;ssdproxy;data-services;data-services-fe
@@ -488,10 +489,9 @@ type WekaContainerStatus struct {
 	ClusterContainerID       *int                     `json:"containerID,omitempty"`
 	ClusterID                string                   `json:"clusterID,omitempty"`
 	Conditions               []metav1.Condition       `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	LastAppliedImage         string                   `json:"lastAppliedImage,omitempty"`         // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
-	LastAppliedSpec          string                   `json:"lastAppliedSpec,omitempty"`          // set by weka cluster or client or other higher level controller, to track if higher level spec was propagated
-	LastAppliedPodConfigHash string                   `json:"lastAppliedPodConfigHash,omitempty"` // to signal to a higher controller WekaContainer's pod status
-	NodeAffinity             NodeName                 `json:"nodeAffinity,omitempty"`             // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
+	LastAppliedImage         string                   `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	LastAppliedSpec          string                   `json:"lastAppliedSpec,omitempty"`  // set by weka cluster or client or other higher level controller, to track if higher level spec was propagated
+	NodeAffinity             NodeName                 `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
 	ExecutionResult          *string                  `json:"result,omitempty"`
 	Allocations              *ContainerAllocations    `json:"allocations,omitempty"`
 	AddedDrives              []Drive                  `json:"addedDrives,omitempty"` // drives that were added to the weka cluster
@@ -499,6 +499,8 @@ type WekaContainerStatus struct {
 	PrinterColumns           *ContainerPrinterColumns `json:"printer,omitempty"`
 	Timestamps               map[string]metav1.Time   `json:"timestamps,omitempty"`
 	NotToleratedOnReschedule bool                     `json:"notToleratedOnReschedule,omitempty"`
+	// True while the pod does not match the current pod-affecting spec values, or its replacement is not ready yet.
+	PodOutdated bool `json:"podOutdated,omitempty"`
 }
 
 func (s *WekaContainerStatus) GetAddedDrivesSerials() []string {

@@ -642,8 +642,7 @@ func (o *RotateSsdProxyOperation) applyTargetImage(ctx context.Context, node *Ro
 }
 
 // patchProxyImage merge-patches only spec.image on the proxy CR (upgrade.go:55-83's RawPatch
-// mechanics). podConfigHash is deliberately omitted: the ownerless ssdproxy self-derives it from
-// spec.image, and setting it here would break that self-derivation on future rotations.
+// mechanics).
 func (o *RotateSsdProxyOperation) patchProxyImage(ctx context.Context, proxy *weka.WekaContainer, targetImage string) error {
 	patch := map[string]interface{}{
 		"spec": map[string]interface{}{

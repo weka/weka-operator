@@ -137,6 +137,15 @@ spec:
                               image instead of the cluster image. False by default.
                             type: boolean
                         type: object
+                      podRotation:
+                        description: PodRotation sets the operator-wide default for
+                          replacing pods whose pod-affecting spec changed.
+                        properties:
+                          enabled:
+                            description: Enabled makes WekaClusters without spec.overrides.podRotation
+                              replace outdated pods one at a time. False by default.
+                            type: boolean
+                        type: object
                     type: object
                   discoverDrivesPayload:
                     properties:

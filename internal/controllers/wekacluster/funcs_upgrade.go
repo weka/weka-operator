@@ -479,10 +479,6 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		plannerManaged := r.plannerManaged() &&
 			(role == weka.WekaContainerModeDrive || role == weka.WekaContainerModeCompute)
 
-		// coresRaisedTo/drivesRaisedTo carry an increase applied below out to the post-Patch event
-		// (0 = unchanged). Declared here because the update itself is scoped to the !plannerManaged branch.
-		coresRaisedTo, drivesRaisedTo := 0, 0
-
 		// Sizing is written as a set or not at all. With HugepagesInfo zero, writing cores or drives would
 		// pair a new size with a stale — or zero — reservation, the exact disagreement the hugepages rework
 		// exists to prevent. sizingDeferred also suppresses the spec-hash record below so the next reconcile
@@ -501,7 +497,6 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			if rv.NumCores > container.Spec.NumCores {
 				container.Spec.NumCores = rv.NumCores
 				coresUpdated = true
-				coresRaisedTo = rv.NumCores
 			}
 
 			// A raised drive count must reach the container: the drive role's hugepages already carry the
@@ -512,7 +507,6 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			if rv.NumDrives > container.Spec.NumDrives {
 				container.Spec.NumDrives = rv.NumDrives
 				drivesUpdated = true
-				drivesRaisedTo = rv.NumDrives
 			}
 
 			dpdkChanged := rv.HugepagesInfo.DpdkBaseMemoryMb > 0 && container.Spec.DpdkBaseMemoryMb != rv.HugepagesInfo.DpdkBaseMemoryMb
@@ -546,25 +540,6 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		err = r.getClient().Patch(ctx, container, patch)
 		if err != nil {
 			return err
-		}
-
-		// Drive cores are derived (containerCapacity or numDrives×driveCapacity), so can rise without a
-		// user edit; neither NumCores nor NumDrives is part of the pod config hash, so warn since the pod
-		// won't auto-recreate. A drives-only raise still owes the restart: the hugepages reservation grew
-		// with the drives, and the pod's limit and weka.io/drives request are both immutable.
-		if (coresRaisedTo > 0 || drivesRaisedTo > 0) && role == weka.WekaContainerModeDrive {
-			var what string
-			switch {
-			case coresRaisedTo > 0 && drivesRaisedTo > 0:
-				what = fmt.Sprintf("cores to %d and drives to %d", coresRaisedTo, drivesRaisedTo)
-			case coresRaisedTo > 0:
-				what = fmt.Sprintf("cores to %d", coresRaisedTo)
-			default:
-				what = fmt.Sprintf("drives to %d", drivesRaisedTo)
-			}
-			util.RecordEvent(r.Recorder, container, v1.EventTypeWarning, "CapacityGrowthApplied", consts.ActionApplyCapacityGrowth,
-				fmt.Sprintf("raised drive container %s (derived from the cluster template); the drive spec changed — the pod must be recreated to apply the new sizing", what),
-			)
 		}
 
 		if sizingDeferred {
@@ -631,41 +606,40 @@ func (r *wekaClusterReconcilerLoop) emitClusterUpgradeCustomEvent(ctx context.Co
 }
 
 func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
+	if r.cluster.Spec.Image != r.cluster.Status.LastAppliedImage {
+		containers, err := r.rotationContainers(ctx)
+		if err != nil {
+			return err
+		}
+		hadApproved := anyApproved(containers)
+		if _, err := r.clearFinishedRotations(ctx, containers); err != nil {
+			return err
+		}
+		if hadApproved {
+			return lifecycle.NewWaitError(errors.New("image upgrade waits for the in-flight pod rotation"))
+		}
+		return r.handleImageUpgrade(ctx)
+	}
+	return r.handlePodRotation(ctx)
+}
+
+func (r *wekaClusterReconcilerLoop) handleImageUpgrade(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	cluster := r.cluster
 	clusterService := r.clusterService
 
 	nums := allocator.GetWekaContainerNumbers(cluster.Spec.Dynamic)
-	targetPodConfigHash := CalcClusterPodConfigVersion(&cluster.Spec)
-	imageChanged := cluster.Spec.Image != cluster.Status.LastAppliedImage
 
-	if targetPodConfigHash == cluster.Status.LastAppliedPodConfigHash {
-		return nil
-	}
+	logger.Info("Image upgrade sequence", "image", cluster.Spec.Image)
 
-	// First deploy of pod config version tracking: adopt current state without rolling,
-	// unless allowRotateNonAnnotated is set (user wants to rotate pre-existing pods).
-	if cluster.Status.LastAppliedPodConfigHash == "" && !config.Config.AllowRotateNonAnnotatedPodConfigHash {
-		logger.Info("Adopting current pod config version (first deploy)", "targetPodConfigHash", targetPodConfigHash)
-		cluster.Status.LastAppliedPodConfigHash = targetPodConfigHash
-		return r.getClient().Status().Update(ctx, cluster)
-	}
-
-	logger.Info("Spec upgrade sequence", "imageChanged", imageChanged, "targetPodConfigHash", targetPodConfigHash)
-
-	// Image to pass to upgrade controller — empty if only non-image spec changed
-	targetImage := ""
-	if imageChanged {
-		targetImage = cluster.Spec.Image
-	}
+	targetImage := cluster.Spec.Image
 
 	if cluster.Spec.GetOverrides().UpgradePaused {
 		return lifecycle.NewWaitError(errors.New("Upgrade is paused"))
 	}
 
-	// Image-specific: pre-pull
-	if imageChanged && config.Config.Upgrade.ImagePrePullEnabled {
+	if config.Config.Upgrade.ImagePrePullEnabled {
 		err := r.handleImagePrePull(ctx)
 		if err != nil {
 			return err
@@ -673,18 +647,12 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	}
 
 	if cluster.Spec.GetOverrides().UpgradeAllAtOnce {
-		return workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
-			if container.Spec.PodConfigHash == targetPodConfigHash {
+		err := workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
+			if container.Spec.Image == cluster.Spec.Image {
 				return nil
 			}
-			specPatch := map[string]interface{}{
-				"podConfigHash": targetPodConfigHash,
-			}
-			if imageChanged && container.Spec.Image != cluster.Spec.Image {
-				specPatch["image"] = cluster.Spec.Image
-			}
 			patch := map[string]interface{}{
-				"spec": specPatch,
+				"spec": map[string]interface{}{"image": cluster.Spec.Image},
 			}
 
 			patchBytes, err := json.Marshal(patch)
@@ -697,74 +665,76 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 				fmt.Sprintf("failed to update container spec %s", container.Name),
 			)
 		}).AsError()
+		if err != nil {
+			return err
+		}
+		if !upgrade.NewUpgradeController(r.getClient(), r.containers, cluster.Spec.Image).AreUpgraded() {
+			return lifecycle.NewWaitError(errors.New("waiting for all containers to apply the new image"))
+		}
+		cluster.Status.LastAppliedImage = cluster.Spec.Image
+		return r.getClient().Status().Update(ctx, cluster)
 	}
 
-	// Image-specific: stability checks and phase preparation
-	var targetVersion string
-	if imageChanged {
-		targetVersion = utils.GetSoftwareVersion(cluster.Spec.Image)
-	}
+	targetVersion := utils.GetSoftwareVersion(cluster.Spec.Image)
 
 	driveContainers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeDrive)
 	if err != nil {
 		return err
 	}
 
-	if imageChanged {
-		// before upgrade, if all drive nodes are still in old version - invoke upgrade prepare commands
-		prepareForUpgrade := true
-		for _, container := range driveContainers {
-			if container.Status.LastAppliedPodConfigHash == targetPodConfigHash && container.Status.ClusterContainerID != nil {
-				prepareForUpgrade = false
-			}
+	// before upgrade, if all drive nodes are still in old version - invoke upgrade prepare commands
+	prepareForUpgrade := true
+	for _, container := range driveContainers {
+		if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
+			prepareForUpgrade = false
 		}
-		if prepareForUpgrade {
-			err = r.prepareForUpgradeDrives(ctx, driveContainers, targetVersion)
-			if err != nil {
-				return err
-			}
-		}
-
-		execInContainer := discovery.SelectActiveContainer(r.containers)
-		if execInContainer == nil {
-			return errors.New("No active container found")
-		}
-
-		timeout := time.Second * 30
-		wekaService := services.NewWekaServiceWithTimeout(r.ExecService, execInContainer, &timeout)
-		var status services.WekaStatusResponse
-		status, err = wekaService.GetWekaStatus(ctx)
+	}
+	if prepareForUpgrade {
+		err = r.prepareForUpgradeDrives(ctx, driveContainers, targetVersion)
 		if err != nil {
 			return err
 		}
-
-		if !status.Rebuild.IsFullyProtected() {
-			_ = r.RecordEvent("", "WaitingForStabilize", consts.ActionUpgrade, "Weka is not fully protected, waiting to stabilize") //nolint:errcheck // error is intentionally ignored
-			return lifecycle.NewWaitError(errors.Errorf("Weka is not fully protected, waiting to stabilize, %v", status.Rebuild))
-		}
-
-		if !slices.Contains(services.HealthyClusterStatuses, status.Status) {
-			return lifecycle.NewWaitError(errors.New("Weka status is not OK/REDISTRIBUTING, waiting to stabilize. status:" + status.Status))
-		}
-
-		// Thresholded against the cluster's expected container counts, not the counts weka
-		// currently reports, so a container that vanished still counts against the threshold.
-		if !services.MeetsThreshold(status.Containers.Drives.Active, nums.Drive, config.Config.Upgrade.DriveThresholdPercent) {
-			msg := fmt.Sprintf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, nums.Drive)
-			_ = r.RecordEvent("", "ClusterSizeThreshold", consts.ActionUpgrade, msg) //nolint:errcheck // error is intentionally ignored
-			return lifecycle.NewWaitError(errors.New(msg))
-		}
-
-		if !services.MeetsThreshold(status.Containers.Computes.Active, nums.Compute, config.Config.Upgrade.ComputeThresholdPercent) {
-			msg := fmt.Sprintf("Not enough computes containers are active, waiting to stabilize, %d/%d", status.Containers.Computes.Active, nums.Compute)
-			_ = r.RecordEvent("", "ClusterSizeThreshold", consts.ActionUpgrade, msg) //nolint:errcheck // error is intentionally ignored
-			return lifecycle.NewWaitError(errors.New(msg))
-		}
-
-		r.emitClusterUpgradeCustomEvent(ctx)
 	}
 
-	uController := upgrade.NewUpgradeController(r.getClient(), driveContainers, targetImage, targetPodConfigHash)
+	execInContainer := discovery.SelectActiveContainer(r.containers)
+	if execInContainer == nil {
+		return errors.New("No active container found")
+	}
+
+	timeout := time.Second * 30
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, execInContainer, &timeout)
+	var status services.WekaStatusResponse
+	status, err = wekaService.GetWekaStatus(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !status.Rebuild.IsFullyProtected() {
+		_ = r.RecordEvent("", "WaitingForStabilize", consts.ActionUpgrade, "Weka is not fully protected, waiting to stabilize") //nolint:errcheck // error is intentionally ignored
+		return lifecycle.NewWaitError(errors.Errorf("Weka is not fully protected, waiting to stabilize, %v", status.Rebuild))
+	}
+
+	if !slices.Contains(services.HealthyClusterStatuses, status.Status) {
+		return lifecycle.NewWaitError(errors.New("Weka status is not OK/REDISTRIBUTING, waiting to stabilize. status:" + status.Status))
+	}
+
+	// Thresholded against the cluster's expected container counts, not the counts weka
+	// currently reports, so a container that vanished still counts against the threshold.
+	if !services.MeetsThreshold(status.Containers.Drives.Active, nums.Drive, config.Config.Upgrade.DriveThresholdPercent) {
+		msg := fmt.Sprintf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, nums.Drive)
+		_ = r.RecordEvent("", "ClusterSizeThreshold", consts.ActionUpgrade, msg) //nolint:errcheck // error is intentionally ignored
+		return lifecycle.NewWaitError(errors.New(msg))
+	}
+
+	if !services.MeetsThreshold(status.Containers.Computes.Active, nums.Compute, config.Config.Upgrade.ComputeThresholdPercent) {
+		msg := fmt.Sprintf("Not enough computes containers are active, waiting to stabilize, %d/%d", status.Containers.Computes.Active, nums.Compute)
+		_ = r.RecordEvent("", "ClusterSizeThreshold", consts.ActionUpgrade, msg) //nolint:errcheck // error is intentionally ignored
+		return lifecycle.NewWaitError(errors.New(msg))
+	}
+
+	r.emitClusterUpgradeCustomEvent(ctx)
+
+	uController := upgrade.NewUpgradeController(r.getClient(), driveContainers, targetImage)
 	err = uController.RollingUpgrade(ctx)
 	if err != nil {
 		return err
@@ -775,25 +745,23 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		return err
 	}
 
-	if imageChanged {
-		if r.cluster.Spec.GetOverrides().UpgradePausePreCompute {
-			return lifecycle.NewWaitError(errors.New("Upgrade paused before compute phase"))
+	if r.cluster.Spec.GetOverrides().UpgradePausePreCompute {
+		return lifecycle.NewWaitError(errors.New("Upgrade paused before compute phase"))
+	}
+	prepareForUpgrade = true
+	for _, container := range computeContainers {
+		if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
+			prepareForUpgrade = false
 		}
-		prepareForUpgrade := true
-		for _, container := range computeContainers {
-			if container.Status.LastAppliedPodConfigHash == targetPodConfigHash && container.Status.ClusterContainerID != nil {
-				prepareForUpgrade = false
-			}
-		}
-		if prepareForUpgrade {
-			err = r.prepareForUpgradeCompute(ctx, computeContainers, targetVersion)
-			if err != nil {
-				return err
-			}
+	}
+	if prepareForUpgrade {
+		err = r.prepareForUpgradeCompute(ctx, computeContainers, targetVersion)
+		if err != nil {
+			return err
 		}
 	}
 
-	uController = upgrade.NewUpgradeController(r.getClient(), computeContainers, targetImage, targetPodConfigHash)
+	uController = upgrade.NewUpgradeController(r.getClient(), computeContainers, targetImage)
 	err = uController.RollingUpgrade(ctx)
 	if err != nil {
 		return err
@@ -805,22 +773,20 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	}
 
 	if len(dataServicesContainers) > 0 {
-		if imageChanged {
-			prepareForUpgrade := true
-			for _, container := range dataServicesContainers {
-				if container.Status.LastAppliedPodConfigHash == targetPodConfigHash && container.Status.ClusterContainerID != nil {
-					prepareForUpgrade = false
-				}
+		prepareForUpgrade = true
+		for _, container := range dataServicesContainers {
+			if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
+				prepareForUpgrade = false
 			}
-			if prepareForUpgrade {
-				err = r.prepareForUpgradeDataServices(ctx, dataServicesContainers, targetVersion)
-				if err != nil {
-					return err
-				}
+		}
+		if prepareForUpgrade {
+			err = r.prepareForUpgradeDataServices(ctx, dataServicesContainers, targetVersion)
+			if err != nil {
+				return err
 			}
 		}
 
-		uController = upgrade.NewUpgradeController(r.getClient(), dataServicesContainers, targetImage, targetPodConfigHash)
+		uController = upgrade.NewUpgradeController(r.getClient(), dataServicesContainers, targetImage)
 		err = uController.RollingUpgrade(ctx)
 		if err != nil {
 			return err
@@ -844,43 +810,38 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	feContainers = append(feContainers, nfsContainers...)
 	feContainers = append(feContainers, smbwContainers...)
 
-	if imageChanged {
-		prepareForUpgrade := true
-		for _, container := range feContainers {
-			if container.Status.LastAppliedPodConfigHash == targetPodConfigHash && container.Status.ClusterContainerID != nil {
-				prepareForUpgrade = false
-			}
+	prepareForUpgrade = true
+	for _, container := range feContainers {
+		if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
+			prepareForUpgrade = false
 		}
-		if prepareForUpgrade {
-			err = r.prepareForUpgradeFrontend(ctx, feContainers, targetVersion)
-			if err != nil {
-				return err
-			}
+	}
+	if prepareForUpgrade {
+		err = r.prepareForUpgradeFrontend(ctx, feContainers, targetVersion)
+		if err != nil {
+			return err
 		}
 	}
 
-	uController = upgrade.NewUpgradeController(r.getClient(), feContainers, targetImage, targetPodConfigHash)
+	uController = upgrade.NewUpgradeController(r.getClient(), feContainers, targetImage)
 	err = uController.RollingUpgrade(ctx)
 	if err != nil {
 		return err
 	}
 
-	if imageChanged {
-		err = r.finalizeUpgrade(ctx, driveContainers)
-		if err != nil {
-			return err
-		}
-
-		cluster.Status.LastAppliedImage = cluster.Spec.Image
-
-		// Clear pre-pull annotations after successful upgrade
-		cleanupErr := r.clearAllPrePullAnnotations(ctx)
-		if cleanupErr != nil {
-			logger.Warn("Failed to clear pre-pull annotations", "error", cleanupErr)
-		}
+	err = r.finalizeUpgrade(ctx, driveContainers)
+	if err != nil {
+		return err
 	}
 
-	cluster.Status.LastAppliedPodConfigHash = targetPodConfigHash
+	cluster.Status.LastAppliedImage = cluster.Spec.Image
+
+	// Clear pre-pull annotations after successful upgrade
+	cleanupErr := r.clearAllPrePullAnnotations(ctx)
+	if cleanupErr != nil {
+		logger.Warn("Failed to clear pre-pull annotations", "error", cleanupErr)
+	}
+
 	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
 		return err
 	}

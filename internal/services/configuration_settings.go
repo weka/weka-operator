@@ -34,6 +34,12 @@ type DriversSettings struct {
 	ForceBuilderCli bool
 }
 
+// PodRotationSettings holds the operator-wide settings for pod rotation.
+type PodRotationSettings struct {
+	// Enabled turns on pod rotation when pod-affecting config changes.
+	Enabled bool
+}
+
 // CsiSettings holds the operator-wide settings for the embedded CSI deployment.
 //
 // Garbage collection is deliberately absent: it is already configurable per client through
@@ -52,8 +58,9 @@ type CsiSettings struct {
 // configuration WekaPolicy applied over them. Every field is a resolved value, never a pointer, so
 // callers never repeat the nil-means-default decision.
 type ConfigurationSettings struct {
-	Drivers DriversSettings
-	Csi     CsiSettings
+	Drivers     DriversSettings
+	Csi         CsiSettings
+	PodRotation PodRotationSettings
 }
 
 // DefaultConfigurationSettings returns the built-in defaults, which apply when no configuration
@@ -66,6 +73,9 @@ func DefaultConfigurationSettings() ConfigurationSettings {
 		Csi: CsiSettings{
 			MetricsEnabled: true,
 			FsGroupPolicy:  storagev1.FileFSGroupPolicy,
+		},
+		PodRotation: PodRotationSettings{
+			Enabled: false,
 		},
 	}
 }
@@ -90,6 +100,10 @@ func SettingsFromPayload(payload *weka.ConfigurationPayload) ConfigurationSettin
 		if payload.Csi.FsGroupPolicy != nil {
 			resolved.Csi.FsGroupPolicy = storagev1.FSGroupPolicy(*payload.Csi.FsGroupPolicy)
 		}
+	}
+
+	if payload.PodRotation != nil && payload.PodRotation.Enabled != nil {
+		resolved.PodRotation.Enabled = *payload.PodRotation.Enabled
 	}
 
 	return resolved
