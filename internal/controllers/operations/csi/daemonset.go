@@ -43,6 +43,7 @@ type CsiNodeHashableSpec struct {
 	HostNetwork               bool
 	PlacementScheme           string
 	MetricsEnabled            bool
+	NodeResources             config.CsiNodeResources
 }
 
 // csiNodePlacementScheme identifies how csi-node placement is expressed in the rendered pod spec.
@@ -100,6 +101,7 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, c
 		HostNetwork:               config.Config.Csi.HostNetwork,
 		PlacementScheme:           csiNodePlacementScheme,
 		MetricsEnabled:            settings.MetricsEnabled,
+		NodeResources:             config.Config.Csi.NodeResources,
 	}
 
 	return util2.HashStruct(spec)
