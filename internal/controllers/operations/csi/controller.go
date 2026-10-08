@@ -42,6 +42,7 @@ type CsiControllerHashableSpec struct {
 	KubeletPath           string
 	HostNetwork           bool
 	MetricsEnabled        bool
+	ControllerResources   config.CsiControllerResources
 }
 
 // GetCsiControllerDeploymentHash generates a hash for the CSI Controller Deployment
@@ -90,6 +91,7 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		KubeletPath:           config.Config.Csi.KubeletPath,
 		HostNetwork:           config.Config.Csi.HostNetwork,
 		MetricsEnabled:        settings.MetricsEnabled,
+		ControllerResources:   config.Config.Csi.ControllerResources,
 	}
 
 	return util2.HashStruct(spec)
