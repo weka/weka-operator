@@ -19,13 +19,13 @@ Device allocation then populates `Status.Allocations.VirtualDrives`.
 |---|---|
 | `internal/controllers/wekacluster/funcs_fd_planning.go` | Planning orchestration, `steadyStatePlan`, `summarizeDriveContainers` |
 | `internal/controllers/wekacluster/steps_planner_apply.go` | clusterCapacity drive/compute create and growth paths |
-| `internal/controllers/wekacluster/daemonset.go` | `planDaemonset`, `buildDaemonsetContainers` |
+| `internal/controllers/wekacluster/daemonset.go` | `planDaemonset`, `buildDaemonsetContainers`, `listFreeDrives` |
 | `internal/capacityplanner/inventory/collect.go` | `Collector`, `NodeInventory`, `ExistingDrives`, `ExistingCompute`, `DriveContainerCapacities` |
 | `internal/capacityplanner/planner.go` | `PlanCapacity` |
 | `internal/capacityplanner/cpu.go`, `cores.go`, `hugepages.go` | `CPURequestCores`, `RequiredComputeCores`, pod-resource formulas |
 | `internal/capacityplanner/infeasibility.go` | `InfeasibilityReport`, diagnostic fixes reused by events and CLI |
 | `internal/controllers/allocator/container_allocator.go` | `allocateSharedDrivesByCapacityWithTypes`, `buildDriveCapacityMap` |
-| `internal/controllers/wekacontainer/funcs_getters.go`, `funcs_drives.go` | `NeedsDrivesToAllocate`, `checkDriveResourceFeasibility` |
+| `internal/controllers/wekacontainer/funcs_getters.go`, `funcs_drives.go` | `NeedsDrivesToAllocate`, `checkDriveResourceFeasibility`, `deferIfFullDrivesShortfall` |
 | `cmd/weka-capacity/` | Inventory exploration and dry-run planning CLI |
 
 ## Details

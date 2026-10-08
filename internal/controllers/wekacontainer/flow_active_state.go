@@ -344,6 +344,14 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			ContinueOnError: true,
 		},
 		&lifecycle.SimpleStep{
+			Run: r.handleOversizedDrivePod,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				lifecycle.IsNotFunc(r.container.UsesDriveSharing),
+				r.PodIsSet,
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.deletePodIfUnschedulable,
 			Predicates: lifecycle.Predicates{
 				func() bool {
