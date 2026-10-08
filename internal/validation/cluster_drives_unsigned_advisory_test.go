@@ -3,6 +3,7 @@ package validation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -79,16 +80,62 @@ func TestClusterDrivesUnsignedAdvisory(t *testing.T) {
 		}
 	})
 
-	// clusterMinDrivesFeasibility rejects this exact state; warning too would double-report it.
-	t.Run("auto-full-drives with minNumDrives defers to the feasibility error", func(t *testing.T) {
+	// The unsigned advisory is the sole owner of "nothing signed yet" in this mode, whatever minNumDrives is.
+	t.Run("auto-full-drives with minNumDrives still warns", func(t *testing.T) {
 		c := fakeClientWithNodes(t, driveRoleNode(t, "n1", labels, nil))
-		cluster := withSelector(autoFullDrives, 10)
-		if errs := v.Validate(ctx, c, cluster); len(errs) != 0 {
-			t.Errorf("expected no advisory, got %v", errs)
+		if errs := v.Validate(ctx, c, withSelector(autoFullDrives, 10)); len(errs) != 1 {
+			t.Errorf("expected 1 advisory, got %v", errs)
 		}
-		// Guard the assumption the suppression rests on: something else does report it.
-		if errs := (&clusterMinDrivesFeasibility{}).Validate(ctx, c, cluster); len(errs) == 0 {
-			t.Errorf("suppressed the advisory but clusterMinDrivesFeasibility stayed silent too")
+	})
+
+	t.Run("auto-full-drives lists every unsigned node, not only the none-signed case", func(t *testing.T) {
+		c := fakeClientWithNodes(t,
+			driveRoleNode(t, "n1", labels, []int{1000}),
+			driveRoleNode(t, "n2", labels, nil),
+			driveRoleNode(t, "n3", labels, nil),
+		)
+		errs := v.Validate(ctx, c, withSelector(autoFullDrives, 0))
+		if len(errs) != 1 {
+			t.Fatalf("expected 1 advisory, got %v", errs)
+		}
+		d := errs[0].Detail
+		if !strings.Contains(d, "n2, n3") || strings.Contains(d, "n1") || !strings.Contains(d, "2 of the 3") {
+			t.Errorf("expected exactly the unsigned nodes n2, n3, got %q", d)
+		}
+	})
+
+	t.Run("auto-full-drives treats unparsable, empty and all-blocked nodes as unsigned", func(t *testing.T) {
+		bad := driveRoleNode(t, "bad", labels, []int{1000})
+		bad.Annotations[consts.AnnotationWekaFullDrives] = "{not json"
+		empty := driveRoleNode(t, "empty", labels, []int{})
+		blocked := driveRoleNode(t, "blocked", labels, []int{1000})
+		blocked.Annotations[consts.AnnotationBlockedDrives] = `["blocked-d0"]`
+		c := fakeClientWithNodes(t, driveRoleNode(t, "ok", labels, []int{1000}), bad, empty, blocked)
+		errs := v.Validate(ctx, c, withSelector(autoFullDrives, 0))
+		if len(errs) != 1 {
+			t.Fatalf("expected 1 advisory, got %v", errs)
+		}
+		d := errs[0].Detail
+		if !strings.Contains(d, "bad, blocked, empty") || strings.Contains(d, "ok") || !strings.Contains(d, "3 of the 4") {
+			t.Errorf("expected exactly bad, blocked, empty, got %q", d)
+		}
+	})
+
+	t.Run("auto-full-drives caps the listed nodes at 10", func(t *testing.T) {
+		var nodes []*corev1.Node
+		for i := 0; i < 12; i++ {
+			nodes = append(nodes, driveRoleNode(t, fmt.Sprintf("n%02d", i), labels, nil))
+		}
+		errs := v.Validate(ctx, fakeClientWithNodes(t, nodes...), withSelector(autoFullDrives, 0))
+		if len(errs) != 1 || !strings.Contains(errs[0].Detail, "n09 (+2 more)") || strings.Contains(errs[0].Detail, "n10") {
+			t.Errorf("expected 10 nodes then (+2 more), got %v", errs)
+		}
+	})
+
+	t.Run("auto-full-drives all signed is silent", func(t *testing.T) {
+		c := fakeClientWithNodes(t, driveRoleNode(t, "n1", labels, []int{1000}))
+		if errs := v.Validate(ctx, c, withSelector(autoFullDrives, 0)); len(errs) != 0 {
+			t.Errorf("expected no advisory, got %v", errs)
 		}
 	})
 

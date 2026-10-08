@@ -346,3 +346,9 @@ func orderNodesByFDSpread(nodes []string, headroom func(node string) int, fdOf f
 	}
 	return out
 }
+
+// The InfeasibilityReport.Binding resource dimensions.
+const (
+	bindingCores     = "cores"
+	bindingHugepages = "hugepages"
+)

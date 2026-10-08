@@ -60,8 +60,8 @@ spec:
 ```
 
 Without the annotation, this edit is **rejected** by the admission validator: switching a cluster's
-sizing mode while drive containers already exist is blocked unless the switch is one of the three
-it explicitly allows (see [the sizing-mode note](../deployment/act-as-daemonset.md#changing-sizing-mode-on-a-live-cluster)).
+sizing mode while drive containers already exist is blocked unless the switch is one of the few
+it explicitly allows (see [mode flips](../deployment/act-as-daemonset.md#mode-flips)).
 Setting the annotation is what tells the validator this switch is intentional and is about to be
 carried out by this operation — **applying it alone does nothing to the running containers.** They
 keep running exclusively until the campaign below actually touches them.
@@ -385,7 +385,7 @@ A cluster migrated this way can later move again, from `containerCapacity`/`driv
 ## Limitations
 
 - **v1 only migrates from explicit container counts** (`numDrives` on the source spec). A cluster
-  already in `auto-full-drives` (daemonset) mode cannot use this operation — that switch stays
+  already in the [daemonset mode](../deployment/act-as-daemonset.md) cannot use this operation — that switch stays
   rejected by the validator regardless of the annotation.
 - **The target must be `containerCapacity`/`driveCapacity` (drive-sharing), not `clusterCapacity`
   directly.** Land on drive-sharing first, then use the existing

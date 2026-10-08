@@ -165,13 +165,6 @@ func renderPlanJSON(d *planData) (string, error) {
 		Binding   string `json:"binding"`
 		FreeGiB   int    `json:"freeGiB"`
 		NeededGiB int    `json:"neededGiB"`
-		// Needed/Available/Unit carry a NON-capacity rejection (physical CPU, hugepages, memory) from the
-		// auto-full-drives node-fit gate. Kept separate from FreeGiB/NeededGiB rather than overloading them:
-		// those two are GiB by contract and a consumer humanizing them would render a CPU count as "16 GiB".
-		// Omitted when Unit is empty, so a capacity rejection's payload is unchanged.
-		Needed    int    `json:"needed,omitempty"`
-		Available int    `json:"available,omitempty"`
-		Unit      string `json:"unit,omitempty"`
 	}
 	out := map[string]any{
 		"cluster": d.Cluster,
@@ -191,7 +184,6 @@ func renderPlanJSON(d *planData) (string, error) {
 		for _, n := range r.RejectedNodes {
 			rej = append(rej, nodeRej{
 				Node: n.Node, Binding: n.Binding, FreeGiB: n.FreeGiB, NeededGiB: n.NeededGiB,
-				Needed: n.Needed, Available: n.Available, Unit: n.Unit,
 			})
 		}
 		out["infeasibility"] = map[string]any{
@@ -207,7 +199,7 @@ func renderPlanJSON(d *planData) (string, error) {
 	out["growDrive"] = d.Plan.Grow
 	out["createCompute"] = d.ComputeCreate
 	out["growCompute"] = d.ComputeGrow
-	out["warnings"] = capacityplanner.WarningMessages(d.Plan.Warnings)
+	out["warnings"] = d.Plan.Warnings
 	out["overProvisions"] = d.Plan.OverProvisions
 	out["shrinkEvents"] = d.Plan.ShrinkEvents
 	out["summary"] = d.Summary
@@ -304,7 +296,7 @@ func renderPlanText(d *planData) string {
 	// COMPUTE: create rows keyed by node, grow rows by container name, showing the core transition.
 	renderComputeSection(&buf, createLabel, growLabel, d.ComputeCreate, d.ComputeGrow)
 
-	renderList(&buf, "WARNINGS", capacityplanner.WarningMessages(p.Warnings))
+	renderList(&buf, "WARNINGS", p.Warnings)
 	renderList(&buf, "OVER-PROVISION", p.OverProvisions)
 	renderList(&buf, "SHRINK", p.ShrinkEvents)
 
@@ -390,13 +382,8 @@ func transitionInt(from, to int) string {
 	return fmt.Sprintf("%d→%d", from, to)
 }
 
-// renderRejectedNodes prints the per-node rejection table shared by both plan renderers: every node the
-// planner could not place on, with the dimension that bound it and what it had versus what it needed.
-//
-// The FREE/NEEDED pair is unit-aware. A capacity rejection leaves NodeRejection.Unit empty and carries
-// GiB in FreeGiB/NeededGiB; the auto-full-drives node-fit gate instead sets Unit ("physical CPU", "MiB
-// hugepages", …) with plain counts in Available/Needed. Running the latter through the GiB humanizer
-// would print 16 physical CPUs as "16 GiB", so the unit decides the formatting.
+// renderRejectedNodes prints the per-node rejection table: every node the planner could not place on,
+// with the dimension that bound it and what it had versus what it needed.
 func renderRejectedNodes(buf *bytes.Buffer, rejected []capacityplanner.NodeRejection) {
 	if len(rejected) == 0 {
 		return
@@ -404,123 +391,7 @@ func renderRejectedNodes(buf *bytes.Buffer, rejected []capacityplanner.NodeRejec
 	tw := tabwriter.NewWriter(buf, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(tw, "  NODE\tBINDING\tFREE\tNEEDED") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
 	for _, n := range rejected {
-		free, needed := util.HumanReadableGiB(n.FreeGiB), util.HumanReadableGiB(n.NeededGiB)
-		if n.Unit != "" {
-			free = fmt.Sprintf("%d %s", n.Available, n.Unit)
-			needed = fmt.Sprintf("%d %s", n.Needed, n.Unit)
-		}
-		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\n", n.Node, dashIfEmpty(n.Binding), free, needed) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
+		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\n", n.Node, dashIfEmpty(n.Binding), util.HumanReadableGiB(n.FreeGiB), util.HumanReadableGiB(n.NeededGiB)) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
 	}
 	tw.Flush() //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-}
-
-// ---------------------------------------------------------------------------
-// auto-full-drives (daemonset) plan rendering
-// ---------------------------------------------------------------------------
-
-func renderAutoFullDrivesPlanJSON(d *autoFullDrivesPlanData) (string, error) {
-	out := map[string]any{
-		"cluster":       d.Cluster,
-		"mode":          "autoFullDrives",
-		"feasible":      d.Plan.Infeasible == "",
-		"nodes":         d.Nodes,
-		"createDrive":   d.Plan.Create,
-		"growDrive":     d.Plan.Grow,
-		"createCompute": d.ComputeCreate,
-		"growCompute":   d.ComputeGrow,
-		"warnings":      capacityplanner.WarningMessages(d.Plan.Warnings),
-		"summary":       d.Summary,
-	}
-	if r := d.Plan.Infeasibility; r != nil {
-		out["infeasibility"] = r
-	}
-	out["driveSizing"] = d.Plan.DriveSizing
-	return jsonString(out)
-}
-
-func renderAutoFullDrivesPlanText(d *autoFullDrivesPlanData) string {
-	var buf bytes.Buffer
-	p := d.Plan
-
-	fmt.Fprintf(&buf, "CLUSTER %s (daemonset / auto full drives)\n", d.Cluster) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-
-	if p.Infeasible == "" {
-		fmt.Fprintln(&buf, "\nFEASIBILITY  OK") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-	} else {
-		fmt.Fprintln(&buf, "\nFEASIBILITY  INFEASIBLE") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-	}
-
-	if r := p.Infeasibility; r != nil {
-		fmt.Fprintln(&buf, "\nINFEASIBLE")                              //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		fmt.Fprintf(&buf, "  reason: %s\n", r.Reason)                   //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		fmt.Fprintf(&buf, "  pool: %s   binding: %s   shortfall: %s\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			dashIfEmpty(r.Pool), dashIfEmpty(r.Binding), util.HumanReadableGiB(r.ShortfallGiB))
-		// Every node that could not fit a container sized for all its drives. In this mode ONE such node
-		// makes the whole plan infeasible, so this table is the primary diagnostic.
-		renderRejectedNodes(&buf, r.RejectedNodes)
-		if len(r.Fixes) > 0 {
-			fmt.Fprintln(&buf, "  FIXES:") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			for i, f := range r.Fixes {
-				fmt.Fprintf(&buf, "    %d. %s\n", i+1, f) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			}
-		}
-	}
-
-	// DRIVE SIZING is a flat statement of what the planner sized, printed whenever it ran (even on an
-	// infeasible plan). It is deliberately NOT an explanation of anything held back: drive cores are
-	// derived once from the drive count (or the driveCores pin) and are never traded away to fit
-	// compute, so there is no cap, no attempt count, and no per-node "limited" set to report. A fleet
-	// that cannot host the compute those cores require is infeasible, and the INFEASIBLE section above
-	// carries that. ds.Reason is the planner's own one-line rationale.
-	if ds := p.DriveSizing; ds != nil {
-		fmt.Fprintln(&buf, "\nDRIVE SIZING")                      //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		fmt.Fprintf(&buf, "  drives: %d/%d taken   TLC: %s/%s\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			ds.DrivesTaken, ds.DrivesAvailable, util.HumanReadableGiB(ds.TlcGiBTaken), util.HumanReadableGiB(ds.TlcGiBAvailable))
-		fmt.Fprintf(&buf, "  drive cores: %d   compute cores required: %d\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			ds.TotalTlcDriveCores, ds.RequiredComputeCores)
-		fmt.Fprintf(&buf, "  compute: %d container(s), %d cores/container, %d MiB hugepages\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-			ds.ComputeContainers, ds.ComputeCoresPerContainer, ds.ComputeHugepagesMiB)
-		fmt.Fprintf(&buf, "  rationale: %s\n", ds.Reason) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-	}
-
-	// NODES: one row per node with a signed full drive — drives used/avail, TLC, cores, and STATE
-	// (create/grow/existing/not-planned). NOTE explains a row holding fewer drives than it offers and points
-	// at the WARNINGS list below for the fleet-wide detail.
-	if len(d.Nodes) > 0 {
-		fmt.Fprintln(&buf, "\nNODES") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		tw := tabwriter.NewWriter(&buf, 0, 2, 2, ' ', 0)
-		fmt.Fprintln(tw, "  NODE\tFD\tDRIVES(used/avail)\tTLC\tCORES\tSTATE\tNOTE") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		for _, n := range d.Nodes {
-			fmt.Fprintf(tw, "  %s\t%s\t%d/%d\t%s\t%d\t%s\t%s\n", //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-				n.Node, dashIfEmpty(n.FD), n.DrivesUsed, n.DrivesAvail,
-				util.HumanReadableGiB(n.TlcGiB), n.Cores, n.State, dashIfEmpty(n.Note))
-		}
-		tw.Flush() //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-	}
-
-	// DRIVE GROW: the daemonset mode's expand-only growth, additionally showing the drive-count transition
-	// (unlike clusterCapacity's DRIVE grow — see planner.go). Drives and cores move independently, so a row
-	// may show a drive change with cores unchanged (free, applies live) or the reverse.
-	if len(d.DriveGrow) > 0 {
-		fmt.Fprintln(&buf, "\nDRIVE GROW (A4, expand-only)") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		tw := tabwriter.NewWriter(&buf, 0, 2, 2, ' ', 0)
-		fmt.Fprintln(tw, "  CONTAINER\tNODE\tDRIVES\tTLC\tCORES") //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-		for _, g := range d.DriveGrow {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n", g.Name, dashIfEmpty(g.Node), //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-				transitionInt(g.FromNumDrives, g.ToNumDrives),
-				transitionGiB(g.FromTlcGiB, g.ToTlcGiB),
-				transitionInt(g.FromCores, g.ToCores))
-		}
-		tw.Flush() //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-	}
-
-	// COMPUTE: same ComputeContainerSpec-derived model as clusterCapacity's table (see planComputeAutoFullDrives),
-	// fed by a different drive plan.
-	renderComputeSection(&buf, "create", "grow", d.ComputeCreate, d.ComputeGrow)
-
-	renderList(&buf, "WARNINGS", capacityplanner.WarningMessages(p.Warnings))
-
-	fmt.Fprintln(&buf, "\nSUMMARY")        //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-	fmt.Fprintf(&buf, "  %s\n", d.Summary) //nolint:errcheck // writes to an in-memory buffer/tabwriter; cannot fail in practice
-	return buf.String()
 }

@@ -13,13 +13,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/consts"
+	"github.com/weka/weka-operator/internal/controllers/allocator"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 // clusterDrivesUnsignedAdvisory warns when no node matching the drive-role nodeSelector carries the
 // drive annotation this cluster's mode consumes (shared-drives vs full-drives are disjoint, so a node
 // signed the other way gets a distinct re-signing message). Without this, unsigned nodes silently
-// bypass clusterSignedDrives and the auto-full-drives projection, admitting a misconfigured apply
-// unnoticed. Warn-only.
+// bypass clusterSignedDrives, admitting a misconfigured apply unnoticed. In auto-full-drives mode it
+// instead lists every drive-role node lacking the annotation. Warn-only.
 type clusterDrivesUnsignedAdvisory struct{}
 
 func (clusterDrivesUnsignedAdvisory) ID() string {
@@ -31,14 +33,6 @@ func (clusterDrivesUnsignedAdvisory) Validate(ctx context.Context, c client.Clie
 	if !ok {
 		return nil
 	}
-	// A nil dynamicTemplate is no longer out of scope: it is auto-full-drives mode (one drive container
-	// per eligible node), which needs signed drives just as much as an explicit template does.
-	// clusterMinDrivesFeasibility already rejects auto-full-drives + positive minNumDrives with zero
-	// signed drives; staying silent there avoids double-reporting the same condition.
-	if cluster.Spec.Dynamic.UsesAutoFullDrives() && cluster.Spec.GetStartIoConditions().MinNumDrives > 0 {
-		return nil
-	}
-
 	selector := cluster.GetNodeSelectorForRole(weka.WekaContainerModeDrive)
 	nodes, errs := listDriveRoleNodes(ctx, c, cluster, field.NewPath("spec", "nodeSelector"))
 	if errs != nil {
@@ -47,6 +41,10 @@ func (clusterDrivesUnsignedAdvisory) Validate(ctx context.Context, c client.Clie
 	if len(nodes) == 0 {
 		// clusterSelectedNodesCount owns "the selector matches nothing".
 		return nil
+	}
+
+	if cluster.Spec.Dynamic.UsesAutoFullDrives() {
+		return unsignedAutoFullDrives(cluster, nodes, selector)
 	}
 
 	// Which annotation matters is a property of the cluster, not of what happens to be on the nodes.
@@ -93,6 +91,32 @@ func (clusterDrivesUnsignedAdvisory) Validate(ctx context.Context, c client.Clie
 			wantMode, wantAnn, formatNodeNames(nodes), wantMode,
 		)
 	}
+	return field.ErrorList{
+		field.Invalid(field.NewPath("spec", "nodeSelector"), formatSelector(selector), detail),
+	}
+}
+
+// unsignedAutoFullDrives warns about every drive-role node with no usable full drives (no annotation, an
+// unparsable one, or every drive blocked): in auto-full-drives mode such a node silently gets no drive and
+// no compute container.
+func unsignedAutoFullDrives(cluster *weka.WekaCluster, nodes []corev1.Node, selector map[string]string) field.ErrorList {
+	var unsigned []string
+	for i := range nodes {
+		drivesGiB, signed, err := allocator.SignedFullDrivesGiB(&nodes[i])
+		if !signed || err != nil || len(drivesGiB) == 0 {
+			unsigned = append(unsigned, nodes[i].Name)
+		}
+	}
+	if len(unsigned) == 0 {
+		return nil
+	}
+	sort.Strings(unsigned)
+	detail := fmt.Sprintf(
+		"%d of the %d node(s) matching the drive-role nodeSelector (%s) have no usable %s drives: %s. "+
+			"This cluster acts as a daemonset, and no drive or compute container is created on a node "+
+			"until sign-drives has run there in full-drives mode and left at least one unblocked drive.",
+		len(unsigned), len(nodes), formatSelector(selector), consts.AnnotationWekaFullDrives, util.JoinCapped(unsigned, ", ", 10),
+	)
 	return field.ErrorList{
 		field.Invalid(field.NewPath("spec", "nodeSelector"), formatSelector(selector), detail),
 	}

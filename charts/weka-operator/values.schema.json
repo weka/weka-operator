@@ -20,7 +20,10 @@
               "description": "QLC ratio (0 or greater)"
             }
           },
-          "required": ["tlc", "qlc"]
+          "required": [
+            "tlc",
+            "qlc"
+          ]
         },
         "smallBigDiskSizesMaxProportionFactor": {
           "type": "integer",
@@ -76,6 +79,24 @@
         "ingressClass": {
           "type": "string",
           "description": "Ingress class for the management proxy ingress."
+        }
+      }
+    },
+    "capacityPlannerConstraints": {
+      "type": "object",
+      "properties": {
+        "fullDrives": {
+          "type": "object",
+          "properties": {
+            "computeToDriveCoreRatio": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "exclusiveMinimum": 0,
+              "description": "Act-as-daemonset compute:drive core ratio. Must be > 0; null uses the operator default 2.0."
+            }
+          }
         }
       }
     }

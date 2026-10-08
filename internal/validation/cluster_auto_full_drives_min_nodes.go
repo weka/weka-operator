@@ -49,15 +49,15 @@ func (clusterAutoFullDrivesMinNodes) Validate(ctx context.Context, c client.Clie
 			role:          weka.WekaContainerModeDrive,
 			selectorField: "spec.roleNodeSelector.drive",
 			min:           globalconfig.Consts.FormClusterMinDriveContainers,
-			consequence: "Nothing reports this at runtime: the plan is feasible and the drive containers " +
-				"run healthy, but the cluster waits on MinContainersNotReady forever",
+			consequence: "Nothing reports this at runtime: the drive containers run healthy, but the " +
+				"cluster waits on MinContainersNotReady forever",
 		},
 		{
 			role:          weka.WekaContainerModeCompute,
 			selectorField: "spec.roleNodeSelector.compute",
 			min:           globalconfig.Consts.FormClusterMinComputeContainers,
-			consequence: "The planner reports the whole plan infeasible (AutoFullDrivesInfeasible) and " +
-				"creates nothing",
+			consequence: "Nothing reports this at runtime: the compute containers run healthy, but the " +
+				"cluster waits on MinContainersNotReady forever",
 		},
 	}
 

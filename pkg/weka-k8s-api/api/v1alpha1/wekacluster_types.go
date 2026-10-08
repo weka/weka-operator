@@ -251,8 +251,8 @@ type WekaClusterTemplate struct {
 	S3Cores int `json:"s3Cores,omitempty"`
 	// Number of virtual or physical drives per drive container. Mutually exclusive with containerCapacity.
 	// When the cluster acts as a daemonset (computeContainers and driveContainers both unset), NumDrives
-	// instead acts as a per-node override, pinning the number of largest signed drives that each node's
-	// drive container takes instead of consuming all of them.
+	// is the per-node drive count: each drive container takes that many of the node's largest signed
+	// drives instead of all of them.
 	// +kubebuilder:validation:Minimum=0
 	NumDrives int `json:"numDrives,omitempty"`
 	// +kubebuilder:validation:Minimum=0

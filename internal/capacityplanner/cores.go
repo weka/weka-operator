@@ -54,19 +54,6 @@ func FullDriveCores(numDrives int, cons *CapacityConstraints) int {
 	return numDrives
 }
 
-// PreferredFullDrivesComputeToDriveCoreRatio is the full-drives target when the ratio is unset (negative);
-// auto-full-drives relaxes it toward 1:1 when compute cannot host it (planComputeAdaptive).
-const PreferredFullDrivesComputeToDriveCoreRatio = 2.0
-
-// EffectiveFullDrivesRatio resolves an unset (negative) full-drives ratio to its preferred default,
-// otherwise returning ratio unchanged.
-func EffectiveFullDrivesRatio(ratio float64) float64 {
-	if ratio < 0 {
-		return PreferredFullDrivesComputeToDriveCoreRatio
-	}
-	return ratio
-}
-
 // RequiredComputeCores is the compute-core total a plan must supply, shared by both planners: the
 // configured ratios can raise it above the TLC+QLC drive-core count but never below (hard floor).
 // fullDrives selects the full-drives ratio; otherwise the drive-sharing TLC/QLC pair applies.
@@ -78,7 +65,7 @@ func RequiredComputeCores(tlcDriveCores, qlcDriveCores int, fullDrives bool, con
 	tlcRatio, qlcRatio := cons.ComputeToTlcDriveCoreRatio, cons.ComputeToQlcDriveCoreRatio
 	if fullDrives {
 		// Full drives is TLC-only by construction; qlcDriveCores is always 0 here.
-		tlcRatio, qlcRatio = EffectiveFullDrivesRatio(cons.FullDrivesComputeToDriveCoreRatio), 0
+		tlcRatio, qlcRatio = cons.FullDrivesComputeToDriveCoreRatio, 0
 	}
 	ratioed := int(math.Ceil(tlcRatio*float64(tlcDriveCores) + qlcRatio*float64(qlcDriveCores)))
 	return max(total, ratioed)
@@ -118,7 +105,7 @@ func finalCores(c *ExistingContainer, growth map[string]*ContainerGrowth) int {
 
 // tlcDriveCoresForContainer returns the TLC-attributable core count for a container's final state. A
 // TLC-only container (qlcGiB <= 0, checked before the tlcGiB<=0 short-circuit below) attributes all of
-// assignedCores to TLC — the only reliable figure for auto-full-drives containers, which are always
+// assignedCores to TLC — the only reliable figure for act-as-daemonset drive containers, which are always
 // TLC-only. Mixed containers derive the share from capacity, capped at assignedCores.
 func tlcDriveCoresForContainer(tlcGiB, qlcGiB, assignedCores int, cons *CapacityConstraints) int {
 	if qlcGiB <= 0 && assignedCores > 0 {

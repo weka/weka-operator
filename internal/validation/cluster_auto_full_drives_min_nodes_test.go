@@ -90,8 +90,11 @@ func TestAutoFullDrivesMinNodes_BothRolesBelowFloor(t *testing.T) {
 			}
 			for _, want := range []string{
 				"matches 2 node(s), below the 5 compute container(s)",
-				"AutoFullDrivesInfeasible",
+				"the compute containers run healthy, but the cluster waits on MinContainersNotReady forever",
 			} {
+				if strings.Contains(e.Detail, "AutoFullDrivesInfeasible") {
+					t.Errorf("message must not cite the removed AutoFullDrivesInfeasible reason, got: %s", e.Detail)
+				}
 				if !strings.Contains(e.Detail, want) {
 					t.Errorf("compute message missing %q, got: %s", want, e.Detail)
 				}

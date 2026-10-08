@@ -322,160 +322,6 @@ func newFullDrivesTestClient(t *testing.T, nodes []*corev1.Node, containers []*w
 	return newInventoryTestClient(t, objs...)
 }
 
-// TestFullDrivesInventory_OwnVsFreeDrives verifies FullDrivesInventory splits signed full drives into
-// OwnDriveCapacitiesGiB (this cluster's own container) vs. DriveCapacitiesGiB (still free) rather than one
-// total bucket, and that another cluster's allocated drives count as neither (they vanish from this view).
-func TestFullDrivesInventory_OwnVsFreeDrives(t *testing.T) {
-	n1Owned := []domain.DriveEntry{{Serial: "n1-o1", CapacityGiB: 1000}, {Serial: "n1-o2", CapacityGiB: 1000}, {Serial: "n1-o3", CapacityGiB: 1000}}
-	n1Free := []domain.DriveEntry{{Serial: "n1-f1", CapacityGiB: 500}, {Serial: "n1-f2", CapacityGiB: 500}}
-	n1Entries := append(append([]domain.DriveEntry(nil), n1Owned...), n1Free...)
-	n1 := driveNode(t, "n1", n1Entries)
-	meContainer := allocatedDriveContainer("me-n1", "n1", domain.DriveEntrySerials(n1Owned))
-
-	n2Other := []domain.DriveEntry{{Serial: "n2-o1", CapacityGiB: 800}, {Serial: "n2-o2", CapacityGiB: 800}}
-	n2Free := []domain.DriveEntry{{Serial: "n2-f1", CapacityGiB: 300}}
-	n2Entries := append(append([]domain.DriveEntry(nil), n2Other...), n2Free...)
-	n2 := driveNode(t, "n2", n2Entries)
-	otherContainer := allocatedDriveContainer("other-n2", "n2", domain.DriveEntrySerials(n2Other))
-	otherContainer.OwnerReferences = []metav1.OwnerReference{{Kind: "WekaCluster", UID: types.UID("cluster-other")}}
-
-	fakeClient := newFullDrivesTestClient(t,
-		[]*corev1.Node{n1, n2},
-		[]*weka.WekaContainer{&meContainer, &otherContainer},
-	)
-
-	cluster := &weka.WekaCluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-me", UID: types.UID("cluster-me")}}
-	ownContainers := []*weka.WekaContainer{&meContainer} // caller-filtered: this cluster's own only
-
-	collector := NewCollector(fakeClient)
-	_, inv, _, err := collector.FullDrivesInventory(context.Background(), cluster, ownContainers, testCons())
-	if err != nil {
-		t.Fatalf("FullDrivesInventory: %v", err)
-	}
-	byName := invByName(inv)
-
-	n1cap, ok := byName["n1"]
-	if !ok {
-		t.Fatalf("n1 missing from inventory (has free drives, should be present)")
-	}
-	if want := []int{500, 500}; !equalInts(n1cap.DriveCapacitiesGiB, want) {
-		t.Errorf("n1 DriveCapacitiesGiB (free) = %v, want %v", n1cap.DriveCapacitiesGiB, want)
-	}
-	if want := []int{1000, 1000, 1000}; !equalInts(n1cap.OwnDriveCapacitiesGiB, want) {
-		t.Errorf("n1 OwnDriveCapacitiesGiB = %v, want %v", n1cap.OwnDriveCapacitiesGiB, want)
-	}
-	if n1cap.TlcGiB != 1000 { // sum(DriveCapacitiesGiB) only — free, NOT own+free (see NodeCapacity doc)
-		t.Errorf("n1 TlcGiB = %d, want 1000 (free-only)", n1cap.TlcGiB)
-	}
-
-	n2cap, ok := byName["n2"]
-	if !ok {
-		t.Fatalf("n2 missing from inventory (has 1 free drive, should be present)")
-	}
-	if want := []int{300}; !equalInts(n2cap.DriveCapacitiesGiB, want) {
-		t.Errorf("n2 DriveCapacitiesGiB (free) = %v, want %v (other cluster's 2 drives must be excluded)", n2cap.DriveCapacitiesGiB, want)
-	}
-	if len(n2cap.OwnDriveCapacitiesGiB) != 0 {
-		t.Errorf("n2 OwnDriveCapacitiesGiB = %v, want empty (this cluster owns nothing on n2; other cluster's drives must not count as own)", n2cap.OwnDriveCapacitiesGiB)
-	}
-	if n2cap.TlcGiB != 300 {
-		t.Errorf("n2 TlcGiB = %d, want 300 (free-only, other cluster's 800+800 excluded)", n2cap.TlcGiB)
-	}
-}
-
-// TestFullDrivesInventory_FullyOwnedNode_StillEmitted: a node fully owned by this cluster (no free drives) must
-// still appear in the inventory; n2 (no signed drives at all) stays a drive-less compute candidate.
-func TestFullDrivesInventory_FullyOwnedNode_StillEmitted(t *testing.T) {
-	owned := []domain.DriveEntry{
-		{Serial: "n1-o1", CapacityGiB: 1000},
-		{Serial: "n1-o2", CapacityGiB: 1000},
-		{Serial: "n1-o3", CapacityGiB: 500},
-	}
-	n1 := driveNode(t, "n1", owned) // every signed drive is owned; none free
-	meContainer := allocatedDriveContainer("me-n1", "n1", domain.DriveEntrySerials(owned))
-
-	n2 := driveNode(t, "n2", nil) // no signed full drives at all — must stay skipped
-
-	fakeClient := newFullDrivesTestClient(t,
-		[]*corev1.Node{n1, n2},
-		[]*weka.WekaContainer{&meContainer},
-	)
-	cluster := &weka.WekaCluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-me", UID: types.UID("cluster-me")}}
-	ownContainers := []*weka.WekaContainer{&meContainer}
-
-	collector := NewCollector(fakeClient)
-	_, inv, _, err := collector.FullDrivesInventory(context.Background(), cluster, ownContainers, testCons())
-	if err != nil {
-		t.Fatalf("FullDrivesInventory: %v", err)
-	}
-	byName := invByName(inv)
-
-	n1cap, ok := byName["n1"]
-	if !ok {
-		t.Fatalf("n1 missing from inventory — a fully-owned node (no free drives) must still be emitted, "+
-			"otherwise a converged cluster reads as having no signed drives; inventory = %+v", inv)
-	}
-	if len(n1cap.DriveCapacitiesGiB) != 0 {
-		t.Errorf("n1 DriveCapacitiesGiB = %v, want empty (nothing is free)", n1cap.DriveCapacitiesGiB)
-	}
-	if want := []int{1000, 1000, 500}; !equalInts(n1cap.OwnDriveCapacitiesGiB, want) {
-		t.Errorf("n1 OwnDriveCapacitiesGiB = %v, want %v", n1cap.OwnDriveCapacitiesGiB, want)
-	}
-	if n1cap.TlcGiB != 0 {
-		t.Errorf("n1 TlcGiB = %d, want 0 (TlcGiB is sum(DriveCapacitiesGiB) — free only — see NodeCapacity's "+
-			"doc comment; the owned capacity is carried by OwnDriveCapacitiesGiB)", n1cap.TlcGiB)
-	}
-
-	if n2cap, ok := byName["n2"]; ok {
-		if len(n2cap.DriveCapacitiesGiB) != 0 || len(n2cap.OwnDriveCapacitiesGiB) != 0 {
-			t.Errorf("n2 has drives (free=%v own=%v), want none — it has no signed full drives, so the "+
-				"widened drive-loop guard must not have admitted it",
-				n2cap.DriveCapacitiesGiB, n2cap.OwnDriveCapacitiesGiB)
-		}
-	}
-}
-
-// TestFullDrivesInventory_DeletingOwnContainer_DrivesNotCountedAsOwn: a deleting container's drives stay
-// globally allocated (not free) but must not count as own either — avoiding a bogus own-inflation while
-// still blocking a second container from claiming them; HasDeletingDriveContainer must be set too.
-func TestFullDrivesInventory_DeletingOwnContainer_DrivesNotCountedAsOwn(t *testing.T) {
-	owned := []domain.DriveEntry{{Serial: "n1-o1", CapacityGiB: 1000}, {Serial: "n1-o2", CapacityGiB: 1000}}
-	free := []domain.DriveEntry{{Serial: "n1-f1", CapacityGiB: 500}}
-	entries := append(append([]domain.DriveEntry(nil), owned...), free...)
-	n1 := driveNode(t, "n1", entries)
-
-	deleting := allocatedDriveContainer("me-n1-deleting", "n1", domain.DriveEntrySerials(owned))
-	now := metav1.Now()
-	deleting.DeletionTimestamp = &now
-	deleting.Finalizers = []string{"x"} // required for the fake client to accept a preset DeletionTimestamp
-
-	fakeClient := newFullDrivesTestClient(t, []*corev1.Node{n1}, []*weka.WekaContainer{&deleting})
-
-	cluster := &weka.WekaCluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-me", UID: types.UID("cluster-me")}}
-	ownContainers := []*weka.WekaContainer{&deleting} // reconciler doesn't pre-filter by deletion state
-
-	collector := NewCollector(fakeClient)
-	_, inv, _, err := collector.FullDrivesInventory(context.Background(), cluster, ownContainers, testCons())
-	if err != nil {
-		t.Fatalf("FullDrivesInventory: %v", err)
-	}
-	byName := invByName(inv)
-
-	n1cap, ok := byName["n1"]
-	if !ok {
-		t.Fatalf("n1 missing from inventory (has 1 free drive, should be present)")
-	}
-	if len(n1cap.OwnDriveCapacitiesGiB) != 0 {
-		t.Errorf("n1 OwnDriveCapacitiesGiB = %v, want empty (deleting container's drives must not count as own)", n1cap.OwnDriveCapacitiesGiB)
-	}
-	if want := []int{500}; !equalInts(n1cap.DriveCapacitiesGiB, want) {
-		t.Errorf("n1 DriveCapacitiesGiB (free) = %v, want %v (deleting container's still-allocated drives must stay excluded from free too)", n1cap.DriveCapacitiesGiB, want)
-	}
-	if !n1cap.HasDeletingDriveContainer {
-		t.Errorf("n1 HasDeletingDriveContainer = false, want true")
-	}
-}
-
 // sharedDrivesNode builds a corev1.Node carrying the weka.io/shared-drives annotation plus generous Allocatable cpu/memory/hugepages.
 func sharedDrivesNode(t *testing.T, name string, drives []domain.SharedDriveInfo) *corev1.Node {
 	t.Helper()
@@ -658,40 +504,6 @@ func TestNodeInventory_PinnedAutoFullDrivesDriveContainerNoPodReducesHeadroom(t 
 	}
 }
 
-// TestFullDrivesInventory_PinnedAutoFullDrivesDriveContainerNoPodReducesHeadroom is FullDrivesInventory's
-// counterpart to TestNodeInventory_PinnedAutoFullDrivesDriveContainerNoPodReducesHeadroom — both wrappers around
-// aggregateContainerResources/chargeForeignPods must apply the same spec-derived charge.
-func TestFullDrivesInventory_PinnedAutoFullDrivesDriveContainerNoPodReducesHeadroom(t *testing.T) {
-	cons := testCons()
-	n1 := driveNode(t, "n1", []domain.DriveEntry{{Serial: "d1", CapacityGiB: 20 * tib}})
-	pinned := autoFullDrivesDriveContainer("drive-1", "default", "n1", 6, 9600)
-
-	fakeClient := newInventoryTestClient(t, n1, &pinned)
-	cluster := &weka.WekaCluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-me"}}
-	collector := NewCollector(fakeClient)
-
-	_, inv, _, err := collector.FullDrivesInventory(context.Background(), cluster, nil, cons)
-	if err != nil {
-		t.Fatalf("FullDrivesInventory: %v", err)
-	}
-	n1cap, ok := invByName(inv)["n1"]
-	if !ok {
-		t.Fatalf("n1 missing from inventory")
-	}
-	wantHP := 65536 - 9600
-	if n1cap.AvailableHugepagesMiB != wantHP {
-		t.Errorf("n1 AvailableHugepagesMiB = %d, want %d (pinned auto-full-drives drive container's spec hugepages must be charged with no pod)", n1cap.AvailableHugepagesMiB, wantHP)
-	}
-	wantCPU := 64 - (6 + 1)
-	if n1cap.AllocatableCPU != wantCPU {
-		t.Errorf("n1 AllocatableCPU = %d, want %d", n1cap.AllocatableCPU, wantCPU)
-	}
-	// 524288 - ComputeMemoryFootprintMiB(6, cons) = 524288 - 26000 = 498288.
-	if want := 498288; n1cap.AvailableMemoryMiB != want {
-		t.Errorf("n1 AvailableMemoryMiB = %d, want %d", n1cap.AvailableMemoryMiB, want)
-	}
-}
-
 // TestNodeInventory_PinnedComputeContainerNoPodReducesHeadroom: a compute container pinned via
 // Spec.NodeAffinity but with no pod at all must still reduce headroom by its spec-derived footprint —
 // compute is charged from spec (aggregateContainerResources, weka.WekaContainerModeCompute branch), keyed
@@ -724,41 +536,6 @@ func TestNodeInventory_PinnedComputeContainerNoPodReducesHeadroom(t *testing.T) 
 	// 524288 - ComputeMemoryFootprintMiB(8, cons) = 524288 - 32000 = 492288.
 	if want := 492288; n1cap.AvailableMemoryMiB != want {
 		t.Errorf("n1 AvailableMemoryMiB = %d, want %d (pinned compute container's spec memory must be charged with no pod)", n1cap.AvailableMemoryMiB, want)
-	}
-}
-
-// TestFullDrivesInventory_PinnedComputeContainerNoPodReducesHeadroom is FullDrivesInventory's counterpart to
-// TestNodeInventory_PinnedComputeContainerNoPodReducesHeadroom — both wrappers around
-// aggregateContainerResources/chargeForeignPods must apply the same spec-derived compute charge, regardless
-// of whether the container's pod exists or is bound to a node.
-func TestFullDrivesInventory_PinnedComputeContainerNoPodReducesHeadroom(t *testing.T) {
-	cons := testCons()
-	n1 := driveNode(t, "n1", []domain.DriveEntry{{Serial: "d1", CapacityGiB: 20 * tib}})
-	pinned := computeContainer("compute-1", "default", "n1", 8, 19572) // no corresponding pod object at all
-
-	fakeClient := newInventoryTestClient(t, n1, &pinned)
-	cluster := &weka.WekaCluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-me"}}
-	collector := NewCollector(fakeClient)
-
-	_, inv, _, err := collector.FullDrivesInventory(context.Background(), cluster, nil, cons)
-	if err != nil {
-		t.Fatalf("FullDrivesInventory: %v", err)
-	}
-	n1cap, ok := invByName(inv)["n1"]
-	if !ok {
-		t.Fatalf("n1 missing from inventory")
-	}
-	wantHP := 65536 - 19572
-	if n1cap.AvailableHugepagesMiB != wantHP {
-		t.Errorf("n1 AvailableHugepagesMiB = %d, want %d (pinned compute container's spec hugepages must be charged with no pod)", n1cap.AvailableHugepagesMiB, wantHP)
-	}
-	wantCPU := 64 - (8 + 1)
-	if n1cap.AllocatableCPU != wantCPU {
-		t.Errorf("n1 AllocatableCPU = %d, want %d", n1cap.AllocatableCPU, wantCPU)
-	}
-	// 524288 - ComputeMemoryFootprintMiB(8, cons) = 524288 - 32000 = 492288.
-	if want := 492288; n1cap.AvailableMemoryMiB != want {
-		t.Errorf("n1 AvailableMemoryMiB = %d, want %d", n1cap.AvailableMemoryMiB, want)
 	}
 }
 
@@ -1014,35 +791,6 @@ func TestNodeInventory_ForeignPodReducesHeadroom(t *testing.T) {
 	}
 	if want := 65536 - 40000; n1cap.AvailableHugepagesMiB != want {
 		t.Errorf("n1 AvailableHugepagesMiB = %d, want %d (foreign pod's 40000MiB hugepages must be subtracted from the 65536MiB allocatable)", n1cap.AvailableHugepagesMiB, want)
-	}
-	if want := 64 - 4; n1cap.AllocatableCPU != want {
-		t.Errorf("n1 AllocatableCPU = %d, want %d (foreign pod's 4 cores must be subtracted)", n1cap.AllocatableCPU, want)
-	}
-	if want := 524288 - 100000; n1cap.AvailableMemoryMiB != want {
-		t.Errorf("n1 AvailableMemoryMiB = %d, want %d (foreign pod's 100000MiB memory must be subtracted)", n1cap.AvailableMemoryMiB, want)
-	}
-}
-
-// TestFullDrivesInventory_ForeignPodReducesHeadroom is FullDrivesInventory's (auto-full-drives path) counterpart to
-// TestNodeInventory_ForeignPodReducesHeadroom — the duplicated headroom closure must apply the same foreign-pod charge.
-func TestFullDrivesInventory_ForeignPodReducesHeadroom(t *testing.T) {
-	n1 := driveNode(t, "n1", []domain.DriveEntry{{Serial: "d1", CapacityGiB: 20 * tib}})
-	foreign := testPod("foreign", "default", "n1", corev1.PodRunning, 4, 40000, 100000)
-
-	fakeClient := newInventoryTestClient(t, n1, foreign)
-	cluster := &weka.WekaCluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-me"}}
-	collector := NewCollector(fakeClient)
-
-	_, inv, _, err := collector.FullDrivesInventory(context.Background(), cluster, nil, testCons())
-	if err != nil {
-		t.Fatalf("FullDrivesInventory: %v", err)
-	}
-	n1cap, ok := invByName(inv)["n1"]
-	if !ok {
-		t.Fatalf("n1 missing from inventory")
-	}
-	if want := 65536 - 40000; n1cap.AvailableHugepagesMiB != want {
-		t.Errorf("n1 AvailableHugepagesMiB = %d, want %d (foreign pod's 40000MiB hugepages must be subtracted)", n1cap.AvailableHugepagesMiB, want)
 	}
 	if want := 64 - 4; n1cap.AllocatableCPU != want {
 		t.Errorf("n1 AllocatableCPU = %d, want %d (foreign pod's 4 cores must be subtracted)", n1cap.AllocatableCPU, want)
@@ -1414,8 +1162,7 @@ func TestExploreNodes_HeterogeneousFullDrivesNode_PerDriveCapacitiesLargestFirst
 }
 
 // TestExploreNodes_FullyClaimedFullDrivesNode_StillAppears: a node whose signed full drives are entirely
-// claimed (zero free) must still appear with Mode == "full" and PhysFullDriveCount == 6, never vanishing —
-// unlike FullDrivesInventory, which skips such nodes for planning purposes.
+// claimed (zero free) must still appear with Mode == "full" and PhysFullDriveCount == 6, never vanishing.
 func TestExploreNodes_FullyClaimedFullDrivesNode_StillAppears(t *testing.T) {
 	entries := []domain.DriveEntry{
 		{Serial: "d1", CapacityGiB: 1000}, {Serial: "d2", CapacityGiB: 1000}, {Serial: "d3", CapacityGiB: 1000},
@@ -1604,21 +1351,4 @@ func TestCollect_PinnedAutoFullDrivesDriveContainer_NodeDetailsUsedPlusFreeEqual
 
 // Node eligibility classification (cordoned/not ready/untolerated taint) is exercised in
 // internal/controllers/resources/node_test.go: resources.NodeIneligibleReason is the single shared
-// predicate this package's NodeInventory/FullDrivesInventory/ExploreNodes all call into.
-
-// TestHasSignedFullDrives: nodeInv also carries compute-only nodes, and on a converged cluster every drive
-// is owned rather than free — so neither len(nodeInv) nor a free-only test would do.
-func TestHasSignedFullDrives(t *testing.T) {
-	if HasSignedFullDrives(nil) {
-		t.Error("empty inventory reported as signed")
-	}
-	if HasSignedFullDrives([]capacityplanner.NodeCapacity{{NodeName: "c0"}}) {
-		t.Error("a drive-less compute node reported as signed")
-	}
-	if !HasSignedFullDrives([]capacityplanner.NodeCapacity{{NodeName: "n0", DriveCapacitiesGiB: []int{1000}}}) {
-		t.Error("free signed drives not reported as signed")
-	}
-	if !HasSignedFullDrives([]capacityplanner.NodeCapacity{{NodeName: "n0", OwnDriveCapacitiesGiB: []int{1000}}}) {
-		t.Error("owned signed drives not reported as signed (a converged cluster reads as unsigned)")
-	}
-}
+// predicate this package's NodeInventory/ExploreNodes all call into.

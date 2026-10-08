@@ -32,7 +32,7 @@ type constraintFlags struct {
 	HugepagesQlcRatio                 *int     `long:"hugepages-qlc-ratio" description:"Override the compute-hugepages QLC ratio"`
 	ComputeToTlcDriveCoreRatio        *float64 `long:"compute-to-tlc-drive-core-ratio" description:"Override the compute:TLC-drive-core ratio"`
 	ComputeToQlcDriveCoreRatio        *float64 `long:"compute-to-qlc-drive-core-ratio" description:"Override the compute:QLC-drive-core ratio"`
-	FullDrivesComputeToDriveCoreRatio *float64 `long:"full-drives-compute-to-drive-core-ratio" description:"Override the full-drives (daemonset / auto full drives) compute:drive-core ratio; negative = unset (prefer 2:1, relax toward 1:1 to fit)"`
+	FullDrivesComputeToDriveCoreRatio *float64 `long:"full-drives-compute-to-drive-core-ratio" description:"Override the full-drives (daemonset / auto full drives) compute:drive-core ratio"`
 }
 
 // loadConstraints builds the capacity constraints in three layers — NEVER re-hardcoding a value the
@@ -54,6 +54,9 @@ func loadConstraints(ctx context.Context, c client.Client, namespace string, f *
 		for k, v := range envMap {
 			os.Setenv(k, v) //nolint:errcheck // overlay into the process so LoadCapacityEnv reads the operator's values; os.Setenv cannot fail here
 		}
+	}
+	if f.FullDrivesComputeToDriveCoreRatio != nil && *f.FullDrivesComputeToDriveCoreRatio <= 0 {
+		return nil, fmt.Errorf("--full-drives-compute-to-drive-core-ratio must be greater than 0, got %v", *f.FullDrivesComputeToDriveCoreRatio)
 	}
 	globalconfig.LoadCapacityEnv()
 	cons := allocator.CapacityConstraintsFromConfig()

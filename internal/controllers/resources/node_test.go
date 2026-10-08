@@ -53,7 +53,7 @@ func TestNodeIsReady(t *testing.T) {
 
 // TestNodeIneligibleReason covers every classification NodeIneligibleReason makes, table-driven since each
 // row is the same shape: build a node, call the function, compare the reason string. This is the single
-// predicate shared by capacityplanner/inventory (NodeInventory/FullDrivesInventory/ExploreNodes) and
+// predicate shared by capacityplanner/inventory (NodeInventory/ExploreNodes) and
 // controllers/operations (GetTargetNodes).
 func TestNodeIneligibleReason(t *testing.T) {
 	gpuTaint := corev1.Taint{Key: "dedicated", Value: "gpu", Effect: corev1.TaintEffectNoSchedule}

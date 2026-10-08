@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	stderrors "errors"
 	"github.com/pkg/errors"
 	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/go-steps-engine/lifecycle"
@@ -66,12 +67,9 @@ func GetClusterSetupSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 		},
 		&lifecycle.SimpleStep{
 			Run: loop.GarbageCollectUnschedulablePlannerContainers,
+			// Act-as-daemonset is excluded: a pod that does not fit its node stays Pending.
 			Predicates: lifecycle.Predicates{
-				func() bool {
-					// Covers drive and compute containers under either planner mode; the callee narrows further
-					// to pinned containers with a confirmed scheduling failure.
-					return loop.plannerManaged()
-				},
+				func() bool { return loop.cluster.Spec.Dynamic.UsesClusterCapacity() },
 			},
 		},
 		&lifecycle.SimpleStep{
@@ -307,15 +305,18 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	case utils.DriverDistAmbiguous:
 		_ = r.RecordEvent(v1.EventTypeWarning, "DriversDistAmbiguousPolicy", consts.ActionResolveDriversDist, fmt.Sprintf("Multiple WekaPolicy resources found for drivers distribution, falling back to default: %s", resolvedURL)) //nolint:errcheck // event recording errors are intentionally ignored
 	}
-	missingContainers, err := r.BuildMissingContainers(ctx)
-	if err != nil {
-		logger.Error(err, "Failed to create missing containers")
-		return err
+	// A build error may accompany containers that are still created; it is returned after creation.
+	missingContainers, buildErr := r.BuildMissingContainers(ctx)
+	if buildErr != nil {
+		logger.Error(buildErr, "Failed to build all missing containers")
+		if len(missingContainers) == 0 {
+			return buildErr
+		}
 	}
 	for _, container := range missingContainers {
 		if err := ctrl.SetControllerReference(cluster, container, r.Manager.GetScheme()); err != nil {
 			logger.Error(err, "Failed to set controller reference")
-			return err
+			return stderrors.Join(buildErr, err)
 		}
 	}
 
@@ -340,7 +341,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 			joinIps = cluster.Spec.ExpandEndpoints
 		} else if err != nil {
 			logger.Error(err, "Failed to get join ips")
-			return err
+			return stderrors.Join(buildErr, err)
 		}
 	}
 
@@ -358,19 +359,24 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		return err
 	})
 
+	var created []*weka.WekaContainer
 	for _, result := range results.Items {
 		if result.Err == nil {
 			r.containers = append(r.containers, result.Object)
+			created = append(created, result.Object)
 		}
 	}
+	if cluster.Spec.Dynamic.UsesAutoFullDrives() {
+		r.announceDaemonsetCreated(created)
+	}
 
-	return results.AsError()
+	return stderrors.Join(buildErr, results.AsError())
 }
 
 // GarbageCollectUnschedulablePlannerContainers deletes pinned planner containers with a confirmed
 // scheduling failure past the GC timeout, so the planner can re-place their capacity. Only containers
 // that never bound (Status.NodeAffinity == "") are reaped; one that ran carries cluster state.
-// Compute is reaped too: autoKeptCompute counts its cores, so leaving it under-serves the ratio.
+// Compute is reaped too, so its cores do not count toward the compute ratio.
 //
 // TODO: move this GC into the wekacontainer reconciler, which already has its own pod loaded and a
 // self-delete path. Kept at the wekacluster level for now.
@@ -451,9 +457,8 @@ func (r *wekaClusterReconcilerLoop) GarbageCollectUnschedulablePlannerContainers
 }
 
 // BuildMissingContainers returns the containers still needed to reach the cluster's desired role counts:
-// drive containers come from the active capacity-planner mode (clusterCapacity/auto full drives) when one applies,
-// otherwise from the normal per-role numbers; compute and other roles always use the normal path, pinned
-// to the planner's reserved nodes/layout when a planner mode is active.
+// act-as-daemonset builds drive and compute; clusterCapacity builds drive and supplies the compute layout
+// (pinned to the planner's reserved nodes); every other role takes the count-based path.
 func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) ([]*weka.WekaContainer, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "BuildMissingContainers")
 	defer logger.End()
@@ -463,11 +468,13 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 
 	containers := make([]*weka.WekaContainer, 0)
 	var skippedReasons []string
+	// raiseErr is returned with the containers built despite it, so one failed raise does not block creation.
+	var raiseErr error
 
-	// The planner owns drive containers in both its modes — clusterCapacity's uniform whole-cluster target, and
-	// auto full drives' one node-pinned container per eligible node sized from that node's own signed drives —
-	// and supplies the compute layout with them. Every other role takes the count-based path.
-	mode, plannerManaged := plannerSizingMode(&cluster.Spec)
+	// clusterCapacity's planner owns drive containers and supplies the compute layout with them; act-as-daemonset
+	// owns both drive and compute. Every other role takes the count-based path.
+	daemonset := cluster.Spec.Dynamic.UsesAutoFullDrives()
+	capacity := cluster.Spec.Dynamic.UsesClusterCapacity()
 
 	// derivedComputeCores: clusterCapacity's post-drive 1:1-with-TLC-drive-cores rule; 0 = template default.
 	derivedComputeCores := 0
@@ -478,8 +485,20 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 	// uniform derivedComputeCores path below.
 	var derivedComputeLayout []capacityplanner.ComputeContainerSpec
 
-	if plannerManaged {
-		driveContainers, skipped, plan, err := r.buildPlannerDriveContainers(ctx, mode)
+	switch {
+	case daemonset:
+		var built []*weka.WekaContainer
+		var computeCount int
+		var skipped []string
+		built, computeCount, skipped, raiseErr = r.buildDaemonsetContainers(ctx)
+		if raiseErr != nil && len(built) == 0 {
+			return nil, raiseErr
+		}
+		containers = append(containers, built...)
+		skippedReasons = append(skippedReasons, skipped...)
+		nums.Compute = computeCount
+	case capacity:
+		driveContainers, skipped, plan, err := r.buildPlannerDriveContainers(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -488,20 +507,18 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 		nums.Compute = plan.ComputeContainers
 		derivedComputeNodes = plan.ComputeNodes
 		derivedComputeLayout = plan.ComputeLayout
-		if mode == sizingClusterCapacity {
-			derivedComputeCores = plan.ComputeCores
-		}
+		derivedComputeCores = plan.ComputeCores
 	}
 
 	want := r.desiredRoleCounts(nums)
 
 	for _, role := range wekaContainerRoles {
-		if plannerManaged && role == weka.WekaContainerModeDrive {
-			continue // built from plan.Create above
+		if (role == weka.WekaContainerModeDrive && (daemonset || capacity)) || (role == weka.WekaContainerModeCompute && daemonset) {
+			continue // built above
 		}
 		// A per-container compute layout supersedes the uniform count-based path: each missing entry is created
 		// on its own node with its own cores and hugepages.
-		if plannerManaged && role == weka.WekaContainerModeCompute && len(derivedComputeLayout) > 0 {
+		if capacity && role == weka.WekaContainerModeCompute && len(derivedComputeLayout) > 0 {
 			built, skipped := r.buildPlannerComputeContainers(ctx, derivedComputeLayout, r.containers)
 			containers = append(containers, built...)
 			skippedReasons = append(skippedReasons, skipped...)
@@ -519,7 +536,7 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 		// the nodes it reserved, symmetric with drives. Reached only when the planner produced no per-container
 		// layout (its steady-state and no-op plans), since the layout branch above takes precedence.
 		var nodePins []string
-		if mode == sizingClusterCapacity && role == weka.WekaContainerModeCompute && derivedComputeCores > 0 {
+		if capacity && role == weka.WekaContainerModeCompute && derivedComputeCores > 0 {
 			template.Cores.Compute = derivedComputeCores
 			if nums.Compute > 0 {
 				template.Containers.Compute = nums.Compute // planner-derived count, not the min-default
@@ -540,7 +557,7 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 			strings.Join(skippedReasons, "; "), time.Minute)
 	}
 
-	return containers, nil
+	return containers, raiseErr
 }
 
 // wekaContainerRoles is the order roles are built in; drive and compute come first so the planner-managed

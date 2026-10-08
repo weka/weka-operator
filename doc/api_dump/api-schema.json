@@ -4949,7 +4949,7 @@
           "name": "NumDrives",
           "jsonName": "numDrives",
           "type": "int",
-          "description": "Number of virtual or physical drives per drive container. Mutually exclusive with containerCapacity.\nWhen the cluster acts as a daemonset (computeContainers and driveContainers both unset), NumDrives\ninstead acts as a per-node override, pinning the number of largest signed drives that each node's\ndrive container takes instead of consuming all of them.",
+          "description": "Number of virtual or physical drives per drive container. Mutually exclusive with containerCapacity.\nWhen the cluster acts as a daemonset (computeContainers and driveContainers both unset), NumDrives\nis the per-node drive count: each drive container takes that many of the node's largest signed\ndrives instead of all of them.",
           "optional": true
         },
         {

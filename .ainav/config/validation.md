@@ -20,7 +20,7 @@ spec field wins when non-zero (0 is treated as unset), else the Helm-level defau
 is used in `FormCluster` so validation and formation agree.
 
 Pod syntax rules live in `*_podspec_syntax.go` and shared `podspec_syntax.go`.
-Auto-full-drives feasibility, minimum nodes, sizing-mode transitions and core limits
+Daemonset (auto-full-drives) pins, minimum nodes, sizing-mode transitions and core limits
 are mapped in `registry.go`; sizing terminology and ownership belong in `doc.go`.
 
 Extra-volumes validators (`extra_volumes.go` shared core + `cluster_extra_volumes.go` /
