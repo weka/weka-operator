@@ -10,7 +10,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
@@ -27,9 +26,9 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 	}
 }
 
-// SignedFullDrivesGiB reports whether the node carries a full-drives annotation and, if it parses, the
-// capacities of its non-blocked drives, largest first.
-func SignedFullDrivesGiB(node *v1.Node) (drivesGiB []int, signed bool, err error) {
+// SignedFullDrives reports whether the node carries a full-drives annotation and, if it parses, its
+// non-blocked drives, largest first.
+func SignedFullDrives(node *v1.Node) (drives []domain.DriveEntry, signed bool, err error) {
 	signed = node.Annotations[consts.AnnotationWekaFullDrives] != ""
 	if !signed {
 		return nil, false, nil
@@ -46,10 +45,19 @@ func SignedFullDrivesGiB(node *v1.Node) (drivesGiB []int, signed bool, err error
 	}
 	for _, d := range entries {
 		if !slices.Contains(blocked, d.Serial) {
-			drivesGiB = append(drivesGiB, d.CapacityGiB)
+			drives = append(drives, d)
 		}
 	}
-	return capacityplanner.SortDriveCapacitiesDesc(drivesGiB), signed, nil
+	return domain.SortDriveEntriesDesc(drives), signed, nil
+}
+
+// SignedFullDrivesGiB is SignedFullDrives reduced to the drive capacities, largest first.
+func SignedFullDrivesGiB(node *v1.Node) (drivesGiB []int, signed bool, err error) {
+	drives, signed, err := SignedFullDrives(node)
+	for _, d := range drives {
+		drivesGiB = append(drivesGiB, d.CapacityGiB)
+	}
+	return drivesGiB, signed, err
 }
 
 // ParseAllocatorNodeInfo builds an AllocatorNodeInfo from an already-fetched node's annotations

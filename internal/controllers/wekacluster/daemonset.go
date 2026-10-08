@@ -13,6 +13,7 @@ import (
 	"github.com/weka/go-steps-engine/throttling"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
 	"github.com/weka/weka-operator/internal/capacityplanner/inventory"
@@ -20,6 +21,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -31,6 +33,10 @@ type dsNode struct {
 	ineligible             string // "" or the reason new containers are withheld
 	drivesGiB              []int  // non-blocked full drives from the annotation, largest first
 	badAnnotation          string // parse error of the drive annotation, if any
+	entries                []domain.DriveEntry
+	// listed: availGiB is set. availGiB = drives our container holds + free ones, largest first.
+	listed   bool
+	availGiB []int
 }
 
 type daemonsetInput struct {
@@ -45,9 +51,14 @@ type daemonsetInput struct {
 }
 
 type dsContainerTarget struct {
-	node, mode          string
-	paired              bool // the node has both a drive and a compute target
-	numDrives           int  // drive only
+	node, mode string
+	paired     bool // the node has both a drive and a compute target
+	numDrives  int  // drive only
+	// drivesFollowFree (drive only): numDrives tracks what the node can give this container (drives it holds plus
+	// the free ones), so it is written as is and may go up or down. Otherwise it only ratchets up. Set for an
+	// unpinned own container on a node whose drive containers were listed this pass and whose allocated serials
+	// are all still signed and unblocked; a pin is never lowered.
+	drivesFollowFree    bool
 	cores               int
 	tlcGiB              int // drive only: capacity of the numDrives largest drives
 	computeHugepagesMiB int // compute only
@@ -56,9 +67,9 @@ type dsContainerTarget struct {
 type daemonsetPlan struct {
 	targets []dsContainerTarget // drive then compute, each by node
 	// Inputs for the aggregated events.
-	unsigned, unused, capped []string
-	ineligible               map[string]string // node -> reason
-	driveCores, computeCores int
+	unsigned, unused, capped, noFree []string
+	ineligible                       map[string]string // node -> reason
+	driveCores, computeCores         int
 	// Printer columns only; placement never reads them.
 	statusDesiredDrive, statusDesiredCompute int
 }
@@ -109,15 +120,44 @@ func planDaemonset(in *daemonsetInput) daemonsetPlan {
 				continue
 			}
 		}
-		drives := max(exDrives, cmp.Or(in.numDrivesPin, len(n.drivesGiB)))
-		if drives < len(n.drivesGiB) {
+		pool := n.drivesGiB
+		if n.listed {
+			pool = n.availGiB
+		}
+		drives := max(exDrives, in.numDrivesPin)
+		var heldCaps []int
+		holdsBlocked := false
+		if has {
+			heldCaps, holdsBlocked = heldCapacities(liveDrive[name], n.entries)
+		}
+		followFree := has && n.listed && in.numDrivesPin == 0 && !holdsBlocked
+		switch {
+		case !has:
+			drives = cmp.Or(in.numDrivesPin, len(pool))
+			if drives == 0 {
+				p.noFree = append(p.noFree, fmt.Sprintf("%s (%d signed, %d held by other containers)", name, len(n.drivesGiB), len(n.drivesGiB)-len(pool)))
+				continue
+			}
+		case followFree:
+			drives = max(len(pool), 1)
+			if len(pool) == 0 {
+				p.noFree = append(p.noFree, fmt.Sprintf("%s (%d signed, %d held by other containers; container waits for a free drive)", name, len(n.drivesGiB), len(n.drivesGiB)))
+			}
+		}
+		if in.numDrivesPin > 0 && drives < len(n.drivesGiB) {
 			p.unused = append(p.unused, fmt.Sprintf("%d of %d signed drives unused on %s (numDrives pin=%d)", len(n.drivesGiB)-drives, len(n.drivesGiB), name, in.numDrivesPin))
 		}
 		cores := cmp.Or(in.driveCoresPin, capacityplanner.FullDriveCores(drives, cons))
-		t := dsContainerTarget{node: name, mode: weka.WekaContainerModeDrive, numDrives: drives, cores: max(exCores, cores)}
-		for _, g := range n.drivesGiB[:min(drives, len(n.drivesGiB))] {
-			t.tlcGiB += g
+		t := dsContainerTarget{node: name, mode: weka.WekaContainerModeDrive, numDrives: drives, drivesFollowFree: followFree, cores: max(exCores, cores)}
+		// An existing container's capacity is what it holds plus the largest free drives for the rest, so it is
+		// the same whether or not the node was listed this pass.
+		free := pool
+		if has {
+			free = withoutCapacities(pool, heldCaps)
+			t.tlcGiB = sum(heldCaps)
+			drives = max(drives-len(heldCaps), 0)
 		}
+		t.tlcGiB += sum(free[:min(drives, len(free))])
 		driveT[name] = t
 		totalCores += t.cores
 		totalTlc += t.tlcGiB
@@ -228,6 +268,49 @@ func planDaemonset(in *daemonsetInput) daemonsetPlan {
 	return p
 }
 
+func sum(xs []int) (total int) {
+	for _, x := range xs {
+		total += x
+	}
+	return total
+}
+
+// heldCapacities returns the capacities of c's allocated serials that are still signed and unblocked on the
+// node, and whether any allocated serial is not.
+func heldCapacities(c *weka.WekaContainer, entries []domain.DriveEntry) (caps []int, missing bool) {
+	if c.Status.Allocations == nil {
+		return nil, false
+	}
+	for _, serial := range c.Status.Allocations.Drives {
+		i := slices.IndexFunc(entries, func(d domain.DriveEntry) bool { return d.Serial == serial })
+		if i < 0 {
+			missing = true
+			continue
+		}
+		caps = append(caps, entries[i].CapacityGiB)
+	}
+	return caps, missing
+}
+
+// withoutCapacities removes one occurrence of each of remove from pool, keeping its order.
+func withoutCapacities(pool, remove []int) []int {
+	out := slices.Clone(pool)
+	for _, g := range remove {
+		if i := slices.Index(out, g); i >= 0 {
+			out = slices.Delete(out, i, i+1)
+		}
+	}
+	return out
+}
+
+// olderThan orders containers by creation time, then by name when the timestamps tie.
+func olderThan(a, b *weka.WekaContainer) bool {
+	if !a.CreationTimestamp.Equal(&b.CreationTimestamp) {
+		return a.CreationTimestamp.Before(&b.CreationTimestamp)
+	}
+	return a.Name < b.Name
+}
+
 // containersByMode indexes this cluster's drive and compute containers by mode, then node.
 func (r *wekaClusterReconcilerLoop) containersByMode() (live map[string]map[string]*weka.WekaContainer, deleting map[string]map[string]bool) {
 	live, deleting = map[string]map[string]*weka.WekaContainer{}, map[string]map[string]bool{}
@@ -270,11 +353,13 @@ func (r *wekaClusterReconcilerLoop) collectDaemonsetInput(ctx context.Context) (
 				if n.ineligible == "" && cluster.Spec.FailureDomain != nil && allocator.ResolveNodeFDValue(node, cluster.Spec.FailureDomain) == "" {
 					n.ineligible = "missing FD label"
 				}
-				drivesGiB, _, err := allocator.SignedFullDrivesGiB(node)
+				entries, _, err := allocator.SignedFullDrives(node)
 				if err != nil {
 					n.badAnnotation = err.Error()
-				} else {
-					n.drivesGiB = drivesGiB
+				}
+				n.entries = entries
+				for _, d := range entries {
+					n.drivesGiB = append(n.drivesGiB, d.CapacityGiB)
 				}
 			}
 			if role == weka.WekaContainerModeDrive {
@@ -298,7 +383,94 @@ func (r *wekaClusterReconcilerLoop) collectDaemonsetInput(ctx context.Context) (
 		}
 	}
 	add(computeNodes, weka.WekaContainerModeCompute)
+	if err := r.listFreeDrives(ctx, in); err != nil {
+		return in, err
+	}
 	return in, nil
+}
+
+// listFreeDrives sets availGiB on the nodes where this cluster may take or lose drives to other containers:
+// no drive container yet, or one that holds nothing, fewer than its spec asks for, or fewer than the node's
+// signed drives. A node where it holds every signed drive is never listed, and with no such node there is no List.
+func (r *wekaClusterReconcilerLoop) listFreeDrives(ctx context.Context, in *daemonsetInput) error {
+	liveDrive := in.live[weka.WekaContainerModeDrive]
+	var candidates []string
+	for name, n := range in.nodes {
+		c := liveDrive[name]
+		switch {
+		case len(n.entries) == 0:
+		case c == nil:
+			if n.driveRole && n.ineligible == "" && !in.deleting[weka.WekaContainerModeDrive][name] {
+				candidates = append(candidates, name)
+			}
+		default:
+			held := 0
+			if c.Status.Allocations != nil {
+				held = len(c.Status.Allocations.Drives)
+			}
+			if held == 0 || c.Spec.NumDrives > held || held < len(n.entries) {
+				candidates = append(candidates, name)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	list := &weka.WekaContainerList{}
+	if err := r.getClient().List(ctx, list, client.MatchingLabels{domain.WekaLabelMode: weka.WekaContainerModeDrive}, client.UnsafeDisableDeepCopy); err != nil {
+		return fmt.Errorf("listFreeDrives: failed to list drive containers: %w", err)
+	}
+	held, own := map[string]bool{}, map[string]bool{}
+	reserved := map[string]int{}
+	ownKeys := map[string]bool{}
+	for _, c := range r.containers {
+		ownKeys[c.Namespace+"/"+c.Name] = true
+	}
+	for i := range list.Items {
+		c := &list.Items[i]
+		node := string(c.GetNodeAffinity())
+		if node == "" || c.UsesDriveSharing() {
+			continue
+		}
+		var serials []string
+		if c.Status.Allocations != nil {
+			serials = c.Status.Allocations.Drives
+		}
+		target := held
+		if lc := liveDrive[node]; lc != nil && lc.Namespace == c.Namespace && lc.Name == c.Name {
+			target = own
+		}
+		for _, s := range serials {
+			target[s] = true
+		}
+		if ownKeys[c.Namespace+"/"+c.Name] || c.IsMarkedForDeletion() || c.IsDeletingState() || c.IsDestroyingState() {
+			continue
+		}
+		// The older claim wins: a foreign container created after ours does not reserve against it.
+		if lc := liveDrive[node]; lc != nil && !olderThan(c, lc) {
+			continue
+		}
+		reserved[node] += max(c.Spec.NumDrives-len(serials), 0)
+	}
+	for _, name := range candidates {
+		n := in.nodes[name]
+		var mine, free []int
+		for _, d := range n.entries {
+			switch {
+			case own[d.Serial]:
+				mine = append(mine, d.CapacityGiB)
+			case !held[d.Serial]:
+				free = append(free, d.CapacityGiB)
+			}
+		}
+		// The allocator gives the largest free drives first, so a container that has not claimed yet takes those.
+		free = free[min(reserved[name], len(free)):]
+		n.availGiB = capacityplanner.SortDriveCapacitiesDesc(append(mine, free...))
+		n.listed = true
+		in.nodes[name] = n
+	}
+	return nil
 }
 
 // buildDaemonsetContainers raises existing containers to the plan, then builds the missing ones. Before the
@@ -349,8 +521,8 @@ func (r *wekaClusterReconcilerLoop) buildDaemonsetContainers(ctx context.Context
 		}
 	}
 	if len(grown) > 0 {
-		r.emitPlannerEvent(reasonAutoFullDrivesGrowth,
-			fmt.Sprintf("auto full drives growth applied to %d container(s): %s; the affected pod(s) must be recreated before the new sizing takes effect (see the per-container CapacityGrowthApplied events)", len(grown), strings.Join(grown, "; ")))
+		r.emitPlannerEvent(reasonAutoFullDrivesResized,
+			fmt.Sprintf("auto full drives resized %d container(s): %s; the affected pod(s) must be recreated before the new sizing takes effect (see the per-container AutoFullDrivesResized events)", len(grown), strings.Join(grown, "; ")))
 	}
 	want := r.desiredRoleCounts(targets)
 	room := map[string]int{}
@@ -414,35 +586,38 @@ func autoHugepagesFor(cluster *weka.WekaCluster, t *dsContainerTarget, cores, dr
 	return allocator.ComputeHugepagesFromPlan(&unpinned, t.computeHugepagesMiB, cores)
 }
 
-// floorHugepages resolves hugepages and offset so neither falls below auto. pinned is hp as planned with the
-// pins; current is the container's value (0 on create). A pin below auto is not applied: the larger of current
-// and auto is kept, and a fragment names it.
+// floorHugepages resolves hugepages and offset to the pin when it is at or above auto, else to auto. pinned is
+// hp as planned with the pins; current is the container's value (0 on create), used only in the fragment that
+// names a pin below auto.
 func floorHugepages(name string, pinned, auto allocator.ContainerHugepages, curHp, curOff int, pinHp, pinOff bool) (hugepages, offset int, below []string) {
 	floor := func(field string, isPinned bool, pin, auto, cur int) int {
 		switch {
 		case !isPinned:
-			return max(cur, auto)
+			return auto
 		case pin >= auto:
 			return pin
 		}
 		below = append(below, fmt.Sprintf("%s/%s pin=%d auto=%d current=%d", name, field, pin, auto, cur))
-		return max(cur, auto)
+		return auto
 	}
 	hugepages = floor("hugepages", pinHp, pinned.Hugepages, auto.Hugepages, curHp)
 	offset = floor("hugepagesOffset", pinOff, pinned.HugepagesOffset, auto.HugepagesOffset, curOff)
 	return hugepages, offset, below
 }
 
-// raiseDaemonsetContainer raises c in place to t and never lowers it. Returns "" when c is already there, and
-// a fragment for each pin held back because it is below auto.
+// raiseDaemonsetContainer updates c in place to t. Cores are never lowered, hugepages never below auto, numDrives
+// only when t.drivesFollowFree. Returns "" when c is already there, and a fragment for each pin held back because it is below auto.
 func (r *wekaClusterReconcilerLoop) raiseDaemonsetContainer(ctx context.Context, c *weka.WekaContainer, t *dsContainerTarget, pinHp, pinOff bool) (summary string, below []string, err error) {
 	cluster := r.cluster
 	drive := t.mode == weka.WekaContainerModeDrive
-	coresChanged := t.cores > c.Spec.NumCores
-	drivesChanged := t.numDrives > c.Spec.NumDrives
+	old := c.Spec
+	drivesLowered := t.drivesFollowFree && t.numDrives < c.Spec.NumDrives
 	mutate := func(latest *weka.WekaContainer) bool {
 		cores := max(latest.Spec.NumCores, t.cores)
 		drives := max(latest.Spec.NumDrives, t.numDrives)
+		if t.drivesFollowFree {
+			drives = t.numDrives
+		}
 		var hp allocator.ContainerHugepages
 		if drive {
 			hp = allocator.DriveHugepagesFromPlan(cluster, cores, drives)
@@ -481,22 +656,30 @@ func (r *wekaClusterReconcilerLoop) raiseDaemonsetContainer(ctx context.Context,
 	if alreadyAtTarget {
 		return "", below, nil
 	}
-	var msg string
+	var changes []string
+	for _, f := range []struct {
+		name     string
+		from, to int
+	}{
+		{"numDrives", old.NumDrives, c.Spec.NumDrives},
+		{"cores", old.NumCores, c.Spec.NumCores},
+		{"hugepages", old.Hugepages, c.Spec.Hugepages},
+		{"hugepagesOffset", old.HugepagesOffset, c.Spec.HugepagesOffset},
+	} {
+		if f.from != f.to {
+			changes = append(changes, fmt.Sprintf("%s %d→%d", f.name, f.from, f.to))
+		}
+	}
+	diff := strings.Join(changes, ", ")
+	msg := fmt.Sprintf("resized %s container: %s; the pod must be recreated to apply it", t.mode, diff)
 	switch {
-	case !drive:
-		msg = computeGrowthMessage(c)
-	case coresChanged:
-		msg = fmt.Sprintf("applied auto full drives growth to drive container (numDrives %d, cores %d); the drive spec changed — the pod must be recreated to apply the new cores/hugepages", c.Spec.NumDrives, c.Spec.NumCores)
-	case drivesChanged:
-		msg = fmt.Sprintf("applied auto full drives growth to drive container (numDrives %d); drives were added live to the running weka container, but its hugepages reservation grew with them — recreate the pod so its hugepages limit and weka.io/drives request match the new drive count", c.Spec.NumDrives)
-	default:
-		msg = fmt.Sprintf("applied hugepages raise to drive container (hugepages %d MiB, offset %d); the pod must be recreated to apply it", c.Spec.Hugepages, c.Spec.HugepagesOffset)
+	case drivesLowered:
+		msg += fmt.Sprintf(" (the node can give this container only %d drive(s))", c.Spec.NumDrives)
+	case c.Spec.NumDrives > old.NumDrives:
+		msg += " (the new drives are reserved now but added to weka only after the pod is recreated)"
 	}
-	util.RecordEvent(r.Recorder, c, v1.EventTypeWarning, reasonCapacityGrowthApplied, consts.ActionApplyCapacityGrowth, msg)
-	if !drive {
-		return fmt.Sprintf("%s on %s (%d core(s))", c.Name, t.node, c.Spec.NumCores), below, nil
-	}
-	return fmt.Sprintf("%s on %s (%d drive(s)/%d core(s))", c.Name, t.node, c.Spec.NumDrives, c.Spec.NumCores), below, nil
+	util.RecordEvent(r.Recorder, c, v1.EventTypeWarning, reasonAutoFullDrivesResized, consts.ActionApplyCapacityGrowth, msg)
+	return fmt.Sprintf("%s on %s (%s)", c.Name, t.node, diff), below, nil
 }
 
 func (r *wekaClusterReconcilerLoop) emitDaemonsetEvents(p *daemonsetPlan, ratio float64) {
@@ -513,6 +696,10 @@ func (r *wekaClusterReconcilerLoop) emitDaemonsetEvents(p *daemonsetPlan, ratio 
 		slices.Sort(reasons)
 		r.emitPlannerEventWithCause(reasonAutoFullDrivesNodeIneligible, strings.Join(slices.Compact(reasons), ","),
 			fmt.Sprintf("%d node(s) get no new containers: %s", len(frags), util.JoinCapped(frags, "; ", 10)))
+	}
+	if len(p.noFree) > 0 {
+		r.emitPlannerEvent(reasonAutoFullDrivesNoFreeDrives,
+			fmt.Sprintf("%d drive-role node(s) have no free full drives and get no containers: %s", len(p.noFree), util.JoinCapped(p.noFree, "; ", 10)))
 	}
 	if len(p.unused) > 0 {
 		r.emitPlannerEvent(reasonAutoFullDrivesUnusedDrivesOnNode, util.JoinCapped(p.unused, "; ", 10))

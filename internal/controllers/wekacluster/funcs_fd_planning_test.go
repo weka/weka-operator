@@ -632,9 +632,9 @@ func TestPlannerEventSpecsCoverEveryReason(t *testing.T) {
 	allReasons := []string{
 		reasonClusterCapacityPlanned, reasonClusterCapacityInfeasible, reasonClusterCapacityDeferred,
 		reasonClusterCapacityShrink, reasonClusterCapacityOverProvisioned, reasonClusterCapacityHeterogeneousGrowth,
-		reasonAutoFullDrivesContainersCreated, reasonAutoFullDrivesGrowth, reasonAutoFullDrivesUnusedDrivesOnNode,
+		reasonAutoFullDrivesContainersCreated, reasonAutoFullDrivesResized, reasonAutoFullDrivesUnusedDrivesOnNode,
 		reasonAutoFullDrivesNodeIneligible, reasonAutoFullDrivesUnsignedDriveNodes, reasonAutoFullDrivesComputeCoresCapped,
-		reasonAutoFullDrivesHugepagesPinBelowAuto,
+		reasonAutoFullDrivesHugepagesPinBelowAuto, reasonAutoFullDrivesNoFreeDrives,
 	}
 	for _, reason := range allReasons {
 		if _, ok := plannerEventSpecs[reason]; !ok {
@@ -652,11 +652,12 @@ func TestPlannerEventSpecsCoverEveryReason(t *testing.T) {
 		wantInterval time.Duration
 	}{
 		{reasonAutoFullDrivesContainersCreated, corev1.EventTypeNormal, time.Minute},
-		{reasonAutoFullDrivesGrowth, corev1.EventTypeNormal, time.Minute},
+		{reasonAutoFullDrivesResized, corev1.EventTypeNormal, time.Minute},
 		{reasonAutoFullDrivesUnusedDrivesOnNode, corev1.EventTypeNormal, plannerAggregateEventInterval},
 		{reasonAutoFullDrivesNodeIneligible, corev1.EventTypeNormal, plannerAggregateEventInterval},
 		{reasonAutoFullDrivesUnsignedDriveNodes, corev1.EventTypeWarning, time.Minute},
 		{reasonAutoFullDrivesComputeCoresCapped, corev1.EventTypeWarning, 2 * time.Minute},
+		{reasonAutoFullDrivesNoFreeDrives, corev1.EventTypeWarning, time.Minute},
 		{reasonAutoFullDrivesHugepagesPinBelowAuto, corev1.EventTypeWarning, 5 * time.Minute},
 		{reasonClusterCapacityHeterogeneousGrowth, corev1.EventTypeWarning, time.Minute},
 		{reasonClusterCapacityPlanned, corev1.EventTypeNormal, time.Minute},

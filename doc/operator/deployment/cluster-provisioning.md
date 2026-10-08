@@ -32,6 +32,10 @@ spec:
 
 Each type of container is singleton within a node, and minimal cluster size is 5 compute and 5 drive containers.
 
+Raising `numDrives` on a full-drives cluster reserves the new drives at once, but adds them to weka only after
+each drive pod is recreated, since the pod's `weka.io/drives` request, hugepages and cores are fixed at
+creation. Until then the drive container reports `DriveCapacityResourceShortfall`.
+
 ## Graceful Termination
 - `spec.gracefulDestroyDuration` controls the graceful termination period
 - Default is 24h (if not specified)

@@ -51,7 +51,7 @@ func podHugepagesRequestMiB(c *v1.Container) int {
 // defer the add until the pod is (re)sized.
 func (r *containerReconcilerLoop) checkDriveResourceFeasibility(ctx context.Context) error {
 	container := r.container
-	if !container.UsesDriveSharing() || container.Status.Allocations == nil {
+	if container.Status.Allocations == nil {
 		return nil
 	}
 	c, err := resources.GetWekaPodContainer(r.pod)
@@ -62,6 +62,10 @@ func (r *containerReconcilerLoop) checkDriveResourceFeasibility(ctx context.Cont
 
 	_, logger := instrumentation.CreateLogSpan(ctx, "checkDriveResourceFeasibility")
 	defer logger.End()
+
+	if !container.UsesDriveSharing() {
+		return r.deferIfFullDrivesShortfall(container, c)
+	}
 
 	var tlcGiB, qlcGiB int
 	for _, vd := range container.Status.Allocations.VirtualDrives {
@@ -105,6 +109,19 @@ func (r *containerReconcilerLoop) checkDriveResourceFeasibility(ctx context.Cont
 	msg := fmt.Sprintf("deferring drive add: pod under-resourced for target capacity (%s)", shortfall)
 	_ = r.RecordEvent(v1.EventTypeWarning, "DriveCapacityResourceShortfall", consts.ActionManageDrives, msg) //nolint:errcheck // event recording is best effort
 
+	return lifecycle.NewWaitErrorWithDuration(errors.New(msg), time.Minute)
+}
+
+// deferIfFullDrivesShortfall is the full-drives form of the check: a pod built before numDrives grew still
+// requests the old weka.io/drives count, so drives allocated beyond it wait for the pod to be recreated.
+func (r *containerReconcilerLoop) deferIfFullDrivesShortfall(container *weka.WekaContainer, c *v1.Container) error {
+	podDrives := c.Resources.Requests[consts.ResourceDrives]
+	allocated := len(container.Status.Allocations.Drives)
+	if int(podDrives.Value()) >= allocated {
+		return nil
+	}
+	msg := fmt.Sprintf("deferring drive add: pod requests %d drives, allocated %d; recreate the pod", podDrives.Value(), allocated)
+	_ = r.RecordEvent(v1.EventTypeWarning, "DriveCapacityResourceShortfall", consts.ActionManageDrives, msg) //nolint:errcheck // event recording is best effort
 	return lifecycle.NewWaitErrorWithDuration(errors.New(msg), time.Minute)
 }
 
@@ -1146,4 +1163,26 @@ func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive
 	}
 
 	return nil
+}
+
+// handleOversizedDrivePod covers a full-drives pod that requests more weka.io/drives than numDrives (the
+// spec was lowered after the pod was built). A pod no node took is rebuilt with the smaller request; a
+// scheduled one keeps its extra drives until the user recreates it.
+func (r *containerReconcilerLoop) handleOversizedDrivePod(ctx context.Context) error {
+	c, err := resources.GetWekaPodContainer(r.pod)
+	if err != nil {
+		return fmt.Errorf("handleOversizedDrivePod: %w", err)
+	}
+	req := c.Resources.Requests[consts.ResourceDrives]
+	if int(req.Value()) <= r.container.Spec.NumDrives {
+		return nil
+	}
+	if r.pod.Spec.NodeName == "" && r.pod.DeletionTimestamp == nil {
+		if err := r.deletePod(ctx, r.pod); err != nil {
+			return err
+		}
+		return lifecycle.NewWaitError(errors.New("unscheduled pod requests more drives than numDrives, deleted for recreate"))
+	}
+	msg := fmt.Sprintf("pod requests %d weka.io/drives but numDrives is %d; recreate the pod to release the extra drive(s)", req.Value(), r.container.Spec.NumDrives)
+	return r.RecordEventThrottled(v1.EventTypeWarning, "PodRequestsExtraDrives", consts.ActionManageDrives, msg, 5*time.Minute)
 }

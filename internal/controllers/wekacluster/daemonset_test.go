@@ -37,10 +37,17 @@ func drives(n int) []int {
 
 // shared is a node matching both selectors.
 func shared(nDrives int) dsNode {
-	return dsNode{driveRole: true, computeRole: true, drivesGiB: drives(nDrives)}
+	return dsNode{driveRole: true, computeRole: true, drivesGiB: drives(nDrives), listed: true, availGiB: drives(nDrives)}
 }
 
-func driveOnly(nDrives int) dsNode { return dsNode{driveRole: true, drivesGiB: drives(nDrives)} }
+func driveOnly(nDrives int) dsNode {
+	return dsNode{driveRole: true, drivesGiB: drives(nDrives), listed: true, availGiB: drives(nDrives)}
+}
+
+// sharedFree is a shared node with signed drives, of which only avail are usable by this cluster.
+func sharedFree(signed int, avail ...int) dsNode {
+	return dsNode{driveRole: true, computeRole: true, drivesGiB: drives(signed), listed: true, availGiB: avail}
+}
 
 func computeOnly() dsNode { return dsNode{computeRole: true} }
 
@@ -77,7 +84,7 @@ func TestPlanDaemonset(t *testing.T) {
 		want           []dsWant
 		unsigned       []string
 		ineligible     map[string]string
-		unused         []string
+		unused, noFree []string
 		capped         int
 		statusD, statC int
 	}{
@@ -147,7 +154,7 @@ func TestPlanDaemonset(t *testing.T) {
 		{
 			name: "ineligible node with containers still grows",
 			in: daemonsetInput{
-				nodes: map[string]dsNode{"n2": {driveRole: true, computeRole: true, ineligible: "cordoned", drivesGiB: drives(6)}},
+				nodes: map[string]dsNode{"n2": {driveRole: true, computeRole: true, ineligible: "cordoned", drivesGiB: drives(6), listed: true, availGiB: drives(6)}},
 				live:  liveOf(map[string]*weka.WekaContainer{"n2": ctr(4, 4)}, map[string]*weka.WekaContainer{"n2": ctr(0, 8)}),
 				cons:  cons,
 			},
@@ -213,23 +220,93 @@ func TestPlanDaemonset(t *testing.T) {
 			want: []dsWant{d("n1", 8, 8), c("n1", 8, 0)}, statusD: 1, statC: 1,
 		},
 		{
-			name: "existing containers are never lowered",
+			name:    "foreign container holds 3 of 8: new container takes the 5 free",
+			in:      daemonsetInput{nodes: map[string]dsNode{"n1": sharedFree(8, 1000, 1000, 1000, 1000, 1000)}, cons: cons},
+			want:    []dsWant{d("n1", 5, 5), c("n1", 10, hp(5000, 1, 10))},
+			statusD: 1, statC: 1,
+		},
+		{
+			name:    "the largest free drives feed the capacity",
+			in:      daemonsetInput{nodes: map[string]dsNode{"n1": sharedFree(4, 4000, 3000, 2000, 1000)}, numDrivesPin: 2, cons: cons},
+			want:    []dsWant{d("n1", 2, 2), c("n1", 4, hp(7000, 1, 4))},
+			unused:  []string{"2 of 4 signed drives unused on n1 (numDrives pin=2)"},
+			statusD: 1, statC: 1,
+		},
+		{
+			name:   "every drive held: no container",
+			in:     daemonsetInput{nodes: map[string]dsNode{"n1": sharedFree(8)}, cons: cons},
+			noFree: []string{"n1 (8 signed, 8 held by other containers)"}, statusD: 1, statC: 1,
+		},
+		{
+			name: "numDrives pin above the free drives is written",
+			in:   daemonsetInput{nodes: map[string]dsNode{"n1": sharedFree(8, 1000, 1000, 1000)}, numDrivesPin: 10, cons: cons},
+			want: []dsWant{d("n1", 10, 10), c("n1", 19, 0)}, capped: 1, statusD: 1, statC: 1,
+		},
+		{
+			name: "blocked drive with no spare is lowered",
 			in: daemonsetInput{
-				nodes: map[string]dsNode{"n1": shared(8)},
-				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(10, 10)}, map[string]*weka.WekaContainer{"n1": ctr(0, 30)}),
+				nodes: map[string]dsNode{"n1": sharedFree(7, 1000, 1000, 1000, 1000, 1000)},
+				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(6, 6)}, map[string]*weka.WekaContainer{"n1": ctr(0, 12)}),
 				cons:  cons,
 			},
-			// wants 20 compute cores, but the existing 30 already covers it: no cap warning
-			want: []dsWant{d("n1", 10, 10), c("n1", 30, 0)}, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 5, 6), c("n1", 12, 0)}, statusD: 1, statC: 1,
+		},
+		{
+			name: "drives taken before the claim lower the container, never below 1",
+			in: daemonsetInput{
+				nodes: map[string]dsNode{"n1": sharedFree(8)},
+				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(8, 8)}, map[string]*weka.WekaContainer{"n1": ctr(0, 16)}),
+				cons:  cons,
+			},
+			want: []dsWant{d("n1", 1, 8), c("n1", 16, 0)}, statusD: 1, statC: 1,
+			noFree: []string{"n1 (8 signed, 8 held by other containers; container waits for a free drive)"},
+		},
+		{
+			name: "pinned container is not lowered",
+			in: daemonsetInput{
+				nodes:        map[string]dsNode{"n1": sharedFree(8, 1000, 1000, 1000)},
+				live:         liveOf(map[string]*weka.WekaContainer{"n1": ctr(8, 8)}, map[string]*weka.WekaContainer{"n1": ctr(0, 16)}),
+				numDrivesPin: 4,
+				cons:         cons,
+			},
+			want: []dsWant{d("n1", 8, 8), c("n1", 16, 0)}, statusD: 1, statC: 1,
+		},
+		{
+			name: "drives freed by another cluster are taken",
+			in: daemonsetInput{
+				nodes: map[string]dsNode{"n1": sharedFree(8, drives(8)...)},
+				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(3, 3)}, map[string]*weka.WekaContainer{"n1": ctr(0, 6)}),
+				cons:  cons,
+			},
+			want: []dsWant{d("n1", 8, 8), c("n1", 16, hp(8000, 1, 16))}, statusD: 1, statC: 1,
+		},
+		{
+			name: "node not listed keeps the container as is",
+			in: daemonsetInput{
+				nodes: map[string]dsNode{"n1": {driveRole: true, computeRole: true, drivesGiB: drives(8)}},
+				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(3, 3)}, map[string]*weka.WekaContainer{"n1": ctr(0, 6)}),
+				cons:  cons,
+			},
+			want: []dsWant{d("n1", 3, 3), c("n1", 6, hp(3000, 1, 6))}, statusD: 1, statC: 1,
+		},
+		{
+			name: "existing cores are never lowered",
+			in: daemonsetInput{
+				nodes: map[string]dsNode{"n1": shared(8)},
+				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(8, 10)}, map[string]*weka.WekaContainer{"n1": ctr(0, 30)}),
+				cons:  cons,
+			},
+			// wants 16 compute cores, but the existing 30 already covers it: no cap warning
+			want: []dsWant{d("n1", 8, 10), c("n1", 30, 0)}, statusD: 1, statC: 1,
 		},
 		{
 			name: "cap is reported when the existing container stays below what was wanted",
 			in: daemonsetInput{
 				nodes: map[string]dsNode{"n1": shared(8)},
-				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(10, 10)}, map[string]*weka.WekaContainer{"n1": ctr(0, 10)}),
+				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(8, 10)}, map[string]*weka.WekaContainer{"n1": ctr(0, 10)}),
 				cons:  cons,
 			},
-			want: []dsWant{d("n1", 10, 10), c("n1", 19, 0)}, capped: 1, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 8, 10), c("n1", 19, 0)}, capped: 1, statusD: 1, statC: 1,
 		},
 		{
 			name: "numDrives pin below an existing container's drives reports nothing unused",
@@ -265,6 +342,9 @@ func TestPlanDaemonset(t *testing.T) {
 			}
 			if !slices.Equal(p.unused, tc.unused) {
 				t.Errorf("unused = %v, want %v", p.unused, tc.unused)
+			}
+			if !slices.Equal(p.noFree, tc.noFree) {
+				t.Errorf("noFree = %v, want %v", p.noFree, tc.noFree)
 			}
 			if len(p.capped) != tc.capped {
 				t.Errorf("capped = %v, want %d entries", p.capped, tc.capped)
@@ -370,8 +450,8 @@ func TestBuildMissingContainersDaemonsetRaisesExistingAndEmitsGrowth(t *testing.
 		t.Errorf("drive = %d drives/%d cores/%d hugepages, want 4/4/>0", got.Spec.NumDrives, got.Spec.NumCores, got.Spec.Hugepages)
 	}
 	evs := drainLoopEvents(t, loop)
-	if len(eventsMatching(evs, "Warning CapacityGrowthApplied")) != 1 || len(eventsMatching(evs, "Normal AutoFullDrivesGrowth")) != 1 {
-		t.Errorf("want one CapacityGrowthApplied and one AutoFullDrivesGrowth event, got %v", evs)
+	if len(eventsMatching(evs, "Warning AutoFullDrivesResized")) != 1 || len(eventsMatching(evs, "Normal AutoFullDrivesResized")) != 1 {
+		t.Errorf("want one container and one cluster AutoFullDrivesResized event, got %v", evs)
 	}
 }
 
@@ -407,7 +487,7 @@ func TestBuildMissingContainersDaemonsetPreFormationCapTakesPairedFirst(t *testi
 	}
 }
 
-func TestRaiseDaemonsetContainerHugepagesNeverBelowAuto(t *testing.T) {
+func TestRaiseDaemonsetContainerHugepagesFollowAuto(t *testing.T) {
 	ptr := func(i int) *int { return &i }
 	for _, mode := range []string{weka.WekaContainerModeCompute, weka.WekaContainerModeDrive} {
 		for _, tc := range []struct {
@@ -416,10 +496,10 @@ func TestRaiseDaemonsetContainerHugepagesNeverBelowAuto(t *testing.T) {
 			cur, want int  // offsets from auto
 			warn      bool
 		}{
-			{name: "unpinned keeps max", cur: 500, want: 500},
+			{name: "unpinned lowered to auto", cur: 500, want: 0},
 			{name: "unpinned raised to auto", cur: -500, want: 0},
 			{name: "pin above auto is written", pin: ptr(100), cur: -500, want: 100},
-			{name: "pin below auto keeps current", pin: ptr(-100), cur: 300, want: 300, warn: true},
+			{name: "pin below auto lowers current to auto", pin: ptr(-100), cur: 300, want: 0, warn: true},
 			{name: "pin below auto raises current below auto", pin: ptr(-100), cur: -500, want: 0, warn: true},
 		} {
 			t.Run(mode+"/"+tc.name, func(t *testing.T) {
@@ -473,17 +553,17 @@ func valueOr(p *int) int {
 	return *p
 }
 
-func TestRaiseDaemonsetContainerOffsetNeverBelowAuto(t *testing.T) {
+func TestRaiseDaemonsetContainerOffsetFollowsAuto(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		pin       *int // offset from auto offset; nil = unpinned
 		cur, want int
 		warn      bool
 	}{
-		{name: "unpinned keeps max", cur: 50, want: 50},
+		{name: "unpinned lowered to auto", cur: 50, want: 0},
 		{name: "unpinned raised to auto", cur: -5, want: 0},
 		{name: "pin above auto is written", pin: new(10), cur: -5, want: 10},
-		{name: "pin below auto keeps current", pin: new(-10), cur: 5, want: 5, warn: true},
+		{name: "pin below auto lowers current to auto", pin: new(-10), cur: 5, want: 0, warn: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := growableAutoFullDrivesDriveContainer("c1", "n1", 4, 4)
@@ -604,5 +684,164 @@ func TestCollectDaemonsetInputTreatsUnparsableAnnotationAsUnsigned(t *testing.T)
 		if tg.node == "bad" {
 			t.Errorf("unexpected target on the unsigned node: %+v", tg)
 		}
+	}
+}
+
+func driveCtr(name string, spec int, serials ...string) *weka.WekaContainer {
+	c := &weka.WekaContainer{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", Labels: map[string]string{domain.WekaLabelMode: weka.WekaContainerModeDrive}}}
+	c.Spec.Mode, c.Spec.NumDrives, c.Spec.NumCores, c.Spec.NodeAffinity = weka.WekaContainerModeDrive, spec, spec, "n1"
+	if len(serials) > 0 {
+		c.Status.Allocations = &weka.ContainerAllocations{Drives: serials}
+	}
+	return c
+}
+
+func aged(c *weka.WekaContainer, sec int64) *weka.WekaContainer {
+	c.CreationTimestamp = metav1.Unix(sec, 0)
+	return c
+}
+
+func deletingCtr(c *weka.WekaContainer) *weka.WekaContainer {
+	c.Spec.State = weka.ContainerStateDeleting
+	return c
+}
+
+func TestCollectDaemonsetInputFreeDrives(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name       string
+		own        *weka.WekaContainer
+		foreign    []*weka.WekaContainer
+		wantListed bool
+		wantAvail  int
+	}{
+		{name: "no container yet: foreign holds 2, another reserves 1", foreign: []*weka.WekaContainer{driveCtr("other", 2, "n1-0", "n1-1"), driveCtr("reserved", 1)}, wantListed: true, wantAvail: 1},
+		{name: "own holds 2, nothing foreign: the rest is free", own: driveCtr("own", 2, "n1-0", "n1-1"), wantListed: true, wantAvail: 4},
+		{name: "own holds every signed drive: not listed", own: driveCtr("own", 4, "n1-0", "n1-1", "n1-2", "n1-3")},
+		{name: "own asks for more than it holds", own: driveCtr("own", 4, "n1-0", "n1-1"), foreign: []*weka.WekaContainer{driveCtr("other", 2, "n1-2", "n1-3")}, wantListed: true, wantAvail: 2},
+		{name: "foreign holding 1 of 3 still reserves the other 2", foreign: []*weka.WekaContainer{driveCtr("partial", 3, "n1-0")}, wantListed: true, wantAvail: 1},
+		{name: "deleting foreign reserves nothing but its serials stay held", foreign: []*weka.WekaContainer{deletingCtr(driveCtr("going", 3, "n1-0"))}, wantListed: true, wantAvail: 3},
+		{name: "older foreign claim reserves against ours", own: aged(driveCtr("own", 4), 10), foreign: []*weka.WekaContainer{aged(driveCtr("first", 2), 5)}, wantListed: true, wantAvail: 2},
+		{name: "newer foreign claim does not reserve against ours", own: aged(driveCtr("own", 4), 10), foreign: []*weka.WekaContainer{aged(driveCtr("later", 2), 20)}, wantListed: true, wantAvail: 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var own []*weka.WekaContainer
+			if tc.own != nil {
+				own = append(own, tc.own)
+			}
+			loop := dsGlueLoop(t, map[string]int{"n1": 4}, true, own...)
+			for _, f := range tc.foreign {
+				if err := loop.getClient().Create(ctx, f); err != nil {
+					t.Fatal(err)
+				}
+			}
+			in, err := loop.collectDaemonsetInput(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n := in.nodes["n1"]; n.listed != tc.wantListed || len(n.availGiB) != tc.wantAvail {
+				t.Errorf("listed=%v avail=%d, want %v/%d", n.listed, len(n.availGiB), tc.wantListed, tc.wantAvail)
+			}
+		})
+	}
+}
+
+func TestBuildDaemonsetContainersLowersNumDrives(t *testing.T) {
+	ctx := context.Background()
+	own := aged(driveCtr("own", 4), 10)
+	loop := dsGlueLoop(t, map[string]int{"n1": 4}, true, own)
+	for _, f := range []*weka.WekaContainer{driveCtr("other", 2, "n1-0", "n1-1"), aged(driveCtr("reserved", 1), 5)} {
+		if err := loop.getClient().Create(ctx, f); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := loop.BuildMissingContainers(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got := &weka.WekaContainer{}
+	if err := loop.getClient().Get(ctx, client.ObjectKeyFromObject(own), got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.NumDrives != 1 {
+		t.Errorf("numDrives = %d, want 1 (4 signed - 2 held - 1 reserved)", got.Spec.NumDrives)
+	}
+}
+
+func TestBuildDaemonsetContainersNoFreeDrivesEmitsEvent(t *testing.T) {
+	loop := dsGlueLoop(t, map[string]int{"n1": 2}, true)
+	if err := loop.getClient().Create(context.Background(), driveCtr("other", 2, "n1-0", "n1-1")); err != nil {
+		t.Fatal(err)
+	}
+	built, err := loop.BuildMissingContainers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(built) != 0 {
+		t.Errorf("built %d containers on a node with no free drives", len(built))
+	}
+	if evs := eventsMatching(drainLoopEvents(t, loop), "AutoFullDrivesNoFreeDrives"); len(evs) != 1 || !strings.Contains(evs[0], "n1 (2 signed, 2 held by other containers)") {
+		t.Errorf("want one NoFreeDrives event naming n1, got %v", evs)
+	}
+}
+
+func TestCollectDaemonsetInputListsOnlyNodesWhereAnswerCanChange(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		own  []*weka.WekaContainer
+		want bool
+	}{
+		{name: "own holds every signed drive: not listed", own: []*weka.WekaContainer{driveCtr("own", 4, "n1-0", "n1-1", "n1-2", "n1-3")}},
+		{name: "own holds fewer than signed: listed every pass", own: []*weka.WekaContainer{driveCtr("own", 2, "n1-0", "n1-1")}, want: true},
+		{name: "own holds nothing: listed every pass", own: []*weka.WekaContainer{driveCtr("own", 2)}, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			loop := dsGlueLoop(t, map[string]int{"n1": 4}, true, tc.own...)
+			for pass := 0; pass < 2; pass++ {
+				in, err := loop.collectDaemonsetInput(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := in.nodes["n1"].listed; got != tc.want {
+					t.Errorf("pass %d: listed=%v, want %v", pass, got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestPlanDaemonsetExistingContainerCapacity(t *testing.T) {
+	cons := dsCons(19, 2)
+	entries := []domain.DriveEntry{{Serial: "a", CapacityGiB: 4000}, {Serial: "b", CapacityGiB: 1000}, {Serial: "c", CapacityGiB: 1000}, {Serial: "d", CapacityGiB: 500}}
+	own := func(serials ...string) *weka.WekaContainer {
+		c := ctr(2, 2)
+		c.Status.Allocations = &weka.ContainerAllocations{Drives: serials}
+		return c
+	}
+	node := func(listed bool, avail ...int) dsNode {
+		return dsNode{driveRole: true, drivesGiB: []int{4000, 1000, 1000, 500}, entries: entries, listed: listed, availGiB: avail}
+	}
+	tlc := func(n dsNode, c *weka.WekaContainer) (int, int) {
+		p := planDaemonset(&daemonsetInput{nodes: map[string]dsNode{"n1": n}, cons: cons,
+			live: liveOf(map[string]*weka.WekaContainer{"n1": c}, nil)})
+		return p.targets[0].tlcGiB, p.targets[0].numDrives
+	}
+	// Holds the 1000 GiB drive "b" and needs one more: the largest free one, whether or not the node was listed.
+	listedTlc, _ := tlc(node(true, 4000, 1000), own("b"))
+	unlistedTlc, _ := tlc(node(false), own("b"))
+	if listedTlc != 5000 || unlistedTlc != 5000 {
+		t.Errorf("tlc listed=%d unlisted=%d, want 5000 both", listedTlc, unlistedTlc)
+	}
+
+	// A serial no longer in the signed, unblocked entries keeps numDrives from being lowered.
+	if _, drives := tlc(node(true, 4000, 1000), own("b", "gone")); drives != 2 {
+		t.Errorf("numDrives = %d, want 2 while a blocked serial is still allocated", drives)
+	}
+	if _, drives := tlc(node(true, 1000, 1000), own("b", "c")); drives != 2 {
+		t.Errorf("numDrives = %d, want 2 (holds both)", drives)
+	}
+	if _, drives := tlc(node(true, 1000), own("b")); drives != 1 {
+		t.Errorf("numDrives = %d, want 1 (lowered to what the node can give)", drives)
 	}
 }

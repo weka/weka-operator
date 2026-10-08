@@ -2,7 +2,7 @@
 
 When you create a `WekaCluster` without telling the operator **how many containers to make**, it acts
 as a **daemonset**: one drive container and one compute container on every matching node, with
-drives, cores, hugepages and memory derived from each node's own signed full drives.
+drives, cores, hugepages and memory derived from each node's free signed full drives.
 
 **There is no flag for this.** The mode is implicit: leave `computeContainers`, `driveContainers` and
 all capacity fields unset. An empty `dynamicTemplate: {}`, or no `dynamicTemplate` at all, selects it:
@@ -43,7 +43,7 @@ Setting exactly one is rejected by a CEL rule on the CRD at `kubectl apply`.
 
 The mode only uses **signed, non-blocked full drives**; it does not sign drives. Sign the backend
 nodes before creating the cluster (see [Drive Signing](../operations/drive-signing.md)). Signing writes
-the `weka.io/weka-full-drives` node annotation, which is the only inventory the operator reads. A node
+the `weka.io/weka-full-drives` node annotation, which is the drive inventory the operator reads. A node
 signed after the cluster exists is picked up on the next reconcile.
 
 QLC drives get no separate accounting: they will be added to weka along with TLCs. Keep them out with
@@ -77,15 +77,15 @@ Each reconcile classifies the nodes from the client cache.
   **Compute-role nodes** match `roleNodeSelector.compute`, with the same fallback.
 - Containers are **node-pinned**: one per node and role.
 - The selector therefore sets the cluster size.
-- Other clusters' containers are ignored. A drive that another cluster holds is still counted as
-  available here; see [Troubleshooting](#troubleshooting).
+- Nodes may be shared with other clusters. See
+  [Shared nodes](#shared-nodes-and-free-drives).
 
 ### Ineligible, unsigned and deleting nodes
 
 | Node state | New container | Existing own container |
 |---|---|---|
 | Cordoned, `NotReady`, untolerated taint, or missing FD label (FD label mode) | none, reported in `AutoFullDrivesNodeIneligible` | kept, counted, still grows |
-| Drive-role node without a parseable `weka.io/weka-full-drives` annotation | no drive or compute container, reported in `AutoFullDrivesUnsignedDriveNodes` | kept, counted, still grows |
+| Drive-role node with no usable signed drives (no annotation, unparsable, or all blocked) | no drive or compute container, reported in `AutoFullDrivesUnsignedDriveNodes` | kept, counted, still grows |
 | Own container of that role is deleting | none, silently skipped | not counted |
 | Lost its selector label | none | kept and counted (Desired and totals); grows only from pins and fleet-wide compute sizing, since the node's annotation is no longer read. Removed instead when `cleanupOnNodeSelectorMismatch` is on |
 
@@ -98,10 +98,36 @@ count too, so a stuck pod never causes a duplicate container. Sizing never delet
 
 One per eligible, signed drive-role node.
 
-- `numDrives` = the `numDrives` pin, else every non-blocked drive in the annotation.
+- `numDrives` = the `numDrives` pin, else the node's **free** drives: non-blocked signed drives not held or
+  reserved by another container. On a node of its own that is every signed drive. See
+  [Shared nodes](#shared-nodes-and-free-drives).
 - `cores` = the `driveCores` pin, else `min(numDrives, maxCoresPerContainer)`. Drives and cores are
   decoupled: a node with 24 drives gets 24 drives on 19 cores.
-- The drive capacity used for hugepages is the sum of the `numDrives` largest drives.
+- The drive capacity used for hugepages is the sum of the drives the container holds, plus the largest free
+  ones for any it has not claimed yet.
+
+### Shared nodes and free drives
+
+A node may also carry drive containers of another cluster (count mode, or a second daemonset). This
+cluster takes only the drives they leave. Example, `node-a` with 8 signed drives:
+
+| | Drives |
+|---|---|
+| Signed on `node-a` | 8 |
+| Held by cluster `c1` (allocated) | − 3 |
+| Reserved by cluster `c2` (`numDrives: 2`, nothing claimed yet) | − 2 |
+| **Free: this cluster's `numDrives`** | **3** |
+
+- **Held:** serials in another container's allocations, including a deleting one until it is gone.
+- **Reserved:** what another container has yet to claim, its `numDrives` minus what it holds. It comes off the
+  largest free drives, as the allocator hands those out first. A deleting container reserves nothing.
+- **Older wins:** a reservation counts against our container only if ours was created after it. With equal
+  creation timestamps, the container whose name sorts first counts as older, so exactly one of them yields.
+- **Nothing free** (and no `numDrives` pin): no new container on that node, and an existing one that holds
+  nothing waits at 1 drive; see `AutoFullDrivesNoFreeDrives`.
+
+Other clusters' containers are read only for nodes where the answer can change: no drive container yet, or ours
+holds fewer drives than signed or than its `numDrives`. With no such node, nothing is listed.
 
 ### Compute containers
 
@@ -129,19 +155,23 @@ planner; the `cluster_cores_per_container_limit` policy checks it.
 
 ## Pins
 
-`numDrives`, `driveCores`, `computeCores`, `driveHugepages`, `computeHugepages` and the two `*Offset`
-fields are never ignored and are not checked at runtime.
+`numDrives`, `driveCores` and `computeCores` pins are written as is and are not checked at runtime;
+admission checks them. An existing container is never shrunk by a lower pin. Hugepages and offset pins
+apply only at or above auto (see below).
 
 - `numDrives` below the signed count leaves drives unused, reported in `AutoFullDrivesUnusedDrivesOnNode`
-  (Normal), e.g. `3 of 8 signed drives unused on node-a (numDrives pin=5)`.
+  (Normal), e.g. `3 of 8 signed drives unused on node-a (numDrives pin=5)`. The count is against all signed
+  drives, so on a shared node it includes drives other clusters hold.
 - `numDrives` or `driveCores` above what a node can supply is caught by admission
   (`cluster_auto_full_drives_pins`). In relaxed mode the container is created anyway and waits on
-  `InsufficientDrives`.
-- Hugepages and offset never go below **auto**: the value computed without the pin (the drive figure from
-  cores and drives, the compute figure the plan computes, and their offsets). Per field:
-  - No pin: `max(current, auto)`, applied on every reconcile, so an unpinned container below auto is raised.
+  `InsufficientDrives`; the same happens when the pin is above the node's
+  [free drives](#shared-nodes-and-free-drives).
+- Hugepages and offset never go below **auto**: the value computed without the pin for the container's
+  cores and drives (the drive figure from cores and drives, the compute figure the plan computes, and their
+  offsets). Per field, applied on every reconcile:
+  - No pin: auto. A container above auto (for example after `numDrives` was lowered) is lowered to it.
   - Pin at or above auto: the pin is written.
-  - Pin below auto: the pin is not applied; the value is `max(current, auto)` (auto on create) and
+  - Pin below auto: the pin is not applied; the value is auto and
     `AutoFullDrivesHugepagesPinBelowAuto` (Warning) is posted on the cluster and on each affected
     container, listing `container/field pin=X auto=Y current=Z`.
 
@@ -152,20 +182,38 @@ form-cluster maximum a regular cluster uses (10 per role by default). Missing co
 **nodes holding both roles first**, then by node name. After formation the rest are created on the next
 reconcile.
 
-## Expand-only and pod restart
+## Growth, lowering and pod restart
 
-Sizing only raises. Each reconcile raises existing containers in place:
+Each reconcile resizes existing containers in place:
 
-- `numDrives` and `cores` become `max(existing, target)`. An annotation that loses a drive, or a lowered
-  pin, never shrinks a container.
-- Compute cores and hugepages are raised the same way; a hugepages pin at or above auto is written as is.
-- A new signed node, or newly signed drives on a node, gain containers or drives on the next reconcile.
+| Field | Goes up when | Goes down when |
+|---|---|---|
+| `numDrives`, no pin (`dynamicTemplate.numDrives` unset) | drives free up on the node (e.g. the other cluster is deleted), or more drives are signed | a held drive is blocked and no spare is free, or another container claimed the drives first; never below 1 |
+| `numDrives`, pinned (`dynamicTemplate.numDrives` set) | the pin is raised | never |
+| cores (drive and compute) | the target rises (more drives, a raised pin) | never: weka does not support lowering cores |
+| hugepages and offset | auto rises, or a pin at or above auto is set | auto falls (e.g. after `numDrives` went down), never below auto; see [Pins](#pins) |
 
-A raised value changes the `WekaContainer` spec, not the running pod. It applies when the pod is next
-recreated (image upgrade, `podConfigVersion` bump, manual delete). Drive-only growth is served at once
-by the running weka container, but its hugepages limit is immutable and no longer covers the extra
-drives, so restart the pod. Each growth emits `CapacityGrowthApplied` (Warning) on the container and
-`AutoFullDrivesGrowth` on the cluster.
+`numDrives` is not lowered while the container still holds a drive the node no longer lists as signed and
+unblocked (a block in progress). New signed nodes get new containers on the next reconcile.
+
+**Example.** On `node-a` the other cluster is deleted, freeing 3 drives. This cluster's drive container goes
+`numDrives 3→6, cores 3→6, hugepages 4992→9984` and emits `AutoFullDrivesResized`. The new drives are
+reserved at once, and added to weka after the pod is recreated.
+
+**The spec changes at once; the pod follows only when it is recreated** (image upgrade,
+`podConfigVersion` bump, manual delete). Its cores, hugepages and `weka.io/drives` request are fixed at
+creation.
+
+| Change | Until the pod is recreated |
+|---|---|
+| More drives | Reserved, not added to weka; the container reports `DriveCapacityResourceShortfall`. The same wait applies to count-mode full-drives containers. |
+| Fewer drives, pod never scheduled | The container controller deletes the pod and it is rebuilt with the smaller request. |
+| Fewer drives, pod scheduled | The pod keeps its request; the container gets a `PodRequestsExtraDrives` Warning every 5 minutes. |
+| No free drive at all (holds none) | The container stays at 1 drive with its pod Pending; the node is listed in `AutoFullDrivesNoFreeDrives`. |
+| Cores or hugepages | Applied on the next recreate. |
+
+Every change, up or down, emits `AutoFullDrivesResized`: a Warning on the container listing each changed
+field as `old→new`, and a Normal event on the cluster.
 
 ## Mode flips
 
@@ -173,7 +221,7 @@ drives, so restart the pod. Each growth emits `CapacityGrowthApplied` (Warning) 
 
 | Flip | Result |
 |---|---|
-| counts to daemonset | Existing containers are matched to their node (a scheduled count-based container is matched through its status node affinity) and grown to the node's full drive set. New nodes get new containers. Never-bound containers without a node are ignored. |
+| counts to daemonset | Existing containers are matched to their node (a scheduled count-based container is matched through its status node affinity) and grown to the drives they hold plus the node's free ones. New nodes get new containers. Never-bound containers without a node are ignored. |
 | daemonset to counts | Existing containers and pins are kept and never shrunk. Count mode only creates while it has fewer containers than requested. |
 | daemonset to `clusterCapacity` or drive sharing | **Rejected**. |
 
@@ -183,7 +231,7 @@ drives, so restart the pod. Each growth emits `CapacityGrowthApplied` (Warning) 
 |---|---|---|---|
 | `cluster_auto_full_drives_min_nodes` | Error | Error | Each role selector matches at least the form-cluster minimum (5; 3 with `ALLOW_SINGLE_PARITY`). |
 | `cluster_auto_full_drives_pins` | Error | Warn | Per signed drive-role node: `numDrives` pin at most the signed count; `driveCores` pin at most `numDrives` (or the signed count). Unsigned nodes are skipped. |
-| `cluster_drives_unsigned_advisory` | Warn | Warn | Lists every drive-role node without the annotation. |
+| `cluster_drives_unsigned_advisory` | Warn | Warn | Lists every drive-role node with no usable signed drives. |
 | `cluster_min_drives_feasibility` | Error | Error | `minNumDrives` at most the total claimable drives. Skipped when nothing is signed yet (the advisory covers it). |
 | `cluster_sizing_mode_flip` | Error | Error | See [Mode flips](#mode-flips). |
 | `cluster_cores_per_container_limit` | Error | Warn | `driveCores` and `computeCores` pins at most 19. |
@@ -198,21 +246,22 @@ All cluster-level events are in `internal/controllers/wekacluster/planner_events
 | Reason | Type | Throttle | Meaning |
 |---|---|---|---|
 | `AutoFullDrivesContainersCreated` | Normal | 1m | Containers were created this pass, by role and node. |
-| `AutoFullDrivesGrowth` | Normal | 1m | Existing containers were raised; restart their pods. |
+| `AutoFullDrivesResized` | Normal | 1m | Existing containers were resized (raised or lowered); restart their pods. Also a Warning on each resized `WekaContainer`, unthrottled, e.g. `resized compute container: hugepages 23142→18956`. |
 | `AutoFullDrivesUnusedDrivesOnNode` | Normal | 3m, aggregated | `numDrives` pin below the signed count. |
 | `AutoFullDrivesNodeIneligible` | Normal | 3m, aggregated, keyed by reason | Nodes that get no new containers, with the reason. |
 | `AutoFullDrivesUnsignedDriveNodes` | Warning | 1m, aggregated | Drive-role nodes without usable signed drives. |
 | `AutoFullDrivesComputeCoresCapped` | Warning | 2m | Compute cores cut by the 19-core cap. |
+| `AutoFullDrivesNoFreeDrives` | Warning | 1m, aggregated | Drive-role nodes whose signed drives are all held by other containers: no container is created there, or ours waits at 1 drive. |
 | `AutoFullDrivesHugepagesPinBelowAuto` | Warning | 5m, aggregated; also on each `WekaContainer`, throttled | A hugepages or offset pin below auto was not applied. |
-| `CapacityGrowthApplied` | Warning | none | On the `WekaContainer`: a container was raised. |
 
 ## Troubleshooting
 
 **A pod is Pending.** The operator does not fit-check nodes, so the node cannot satisfy the pod. Run
 `kubectl describe pod` for the unmet request (CPU, hugepages, `weka.io/drives`). Free the resources, or
-narrow `nodeSelector` / `roleNodeSelector` so the node is no longer matched. A Pending container is
-never replaced or deleted by the operator; deleting the `WekaContainer` and narrowing the selector
-removes it.
+narrow `nodeSelector` / `roleNodeSelector` so the node is no longer matched. The operator never replaces or
+deletes a `WekaContainer` because its pod is Pending; deleting the `WekaContainer` and narrowing the selector
+removes it. The one Pending pod sizing deletes is a drive pod that was never scheduled and requests more
+`weka.io/drives` than `numDrives` now allows; that pod is rebuilt with the smaller request.
 
 **A node has no containers.** Check `kubectl describe wekacluster` for `AutoFullDrivesUnsignedDriveNodes`
 (sign drives there; an unparsable annotation is named in the message) and
@@ -223,9 +272,16 @@ columns show fewer created than desired while a node is unsigned.
 Add compute-role nodes, lower `computeToDriveCoreRatio` (never below 1.0 in effect), or accept the lower
 ratio shown in the event.
 
-**A drive container waits on `InsufficientDrives`.** Drives come from the node annotation, and another
-cluster's container may hold some of them. The container waits until those drives are released. Also
-the result of a `numDrives` pin above the signed count.
+**`AutoFullDrivesNoFreeDrives`.** Every signed drive on the node is held by other containers. Release
+drives there (delete the other cluster), and on the next reconcile the container is created, or the waiting
+one grows.
+
+**`DriveCapacityResourceShortfall` on a drive container.** The container holds more drives than its pod
+requested after a growth. Delete the pod to recreate it with the new request.
+
+**`PodRequestsExtraDrives` on a drive container.** `numDrives` was lowered (for example a drive was blocked)
+while the pod was running, so the pod still requests the old `weka.io/drives` count. Delete the pod to
+release the extra drives.
 
 ## Related documentation
 
