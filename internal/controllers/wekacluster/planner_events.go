@@ -23,11 +23,12 @@ const (
 	reasonClusterCapacityHeterogeneousGrowth = "ClusterCapacityHeterogeneousGrowth"
 
 	reasonAutoFullDrivesContainersCreated  = "AutoFullDrivesContainersCreated"
-	reasonAutoFullDrivesGrowth             = "AutoFullDrivesGrowth"
+	reasonAutoFullDrivesResized            = "AutoFullDrivesResized"
 	reasonAutoFullDrivesUnusedDrivesOnNode = "AutoFullDrivesUnusedDrivesOnNode"
 	reasonAutoFullDrivesNodeIneligible     = "AutoFullDrivesNodeIneligible"
 	reasonAutoFullDrivesUnsignedDriveNodes = "AutoFullDrivesUnsignedDriveNodes"
 	reasonAutoFullDrivesComputeCoresCapped = "AutoFullDrivesComputeCoresCapped"
+	reasonAutoFullDrivesNoFreeDrives       = "AutoFullDrivesNoFreeDrives"
 	// reasonAutoFullDrivesHugepagesPinBelowAuto is also posted, throttled, on each affected WekaContainer.
 	reasonAutoFullDrivesHugepagesPinBelowAuto = "AutoFullDrivesHugepagesPinBelowAuto"
 
@@ -58,11 +59,12 @@ var plannerEventSpecs = map[string]plannerEventSpec{
 	reasonClusterCapacityHeterogeneousGrowth: {corev1.EventTypeWarning, consts.ActionPlanCapacity, time.Minute},
 
 	reasonAutoFullDrivesContainersCreated:  {corev1.EventTypeNormal, consts.ActionPlanCapacity, time.Minute},
-	reasonAutoFullDrivesGrowth:             {corev1.EventTypeNormal, consts.ActionPlanCapacity, time.Minute},
+	reasonAutoFullDrivesResized:            {corev1.EventTypeNormal, consts.ActionPlanCapacity, time.Minute},
 	reasonAutoFullDrivesUnusedDrivesOnNode: {corev1.EventTypeNormal, consts.ActionPlanCapacity, plannerAggregateEventInterval},
 	reasonAutoFullDrivesNodeIneligible:     {corev1.EventTypeNormal, consts.ActionPlanCapacity, plannerAggregateEventInterval},
 	reasonAutoFullDrivesUnsignedDriveNodes: {corev1.EventTypeWarning, consts.ActionPlanCapacity, time.Minute},
 	reasonAutoFullDrivesComputeCoresCapped: {corev1.EventTypeWarning, consts.ActionPlanCapacity, 2 * time.Minute},
+	reasonAutoFullDrivesNoFreeDrives:       {corev1.EventTypeWarning, consts.ActionPlanCapacity, time.Minute},
 
 	reasonAutoFullDrivesHugepagesPinBelowAuto: {corev1.EventTypeWarning, consts.ActionPlanCapacity, 5 * time.Minute},
 }

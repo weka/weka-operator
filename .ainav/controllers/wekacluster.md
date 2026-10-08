@@ -9,7 +9,7 @@ protocols and management access. Source: `internal/controllers/wekacluster/`.
 | `steps_cluster_creation.go` | `BuildMissingContainers`, count-based role creation |
 | `steps_planner_apply.go` | `buildPlannerDriveContainers`, `applyPlannerDriveGrowth`, `applyPlannerComputeGrowth`, `updateContainerWithRetry` |
 | `funcs_fd_planning.go` | `planClusterCapacity` |
-| `daemonset.go` | `planDaemonset`, `buildDaemonsetContainers` |
+| `daemonset.go` | `planDaemonset`, `buildDaemonsetContainers`, `listFreeDrives` |
 | `planner_events.go` | Event reasons, severity and throttling: `plannerEventSpecs`, `emitPlannerEvent` |
 | `funcs_clusterization.go` | Cluster formation |
 | `funcs_credentials.go`, `funcs_helpers.go` | Credentials and helpers |
