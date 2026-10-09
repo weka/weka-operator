@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/weka/weka-operator/internal/runtime/clock"
 )
@@ -163,14 +164,17 @@ func terminate(pid int) error {
 //
 //nolint:gocritic
 func (m *Manager) Run(ctx context.Context, c Command) (Result, error) {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "cmd", "command", render(&c))
+	cmdText := render(&c)
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "cmd")
 	defer logger.End()
+	logger.SetAttributes(attribute.String("command", cmdText))
 
 	logExec := c.Log == LogAll || c.Log == LogExecution
 	logOutput := c.Log == LogAll || c.Log == LogOutput
 
+	start := time.Now()
 	if logExec {
-		logger.Info("running command", "command", render(&c))
+		logger.Info("run", "command", cmdText)
 	}
 
 	cmd, stdout, stderr := buildCmd(&c)
@@ -185,7 +189,7 @@ func (m *Manager) Run(ctx context.Context, c Command) (Result, error) {
 	m.mu.Unlock()
 
 	if startErr != nil {
-		return Result{}, &ExecError{Cmd: render(&c), Kind: FailureLaunch, Err: startErr}
+		return Result{}, &ExecError{Cmd: cmdText, Kind: FailureLaunch, Err: startErr}
 	}
 
 	waitCh := make(chan error, 1)
@@ -216,14 +220,14 @@ func (m *Manager) Run(ctx context.Context, c Command) (Result, error) {
 		}
 	}
 	if logExec {
-		logger.Info("command finished", "command", render(&c), "code", result.ExitCode)
+		logger.Info("done", "code", result.ExitCode, "duration", time.Since(start).Round(time.Millisecond).String())
 	}
 
 	if cerr := ctx.Err(); cerr != nil {
-		return result, &ExecError{Cmd: render(&c), Kind: FailureCancelled, Result: result, Err: cerr}
+		return result, &ExecError{Cmd: cmdText, Kind: FailureCancelled, Result: result, Err: cerr}
 	}
 	if waitErr != nil {
-		return result, &ExecError{Cmd: render(&c), Kind: FailureExit, Result: result, Err: waitErr}
+		return result, &ExecError{Cmd: cmdText, Kind: FailureExit, Result: result, Err: waitErr}
 	}
 	return result, nil
 }

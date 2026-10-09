@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"github.com/weka/weka-operator/internal/runtime/config"
 	"github.com/weka/weka-operator/internal/runtime/debugexit"
 	"github.com/weka/weka-operator/internal/runtime/lifecycle"
+	"github.com/weka/weka-operator/internal/runtime/logging"
 	"github.com/weka/weka-operator/internal/runtime/logrotate"
 	"github.com/weka/weka-operator/internal/runtime/paths"
 	"github.com/weka/weka-operator/internal/runtime/process"
@@ -20,7 +22,7 @@ import (
 )
 
 func main() {
-	logger := obslogger.NewZerologrWithLoggerNameInsteadCaller()
+	logger := logging.New()
 	// root is the only never-cancelled context in the process; the coordinator built on it
 	// installs its own signal handling and cancels its derived contexts on shutdown.
 	root := obslogger.ContextWithLogr(context.Background(), logger)
@@ -32,7 +34,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	otelShutdown, err := instrumentation.SetupOTelSDKWithOptions(root, "weka-pod-runtime", rt.BinaryVersion, logger)
+	obs := config.ParseObservabilitySection(env)
+	var otelOpts []instrumentation.OTelOption
+	if obs.DeploymentIdentifier != "" {
+		otelOpts = append(otelOpts, instrumentation.WithResourceAttributes("deployment_identifier", obs.DeploymentIdentifier))
+	}
+	otelShutdown, err := instrumentation.SetupOTelSDKWithOptions(root,
+		cmp.Or(obs.ServiceName, "weka-pod-runtime"), cmp.Or(obs.ServiceVersion, rt.BinaryVersion), logger, otelOpts...)
 	if err != nil {
 		// observability is non-critical, log and continue
 		logger.Info("failed to set up OTel SDK", "err", err)

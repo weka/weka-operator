@@ -463,6 +463,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							Value: config.Config.Version,
 						},
 						{
+							Name:  "OTEL_DEPLOYMENT_IDENTIFIER",
+							Value: config.Config.Otel.DeploymentIdentifier,
+						},
+						{
 							Name:  "OTEL_LOGS_ENABLED",
 							Value: "true",
 						},

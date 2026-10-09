@@ -37,6 +37,7 @@ type Command struct {
 	Dir    string
 	Output OutputMode
 	Log    LogPolicy
+	script string
 }
 
 // Result holds a finished command's captured output and exit status.
@@ -78,7 +79,7 @@ func (e *ExecError) Unwrap() error { return e.Err }
 // fail-fast path in this package; command wrappers that build Command directly do not go
 // through it.
 func Shell(script string) Command {
-	return Command{Path: "sh", Args: []string{"-c", "set -e\n" + script}}
+	return Command{Path: "sh", Args: []string{"-c", "set -e\n" + script}, script: script}
 }
 
 // ShellQuote returns s as one single-quoted shell word, escaping embedded single quotes, for
@@ -97,6 +98,9 @@ func render(c *Command) string {
 	default:
 		if len(c.Args) == 0 {
 			return c.Path
+		}
+		if c.script != "" {
+			return c.script
 		}
 		return c.Path + " " + strings.Join(c.Args, " ")
 	}

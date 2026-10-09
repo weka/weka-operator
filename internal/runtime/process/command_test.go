@@ -51,3 +51,14 @@ func TestExecErrorUnwrapsCancellation(t *testing.T) {
 		t.Fatal("Error() must not be empty")
 	}
 }
+
+func TestRenderShellShowsScriptOnly(t *testing.T) {
+	c := Shell("weka local ps\necho done")
+	if got := render(&c); got != "weka local ps\necho done" {
+		t.Fatalf("render = %q", got)
+	}
+	c.Log = LogNone
+	if got := render(&c); got != "sh" {
+		t.Fatalf("LogNone render = %q, want %q", got, "sh")
+	}
+}

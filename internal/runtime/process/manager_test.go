@@ -3,8 +3,12 @@ package process
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-logr/logr/funcr"
+	obslogger "github.com/weka/go-weka-observability/logger"
 
 	"github.com/weka/weka-operator/internal/runtime/clock"
 )
@@ -221,5 +225,25 @@ func TestShutdownTerminatesAllAndWaits(t *testing.T) {
 		default:
 			t.Fatalf("%s: Done not closed after Shutdown", h.Name)
 		}
+	}
+}
+
+func TestRunLogsCommandOnceAndDoneWithCode(t *testing.T) {
+	var lines []string
+	logger := funcr.New(func(prefix, args string) { lines = append(lines, args) }, funcr.Options{})
+	ctx := obslogger.ContextWithLogr(context.Background(), logger)
+
+	m := NewManager(context.Background())
+	_, _ = m.Run(ctx, Shell("echo out; exit 3"))
+
+	got := strings.Join(lines, "\n")
+	if strings.Count(got, `"command"`) != 1 || !strings.Contains(got, `"msg"="run" "command"="echo out; exit 3"`) {
+		t.Fatalf("command must appear once, on run:\n%s", got)
+	}
+	if !strings.Contains(got, `"msg"="stdout" "output"="out\n"`) {
+		t.Fatalf("missing stdout line:\n%s", got)
+	}
+	if !strings.Contains(got, `"msg"="done" "code"=3 "duration"=`) {
+		t.Fatalf("missing done line:\n%s", got)
 	}
 }
