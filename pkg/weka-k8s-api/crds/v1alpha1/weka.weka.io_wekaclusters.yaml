@@ -625,10 +625,11 @@ spec:
                     type: boolean
                   deviceSubnets:
                     description: |-
-                      A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                      A list of backend subnets in CIDR notation, IPv4 or IPv6
+                      (for example, 192.168.10.0/24 or 2001:db8::/64).
                       The operator assigns IP addresses from these subnets to the backend containers for their data path network
                     items:
-                      pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                      pattern: ^(([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}|[0-9a-fA-F:]+\/[0-9]{1,3})$
                       type: string
                     type: array
                   ethDevice:
@@ -1187,10 +1188,11 @@ spec:
                         type: boolean
                       deviceSubnets:
                         description: |-
-                          A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                          A list of backend subnets in CIDR notation, IPv4 or IPv6
+                          (for example, 192.168.10.0/24 or 2001:db8::/64).
                           The operator assigns IP addresses from these subnets to the backend containers for their data path network
                         items:
-                          pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                          pattern: ^(([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}|[0-9a-fA-F:]+\/[0-9]{1,3})$
                           type: string
                         type: array
                       ethDevice:
@@ -1312,10 +1314,11 @@ spec:
                         type: boolean
                       deviceSubnets:
                         description: |-
-                          A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                          A list of backend subnets in CIDR notation, IPv4 or IPv6
+                          (for example, 192.168.10.0/24 or 2001:db8::/64).
                           The operator assigns IP addresses from these subnets to the backend containers for their data path network
                         items:
-                          pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                          pattern: ^(([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}|[0-9a-fA-F:]+\/[0-9]{1,3})$
                           type: string
                         type: array
                       ethDevice:
@@ -1437,10 +1440,11 @@ spec:
                         type: boolean
                       deviceSubnets:
                         description: |-
-                          A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                          A list of backend subnets in CIDR notation, IPv4 or IPv6
+                          (for example, 192.168.10.0/24 or 2001:db8::/64).
                           The operator assigns IP addresses from these subnets to the backend containers for their data path network
                         items:
-                          pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                          pattern: ^(([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}|[0-9a-fA-F:]+\/[0-9]{1,3})$
                           type: string
                         type: array
                       ethDevice:
@@ -1562,10 +1566,11 @@ spec:
                         type: boolean
                       deviceSubnets:
                         description: |-
-                          A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                          A list of backend subnets in CIDR notation, IPv4 or IPv6
+                          (for example, 192.168.10.0/24 or 2001:db8::/64).
                           The operator assigns IP addresses from these subnets to the backend containers for their data path network
                         items:
-                          pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                          pattern: ^(([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}|[0-9a-fA-F:]+\/[0-9]{1,3})$
                           type: string
                         type: array
                       ethDevice:
@@ -1687,10 +1692,11 @@ spec:
                         type: boolean
                       deviceSubnets:
                         description: |-
-                          A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                          A list of backend subnets in CIDR notation, IPv4 or IPv6
+                          (for example, 192.168.10.0/24 or 2001:db8::/64).
                           The operator assigns IP addresses from these subnets to the backend containers for their data path network
                         items:
-                          pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                          pattern: ^(([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}|[0-9a-fA-F:]+\/[0-9]{1,3})$
                           type: string
                         type: array
                       ethDevice:
@@ -1812,10 +1818,11 @@ spec:
                         type: boolean
                       deviceSubnets:
                         description: |-
-                          A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                          A list of backend subnets in CIDR notation, IPv4 or IPv6
+                          (for example, 192.168.10.0/24 or 2001:db8::/64).
                           The operator assigns IP addresses from these subnets to the backend containers for their data path network
                         items:
-                          pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                          pattern: ^(([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}|[0-9a-fA-F:]+\/[0-9]{1,3})$
                           type: string
                         type: array
                       ethDevice:

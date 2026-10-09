@@ -1920,7 +1920,7 @@
             "type": "array",
             "items": "string"
           },
-          "description": "A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).\nThe operator assigns IP addresses from these subnets to the backend containers for their data path network",
+          "description": "A list of backend subnets in CIDR notation, IPv4 or IPv6\n(for example, 192.168.10.0/24 or 2001:db8::/64).\nThe operator assigns IP addresses from these subnets to the backend containers for their data path network",
           "optional": true
         },
         {

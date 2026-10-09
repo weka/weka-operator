@@ -20,19 +20,42 @@ import (
 const nicResourceName = corev1.ResourceName(domain.WEKANICs)
 
 // clusterNetworkEthdevice warns per-role when DPDK NIC requests don't fit
-// on matched nodes (one NIC per core in DPDK). Roles are skipped per
-// cluster.GetNetworkForRole when UdpMode is set, or when the role's
-// network pins explicit devices (selectors/deviceSubnets/ethDevice(s))
-// via utils.HasExplicitNetDevices — in either case the operator never
-// requests weka.io/weka-nics for that role's pods (pod.go's WEKANICs
-// gate), so there is nothing to validate here. Bootstrap-skipped per
-// role when ensure-nics hasn't yet populated the weka-nics annotation
-// or weka.io/weka-nics allocatable.
+// (one NIC per core in DPDK), comparing against the device count the spec
+// makes knowable at admission time: devices named in the spec, or the
+// node's allocatable weka.io/weka-nics. Bootstrap-skipped per role when
+// ensure-nics hasn't yet populated the weka-nics annotation or the
+// weka.io/weka-nics allocatable.
 //
 // The original AC-007 named-device check (verify ethDevice/ethDevices
 // exists) is dropped: domain.NIC has no Linux interface name field, so
 // the annotation can't answer "is eth99 a real NIC". Future work.
 type clusterNetworkEthdevice struct{}
+
+// nicPinError reports a cores pin that exceeds the data devices one container can
+// get. detail completes the sentence "... in DPDK mode) exceeds <detail>".
+func nicPinError(ch roleSpec, detail string) *field.Error {
+	return field.Invalid(
+		field.NewPath("spec", "dynamicTemplate", ch.coresField),
+		ch.cores,
+		fmt.Sprintf("spec.dynamicTemplate.%s (%d cores → %d NICs per container in DPDK mode) exceeds %s",
+			ch.coresField, ch.cores, ch.cores, detail),
+	)
+}
+
+// namedNetDeviceCount returns how many data devices the spec pins by name, or 0
+// when it pins none by name (udp, selectors, deviceSubnets, or nothing at all).
+func namedNetDeviceCount(n *weka.Network) int {
+	if n == nil {
+		return 0
+	}
+	if len(n.EthDevices) > 0 {
+		return len(n.EthDevices)
+	}
+	if n.EthDevice != "" {
+		return 1
+	}
+	return 0
+}
 
 func (clusterNetworkEthdevice) ID() string {
 	return "cluster_network_ethdevice"
@@ -53,11 +76,28 @@ func (clusterNetworkEthdevice) Validate(ctx context.Context, c client.Client, ob
 			continue
 		}
 		roleNetwork := cluster.GetNetworkForRole(ch.role)
-		if roleNetwork.UdpMode || utils.HasExplicitNetDevices(&roleNetwork) {
-			// The operator only requests weka.io/weka-nics when the role uses the
-			// VF-per-IO-node path: not in UDP mode, and not when the network spec pins
-			// explicit devices (selectors/deviceSubnets/ethDevice(s)). See
-			// utils.HasExplicitNetDevices and the gate in pod.go.
+		if roleNetwork.UdpMode {
+			continue
+		}
+		if named := namedNetDeviceCount(&roleNetwork); named > 0 {
+			// Devices are pinned by name, so weka.io/weka-nics is never requested and the
+			// node allocatable below says nothing. The container still needs one device per
+			// IO node though, and falling short fails inside WEKA ("N slots need network
+			// devices") long after admission, leaving the cluster waiting in Init.
+			if ch.cores > named {
+				errs = append(errs, nicPinError(ch, fmt.Sprintf(
+					"the %d device(s) pinned by network.ethDevice(s) for role %q. Containers will "+
+						"start but their IO nodes will not. Reduce %s, pin more devices, or "+
+						"switch to udpMode.",
+					named, ch.role, ch.coresField)))
+			}
+			continue
+		}
+		// Only selectors/deviceSubnets can still be set here, and both resolve to a device
+		// count on the node, so there is nothing to compare against. Asking the shared helper
+		// rather than naming those two keeps a future device-pinning field skipped by default
+		// instead of silently falling through to the VF-per-IO-node check below.
+		if utils.HasExplicitNetDevices(&roleNetwork) {
 			continue
 		}
 		selector := cluster.GetNodeSelectorForRole(ch.role)
@@ -104,18 +144,11 @@ func (clusterNetworkEthdevice) Validate(ctx context.Context, c client.Client, ob
 		totalRequested := perContainer * int64(ch.containers)
 
 		if perContainer > minNodeAllocNics {
-			detail := fmt.Sprintf(
-				"spec.dynamicTemplate.%s (%d cores → %d NICs per container in DPDK mode) "+
-					"exceeds the smallest matched node's allocatable weka.io/weka-nics (%d) "+
-					"for role %q. No matched node can host even one %s container; pods "+
-					"will stay Pending. Reduce %s, switch to udpMode, or add NICs.",
-				ch.coresField, ch.cores, ch.cores, minNodeAllocNics,
-				ch.role, ch.role, ch.coresField,
-			)
-			errs = append(errs, field.Invalid(
-				field.NewPath("spec", "dynamicTemplate", ch.coresField),
-				ch.cores, detail,
-			))
+			errs = append(errs, nicPinError(ch, fmt.Sprintf(
+				"the smallest matched node's allocatable weka.io/weka-nics (%d) for role %q. "+
+					"No matched node can host even one %s container; pods will stay Pending. "+
+					"Reduce %s, switch to udpMode, or add NICs.",
+				minNodeAllocNics, ch.role, ch.role, ch.coresField)))
 		}
 
 		if totalRequested > totalAllocNics {
