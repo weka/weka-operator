@@ -154,15 +154,6 @@ func (r *wekaClusterReconcilerLoop) FormCluster(ctx context.Context) error {
 	return nil
 }
 
-// internalStatusOrUnknown keeps the wait message readable when a container has not
-// reported an internal status yet.
-func internalStatusOrUnknown(s string) string {
-	if s == "" {
-		return "unknown"
-	}
-	return s
-}
-
 // Waits for initial containers to join the cluster right after the cluster is formed
 func (r *wekaClusterReconcilerLoop) WaitForContainersJoin(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
@@ -181,8 +172,12 @@ func (r *wekaClusterReconcilerLoop) WaitForContainersJoin(ctx context.Context) e
 			// A container whose weka nodes failed to start keeps Status=Running (that tracks the
 			// local container, not its nodes), so without InternalStatus the cluster condition
 			// reads the same for "still starting" as for "will never join".
+			internalStatus := container.Status.InternalStatus
+			if internalStatus == "" {
+				internalStatus = "unknown"
+			}
 			return lifecycle.NewWaitError(fmt.Errorf("container %s did not join cluster yet (internal status: %s)",
-				container.Name, internalStatusOrUnknown(container.Status.InternalStatus)))
+				container.Name, internalStatus))
 		} else {
 			if r.cluster.Status.ClusterID == "" {
 				r.cluster.Status.ClusterID = container.Status.ClusterID

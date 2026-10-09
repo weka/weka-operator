@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 // ethDeviceCluster builds a DPDK cluster whose data devices are pinned by name.
@@ -25,7 +24,7 @@ func ethDeviceCluster(driveCores, computeCores int, network weka.Network) *weka.
 func TestClusterNetworkEthdevice_NamedDevicesFewerThanCores(t *testing.T) {
 	cluster := ethDeviceCluster(1, 2, weka.Network{EthDevice: "ens6"})
 
-	errs := clusterNetworkEthdevice{}.Validate(context.Background(), fake.NewClientBuilder().Build(), cluster)
+	errs := clusterNetworkEthdevice{}.Validate(context.Background(), fakeClientWithNodes(t), cluster)
 
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for computeCores=2 against 1 named device, got %d: %v", len(errs), errs)
@@ -41,7 +40,7 @@ func TestClusterNetworkEthdevice_NamedDevicesFewerThanCores(t *testing.T) {
 func TestClusterNetworkEthdevice_NamedDevicesCoverCores(t *testing.T) {
 	cluster := ethDeviceCluster(1, 2, weka.Network{EthDevices: []string{"ens6", "ens7", "ens8"}})
 
-	errs := clusterNetworkEthdevice{}.Validate(context.Background(), fake.NewClientBuilder().Build(), cluster)
+	errs := clusterNetworkEthdevice{}.Validate(context.Background(), fakeClientWithNodes(t), cluster)
 
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors when 3 devices cover driveCores=1/computeCores=2, got: %v", errs)
@@ -52,7 +51,7 @@ func TestClusterNetworkEthdevice_NamedDevicesCoverCores(t *testing.T) {
 func TestClusterNetworkEthdevice_UdpModeSkipped(t *testing.T) {
 	cluster := ethDeviceCluster(1, 8, weka.Network{UdpMode: true, EthDevice: "ens6"})
 
-	errs := clusterNetworkEthdevice{}.Validate(context.Background(), fake.NewClientBuilder().Build(), cluster)
+	errs := clusterNetworkEthdevice{}.Validate(context.Background(), fakeClientWithNodes(t), cluster)
 
 	if len(errs) != 0 {
 		t.Fatalf("expected udpMode to be skipped, got: %v", errs)
@@ -63,7 +62,7 @@ func TestClusterNetworkEthdevice_UdpModeSkipped(t *testing.T) {
 func TestClusterNetworkEthdevice_DeviceSubnetsSkipped(t *testing.T) {
 	cluster := ethDeviceCluster(1, 8, weka.Network{DeviceSubnets: []string{"10.0.0.0/24"}})
 
-	errs := clusterNetworkEthdevice{}.Validate(context.Background(), fake.NewClientBuilder().Build(), cluster)
+	errs := clusterNetworkEthdevice{}.Validate(context.Background(), fakeClientWithNodes(t), cluster)
 
 	if len(errs) != 0 {
 		t.Fatalf("expected deviceSubnets to be skipped, got: %v", errs)
