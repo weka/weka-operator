@@ -320,24 +320,26 @@ func parseAWS(e Env) AWS {
 
 // Observability holds OTEL exporter settings and pod/node attributes.
 type Observability struct {
-	Endpoint       string // OTEL_EXPORTER_OTLP_ENDPOINT
-	LogsEndpoint   string // OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
-	Headers        string // OTEL_EXPORTER_OTLP_HEADERS
-	LogsHeaders    string // OTEL_EXPORTER_OTLP_LOGS_HEADERS
-	ServiceName    string // OTEL_SERVICE_NAME
-	ServiceVersion string // OTEL_SERVICE_VERSION
-	LogsEnabled    bool   // OTEL_LOGS_ENABLED, default true
+	Endpoint             string // OTEL_EXPORTER_OTLP_ENDPOINT
+	LogsEndpoint         string // OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+	Headers              string // OTEL_EXPORTER_OTLP_HEADERS
+	LogsHeaders          string // OTEL_EXPORTER_OTLP_LOGS_HEADERS
+	ServiceName          string // OTEL_SERVICE_NAME
+	ServiceVersion       string // OTEL_SERVICE_VERSION
+	DeploymentIdentifier string // OTEL_DEPLOYMENT_IDENTIFIER
+	LogsEnabled          bool   // OTEL_LOGS_ENABLED, default true
 }
 
 func parseObservability(e Env) Observability {
 	return Observability{
-		Endpoint:       e.Get("OTEL_EXPORTER_OTLP_ENDPOINT"),
-		LogsEndpoint:   e.Get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"),
-		Headers:        e.Get("OTEL_EXPORTER_OTLP_HEADERS"),
-		LogsHeaders:    e.Get("OTEL_EXPORTER_OTLP_LOGS_HEADERS"),
-		ServiceName:    e.Get("OTEL_SERVICE_NAME"),
-		ServiceVersion: e.Get("OTEL_SERVICE_VERSION"),
-		LogsEnabled:    parseFoldBool(e, "OTEL_LOGS_ENABLED", true),
+		Endpoint:             e.Get("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		LogsEndpoint:         e.Get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"),
+		Headers:              e.Get("OTEL_EXPORTER_OTLP_HEADERS"),
+		LogsHeaders:          e.Get("OTEL_EXPORTER_OTLP_LOGS_HEADERS"),
+		ServiceName:          e.Get("OTEL_SERVICE_NAME"),
+		ServiceVersion:       e.Get("OTEL_SERVICE_VERSION"),
+		DeploymentIdentifier: e.Get("OTEL_DEPLOYMENT_IDENTIFIER"),
+		LogsEnabled:          parseFoldBool(e, "OTEL_LOGS_ENABLED", true),
 	}
 }
 

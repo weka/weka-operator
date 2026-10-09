@@ -215,3 +215,8 @@ func ParseDriverLoader(e Env) (DriverLoaderConfig, error) {
 func ParseRuntimeSection(e Env) (Runtime, error) {
 	return parseRuntime(e)
 }
+
+// ParseObservabilitySection reads the OTEL settings main needs to set up tracing before mode dispatch.
+func ParseObservabilitySection(e Env) Observability {
+	return parseObservability(e)
+}
