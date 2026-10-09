@@ -87,7 +87,8 @@ helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
 | wekaPodRuntime.image.pullPolicy | string | `"IfNotPresent"` | Go pod runtime image pull policy. |
 | wekaPodRuntime.image.repository | string | `"quay.io/weka.io/weka-pod-runtime"` | Go pod runtime image repository. |
 | wekaPodRuntime.image.tag | string | the chart version | Go pod runtime image tag. |
-| wekaPodRuntime.usePythonFallback | bool | `false` | Run weka_runtime.py instead of the Go pod runtime. |
+| wekaPodRuntime.pythonFallbackModes | list | `[]` | Container modes (e.g. `client`, `drivers-builder`) that run weka_runtime.py while all other modes stay on the Go pod runtime. Applies to pods created after the change. |
+| wekaPodRuntime.usePythonFallback | bool | `false` | Run weka_runtime.py instead of the Go pod runtime for every container mode. When true, `pythonFallbackModes` is ignored. |
 
 ### Capacity planner tool
 

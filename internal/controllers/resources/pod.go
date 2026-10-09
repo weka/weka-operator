@@ -93,6 +93,7 @@ func NewPodFactory(container *weka.WekaContainer, nodeInfo *discovery.DiscoveryN
 }
 
 func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod, error) {
+	usePython := config.UsePythonRuntime(f.container.Spec.Mode)
 	labels := LabelsForWekaPod(f.container)
 	annotations := AnnotationsForWekaPod(f.container.GetAnnotations(), nil)
 
@@ -214,7 +215,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 					Name:            consts.WekaContainerName,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Command: func() []string {
-						if config.Config.UsePythonFallback {
+						if usePython {
 							return []string{"python3", "/opt/weka_runtime.py"}
 						}
 						return []string{"/weka-pod-runtime-data/weka-pod-runtime"}
@@ -273,10 +274,12 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 								Name:      "osrelease",
 								MountPath: "/hostside/etc/os-release",
 							},
-							{
+						}
+						if !usePython {
+							mounts = append(mounts, corev1.VolumeMount{
 								Name:      "weka-pod-runtime-data",
 								MountPath: "/weka-pod-runtime-data",
-							},
+							})
 						}
 						if !f.container.IsAdhocOpContainer() {
 							mounts = append(mounts, corev1.VolumeMount{
@@ -463,6 +466,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							Value: config.Config.Version,
 						},
 						{
+							Name:  "OTEL_DEPLOYMENT_IDENTIFIER",
+							Value: config.Config.Otel.DeploymentIdentifier,
+						},
+						{
 							Name:  "OTEL_LOGS_ENABLED",
 							Value: "true",
 						},
@@ -546,10 +553,12 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						},
 					})
 				}
-				vols = append(vols, corev1.Volume{
-					Name:         "weka-pod-runtime-data",
-					VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-				})
+				if !usePython {
+					vols = append(vols, corev1.Volume{
+						Name:         "weka-pod-runtime-data",
+						VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+					})
+				}
 				return vols
 			}(),
 		},
@@ -890,7 +899,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		f.setDriverDependencies(pod)
 	}
 
-	if config.Config.WekaPodRuntimeImage != "" {
+	if !usePython && config.Config.WekaPodRuntimeImage != "" {
 		wekaRuntimeInstaller := corev1.Container{
 			Name:    "weka-pod-runtime-installer",
 			Image:   config.Config.WekaPodRuntimeImage,
@@ -903,7 +912,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	// Add OTEL packages installation init container only if explicitly configured
-	if config.Config.Otel.PythonPackagesInstallerImage != "" && config.Config.UsePythonFallback {
+	if config.Config.Otel.PythonPackagesInstallerImage != "" && usePython {
 		otelInitContainer := corev1.Container{
 			Name:            "otel-packages-installer",
 			Image:           config.Config.Otel.PythonPackagesInstallerImage,

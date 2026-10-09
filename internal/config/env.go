@@ -412,6 +412,7 @@ var Config struct {
 
 	WekaPodRuntimeImage string
 	UsePythonFallback   bool
+	PythonFallbackModes map[string]bool
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -774,8 +775,39 @@ func ConfigureEnv(ctx context.Context) {
 		getEnvOrDefault("ADMISSION_POLICIES_OVERRIDES", ""),
 	)
 
+	if err := LoadPodRuntimeEnv(); err != nil {
+		klog.Error(err)
+		os.Exit(1)
+	}
+}
+
+// knownContainerModes mirrors the WekaContainer spec.mode CRD enum.
+var knownContainerModes = map[string]bool{
+	"drive": true, "compute": true, "client": true, "dist": true, "drivers-dist": true,
+	"drivers-loader": true, "drivers-builder": true, "discovery": true, "s3": true,
+	"adhoc-op-with-container": true, "adhoc-op": true, "envoy": true, "nfs": true, "smbw": true,
+	"telemetry": true, "ssdproxy": true, "data-services": true, "data-services-fe": true,
+}
+
+// LoadPodRuntimeEnv populates the pod runtime selection from environment variables. A mode in
+// WEKA_PYTHON_FALLBACK_MODES that is not a valid container mode is an error: it would otherwise
+// silently stay on the Go runtime.
+func LoadPodRuntimeEnv() error {
 	Config.WekaPodRuntimeImage = os.Getenv("WEKA_POD_RUNTIME_IMAGE") // No default - opt-in only
 	Config.UsePythonFallback = getBoolEnvOrDefault("WEKA_USE_PYTHON_FALLBACK", false)
+	Config.PythonFallbackModes = map[string]bool{}
+	for _, mode := range getStringSlice("WEKA_PYTHON_FALLBACK_MODES") {
+		if !knownContainerModes[mode] {
+			return fmt.Errorf("unknown container mode %q in WEKA_PYTHON_FALLBACK_MODES", mode)
+		}
+		Config.PythonFallbackModes[mode] = true
+	}
+	return nil
+}
+
+// UsePythonRuntime reports whether containers of the given mode run weka_runtime.py instead of the Go runtime.
+func UsePythonRuntime(mode string) bool {
+	return Config.UsePythonFallback || Config.PythonFallbackModes[mode]
 }
 
 // loadAdmissionPolicyOverrides parses ADMISSION_POLICIES_OVERRIDES (a JSON
