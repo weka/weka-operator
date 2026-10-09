@@ -8,67 +8,73 @@ import (
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
-// ethDeviceCluster builds a DPDK cluster whose data devices are pinned by name.
-func ethDeviceCluster(driveCores, computeCores int, network weka.Network) *weka.WekaCluster {
-	c := &weka.WekaCluster{}
-	c.Spec.Dynamic = &weka.WekaClusterTemplate{
-		DriveCores: driveCores, DriveContainers: 6,
-		ComputeCores: computeCores, ComputeContainers: 6,
+func TestClusterNetworkEthdevice(t *testing.T) {
+	tests := []struct {
+		name                     string
+		driveCores, computeCores int
+		network                  weka.Network
+		wantField                string // empty means expect no errors
+		wantSub                  string
+	}{
+		{
+			// Devices pinned by name are not covered by weka.io/weka-nics, so the node
+			// allocatable cannot answer this; the count has to come from the spec itself.
+			name:       "fewer named devices than cores is reported",
+			driveCores: 1, computeCores: 2,
+			network:   weka.Network{EthDevice: "ens6"},
+			wantField: "spec.dynamicTemplate.computeCores",
+			wantSub:   "network.ethDevice(s)",
+		},
+		{
+			name:       "named devices cover every role's cores",
+			driveCores: 1, computeCores: 2,
+			network: weka.Network{EthDevices: []string{"ens6", "ens7", "ens8"}},
+		},
+		{
+			// udpMode roles need no data devices, so the device count is irrelevant.
+			name:       "udpMode is skipped",
+			driveCores: 1, computeCores: 8,
+			network: weka.Network{UdpMode: true, EthDevice: "ens6"},
+		},
+		{
+			// deviceSubnets resolve to a device count only on the node.
+			name:       "deviceSubnets are skipped",
+			driveCores: 1, computeCores: 8,
+			network: weka.Network{DeviceSubnets: []string{"10.0.0.0/24"}},
+		},
 	}
-	c.Spec.Network = network
-	return c
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &weka.WekaCluster{}
+			c.Spec.Dynamic = &weka.WekaClusterTemplate{
+				DriveCores: tc.driveCores, DriveContainers: 6,
+				ComputeCores: tc.computeCores, ComputeContainers: 6,
+			}
+			c.Spec.Network = tc.network
+
+			errs := clusterNetworkEthdevice{}.Validate(context.Background(), fakeClientWithNodes(t), c)
+
+			if tc.wantField == "" {
+				if len(errs) != 0 {
+					t.Fatalf("expected no errors, got: %v", errs)
+				}
+				return
+			}
+			if len(errs) != 1 {
+				t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+			}
+			if errs[0].Field != tc.wantField {
+				t.Errorf("error on field %q, want %q", errs[0].Field, tc.wantField)
+			}
+			if !strings.Contains(errs[0].Detail, tc.wantSub) {
+				t.Errorf("detail missing %q: %s", tc.wantSub, errs[0].Detail)
+			}
+		})
+	}
 }
 
-// Devices pinned by name are not covered by weka.io/weka-nics, so the node allocatable
-// cannot answer this; the count has to come from the spec itself.
-func TestClusterNetworkEthdevice_NamedDevicesFewerThanCores(t *testing.T) {
-	cluster := ethDeviceCluster(1, 2, weka.Network{EthDevice: "ens6"})
-
-	errs := clusterNetworkEthdevice{}.Validate(context.Background(), fakeClientWithNodes(t), cluster)
-
-	if len(errs) != 1 {
-		t.Fatalf("expected 1 error for computeCores=2 against 1 named device, got %d: %v", len(errs), errs)
-	}
-	if got := errs[0].Field; got != "spec.dynamicTemplate.computeCores" {
-		t.Errorf("error on field %q, want spec.dynamicTemplate.computeCores", got)
-	}
-	if !strings.Contains(errs[0].Detail, "network.ethDevice(s)") {
-		t.Errorf("detail does not mention the pinned devices: %s", errs[0].Detail)
-	}
-}
-
-func TestClusterNetworkEthdevice_NamedDevicesCoverCores(t *testing.T) {
-	cluster := ethDeviceCluster(1, 2, weka.Network{EthDevices: []string{"ens6", "ens7", "ens8"}})
-
-	errs := clusterNetworkEthdevice{}.Validate(context.Background(), fakeClientWithNodes(t), cluster)
-
-	if len(errs) != 0 {
-		t.Fatalf("expected no errors when 3 devices cover driveCores=1/computeCores=2, got: %v", errs)
-	}
-}
-
-// udpMode roles need no data devices, so the device count is irrelevant.
-func TestClusterNetworkEthdevice_UdpModeSkipped(t *testing.T) {
-	cluster := ethDeviceCluster(1, 8, weka.Network{UdpMode: true, EthDevice: "ens6"})
-
-	errs := clusterNetworkEthdevice{}.Validate(context.Background(), fakeClientWithNodes(t), cluster)
-
-	if len(errs) != 0 {
-		t.Fatalf("expected udpMode to be skipped, got: %v", errs)
-	}
-}
-
-// deviceSubnets resolve to a device count only on the node, so there is nothing to compare.
-func TestClusterNetworkEthdevice_DeviceSubnetsSkipped(t *testing.T) {
-	cluster := ethDeviceCluster(1, 8, weka.Network{DeviceSubnets: []string{"10.0.0.0/24"}})
-
-	errs := clusterNetworkEthdevice{}.Validate(context.Background(), fakeClientWithNodes(t), cluster)
-
-	if len(errs) != 0 {
-		t.Fatalf("expected deviceSubnets to be skipped, got: %v", errs)
-	}
-}
-
+// Pins the EthDevices-wins-over-EthDevice precedence, which the table above does not cover.
 func TestNamedNetDeviceCount(t *testing.T) {
 	cases := []struct {
 		name    string

@@ -1,6 +1,7 @@
 package wekacluster
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"time"
@@ -172,12 +173,8 @@ func (r *wekaClusterReconcilerLoop) WaitForContainersJoin(ctx context.Context) e
 			// A container whose weka nodes failed to start keeps Status=Running (that tracks the
 			// local container, not its nodes), so without InternalStatus the cluster condition
 			// reads the same for "still starting" as for "will never join".
-			internalStatus := container.Status.InternalStatus
-			if internalStatus == "" {
-				internalStatus = "unknown"
-			}
 			return lifecycle.NewWaitError(fmt.Errorf("container %s did not join cluster yet (internal status: %s)",
-				container.Name, internalStatus))
+				container.Name, cmp.Or(container.Status.InternalStatus, "unknown")))
 		} else {
 			if r.cluster.Status.ClusterID == "" {
 				r.cluster.Status.ClusterID = container.Status.ClusterID
