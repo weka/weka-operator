@@ -111,9 +111,10 @@ type Network struct {
 	// - false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.
 	// This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based.
 	UdpMode bool `json:"udpMode,omitempty"`
-	// A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+	// A list of backend subnets in CIDR notation, IPv4 or IPv6
+	// (for example, 192.168.10.0/24 or 2001:db8::/64).
 	// The operator assigns IP addresses from these subnets to the backend containers for their data path network
-	// +kubebuilder:validation:items:Pattern="^([0-9]{1,3}\\.){3}[0-9]{1,3}\\/[0-9]{1,2}$"
+	// +kubebuilder:validation:items:Pattern="^(([0-9]{1,3}\\.){3}[0-9]{1,3}\\/[0-9]{1,2}|[0-9a-fA-F:]+\\/[0-9]{1,3})$"
 	DeviceSubnets []string `json:"deviceSubnets,omitempty"`
 	// Selectors define how backend data-path network interfaces are chosen on each node.
 	Selectors []NetworkSelector `json:"selectors,omitempty"`
