@@ -65,14 +65,15 @@ See [values](charts/weka-operator/values.yaml) for all configuration options.
 
 # Dev flows
 
-### Building and pushing weka-operator image and helm with docker only
+### Building and pushing weka-operator and weka-pod-runtime images and helm with docker only
 
 ```sh
 helm registry login quay.io -p xxx -u xxx \
   && docker login quay.io -p xxx -u xxx \
-  && VERSION=1.11.0-$USER-dev.0 REPO=quay.io/weka.io/weka-operator-dev HELM_REPO=quay.io/weka.io/helm-dev"\ 
+  && VERSION=1.11.0-$USER-dev.0 REPO=quay.io/weka.io/weka-operator-dev REPO_POD_RUNTIME=quay.io/weka.io/weka-pod-runtime-dev HELM_REPO=quay.io/weka.io/helm-dev \
    ./build-release.sh
 ```
+Set `BUILD_OPERATOR_IMAGE=false` or `BUILD_POD_RUNTIME_IMAGE=false` to skip building that image; the chart is pushed only together with the operator image.
 ## installing dev release using helm 
 ```sh
 export REPO=quay.io/weka.io/weka-operator-dev 
