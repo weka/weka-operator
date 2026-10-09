@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -339,5 +340,51 @@ func TestWriteManagementIPsReturnsWrittenIPs(t *testing.T) {
 	}
 	if string(written) != "10.0.0.5" {
 		t.Fatalf("management_ips file = %q, want %q", written, "10.0.0.5")
+	}
+}
+
+func TestGetDevicesBySelectorsDeviceNamesWithSubnet(t *testing.T) {
+	// Only eth1 has an address in 10.0.1.0/24; every interface exists for `ip link show`.
+	runner := &fakeRunner{
+		resultFn: func(c process.Command) (process.Result, error) {
+			if c.Path == "sh" && strings.Contains(c.Args[1], "dev eth1 to 10.0.1.0/24") {
+				return process.Result{Stdout: []byte("10.0.1.7\n")}, nil
+			}
+			return process.Result{}, nil
+		},
+	}
+
+	tests := []struct {
+		name    string
+		sel     weka.NetworkSelector
+		want    []deviceInfo
+		wantErr bool
+	}{
+		{
+			name: "keeps only devices with an address in the subnet",
+			sel:  weka.NetworkSelector{DeviceNames: []string{"eth0", "eth1"}, Subnet: "10.0.1.0/24"},
+			want: []deviceInfo{{device: "eth1", subnet: "10.0.1.0/24"}},
+		},
+		{
+			name:    "no device in the subnet is an error",
+			sel:     weka.NetworkSelector{DeviceNames: []string{"eth0"}, Subnet: "10.0.1.0/24"},
+			wantErr: true,
+		},
+		{
+			name: "rdma-only devices are not narrowed and carry no subnet",
+			sel:  weka.NetworkSelector{DeviceNames: []string{"ib0"}, Subnet: "10.0.1.0/24", RdmaOnly: true},
+			want: []deviceInfo{{device: "ib0", rdmaOnly: true}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := getDevicesBySelectors(context.Background(), runner, []weka.NetworkSelector{tt.sel})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("getDevicesBySelectors() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("getDevicesBySelectors() = %+v, want %+v", got, tt.want)
+			}
+		})
 	}
 }

@@ -289,7 +289,7 @@ func WriteManagementIPs(ctx context.Context, runner process.CommandRunner, in Ma
 
 type deviceInfo struct {
 	device      string
-	subnet      string // empty when the device came from a deviceNames selector
+	subnet      string // empty for rdma-only devices and for deviceNames selectors without a subnet
 	rdmaOnly    bool
 	disableRDMA bool
 }
@@ -309,17 +309,26 @@ func getDevicesBySelectors(ctx context.Context, runner process.CommandRunner, se
 
 	for _, sel := range selectors {
 		if len(sel.DeviceNames) > 0 {
-			available := filterMissingDevices(ctx, runner, sel.DeviceNames, sel.RdmaOnly)
+			available := filterMissingDevices(ctx, runner, sel.DeviceNames, sel.RdmaOnly, sel.Subnet)
+			if sel.Subnet != "" && len(available) == 0 {
+				return nil, fmt.Errorf("no device in %v has an address in subnet %s", sel.DeviceNames, sel.Subnet)
+			}
 			if len(available) < sel.Min {
 				return nil, fmt.Errorf("not enough devices by deviceNames: want %d, got %d", sel.Min, len(available))
 			}
 			if sel.Max > 0 && len(available) > sel.Max {
 				available = available[:sel.Max]
 			}
+			// Subnet was not applied to rdma-only devices above, so it must not reach
+			// getSingleDeviceIP in WriteManagementIPs either: it fails when nothing matches.
+			subnet := sel.Subnet
+			if sel.RdmaOnly {
+				subnet = ""
+			}
 			for _, name := range available {
 				if _, ok := seen[name]; !ok {
 					seen[name] = struct{}{}
-					devices = append(devices, deviceInfo{device: name, rdmaOnly: sel.RdmaOnly, disableRDMA: sel.DisableRdma})
+					devices = append(devices, deviceInfo{device: name, subnet: subnet, rdmaOnly: sel.RdmaOnly, disableRDMA: sel.DisableRdma})
 				}
 			}
 			continue
@@ -515,9 +524,11 @@ func getSingleDeviceIP(ctx context.Context, runner process.CommandRunner, device
 	return ip, nil
 }
 
-// filterMissingDevices removes devices that have no IP (or no interface for rdmaOnly).
+// filterMissingDevices removes devices that have no IP (or no interface for rdmaOnly). When
+// subnet is set, a device counts only if it has an address in that subnet; rdma-only devices
+// may carry no address at all, so subnet does not narrow them.
 // Mirrors Python filter_out_missing_devices() at weka_runtime.py:3720.
-func filterMissingDevices(ctx context.Context, runner process.CommandRunner, names []string, rdmaOnly bool) []string {
+func filterMissingDevices(ctx context.Context, runner process.CommandRunner, names []string, rdmaOnly bool, subnet string) []string {
 	var available []string
 	for _, name := range names {
 		if rdmaOnly {
@@ -530,7 +541,7 @@ func filterMissingDevices(ctx context.Context, runner process.CommandRunner, nam
 				available = append(available, name)
 			}
 		} else {
-			ip, err := getSingleDeviceIP(ctx, runner, name, "", false)
+			ip, err := getSingleDeviceIP(ctx, runner, name, subnet, false)
 			if err == nil && ip != "" {
 				available = append(available, name)
 			}
