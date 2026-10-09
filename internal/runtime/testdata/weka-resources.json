@@ -1,0 +1,16 @@
+{
+  "drives": ["drive-1"],
+  "wekaPort": 14000,
+  "agentPort": 15000,
+  "failureDomain": "az-1",
+  "machineIdentifier": "i-0123456789abcdef0",
+  "netDevices": ["eth0"],
+  "clusterGuid": "33333333-3333-3333-3333-333333333333",
+  "generation": 9007199254740993,
+  "extra": {
+    "nested": {
+      "unknownField": "value",
+      "unknownList": [1, 2, 3]
+    }
+  }
+}

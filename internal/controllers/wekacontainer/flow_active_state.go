@@ -19,6 +19,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util/podexec"
 )
@@ -469,19 +470,13 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			State: &lifecycle.State{Name: condition.CondContainerResourcesWritten},
 			Run:   r.WriteResources,
 			Predicates: lifecycle.Predicates{
-				lifecycle.Or(
-					r.container.IsAllocatable,
-					r.container.IsClientContainer, // nics/machine-identifiers
-				),
+				func() bool { return domain.NeedsOperatorResources(r.container.Spec.Mode) },
 			},
 		},
 		&lifecycle.SimpleStep{
 			Run: r.checkUnhealyPodResources,
 			Predicates: lifecycle.Predicates{
-				lifecycle.Or(
-					r.container.IsAllocatable,
-					r.container.IsClientContainer, // nics/machine-identifiers
-				),
+				func() bool { return domain.NeedsOperatorResources(r.container.Spec.Mode) },
 				func() bool {
 					return r.container.Status.Status == weka.Unhealthy
 				},
