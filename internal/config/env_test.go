@@ -77,3 +77,65 @@ func TestLoadCapacityEnv_RederivesFormClusterMinimumsAndFullPcpus(t *testing.T) 
 		t.Error("Config.FullPcpusOnly = false, want true: LoadCapacityEnv must read FULL_PCPUS_ONLY for CLI callers")
 	}
 }
+
+func TestLoadPodRuntimeEnv(t *testing.T) {
+	tests := []struct {
+		name      string
+		modes     string
+		global    string
+		wantModes []string
+		wantErr   bool
+	}{
+		{name: "unset", wantModes: nil},
+		{name: "trimmed list", modes: "client, drivers-builder", wantModes: []string{"client", "drivers-builder"}},
+		{name: "unknown mode", modes: "client,not-a-mode", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("WEKA_PYTHON_FALLBACK_MODES", tt.modes)
+			t.Setenv("WEKA_USE_PYTHON_FALLBACK", "false")
+			err := config.LoadPodRuntimeEnv()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if len(config.Config.PythonFallbackModes) != len(tt.wantModes) {
+				t.Fatalf("modes = %v, want %v", config.Config.PythonFallbackModes, tt.wantModes)
+			}
+			for _, m := range tt.wantModes {
+				if !config.Config.PythonFallbackModes[m] {
+					t.Errorf("mode %q missing from %v", m, config.Config.PythonFallbackModes)
+				}
+			}
+		})
+	}
+}
+
+func TestUsePythonRuntime(t *testing.T) {
+	tests := []struct {
+		name   string
+		modes  string
+		global string
+		mode   string
+		want   bool
+	}{
+		{name: "default", global: "false", mode: "client", want: false},
+		{name: "listed", modes: "client", global: "false", mode: "client", want: true},
+		{name: "unlisted", modes: "client", global: "false", mode: "compute", want: false},
+		{name: "global overrides", global: "true", mode: "compute", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("WEKA_PYTHON_FALLBACK_MODES", tt.modes)
+			t.Setenv("WEKA_USE_PYTHON_FALLBACK", tt.global)
+			if err := config.LoadPodRuntimeEnv(); err != nil {
+				t.Fatal(err)
+			}
+			if got := config.UsePythonRuntime(tt.mode); got != tt.want {
+				t.Errorf("UsePythonRuntime(%q) = %v, want %v", tt.mode, got, tt.want)
+			}
+		})
+	}
+}
