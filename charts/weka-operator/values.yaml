@@ -705,7 +705,7 @@ priorityClasses:
 csi:
   # -- Install the embedded CSI driver.
   # @section -- CSI
-  installationEnabled: false
+  installationEnabled: true
   # -- SELinux support mode for the embedded CSI driver: "auto" (auto-detect from host /etc/selinux/config),
   # "enforced" (always apply SELinux contexts to volume mounts) or "off" (never apply SELinux contexts).
   # @section -- CSI
