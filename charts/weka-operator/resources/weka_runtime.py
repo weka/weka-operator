@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shlex
+import shutil
 import socket
 import struct
 import subprocess
@@ -44,7 +45,8 @@ NUM_CORES = int(os.environ.get("CORES", 0))
 CORE_IDS = os.environ.get("CORE_IDS", "auto")
 NON_DATAPATH_CORE_IDS = os.environ.get("NON_DATAPATH_CORE_IDS", "auto")
 CPU_POLICY = os.environ.get("CPU_POLICY", "auto")
-# Flags for `weka local resources cores`.
+# Flags for `weka local resources cores`. Its keys are the modes whose weka container owns cores (agent,
+# wekanodes, affinity pinning); mirrored by HasWekaCoresMode in container_types.go.
 MODE_CORES_FLAG = {
     "compute": "--only-compute-cores",
     "drive": "--only-drives-cores",
@@ -2073,6 +2075,12 @@ def parse_cpu_allowed_list(path="/proc/1/status"):
     return []
 
 
+@lru_cache(maxsize=1)
+def get_container_cpu_allocation():
+    """Preserve the pod allocation before narrowing the runtime's own mask."""
+    return tuple(parse_cpu_allowed_list())
+
+
 def expand_ranges(ranges_str):
     ranges = []
     for part in ranges_str.split(','):
@@ -2148,7 +2156,7 @@ def find_full_cores(n):
     if CORE_IDS != "auto":
         return [int(x) for x in CORE_IDS.split(",")]
 
-    available_cores = parse_cpu_allowed_list()
+    available_cores = get_container_cpu_allocation()
     zero_siblings = [] if 0 not in available_cores else read_siblings_list(0)
 
     # Non-HT dedicated mode: exclude only CPU 0 (management/sidecar), not its full sibling
@@ -2195,311 +2203,102 @@ def find_full_cores(n):
         return selected_siblings
 
 
-def get_data_path_cores():
-    """Get cores used by data path wekanode processes (slot != 0).
-
-    These are the high-performance drive/compute/client processes that need
-    dedicated cores.
-    """
+def get_process_args(pid):
     try:
-        result = subprocess.run(
-            ["ps", "aux"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC,
-        )
-
-        data_path_pids = []
-        for line in result.stdout.splitlines():
-            # Find wekanode processes that are NOT slot 0 (i.e., slot 1, 2, 3, etc.)
-            if "/weka/wekanode" in line and "--slot" in line and "--slot 0" not in line:
-                parts = line.split()
-                if len(parts) > 1:
-                    pid = parts[1]
-                    data_path_pids.append(pid)
-
-        # Get CPU affinity for each data path PID
-        data_path_cores = set()
-        for pid in data_path_pids:
-            try:
-                affinity_result = subprocess.run(
-                    ["taskset", "-cp", pid],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC,
-                )
-                # Parse output like "pid 1673's current affinity list: 6"
-                for line in affinity_result.stdout.splitlines():
-                    if "affinity list:" in line:
-                        affinity_str = line.split("affinity list:")[-1].strip()
-                        cores = expand_ranges(affinity_str)
-                        data_path_cores.update(cores)
-            except subprocess.CalledProcessError as e:
-                logging.debug(f"Failed to get affinity for PID {pid}: {e}")
-                continue
-
-        return list(data_path_cores)
-    except Exception as e:
-        logging.debug(f"Failed to get data path cores: {e}")
+        with open(f"/proc/{pid}/cmdline") as f:
+            return f.read().rstrip('\0').split('\0')
+    except FileNotFoundError:
         return []
 
 
-def get_all_reserved_cores():
-    """Get all cores reserved for data path including their siblings.
+def is_wekanode(args):
+    return bool(args) and os.path.basename(args[0]) == "wekanode"
 
-    When we assign core X to a data path process, we implicitly isolate its
-    sibling as well, so both X and its sibling should not be used for management.
-    """
-    data_path_cores = get_data_path_cores()
-    all_reserved_cores = set(data_path_cores)
 
-    # Add siblings of data path cores
-    for core in data_path_cores:
-        try:
-            siblings = read_siblings_list(core)
-            all_reserved_cores.update(siblings)
-        except Exception as e:
-            logging.debug(f"Failed to get siblings for core {core}: {e}")
-
-    return list(all_reserved_cores)
+def is_ionode(args):
+    if not is_wekanode(args):
+        return False
+    for index, arg in enumerate(args):
+        if arg == "--slot" and index + 1 < len(args):
+            return args[index + 1] != "0"
+        if arg.startswith("--slot="):
+            return arg.split("=", 1)[1] != "0"
+    # Do not alter an unrecognized wekanode invocation.
+    return True
 
 
 def get_remaining_cores():
-    """Get cores that should be used for management and other processes.
-
-    These are the cores NOT assigned to data path processes (slot != 0)
-    and NOT siblings of data path cores.
-    """
-    available_cores = parse_cpu_allowed_list()
-    reserved_cores = get_all_reserved_cores()
-    remaining = [core for core in available_cores if core not in reserved_cores]
+    available = set(get_container_cpu_allocation())
+    # Same derivation as the cores given to Weka at container create; live ionode masks are
+    # inherited from the agent until Weka pins them, so they are not a reliable source.
+    reserved = set(find_full_cores(NUM_CORES))
+    for core in tuple(reserved):
+        reserved.update(read_siblings_list(core))
+    remaining = available - reserved
+    if NON_DATAPATH_CORE_IDS != "auto":
+        remaining.intersection_update(expand_ranges(NON_DATAPATH_CORE_IDS))
     return remaining
 
 
-def get_process_uptime(pid):
-    """Get process uptime in seconds.
-
-    Returns:
-        float: Uptime in seconds, or None if unable to determine
-    """
+def set_process_affinity(pid, target):
+    """Check every thread: a pinned leader does not imply pinned helpers."""
+    changed = 0
     try:
-        with open(f"/proc/{pid}/stat") as f:
-            stat_data = f.read()
-            # Field 22 is starttime (in clock ticks since system boot)
-            parts = stat_data.split()
-            if len(parts) < 22:
-                return None
-            starttime_ticks = int(parts[21])
-
-            # Get system uptime
-            with open("/proc/uptime") as uptime_file:
-                system_uptime = float(uptime_file.read().split()[0])
-
-            # Get clock ticks per second
-            clock_ticks = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
-
-            # Calculate process uptime
-            starttime_seconds = starttime_ticks / clock_ticks
-            process_uptime = system_uptime - starttime_seconds
-
-            return process_uptime
-    except Exception:
-        return None
-
-
-def get_processes_to_reassign():
-    """Get PIDs of processes that should be reassigned to remaining cores.
-
-    Excludes:
-    - PID 1 (weka_runtime.py - the script doing the calculations)
-    - wekanode processes with slot != 0 (drive/compute processes)
-    - Processes running for less than 10 seconds (to avoid race conditions)
-    """
-    try:
-        result = subprocess.run(
-            ["ps", "aux"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC,
-        )
-
-        pids_to_reassign = []
-        for line in result.stdout.splitlines():
-            parts = line.split()
-            if len(parts) < 2:
-                continue
-
-            pid = parts[1]
-
-            # Skip header line
-            if pid == "PID":
-                continue
-
-            # Skip PID 1 (weka_runtime.py)
-            if pid == "1":
-                continue
-
-            # Skip wekanode processes that are NOT slot 0
-            # (slot 0 is management, slot 1,2,etc are drive/compute/client)
-            if "/weka/wekanode" in line and "--slot 0" not in line:
-                continue
-
-            # Skip processes running for less than 10 seconds to avoid race conditions
-            # Also skip if we can't determine uptime (process might have just died)
-            uptime = get_process_uptime(pid)
-            if uptime is None or uptime < 10.0:
-                continue
-
-            pids_to_reassign.append(pid)
-
-        return pids_to_reassign
-    except Exception as e:
-        logging.debug(f"Failed to get processes to reassign: {e}")
-        return []
-
-
-def get_process_cmdline(pid):
-    """Get full command line for a process."""
-    try:
-        with open(f"/proc/{pid}/cmdline") as f:
-            cmdline = f.read().replace('\0', ' ').strip()
-            return cmdline if cmdline else f"<PID {pid}>"
-    except Exception:
-        return f"<PID {pid}>"
-
-
-def get_process_affinity(pid):
-    """Get current CPU affinity for a process."""
-    try:
-        result = subprocess.run(
-            ["taskset", "-cp", pid],
-            capture_output=True,
-            text=True,
-            timeout=2
-        )
-        if result.returncode == 0:
-            # Parse output like "pid 600's current affinity list: 2-4,34,35"
-            for line in result.stdout.splitlines():
-                if "affinity list:" in line:
-                    affinity_str = line.split("affinity list:")[-1].strip()
-                    return set(expand_ranges(affinity_str))
-        return None
-    except Exception:
-        return None
+        tids = os.listdir(f"/proc/{pid}/task")
+    except FileNotFoundError:
+        return 0
+    for tid in tids:
+        try:
+            current = os.sched_getaffinity(int(tid))
+            if current != target:
+                os.sched_setaffinity(int(tid), target)
+                logging.info(f"Changed CPU affinity for PID {pid} TID {tid}: "
+                             f"{sorted(current)} -> {sorted(target)}")
+                changed += 1
+        except ProcessLookupError:
+            continue
+        except OSError as e:
+            logging.warning(f"Failed to set affinity for PID {pid} TID {tid}: {e}")
+    return changed
 
 
 async def manage_cpu_affinities():
-    """Manage CPU affinities for non-wekanode processes.
-
-    This function:
-    1. Calculates remaining cores (excluding data path cores and their siblings)
-    2. Finds all processes that should be reassigned
-    3. Sets their CPU affinity to remaining cores
-
-    Failures are non-fatal and only logged.
-    """
+    """Pin runtime/support threads without changing Weka's I/O-thread masks."""
     try:
-        # Calculate core allocation
-        available_cores = parse_cpu_allowed_list()
-        data_path_cores = get_data_path_cores()
-        reserved_cores = get_all_reserved_cores()
-        remaining_cores = get_remaining_cores()
-
-        if not remaining_cores:
-            logging.warning("No remaining cores available for CPU affinity management. "
-                          "All cores are reserved for data path processes.")
+        target = get_remaining_cores()
+        if not target:
+            logging.warning("No non-I/O cores available for CPU affinity management")
             return
-
-        target_cores_set = set(remaining_cores)
-        cores_str = ",".join(map(str, remaining_cores))
-
-        pids = get_processes_to_reassign()
-
-        # First pass: check if any changes are needed
-        pids_needing_changes = []
-        for pid in pids:
-            try:
-                current_affinity = get_process_affinity(pid)
-                # Skip if we can't get affinity (process dead/unreadable)
-                if current_affinity is None:
-                    continue
-                # Skip if already set correctly
-                if current_affinity == target_cores_set:
-                    continue
-                pids_needing_changes.append(pid)
-            except Exception:
-                # Process might have exited, skip it
+        ff = await get_feature_flags()
+        # Pin the spawning thread first so new runtime children inherit this mask.
+        runtime_pid = os.getpid()
+        os.sched_setaffinity(0, target)
+        set_process_affinity(runtime_pid, target)
+        for pid in os.listdir("/proc"):
+            if not pid.isdigit() or int(pid) == runtime_pid:
                 continue
-
-        # If no changes needed, return silently
-        if not pids_needing_changes:
-            return
-
-        # Log only when we have changes to make
-        logging.debug(f"CPU affinity calculation: available={available_cores}, "
-                     f"data_path={data_path_cores}, reserved={sorted(reserved_cores)}, "
-                     f"remaining={remaining_cores}")
-        logging.debug(f"Managing CPU affinities: assigning processes to cores {cores_str}")
-        logging.debug(f"Found {len(pids_needing_changes)} processes needing affinity changes (out of {len(pids)} checked)")
-
-        changes_made = 0
-        for pid in pids_needing_changes:
-            try:
-                # Get current affinity and command line for logging
-                current_affinity = get_process_affinity(pid)
-
-                # Skip if process died between first and second pass
-                if current_affinity is None:
-                    continue
-
-                cmdline = get_process_cmdline(pid)
-
-                # Set new affinity
-                result = subprocess.run(
-                    ["taskset", "-cp", cores_str, pid],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
-
-                if result.returncode == 0:
-                    current_str = ",".join(map(str, sorted(current_affinity))) if current_affinity else "unknown"
-                    logging.info(f"Changed CPU affinity for PID {pid}: {current_str} -> {cores_str} | {cmdline}")
-                    changes_made += 1
-                else:
-                    # Process might have exited - only log at debug level
-                    logging.debug(f"Failed to set affinity for PID {pid}: {result.stderr}")
-            except subprocess.TimeoutExpired:
-                logging.debug(f"Timeout setting affinity for PID {pid}")
-            except Exception as e:
-                logging.debug(f"Error setting affinity for PID {pid}: {e}")
-
-        if changes_made > 0:
-            logging.info(f"CPU affinity management: adjusted {changes_made} processes")
+            args = get_process_args(pid)
+            if not args or not args[0] or is_ionode(args):
+                continue
+            if ff.weka_manages_non_ionode_affinity and is_wekanode(args):
+                continue
+            set_process_affinity(int(pid), target)
     except Exception as e:
         logging.warning(f"CPU affinity management failed (non-fatal): {e}")
 
 
+def is_host_pid_namespace():
+    # With hostPID, /proc lists host and other tenants' processes, and PID 1 is the host init.
+    return os.readlink("/proc/1/ns/mnt") != os.readlink("/proc/self/ns/mnt")
+
+
 async def periodic_cpu_affinity_management():
-    """Periodically manage CPU affinities every 60 seconds.
-
-    This task runs in the background and does not block other operations.
-    Failures are logged but do not cause the container to exit.
-    """
-    # Initial delay to allow container to fully initialize
-    await asyncio.sleep(30)
-
+    if is_host_pid_namespace():
+        logging.info("hostPID pod: skipping CPU affinity management")
+        return
     logging.info("Starting periodic CPU affinity management (every 60 seconds)")
-
     while not exiting:
-        try:
-            await manage_cpu_affinities()
-        except Exception as e:
-            logging.warning(f"Periodic CPU affinity management failed (non-fatal): {e}")
-
+        await manage_cpu_affinities()
         await asyncio.sleep(60)
 
 
@@ -2743,7 +2542,7 @@ def should_allocate_vf_per_ionode(network_device=None):
 
 
 async def create_container():
-    if MODE not in ["compute", "drive", "client", "s3", "nfs", "smbw", "data-services"]:
+    if MODE not in MODE_CORES_FLAG:
         raise NotImplementedError(f"Unsupported mode: {MODE}")
 
     full_cores = find_full_cores(NUM_CORES)
@@ -3218,7 +3017,7 @@ async def ensure_weka_container():
             resources['non_datapath_cores'] = [int(c) for c in NON_DATAPATH_CORE_IDS.split(',')]
         elif full_cores:
             # Auto-derive: cpuset minus IONode cores (full_cores) and their HT siblings
-            available = set(parse_cpu_allowed_list())
+            available = set(get_container_cpu_allocation())
             reserved = set(full_cores)
             for c in full_cores:
                 try:
@@ -3737,6 +3536,79 @@ async def cleanup_traces_and_stop_dumper():
 
 def get_agent_cmd():
     return f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT}"
+
+
+def get_support_cpus():
+    """Comma-separated support mask for the agent and exec'd shells, or None to leave them unpinned."""
+    if MODE not in MODE_CORES_FLAG:
+        return None
+    if is_host_pid_namespace():
+        logging.info("hostPID pod: leaving agent and exec shells without CPU pinning")
+        return None
+    if not shutil.which("taskset"):
+        logging.warning("taskset not found: leaving agent and exec shells without CPU pinning")
+        return None
+    cores = sorted(get_remaining_cores())
+    if not cores:
+        logging.info("Empty support CPU mask: leaving agent and exec shells without CPU pinning")
+        return None
+    return ",".join(map(str, cores))
+
+
+def get_pinned_agent_cmd(support_cpus):
+    cmd = get_agent_cmd()
+    if not support_cpus:
+        return cmd
+    logging.info(f"Starting agent pinned to support CPUs {support_cpus}")
+    return cmd.replace("exec ", f"exec taskset -c {support_cpus} ", 1)
+
+
+# Container rootfs, not WEKA_K8S_RUNTIME_DIR: a mask left from a boot with a different cpuset must not survive.
+EXEC_SHELL_DIR = "/tmp/weka-k8s-runtime"
+EXEC_SHELL_CPUS_PATH = f"{EXEC_SHELL_DIR}/support_cpus"
+# The operator sets BASH_ENV to this path, so non-interactive bash execs source it too.
+EXEC_SHELL_PIN_SCRIPT_PATH = f"{EXEC_SHELL_DIR}/exec_pin.sh"
+EXEC_SHELL_PIN_SCRIPT = f"""# Shells execed into the pod start on the full pod cpuset, I/O cores included.
+# $$ inside the subshell is still the sourcing shell, so the caller is what gets pinned.
+(
+    f={EXEC_SHELL_CPUS_PATH}
+    [ -r "$f" ] && read -r c < "$f" && [ -n "$c" ] && exec taskset -cp "$c" $$ >/dev/null 2>&1
+) || true
+"""
+EXEC_SHELL_BASHRC_LINE = f"[ -r {EXEC_SHELL_PIN_SCRIPT_PATH} ] && . {EXEC_SHELL_PIN_SCRIPT_PATH}  # weka-runtime: pin exec shells"
+
+
+def install_exec_shell_pinning(bashrc="/root/.bashrc"):
+    """A no-op until publish_support_cpus runs, so it is safe to install before the mask is known."""
+    os.makedirs(EXEC_SHELL_DIR, exist_ok=True)
+    with open(EXEC_SHELL_PIN_SCRIPT_PATH, "w") as f:
+        f.write(EXEC_SHELL_PIN_SCRIPT)
+    with open(bashrc, "a+") as f:
+        f.seek(0)
+        if EXEC_SHELL_BASHRC_LINE not in f.read():
+            f.write("\n" + EXEC_SHELL_BASHRC_LINE + "\n")
+
+
+def setup_early_cpu_affinity():
+    """Pin the runtime to the support mask before it spawns anything, so syslog, drivers and the agent
+    inherit it. Best-effort: on failure the runtime and agent run unpinned and the periodic sweep repairs."""
+    if MODE not in MODE_CORES_FLAG:
+        return None
+    try:
+        install_exec_shell_pinning()
+        support_cpus = get_support_cpus()
+        if support_cpus:
+            publish_support_cpus(support_cpus)
+            set_process_affinity(os.getpid(), set(expand_ranges(support_cpus)))
+        return support_cpus
+    except Exception as e:
+        logging.warning(f"Early CPU affinity setup failed (non-fatal): {e}")
+        return None
+
+
+def publish_support_cpus(support_cpus):
+    with open(EXEC_SHELL_CPUS_PATH, "w") as f:
+        f.write(support_cpus + "\n")
 
 
 def cos_reboot_machine():
@@ -4478,7 +4350,7 @@ async def get_devices_by_selectors(selectors_str: str) -> List[dict]:
 
 async def write_management_ips():
     """Auto-discover management IPs and write them to a file"""
-    if MODE not in ['drive', 'compute', 's3', 'nfs', 'smbw', 'client', 'data-services']:
+    if MODE not in MODE_CORES_FLAG:
         return
 
     ipAddresses = []
@@ -4687,6 +4559,7 @@ async def start_syslog():
 
 
 async def main():
+    support_cpus = setup_early_cpu_affinity()
     host_info = get_host_info()
     global OS_DISTRO, OS_BUILD_ID, NAME
     OS_DISTRO = host_info.os
@@ -4855,8 +4728,7 @@ async def main():
         await ensure_drivers()
 
     if MODE != "adhoc-op":
-        agent_cmd = get_agent_cmd()
-        agent = Daemon(agent_cmd, "agent")
+        agent = Daemon(get_pinned_agent_cmd(support_cpus), "agent")
         await agent.start()
         await await_agent()
         await ensure_weka_version()
@@ -4964,12 +4836,9 @@ async def main():
     await write_feature_flags_json()
     logging.info("Container is UP and running")
 
-    # Start periodic CPU affinity management for drive, compute, and client containers
-    # Skip when weka manages non-IONode affinities natively via non_datapath_cores (flag 12)
-    if MODE in ["drive", "compute", "client"]:
-        ff = await get_feature_flags()
-        if not ff.weka_manages_non_ionode_affinity:
-            asyncio.create_task(periodic_cpu_affinity_management())
+    # Native Weka affinity does not cover the runtime, agent, or logging daemons.
+    if MODE in MODE_CORES_FLAG:
+        asyncio.create_task(periodic_cpu_affinity_management())
 
     if MODE == "drive":
         await ensure_drives()

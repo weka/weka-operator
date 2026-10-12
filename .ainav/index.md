@@ -48,6 +48,9 @@ website/                     # Reference site (mkdocs, preview-docs.sh); see doc
 - `operations/csi/*.go` - CSI controller/nodeserver
 - `wekacontainer/csi_steps.go` - CSI lifecycle in container
 
+### Pod Runtime CPU Affinity
+- [runtime-affinity.md](runtime-affinity.md) - Runtime/support thread correction and regression tests
+
 ### Drivers & Resources
 - `operations/load_drivers.go` - Driver loading
 - `wekacontainer/funcs_drivers.go` - Driver state
