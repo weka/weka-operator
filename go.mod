@@ -6,7 +6,11 @@ module github.com/weka/weka-operator
 //   - image.Dockerfile (golang:<version>)  <- the image actually released
 //   - .dagger/src/containers/builders.py (_go_builder_container version=)
 //   - .tool-versions (golang <version>)
-// GitHub Actions needs no change: every setup-go step reads go-version-file: go.mod.
+// GitHub Actions reads go-version-file: go.mod everywhere, except the golangci-lint `version:`
+// in .github/workflows/build.yaml: a golangci-lint older than the toolchain cannot decode the
+// stdlib export data it emits, and the Lint job fails with "export data version N ... maximum
+// supported version N-1". Bump it alongside to the newest release; the decoder lives in the
+// golang.org/x/tools it vendors, not in the go it was built with.
 // The nested modules under pkg/ do the same, so they need no change here either; their own
 // go directive must stay <= this one, since a replace'd module is built by this toolchain.
 // To catch any pin not listed above:
