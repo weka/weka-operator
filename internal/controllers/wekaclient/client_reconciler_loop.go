@@ -524,6 +524,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			CoreIds:             wekaClient.Spec.CoreIds,
 			NonDatapathCoreIds:  wekaClient.Spec.NonDatapathCoreIds,
 			Network:             wekaClient.Spec.Network,
+			Ipv6:                wekaClient.Spec.Ipv6,
 			Hugepages:           c.getClientHugePages(),
 			HugepagesOffset:     c.getHugepagesOffset(),
 			HugepagesSize:       "2Mi",
@@ -792,6 +793,11 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 
 	if !container.Spec.Network.Equal(&newClientSpec.Network) {
 		container.Spec.Network = newClientSpec.Network
+		changed = true
+	}
+
+	if container.Spec.Ipv6 != newClientSpec.Ipv6 {
+		container.Spec.Ipv6 = newClientSpec.Ipv6
 		changed = true
 	}
 
@@ -1272,6 +1278,7 @@ type UpdatableClientSpec struct {
 	TracesConfiguration     *weka.TracesConfiguration
 	CpuPolicy               weka.CpuPolicy
 	Network                 weka.Network
+	Ipv6                    bool
 	DropAffinityConstraints bool
 	DpdkBaseMemoryMb        int
 	Resources               *weka.PodResourcesSpec
@@ -1348,6 +1355,7 @@ func NewUpdatableClientSpec(wekaClient *weka.WekaClient, targetCluster *weka.Wek
 		TracesConfiguration:     spec.TracesConfiguration,
 		CpuPolicy:               spec.CpuPolicy,
 		Network:                 spec.Network,
+		Ipv6:                    spec.Ipv6,
 		DropAffinityConstraints: spec.GetOverrides().DropAffinityConstraints,
 		DpdkBaseMemoryMb:        spec.GetOverrides().DpdkBaseMemoryMb,
 		Resources:               normalizePodResources(spec.Resources),

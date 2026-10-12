@@ -28,6 +28,27 @@ spec:
     udpMode: true
 ```
 
+### IPv4 / IPv6 Selection
+The address family is inferred from the configuration; `spec.ipv6` is only a tiebreaker.
+
+| Configuration | Address family used |
+| --- | --- |
+| `deviceSubnets` (or a selector `subnet`) is an IPv6 CIDR | IPv6 |
+| `deviceSubnets` (or a selector `subnet`) is an IPv4 CIDR | IPv4, even if `spec.ipv6: true` |
+| `ethDevice`/`ethDevices` whose interface holds only one family | that family |
+| `ethDevice`/`ethDevices` whose interface is dual-stack | IPv4, or IPv6 when `spec.ipv6: true` |
+
+A subnet always pins the family, so `spec.ipv6` is only needed for a dual-stack interface selected by
+name. IPv6 addresses must be ULA or GUA — Weka does not use link-local addresses, so an interface that
+holds only an `fe80::` address is treated as having no IPv6 address.
+
+```yaml
+spec:
+  network:
+    deviceSubnets:
+      - 2001:db8::/64
+```
+
 ## Available Network Configuration Fields
 ```yaml
 KIND:     WekaCluster

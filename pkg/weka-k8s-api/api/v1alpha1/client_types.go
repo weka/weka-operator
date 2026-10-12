@@ -153,12 +153,16 @@ type WekaClientSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ExtraVolumes *runtime.RawExtension `json:"extraVolumes,omitempty"`
 	// mounts for `extraVolumes`, applied to the weka container only (not init containers)
-	ExtraVolumeMounts  []v1.VolumeMount `json:"extraVolumeMounts,omitempty"`
-	WekaSecretRef      string           `json:"wekaSecretRef,omitempty"`
-	Network            Network          `json:"network,omitempty"`
-	DriversDistService string           `json:"driversDistService,omitempty"`
-	JoinIps            []string         `json:"joinIpPorts,omitempty"`
-	TargetCluster      ObjectReference  `json:"targetCluster,omitempty"`
+	ExtraVolumeMounts []v1.VolumeMount `json:"extraVolumeMounts,omitempty"`
+	WekaSecretRef     string           `json:"wekaSecretRef,omitempty"`
+	Network           Network          `json:"network,omitempty"`
+	// prefer ipv6 on a data-path device that carries both address families.
+	// It is not needed when network.deviceSubnets or a selector subnet is set, which already pin the
+	// address family, nor when the device only has an ipv6 address.
+	Ipv6               bool            `json:"ipv6,omitempty"`
+	DriversDistService string          `json:"driversDistService,omitempty"`
+	JoinIps            []string        `json:"joinIpPorts,omitempty"`
+	TargetCluster      ObjectReference `json:"targetCluster,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
 	CpuPolicy   CpuPolicy `json:"cpuPolicy,omitempty"`

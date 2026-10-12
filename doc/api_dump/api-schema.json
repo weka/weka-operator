@@ -1920,7 +1920,7 @@
             "type": "array",
             "items": "string"
           },
-          "description": "A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).\nThe operator assigns IP addresses from these subnets to the backend containers for their data path network",
+          "description": "A list of backend subnets in CIDR notation, either IPv4 (for example, 192.168.10.0/24)\nor IPv6 (for example, 2001:db8::/64).\nThe operator assigns IP addresses from these subnets to the backend containers for their data path network.\nThe address family of the subnet selects the address family used on the data path; the ipv6 field is not consulted.",
           "optional": true
         },
         {
@@ -3825,6 +3825,13 @@
           "optional": true
         },
         {
+          "name": "Ipv6",
+          "jsonName": "ipv6",
+          "type": "bool",
+          "description": "prefer ipv6 on a data-path device that carries both address families.\nIt is not needed when network.deviceSubnets or a selector subnet is set, which already pin the\naddress family, nor when the device only has an ipv6 address.",
+          "optional": true
+        },
+        {
           "name": "DriversDistService",
           "jsonName": "driversDistService",
           "type": "string",
@@ -4387,7 +4394,7 @@
           "name": "Ipv6",
           "jsonName": "ipv6",
           "type": "bool",
-          "description": "use ipv6 for weka cluster networking configuration",
+          "description": "prefer ipv6 on a data-path device that carries both address families.\nIt is not needed when network.deviceSubnets or a selector subnet is set, which already pin the\naddress family, nor when the device only has an ipv6 address.",
           "optional": true
         },
         {
@@ -5545,6 +5552,7 @@
           "name": "Ipv6",
           "jsonName": "ipv6",
           "type": "bool",
+          "description": "prefer ipv6 on a data-path device that carries both address families; a device pinned by a\nsubnet, or carrying a single family, resolves without it.",
           "optional": true
         },
         {

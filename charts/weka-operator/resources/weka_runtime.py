@@ -19,7 +19,9 @@ from functools import lru_cache, partial
 from os.path import exists
 from textwrap import dedent
 from typing import Any, Dict, List, Optional, Tuple, Set, Union
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
+
+IpAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 
 
 @dataclass
@@ -3200,10 +3202,10 @@ async def ensure_weka_container():
         # update backend_endpoints
         backend_endpoints = []
         for join_ip in JOIN_IPS.split(','):
-            ip, port = join_ip.split(':')
+            address, port = parse_ip_port(join_ip)
             backend_endpoints.append({
-                "ip": ip,
-                "port": int(port),
+                "ip": address,
+                "port": port,
             })
         resources['backend_endpoints'] = backend_endpoints
     ff = await get_feature_flags()
@@ -4230,6 +4232,22 @@ def parse_port(port_str: str) -> int:
         return 0
 
 
+def parse_ip_port(endpoint: str) -> Tuple[str, int]:
+    """Splits a `<host>:<port>` endpoint, unwrapping the brackets the operator puts around ipv6.
+
+    The host is not validated as an address: joinIpPorts accepts a dns name too.
+    """
+    parsed = urlsplit(f"//{endpoint}")
+    try:
+        if not parsed.hostname:
+            raise ValueError("missing host")
+        if parsed.port is None:
+            raise ValueError("missing port")
+        return parsed.hostname, parsed.port
+    except ValueError as e:
+        raise Exception(f"Invalid endpoint {endpoint!r}, expected <host>:<port> ([addr]:port for ipv6): {e}")
+
+
 async def get_requested_drives():
     if not os.path.exists("/opt/weka/k8s-runtime/resources.json"):
         return []
@@ -4310,39 +4328,66 @@ async def wait_for_resources():
     await save_weka_ports_data()
 
 
+def pick_by_family(addresses: List[IpAddress]) -> Optional[str]:
+    """IS_IPV6 only breaks the tie on a dual-stack device; a single family is used as-is."""
+    ipv4 = next((address for address in addresses if address.version == 4), None)
+    ipv6 = next((address for address in addresses if address.version == 6), None)
+    if ipv4 and ipv6:
+        return str(ipv6 if IS_IPV6 else ipv4)
+    chosen = ipv6 or ipv4
+    return str(chosen) if chosen else None
+
+
+async def get_device_addresses(device_name: str) -> List[IpAddress]:
+    """Addresses of a device, minus link-local and loopback ones - WEKA cannot use those."""
+    stdout, stderr, ec = await run_command(f"ip -o addr show dev {device_name}")
+    if ec != 0:
+        raise Exception(f"Failed to get ip address for device {device_name}: {stderr}")
+
+    addresses = []
+    for line in stdout.decode('utf-8').strip().split("\n"):
+        parts = line.split()
+        # a device with no address still gets a line, carrying its link details instead
+        if len(parts) < 4 or parts[2] not in ("inet", "inet6"):
+            continue
+
+        address = ipaddress.ip_address(parts[3].split("/")[0].split("%")[0])
+        if not address.is_link_local and not address.is_loopback:
+            addresses.append(address)
+    return addresses
+
+
+async def get_default_route_address(ipv6: bool) -> Optional[IpAddress]:
+    """Address that traffic over this family's default route is sourced from."""
+    stdout, _, ec = await run_command(f"ip {'-6' if ipv6 else '-4'} route show default")
+    if ec != 0:
+        return None
+
+    parts = stdout.decode('utf-8').strip().split("\n")[0].split()
+    fields = dict(zip(parts, parts[1:]))
+    if "src" in fields:
+        return ipaddress.ip_address(fields["src"])
+
+    # an ipv6 default route usually carries no src, so fall back to the route's device
+    if "dev" not in fields:
+        return None
+    version = 6 if ipv6 else 4
+    return next((a for a in await get_device_addresses(fields["dev"]) if a.version == version), None)
+
+
 async def get_single_device_ip(device_name: str = "default", subnet: Optional[str] = None) -> str:
     if device_name == "default":
-        if IS_IPV6:
-            cmd = "ip -6 addr show $(ip -6 route show default | awk '{print $5}' | head -n1) | grep 'inet6 ' | grep global | awk '{print $2}' | cut -d/ -f1"
-        else:
-            cmd = "ip route show default | grep src | awk '/default/ {print $9}' | head -n1"
+        routed = [await get_default_route_address(ipv6=False), await get_default_route_address(ipv6=True)]
+        ip = pick_by_family([address for address in routed if address])
     elif subnet:
         # a device usually carries several addresses; only the one in the subnet it was
         # selected by is meaningful, so it cannot be picked by position.
-        # parse before interpolating: subnet is unvalidated spec input going into a shell
+        # the subnet also pins the address family, leaving IS_IPV6 no say here
         network = ipaddress.ip_network(subnet, strict=False)
-        cmd = f"ip -o addr show dev {device_name} to {network} | head -n1 | awk '{{print $4}}' | cut -d/ -f1"
+        addresses = await get_device_addresses(device_name)
+        ip = next((str(address) for address in addresses if address in network), None)
     else:
-        if IS_IPV6:
-            # use ULA/GUA address for ipv6 (WEKA does not support link-local addresses)
-            cmd = f"ip -6 addr show dev {device_name} | grep -E 'inet6 (fd|2)' | head -n1 | awk '{{print $2}}' | cut -d/ -f1"
-        else:
-            cmd = f"ip addr show dev {device_name} | grep 'inet ' | head -n1 | awk '{{print $2}}' | cut -d/ -f1"
-
-    stdout, stderr, ec = await run_command(cmd)
-    if ec != 0:
-        raise Exception(f"Failed to get ip address for device {device_name}: {stderr}")
-    ip = stdout.decode('utf-8').strip()
-
-    # try again with a different command for default
-    if not ip and device_name == "default":
-        # TODO: support ipv6 in this case
-        if not IS_IPV6:
-            cmd = "ip -4 addr show dev $(ip route show default | awk '{print $5}') | grep inet | awk '{print $2}' | cut -d/ -f1"
-            stdout, stderr, ec = await run_command(cmd)
-            if ec != 0:
-                raise Exception(f"Failed to get ip address for device {device_name}: {stderr}")
-            ip = stdout.decode('utf-8').strip()
+        ip = pick_by_family(await get_device_addresses(device_name))
 
     if not ip:
         raise Exception(f"Failed to get ip address for device {device_name}")

@@ -278,11 +278,13 @@ type WekaContainerSpec struct {
 	TracesConfiguration *TracesConfiguration  `json:"tracesConfiguration,omitempty"`
 	Tolerations         []v1.Toleration       `json:"tolerations,omitempty"`
 	NodeInfoConfigMap   string                `json:"nodeInfoConfigMap,omitempty"`
-	Ipv6                bool                  `json:"ipv6,omitempty"`
-	AdditionalMemory    int                   `json:"additionalMemory,omitempty"`
-	Group               string                `json:"group,omitempty"`
-	ServiceAccountName  string                `json:"serviceAccountName,omitempty"`
-	AdditionalSecrets   map[string]string     `json:"additionalSecrets,omitempty"`
+	// prefer ipv6 on a data-path device that carries both address families; a device pinned by a
+	// subnet, or carrying a single family, resolves without it.
+	Ipv6               bool              `json:"ipv6,omitempty"`
+	AdditionalMemory   int               `json:"additionalMemory,omitempty"`
+	Group              string            `json:"group,omitempty"`
+	ServiceAccountName string            `json:"serviceAccountName,omitempty"`
+	AdditionalSecrets  map[string]string `json:"additionalSecrets,omitempty"`
 	// extra volumes added to this pod, in the same shape as a PodSpec's `volumes`.
 	// Propagated from the owning WekaCluster/WekaClient; names must not collide with
 	// operator-managed volumes.

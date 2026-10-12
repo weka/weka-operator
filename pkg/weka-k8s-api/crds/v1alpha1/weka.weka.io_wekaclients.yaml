@@ -293,6 +293,12 @@ spec:
                 type: string
               imagePullSecret:
                 type: string
+              ipv6:
+                description: |-
+                  prefer ipv6 on a data-path device that carries both address families.
+                  It is not needed when network.deviceSubnets or a selector subnet is set, which already pin the
+                  address family, nor when the device only has an ipv6 address.
+                type: boolean
               joinIpPorts:
                 items:
                   type: string
@@ -309,10 +315,12 @@ spec:
                     type: boolean
                   deviceSubnets:
                     description: |-
-                      A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
-                      The operator assigns IP addresses from these subnets to the backend containers for their data path network
+                      A list of backend subnets in CIDR notation, either IPv4 (for example, 192.168.10.0/24)
+                      or IPv6 (for example, 2001:db8::/64).
+                      The operator assigns IP addresses from these subnets to the backend containers for their data path network.
+                      The address family of the subnet selects the address family used on the data path; the ipv6 field is not consulted.
                     items:
-                      pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                      pattern: ^(([0-9]{1,3}\.){3}[0-9]{1,3}|([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F:.]*)\/[0-9]{1,3}$
                       type: string
                     type: array
                   ethDevice:

@@ -111,9 +111,11 @@ type Network struct {
 	// - false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.
 	// This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based.
 	UdpMode bool `json:"udpMode,omitempty"`
-	// A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
-	// The operator assigns IP addresses from these subnets to the backend containers for their data path network
-	// +kubebuilder:validation:items:Pattern="^([0-9]{1,3}\\.){3}[0-9]{1,3}\\/[0-9]{1,2}$"
+	// A list of backend subnets in CIDR notation, either IPv4 (for example, 192.168.10.0/24)
+	// or IPv6 (for example, 2001:db8::/64).
+	// The operator assigns IP addresses from these subnets to the backend containers for their data path network.
+	// The address family of the subnet selects the address family used on the data path; the ipv6 field is not consulted.
+	// +kubebuilder:validation:items:Pattern="^(([0-9]{1,3}\\.){3}[0-9]{1,3}|([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F:.]*)\\/[0-9]{1,3}$"
 	DeviceSubnets []string `json:"deviceSubnets,omitempty"`
 	// Selectors define how backend data-path network interfaces are chosen on each node.
 	Selectors []NetworkSelector `json:"selectors,omitempty"`
@@ -881,7 +883,9 @@ type WekaClusterSpec struct {
 	RawTolerations []v1.Toleration `json:"rawTolerations,omitempty"`
 	// weka home configuration
 	WekaHome *WekaHomeConfig `json:"wekaHome,omitempty"`
-	// use ipv6 for weka cluster networking configuration
+	// prefer ipv6 on a data-path device that carries both address families.
+	// It is not needed when network.deviceSubnets or a selector subnet is set, which already pin the
+	// address family, nor when the device only has an ipv6 address.
 	Ipv6 bool `json:"ipv6,omitempty"`
 	// additional memory to allocate for weka containers
 	AdditionalMemory AdditionalMemory `json:"additionalMemory,omitempty"`

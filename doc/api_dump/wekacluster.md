@@ -84,7 +84,7 @@
 | tolerations | []string | simplified tolerations, checked only by key existence, expanding to NoExecute\|NoSchedule tolerations |
 | rawTolerations | []v1.Toleration | tolerations in standard k8s format |
 | wekaHome | *WekaHomeConfig | weka home configuration |
-| ipv6 | bool | use ipv6 for weka cluster networking configuration |
+| ipv6 | bool | prefer ipv6 on a data-path device that carries both address families.<br>It is not needed when network.deviceSubnets or a selector subnet is set, which already pin the<br>address family, nor when the device only has an ipv6 address. |
 | additionalMemory | AdditionalMemory | additional memory to allocate for weka containers |
 | ports | ClusterPorts | port allocation for weka containers, if not set, free range will be auto selected. Currently allocated ports can be seen in wekacluster.status.ports |
 | operatorSecretRef | string | reference to the secret containing the weka system credentials used by operator, used in flow of migration |
@@ -318,7 +318,7 @@
 | gateway | string | The default gateway IPv4 address for the backend containers’ data-path network.<br>This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).<br>If you have a flat, non-routed backend network, you can leave this field empty. |
 | netmask | int | The data-path netmask for the backend containers’ network, expressed as prefix bits (for example, 24).<br>This is only necessary when the netmask cannot be inferred from deviceSubnets. |
 | udpMode | bool | A setting that enables or disables UDP encapsulation for backend traffic.<br>- false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.<br>This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based. |
-| deviceSubnets | []string | A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).<br>The operator assigns IP addresses from these subnets to the backend containers for their data path network |
+| deviceSubnets | []string | A list of backend subnets in CIDR notation, either IPv4 (for example, 192.168.10.0/24)<br>or IPv6 (for example, 2001:db8::/64).<br>The operator assigns IP addresses from these subnets to the backend containers for their data path network.<br>The address family of the subnet selects the address family used on the data path; the ipv6 field is not consulted. |
 | selectors | []NetworkSelector | Selectors define how backend data-path network interfaces are chosen on each node. |
 | managementIpsSelectors | []NetworkSelector | Selectors for management IPs used for cluster API and agent communication. |
 | bindManagementAll | bool | BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.<br>When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).<br>When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses. |
