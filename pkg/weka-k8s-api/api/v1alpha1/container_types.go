@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strconv"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -71,11 +72,7 @@ func (c *WekaContainer) GetHostIps(subnets []string) []string {
 			}
 		}
 
-		if c.Spec.Ipv6 {
-			hostIps = append(hostIps, fmt.Sprintf("[%s]:%d", ip, port))
-		} else {
-			hostIps = append(hostIps, fmt.Sprintf("%s:%d", ip, port))
-		}
+		hostIps = append(hostIps, net.JoinHostPort(ip, strconv.Itoa(port)))
 	}
 	return hostIps
 }
