@@ -2799,9 +2799,9 @@ async def create_container():
     """)
     # join_secret_cmd is a shell command substitution "$(cat /path/to/secret)", not the secret value itself
     # The actual secret is read by the shell at runtime and never appears in this logged string
-    # lgtm[py/clear-text-logging-sensitive-data]
+    # codeql[py/clear-text-logging-sensitive-data]
     logging.info(f"Creating container with command: {command}")
-    # lgtm[py/clear-text-logging-sensitive-data]
+    # codeql[py/clear-text-logging-sensitive-data]
     stdout, stderr, ec = await run_command(command)
     if ec != 0:
         raise Exception(f"Failed to create container: {stderr}")
