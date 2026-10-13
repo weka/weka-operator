@@ -70,6 +70,14 @@ func TestAuxiliaryRuntime_Envoy_SetupFlags(t *testing.T) {
 	if indexOfCommand(runner, "local start") == -1 {
 		t.Error("no \"weka local start\" command recorded after envoy setup")
 	}
+
+	agentPort, err := os.ReadFile(filepath.Join(deps.Paths.K8sRuntime, "vars", "agent_port"))
+	if err != nil {
+		t.Fatalf("agent port not saved: %v", err)
+	}
+	if string(agentPort) == "" || string(agentPort) == "0" {
+		t.Errorf("saved agent_port = %q, want the allocated agent port", agentPort)
+	}
 }
 
 func TestAuxiliaryRuntime_Telemetry_SetupFlagsAndOverride(t *testing.T) {

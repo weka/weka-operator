@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/weka/weka-operator/internal/runtime/config"
+	"github.com/weka/weka-operator/internal/runtime/ports"
 	"github.com/weka/weka-operator/internal/runtime/weka"
 )
 
@@ -25,6 +26,11 @@ func (r *auxiliaryRuntime) Start(ctx context.Context) error {
 	cc := r.cfg
 
 	state, err := acquirePersistentState(ctx, r.deps, r.mode, cc, cc.Ports)
+	if err != nil {
+		return err
+	}
+
+	err = ports.Save(r.deps.Paths, state.Ports)
 	if err != nil {
 		return err
 	}
