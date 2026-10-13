@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -450,13 +451,9 @@ func patchResourceDoc(in *ContainerInput, isClient bool, doc *ResourceDoc, fullC
 	if len(in.JoinIPs) > 0 {
 		endpoints := make([]Endpoint, 0, len(in.JoinIPs))
 		for _, joinIP := range in.JoinIPs {
-			ipPart, portPart, ok := strings.Cut(joinIP, ":")
-			if !ok {
-				continue
-			}
-			port, aerr := strconv.Atoi(portPart)
-			if aerr != nil {
-				continue
+			ipPart, port, err := parseIPPort(joinIP)
+			if err != nil {
+				return err
 			}
 			endpoints = append(endpoints, Endpoint{IP: ipPart, Port: port})
 		}
@@ -588,4 +585,21 @@ func GetWekaLocalResources(ctx context.Context, runner process.CommandRunner, na
 		return nil, fmt.Errorf("GetWekaLocalResources(%s): %w", name, err)
 	}
 	return res.Stdout, nil
+}
+
+// parseIPPort splits `<host>:<port>`, unwrapping the brackets around ipv6. The host may be a DNS name.
+// Mirrors Python parse_ip_port().
+func parseIPPort(endpoint string) (host string, port int, err error) {
+	host, portStr, err := net.SplitHostPort(endpoint)
+	if err == nil && host == "" {
+		err = errors.New("missing host")
+	}
+	var p uint64
+	if err == nil {
+		p, err = strconv.ParseUint(portStr, 10, 16)
+	}
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid endpoint %q, expected <host>:<port> ([addr]:port for ipv6): %w", endpoint, err)
+	}
+	return host, int(p), nil
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -476,50 +477,144 @@ func autodiscoverInSubnet(ctx context.Context, runner process.CommandRunner, ipN
 	return filterDevicesInSubnet(res.Stdout, ipNet), nil
 }
 
-// getSingleDeviceIP gets the primary IP of a network interface. When subnet is
-// non-empty, it picks the address in that subnet specifically, since a device
-// can carry several addresses and position alone cannot pick the right one.
-// Mirrors Python get_single_device_ip() at weka_runtime.py:3647.
+// pickByFamily returns the device's address: preferIPv6 only breaks the tie on a dual-stack
+// device; a single family is used as-is. Mirrors Python pick_by_family().
+func pickByFamily(addrs []netip.Addr, preferIPv6 bool) string {
+	var v4, v6 netip.Addr
+	for _, a := range addrs {
+		if a.Is4() && !v4.IsValid() {
+			v4 = a
+		} else if a.Is6() && !v6.IsValid() {
+			v6 = a
+		}
+	}
+	switch {
+	case v4.IsValid() && v6.IsValid():
+		if preferIPv6 {
+			return v6.String()
+		}
+		return v4.String()
+	case v6.IsValid():
+		return v6.String()
+	case v4.IsValid():
+		return v4.String()
+	}
+	return ""
+}
+
+// deviceAddresses lists a device's addresses minus link-local and loopback ones, which WEKA cannot use.
+// Mirrors Python get_device_addresses().
+func deviceAddresses(ctx context.Context, runner process.CommandRunner, device string) ([]netip.Addr, error) {
+	res, err := runner.Run(ctx, process.Command{
+		Path:   "ip",
+		Args:   []string{"-o", "addr", "show", "dev", device},
+		Output: process.Capture,
+		Log:    process.LogExecution,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ip address for device %s: %w", device, err)
+	}
+	var addrs []netip.Addr
+	for _, line := range strings.Split(string(res.Stdout), "\n") {
+		parts := strings.Fields(line)
+		// a device with no address still gets a line, carrying its link details instead
+		if len(parts) < 4 || (parts[2] != "inet" && parts[2] != "inet6") {
+			continue
+		}
+		addr, err := netip.ParseAddr(strings.Split(strings.Split(parts[3], "/")[0], "%")[0])
+		if err != nil {
+			continue
+		}
+		if addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsLoopback() {
+			continue
+		}
+		addrs = append(addrs, addr)
+	}
+	return addrs, nil
+}
+
+// defaultRouteAddress returns the address that traffic over the family's default route is sourced from.
+// Mirrors Python get_default_route_address().
+func defaultRouteAddress(ctx context.Context, runner process.CommandRunner, ipv6 bool) (netip.Addr, bool) {
+	family := "-4"
+	if ipv6 {
+		family = "-6"
+	}
+	res, err := runner.Run(ctx, process.Command{
+		Path:   "ip",
+		Args:   []string{family, "route", "show", "default"},
+		Output: process.Capture,
+		Log:    process.LogExecution,
+	})
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	parts := strings.Fields(strings.SplitN(strings.TrimSpace(string(res.Stdout)), "\n", 2)[0])
+	fields := map[string]string{}
+	for i := 0; i+1 < len(parts); i++ {
+		fields[parts[i]] = parts[i+1]
+	}
+	if src, ok := fields["src"]; ok {
+		addr, parseErr := netip.ParseAddr(src)
+		return addr, parseErr == nil
+	}
+	// an ipv6 default route usually carries no src, so fall back to the route's device
+	dev, ok := fields["dev"]
+	if !ok {
+		return netip.Addr{}, false
+	}
+	addrs, err := deviceAddresses(ctx, runner, dev)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	for _, a := range addrs {
+		if a.Is6() == ipv6 {
+			return a, true
+		}
+	}
+	return netip.Addr{}, false
+}
+
+// getSingleDeviceIP gets the IP of a network interface. For the default device it is the address the
+// default routes are sourced from. When subnet is non-empty, it picks the address in that subnet, since
+// a device can carry several addresses; the subnet pins the family, leaving isIPv6 no say. Otherwise
+// isIPv6 only breaks the tie on a dual-stack device.
+// Mirrors Python get_single_device_ip().
 func getSingleDeviceIP(ctx context.Context, runner process.CommandRunner, device, subnet string, isIPv6 bool) (string, error) {
-	var script string
+	var ip string
 	switch {
 	case device == "" || device == "default":
-		if isIPv6 {
-			script = "ip -6 addr show $(ip -6 route show default | awk '{print $5}' | head -n1) | grep 'inet6 ' | grep global | awk '{print $2}' | cut -d/ -f1"
-		} else {
-			script = "ip route show default | grep src | awk '/default/ {print $9}' | head -n1"
+		var routed []netip.Addr
+		for _, v6 := range []bool{false, true} {
+			if a, ok := defaultRouteAddress(ctx, runner, v6); ok {
+				routed = append(routed, a)
+			}
 		}
+		ip = pickByFamily(routed, isIPv6)
 	case subnet != "":
-		// Parse before interpolating: subnet is unvalidated spec input going into a shell.
-		_, ipNet, err := net.ParseCIDR(subnet)
+		prefix, err := netip.ParsePrefix(subnet)
 		if err != nil {
 			return "", fmt.Errorf("getSingleDeviceIP: invalid subnet %q: %w", subnet, err)
 		}
-		script = fmt.Sprintf("ip -o addr show dev %s to %s | head -n1 | awk '{print $4}' | cut -d/ -f1", device, ipNet.String())
+		addrs, err := deviceAddresses(ctx, runner, device)
+		if err != nil {
+			return "", err
+		}
+		for _, a := range addrs {
+			if prefix.Contains(a) {
+				ip = a.String()
+				break
+			}
+		}
 	default:
-		if isIPv6 {
-			script = fmt.Sprintf("ip -6 addr show dev %s | grep -E 'inet6 (fd|2)' | head -n1 | awk '{print $2}' | cut -d/ -f1", device)
-		} else {
-			script = fmt.Sprintf("ip addr show dev %s | grep 'inet ' | head -n1 | awk '{print $2}' | cut -d/ -f1", device)
+		addrs, err := deviceAddresses(ctx, runner, device)
+		if err != nil {
+			return "", err
 		}
-	}
-
-	res, err := runner.Run(ctx, process.Shell(script))
-	if err != nil {
-		return "", fmt.Errorf("getSingleDeviceIP(%s): %w", device, err)
-	}
-	ip := strings.TrimSpace(string(res.Stdout))
-
-	// Fallback for default IPv4 device.
-	if ip == "" && (device == "" || device == "default") && !isIPv6 {
-		fallback := "ip -4 addr show dev $(ip route show default | awk '{print $5}') | grep inet | awk '{print $2}' | cut -d/ -f1"
-		res, err = runner.Run(ctx, process.Shell(fallback))
-		if err == nil {
-			ip = strings.TrimSpace(string(res.Stdout))
-		}
+		ip = pickByFamily(addrs, isIPv6)
 	}
 	if ip == "" {
-		return "", fmt.Errorf("getSingleDeviceIP(%s): empty result", device)
+		return "", fmt.Errorf("failed to get ip address for device %s", device)
 	}
 	return ip, nil
 }

@@ -71,8 +71,8 @@ func TestClientRuntime_NoRmWhenBasePortMatches(t *testing.T) {
 		case strings.Contains(script, "local resources") && strings.Contains(script, "--json"):
 			// ImageName is "" in testClientConfig, so expectedRestricted = true.
 			return process.Result{Stdout: []byte(`{"base_port":14000,"restricted_client":true}`)}, true, nil
-		case strings.Contains(script, "ip route show default"):
-			return process.Result{Stdout: []byte("192.168.1.10")}, true, nil
+		case strings.Contains(script, "-4 route show default"):
+			return process.Result{Stdout: []byte("default via 192.168.1.1 dev eth0 proto dhcp src 192.168.1.10 metric 100\n")}, true, nil
 		}
 		return process.Result{}, false, nil
 	}

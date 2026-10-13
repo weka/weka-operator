@@ -319,3 +319,33 @@ func TestReconcileNetwork_RdmaOnlySelectorAddsDevice(t *testing.T) {
 		t.Errorf("expected a rdma-only net add for eth1, calls: %+v", r.calls)
 	}
 }
+
+func TestParseIPPort(t *testing.T) {
+	tests := []struct {
+		in      string
+		host    string
+		port    int
+		wantErr bool
+	}{
+		{in: "10.0.0.1:14000", host: "10.0.0.1", port: 14000},
+		{in: "[fd00::1]:14000", host: "fd00::1", port: 14000},
+		{in: "backend-0.svc:14000", host: "backend-0.svc", port: 14000},
+		{in: "10.0.0.1", wantErr: true},
+		{in: "[fd00::1]", wantErr: true},
+		{in: ":14000", wantErr: true},
+		{in: "10.0.0.1:abc", wantErr: true},
+		{in: "10.0.0.1:65536", wantErr: true},
+		{in: "10.0.0.1:+14000", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			host, port, err := parseIPPort(tt.in)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseIPPort(%q) error = %v, wantErr %v", tt.in, err, tt.wantErr)
+			}
+			if host != tt.host || port != tt.port {
+				t.Fatalf("parseIPPort(%q) = %q, %d; want %q, %d", tt.in, host, port, tt.host, tt.port)
+			}
+		})
+	}
+}

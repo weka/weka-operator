@@ -17,7 +17,7 @@ import (
 
 // newTestDeps builds a Deps wired to a recordingRunner/fakeLauncher pair over a fresh
 // testRoots(t), with the runner scripted to satisfy the "weka local ps --json", "weka
-// local resources ... --json", and "ip route show default" (management IP discovery,
+// local resources ... --json", and "ip -4 route show default" (management IP discovery,
 // since test configs use UDPMode with no explicit NetworkDevice) calls every
 // ensureContainer/WriteManagementIPs path makes.
 func newTestDeps(t *testing.T) (*Deps, *recordingRunner, *fakeLauncher) {
@@ -29,8 +29,8 @@ func newTestDeps(t *testing.T) (*Deps, *recordingRunner, *fakeLauncher) {
 			return process.Result{Stdout: []byte("[]")}, true, nil
 		case strings.Contains(script, "local resources") && strings.Contains(script, "--json"):
 			return process.Result{Stdout: []byte("{}")}, true, nil
-		case strings.Contains(script, "ip route show default"):
-			return process.Result{Stdout: []byte("192.168.1.10")}, true, nil
+		case strings.Contains(script, "-4 route show default"):
+			return process.Result{Stdout: []byte("default via 192.168.1.1 dev eth0 proto dhcp src 192.168.1.10 metric 100\n")}, true, nil
 		}
 		return process.Result{}, false, nil
 	}}
