@@ -36,6 +36,24 @@ func TestReadInstructionsMalformedFile(t *testing.T) {
 	}
 }
 
+func TestReadInstructionsPartiallyDecodedFileIsNotApproved(t *testing.T) {
+	dir := t.TempDir()
+	instrDir := filepath.Join(dir, "shared", "instructions", "pod1", "boot1")
+	if err := os.MkdirAll(instrDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// json.Unmarshal sets allow_stop before failing on the mistyped field.
+	content := []byte(`{"allow_stop":true,"allow_force_stop":"x"}`)
+	if err := os.WriteFile(filepath.Join(instrDir, "shutdown_instructions.json"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	roots := paths.Roots{HostBinds: dir, Tmp: t.TempDir()}
+	got := ReadInstructions(roots, "pod1", "boot1")
+	if got.AllowStop || got.AllowForceStop {
+		t.Fatalf("got %+v, want zero value for partially decoded file", got)
+	}
+}
+
 func TestReadInstructionsValidFile(t *testing.T) {
 	dir := t.TempDir()
 	instrDir := filepath.Join(dir, "shared", "instructions", "pod1", "boot1")
