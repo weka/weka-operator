@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/weka/weka-operator/internal/runtime/clock"
+	"github.com/weka/weka-operator/internal/runtime/config"
 	"github.com/weka/weka-operator/internal/runtime/lifecycle"
 	"github.com/weka/weka-operator/internal/runtime/paths"
 	"github.com/weka/weka-operator/internal/runtime/process"
@@ -248,5 +249,14 @@ func advanceFakeClockUntilDone(t *testing.T, fc *clock.Fake, done <-chan error) 
 		}
 		fc.Advance(time.Second)
 		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestAgentReadyTimeout(t *testing.T) {
+	if got := agentReadyTimeout(config.Persistence{Mode: "local"}); got != 60*time.Second {
+		t.Errorf("local = %v, want 60s", got)
+	}
+	if got := agentReadyTimeout(config.Persistence{Mode: "global"}); got != 1500*time.Second {
+		t.Errorf("global = %v, want 1500s", got)
 	}
 }

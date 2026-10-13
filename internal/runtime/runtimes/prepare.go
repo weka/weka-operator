@@ -25,8 +25,14 @@ import (
 const generationWatchInterval = time.Second
 
 // agentReadyTimeout bounds how long a persistent mode waits for "weka local ps" to succeed
-// after starting the agent daemon.
-const agentReadyTimeout = 60 * time.Second
+// after starting the agent daemon. Global persistence is usually remote storage, where
+// pre-creating the log files takes much longer.
+func agentReadyTimeout(persistence config.Persistence) time.Duration { //nolint:gocritic // small value struct
+	if persistence.Mode == "global" {
+		return 1500 * time.Second
+	}
+	return 60 * time.Second
+}
 
 // persistentState is what acquirePersistentState resolved, for the caller to act on.
 type persistentState struct {
@@ -142,7 +148,7 @@ func startAgent(ctx context.Context, deps *Deps, mode string, cc *config.Contain
 		return err
 	}
 
-	return agent.AwaitReady(ctx, deps.Runner, deps.Clock, agentReadyTimeout)
+	return agent.AwaitReady(ctx, deps.Runner, deps.Clock, agentReadyTimeout(cc.Persistence))
 }
 
 // readFeatures reads the release spec's feature flags. Called once per Start, after the
