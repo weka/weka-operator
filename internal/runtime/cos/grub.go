@@ -53,7 +53,12 @@ func RewriteGrubAndReboot(ctx context.Context, runner process.CommandRunner, sed
 		return fmt.Errorf("writing grub.cfg: %w", err)
 	}
 
-	_, _ = runner.Run(ctx, process.Command{Path: "umount", Args: []string{espMountPath}}) //nolint:errcheck // best-effort cleanup
+	if _, err := runner.Run(ctx, process.Command{Path: "sync"}); err != nil {
+		return fmt.Errorf("sync: %w", err)
+	}
+	if _, err := runner.Run(ctx, process.Command{Path: "umount", Args: []string{espMountPath}}); err != nil {
+		return fmt.Errorf("umount esp: %w", err)
+	}
 
 	if err := os.WriteFile(sysrqPath, []byte("b"), 0o200); err != nil {
 		return fmt.Errorf("triggering reboot: %w", err)
