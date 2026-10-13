@@ -51,53 +51,42 @@ func loadDriversLegacy(ctx context.Context, runner process.CommandRunner, in *Lo
 	// should_skip_uio() = is_google_cos()
 	skipUIO := ResolveVersionParams(in.ImageName).ShouldSkipUioPciGeneric() || isCOS
 
-	driverFiles := []string{
-		"weka_driver-wekafsgw-*.ko",
-		"weka_driver-wekafsio-*.ko",
-		"mpin_user-*.ko",
+	wekafsVersion := ResolveVersionParams(in.ImageName).Wekafs
+	if wekafsVersion == "" {
+		return fmt.Errorf("no wekafs driver version known for image %q", in.ImageName)
+	}
+
+	// The dist service serves exact file names; the kernel suffix is expanded by the shell.
+	const kernelSuffix = "-$(uname -r).$(uname -m).ko"
+	type legacyDriver struct{ module, file string }
+	mods := []legacyDriver{
+		{"wekafsgw", "weka_driver-wekafsgw-" + wekafsVersion + kernelSuffix},
+		{"wekafsio", "weka_driver-wekafsio-" + wekafsVersion + kernelSuffix},
+		{"mpin_user", "mpin_user-" + MpinUserDriverVersion + kernelSuffix},
 	}
 	// igb_uio is only available on non-COS systems.
 	if !isCOS {
-		driverFiles = append(driverFiles, "igb_uio-*.ko")
+		mods = append(mods, legacyDriver{"igb_uio", "igb_uio-" + IgbUioDriverVersion + kernelSuffix})
 	}
 	// uio_pci_generic is skipped when version params say so OR on COS.
 	if !skipUIO {
-		driverFiles = append(driverFiles, "uio_pci_generic-*.ko")
+		mods = append(mods, legacyDriver{"uio_pci_generic", "uio_pci_generic-" + UioPciGenericDriverVersion + kernelSuffix})
 	}
 
-	for _, df := range driverFiles {
-		url := fmt.Sprintf("%s/dist/v1/drivers/%s", in.DistService, df)
-		dst := fmt.Sprintf("%s/%s", driversDir, df)
+	for _, d := range mods {
+		url := fmt.Sprintf("%s/dist/v1/drivers/%s", in.DistService, d.file)
+		dst := fmt.Sprintf("%s/%s", driversDir, d.file)
 		if _, err := runner.Run(ctx, process.Shell(fmt.Sprintf("curl -kfo %s %s", dst, url))); err != nil {
-			return fmt.Errorf("download %s: %w", df, err)
+			return fmt.Errorf("download %s: %w", d.module, err)
 		}
 	}
 
-	driverPairs := []struct{ name, pattern string }{
-		{"wekafsio", "weka_driver-wekafsio-*.ko"},
-		{"wekafsgw", "weka_driver-wekafsgw-*.ko"},
-		{"mpin_user", "mpin_user-*.ko"},
-	}
-	// igb_uio: non-COS only (unrelated to uio_pci_generic gating).
-	if !isCOS {
-		driverPairs = append(driverPairs,
-			struct{ name, pattern string }{"igb_uio", "igb_uio-*.ko"},
-		)
-	}
-	// uio_pci_generic: gated by skipUIO (version params + COS).
-	if !skipUIO {
-		driverPairs = append(driverPairs,
-			struct{ name, pattern string }{"uio_pci_generic", "uio_pci_generic-*.ko"},
-		)
-	}
-
-	for _, dp := range driverPairs {
-		if _, err := runner.Run(ctx, process.Shell(fmt.Sprintf("lsmod | grep -w %s", dp.name))); err == nil {
+	for _, d := range mods {
+		if _, err := runner.Run(ctx, process.Shell(fmt.Sprintf("lsmod | grep -w %s", d.module))); err == nil {
 			continue // already loaded
 		}
-		if _, err := runner.Run(ctx, process.Shell(
-			fmt.Sprintf("insmod %s/%s", driversDir, dp.pattern))); err != nil {
-			return fmt.Errorf("insmod %s: %w", dp.name, err)
+		if _, err := runner.Run(ctx, process.Shell(fmt.Sprintf("insmod %s/%s", driversDir, d.file))); err != nil {
+			return fmt.Errorf("insmod %s: %w", d.module, err)
 		}
 	}
 
