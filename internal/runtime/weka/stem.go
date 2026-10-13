@@ -59,5 +59,5 @@ func containsContainerName(psJSON []byte, name string) (bool, error) {
 // blocks forever once the container is up, so it cannot be run via CommandRunner.Run.
 // Mirrors Python start_stem_container() at weka_runtime.py:3041.
 func StartStemCLI(ctx context.Context, pm process.Launcher, name string) (*process.Handle, error) {
-	return pm.StartProcess(ctx, name, process.Command{Path: "weka", Args: []string{"local", "start"}})
+	return pm.StartProcess(ctx, name, process.Command{Path: "weka", Args: []string{"local", "start"}, Output: process.Inherit})
 }

@@ -123,3 +123,9 @@ func TestOverrideDependenciesFlag_NewDriverHandling(t *testing.T) {
 		t.Errorf("command = %+v, want the dependencies-skip marker script", cmd)
 	}
 }
+
+func TestCommandInheritsOutput(t *testing.T) {
+	if got := Command(15000).Output; got != process.Inherit {
+		t.Errorf("Command().Output = %v, want Inherit so agent output reaches the pod logs", got)
+	}
+}

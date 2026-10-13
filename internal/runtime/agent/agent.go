@@ -142,8 +142,9 @@ echo '{"agent": {"port": %d}}' > /etc/wekaio/service.json
 // Mirrors Python get_agent_cmd() at weka_runtime.py:3126.
 func Command(agentPort int) process.Command {
 	return process.Command{
-		Path: "/usr/bin/weka",
-		Args: []string{"--agent", "--socket-name", fmt.Sprintf("weka_agent_ud_socket_%d", agentPort)},
+		Path:   "/usr/bin/weka",
+		Args:   []string{"--agent", "--socket-name", fmt.Sprintf("weka_agent_ud_socket_%d", agentPort)},
+		Output: process.Inherit,
 	}
 }
 

@@ -125,6 +125,8 @@ func buildCmd(c *Command) (cmd *exec.Cmd, stdout, stderr *bytes.Buffer) {
 // buildBackgroundCmd is buildCmd for daemons and background processes. Nothing reads their output,
 // and a capture pipe would make Wait block until every descendant holding it exits, such as the
 // envoy container the agent leaves running, so shutdown would hang until the pod is killed.
+// Commands that set Output: Inherit write to the pod's own stdout/stderr, which are files rather
+// than pipes, so Wait does not block on them; any other output is discarded.
 func buildBackgroundCmd(c *Command) *exec.Cmd {
 	cmd, _, _ := buildCmd(c)
 	if c.Output == Capture {

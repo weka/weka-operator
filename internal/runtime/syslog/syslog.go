@@ -16,11 +16,12 @@ import (
 // Mirrors Python start_syslog() at weka_runtime.py:4462.
 func Command(pkg string) (process.Command, error) {
 	if UseGoSyslog(pkg) {
-		return process.Command{Path: "/usr/sbin/go-syslog"}, nil
+		return process.Command{Path: "/usr/sbin/go-syslog", Output: process.Inherit}, nil
 	}
 	return process.Command{
-		Path: "/usr/sbin/syslog-ng",
-		Args: []string{"-F", "-f", "/etc/syslog-ng/syslog-ng.conf", "--pidfile", "/var/run/syslog-ng.pid"},
+		Path:   "/usr/sbin/syslog-ng",
+		Args:   []string{"-F", "-f", "/etc/syslog-ng/syslog-ng.conf", "--pidfile", "/var/run/syslog-ng.pid"},
+		Output: process.Inherit,
 	}, nil
 }
 

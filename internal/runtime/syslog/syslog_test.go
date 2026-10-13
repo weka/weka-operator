@@ -1,6 +1,10 @@
 package syslog
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/weka/weka-operator/internal/runtime/process"
+)
 
 // TestCommand verifies the go-syslog/syslog-ng selection and exact args per pkg.
 func TestCommand(t *testing.T) {
@@ -19,6 +23,9 @@ func TestCommand(t *testing.T) {
 			}
 			if cmd.Path != tc.wantPath {
 				t.Errorf("Command(%q).Path = %q, want %q", tc.pkg, cmd.Path, tc.wantPath)
+			}
+			if cmd.Output != process.Inherit {
+				t.Errorf("Command(%q).Output = %v, want Inherit so daemon output reaches the pod logs", tc.pkg, cmd.Output)
 			}
 		})
 	}
