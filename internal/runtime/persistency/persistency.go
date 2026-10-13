@@ -33,7 +33,7 @@ func Configure(ctx context.Context, runner process.CommandRunner, persistence co
 
 	mountScript := buildMountScript(persistenceDir)
 
-	if _, err := runner.Run(ctx, process.Command{Path: "sh", Args: []string{"-c", mountScript}}); err != nil {
+	if _, err := runner.Run(ctx, process.Shell(mountScript)); err != nil {
 		return fmt.Errorf("configure_persistency: %w", err)
 	}
 
@@ -61,7 +61,7 @@ touch %s
 		wekaK8sRuntimeDir, persistencyConfiguredPath,
 	)
 
-	if _, err := runner.Run(ctx, process.Command{Path: "sh", Args: []string{"-c", finalScript}}); err != nil {
+	if _, err := runner.Run(ctx, process.Shell(finalScript)); err != nil {
 		return fmt.Errorf("configure_persistency: %w", err)
 	}
 	return nil

@@ -147,6 +147,8 @@ func TestConfigure_RunsMountAndFinalScripts(t *testing.T) {
 	for _, cmd := range runner.commands {
 		if cmd.Path != "sh" || len(cmd.Args) != 2 || cmd.Args[0] != "-c" {
 			t.Errorf("command = %+v, want sh -c <script>", cmd)
+		} else if !strings.HasPrefix(cmd.Args[1], "set -e\n") {
+			t.Errorf("script = %q, want it to run under set -e", cmd.Args[1])
 		}
 	}
 	if !strings.Contains(runner.commands[0].Args[1], "/host-binds/opt-weka") {
