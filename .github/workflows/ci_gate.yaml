@@ -420,7 +420,7 @@ jobs:
           else
             versions=$(cat ${{ github.workspace }}/versions)
             operator_image=$(echo "$versions" | head -n 1)
-            operator_helm_image=$(echo "$versions" | tail -n 1)
+            operator_helm_image=$(echo "$versions" | sed -n 2p)
           fi
           # Read back by the "Find previous execution" step of later runs on this commit.
           echo "::notice::Operator versions: $operator_image $operator_helm_image"
@@ -442,12 +442,15 @@ jobs:
           OPERATOR_VERSION=$(echo "${{ env.operator_image }}" | sed 's/.*://')
           OPERATOR_IMAGE_REPO=$(echo "${{ env.operator_image }}" | sed 's/:.*//')
           OPERATOR_HELM_IMAGE_REPO=$(echo "${{ env.operator_helm_image }}" | sed 's/:.*//')
+          # publish-operator-and-get-versions pushes the pod runtime next to the operator, with the same tag
+          POD_RUNTIME_IMAGE_REPO=${OPERATOR_IMAGE_REPO/weka-operator/weka-pod-runtime}
 
           BODY=$(jq -n \
             --arg comment "PR #${{ github.event.pull_request.number }} ${{ github.event.pull_request.html_url }}" \
             --arg operator_version "$OPERATOR_VERSION" \
             --arg operator_image_repo "$OPERATOR_IMAGE_REPO" \
             --arg operator_helm_image_repo "$OPERATOR_HELM_IMAGE_REPO" \
+            --arg pod_runtime_image_repo "$POD_RUNTIME_IMAGE_REPO" \
             --arg initial_version "${{ env.INITIAL_WEKA_VERSION }}" \
             --arg new_version "${{ env.NEW_WEKA_VERSION }}" \
             '{
@@ -459,6 +462,8 @@ jobs:
                 "operator-version": $operator_version,
                 "operator-image": $operator_image_repo,
                 "operator-helm-image": $operator_helm_image_repo,
+                "pod-runtime-image": $pod_runtime_image_repo,
+                "pod-runtime-version": $operator_version,
                 "initial-version": $initial_version,
                 "new-version": $new_version,
                 "namespace": "test-upgrade-extended",
@@ -653,6 +658,7 @@ jobs:
           OPERATOR_VERSION=$(echo "${{ needs.upgrade_extended_test.outputs.operator_image }}" | sed 's/.*://')
           OPERATOR_IMAGE_REPO=$(echo "${{ needs.upgrade_extended_test.outputs.operator_image }}" | sed 's/:.*//')
           OPERATOR_HELM_IMAGE_REPO=$(echo "${{ needs.upgrade_extended_test.outputs.operator_helm_image }}" | sed 's/:.*//')
+          POD_RUNTIME_IMAGE_REPO=${OPERATOR_IMAGE_REPO/weka-operator/weka-pod-runtime}
           JOIN_IPS_JSON=$(tr ',' '\n' < "${{ github.workspace }}/join-ips" | jq -R . | jq -cs 'map(select(length > 0))')
           if [[ "$JOIN_IPS_JSON" == "[]" ]]; then
             echo "::error::pre-clients-only returned no join IPs"
@@ -664,6 +670,7 @@ jobs:
             --arg operator_version "$OPERATOR_VERSION" \
             --arg operator_image_repo "$OPERATOR_IMAGE_REPO" \
             --arg operator_helm_image_repo "$OPERATOR_HELM_IMAGE_REPO" \
+            --arg pod_runtime_image_repo "$POD_RUNTIME_IMAGE_REPO" \
             --arg weka_image "${{ env.NEW_WEKA_VERSION }}" \
             --argjson join_ips "$JOIN_IPS_JSON" \
             '{
@@ -675,6 +682,8 @@ jobs:
                 "operator-version": $operator_version,
                 "operator-image": $operator_image_repo,
                 "operator-helm-image": $operator_helm_image_repo,
+                "pod-runtime-image": $pod_runtime_image_repo,
+                "pod-runtime-version": $operator_version,
                 "weka-image": $weka_image,
                 "namespace": "test-upgrade-extended",
                 "join-ips": $join_ips,
