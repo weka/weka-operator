@@ -41,7 +41,7 @@ func runDriverLoader(ctx context.Context, cfg *config.DriverLoaderConfig, deps *
 	deadline := deps.Clock.Now().Add(120 * time.Second)
 
 	if err := drivers.DisableDriverSigning(ctx, deps.Runner, cfg.Host.AllowDisableDriverSign); err != nil {
-		logger.Warn("DisableDriverSigning failed", "err", err)
+		return fmt.Errorf("drivers-loader: disable driver signing: %w", err)
 	}
 
 	if err := drivers.SetupOverlayfsForLibModules(ctx, deps.Runner); err != nil {
