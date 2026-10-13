@@ -794,7 +794,7 @@ var knownContainerModes = map[string]bool{
 // WEKA_PYTHON_FALLBACK_MODES that is not a valid container mode is an error: it would otherwise
 // silently stay on the Go runtime.
 func LoadPodRuntimeEnv() error {
-	Config.WekaPodRuntimeImage = os.Getenv("WEKA_POD_RUNTIME_IMAGE") // No default - opt-in only
+	Config.WekaPodRuntimeImage = os.Getenv("WEKA_POD_RUNTIME_IMAGE")
 	Config.UsePythonFallback = getBoolEnvOrDefault("WEKA_USE_PYTHON_FALLBACK", false)
 	Config.PythonFallbackModes = map[string]bool{}
 	for _, mode := range getStringSlice("WEKA_PYTHON_FALLBACK_MODES") {

@@ -94,6 +94,11 @@ func NewPodFactory(container *weka.WekaContainer, nodeInfo *discovery.DiscoveryN
 
 func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod, error) {
 	usePython := config.UsePythonRuntime(f.container.Spec.Mode)
+	// Only the manager deployment gets WEKA_POD_RUNTIME_IMAGE (the node-agent shares this config),
+	// so the image is required here, where Go-runtime pods are built, not at config load.
+	if !usePython && config.Config.WekaPodRuntimeImage == "" {
+		return nil, fmt.Errorf("WEKA_POD_RUNTIME_IMAGE is not set, but mode %q runs the Go pod runtime", f.container.Spec.Mode)
+	}
 	labels := LabelsForWekaPod(f.container)
 	annotations := AnnotationsForWekaPod(f.container.GetAnnotations(), nil)
 
@@ -899,7 +904,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		f.setDriverDependencies(pod)
 	}
 
-	if !usePython && config.Config.WekaPodRuntimeImage != "" {
+	if !usePython {
 		wekaRuntimeInstaller := corev1.Container{
 			Name:    "weka-pod-runtime-installer",
 			Image:   config.Config.WekaPodRuntimeImage,

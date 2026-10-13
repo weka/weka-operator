@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"os"
 	"slices"
 	"testing"
 
@@ -9,6 +10,12 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
+
+// Helm always sets WEKA_POD_RUNTIME_IMAGE on the manager; pods built without it are rejected.
+func TestMain(m *testing.M) {
+	config.Config.WekaPodRuntimeImage = "weka-pod-runtime:test"
+	os.Exit(m.Run())
+}
 
 func setRuntimeConfig(t *testing.T, global bool, modes ...string) {
 	t.Helper()
@@ -77,5 +84,17 @@ func TestPodRuntimeSelection(t *testing.T) {
 			}
 			assertRuntime(t, pod, tt.wantPython)
 		})
+	}
+}
+
+func TestPodRuntimeImageRequiredForGoRuntime(t *testing.T) {
+	setRuntimeConfig(t, false, weka.WekaContainerModeClient)
+	config.Config.WekaPodRuntimeImage = ""
+
+	if _, err := createTestPod(t, weka.WekaContainerModeCompute, nil); err == nil {
+		t.Error("Go-runtime pod without WEKA_POD_RUNTIME_IMAGE: want error, got nil")
+	}
+	if _, err := createTestPod(t, weka.WekaContainerModeClient, nil); err != nil {
+		t.Errorf("Python-fallback pod without WEKA_POD_RUNTIME_IMAGE: unexpected error %v", err)
 	}
 }
