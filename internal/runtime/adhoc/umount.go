@@ -54,10 +54,7 @@ func RunUmount(ctx context.Context, runner process.CommandRunner, resultsPath st
 
 	// 2. If no errors, attempt to remove the kernel module
 	if len(errs) == 0 {
-		if _, rmErr := runner.Run(ctx, process.Command{Path: "nsenter", Args: []string{
-			"--mount", "--pid", "--target", "1", "--",
-			"rmmod", "wekafsio",
-		}}); rmErr != nil {
+		if _, rmErr := runner.Run(ctx, process.Command{Path: "nsenter", Args: osinfo.HostNsenterArgs("rmmod", "wekafsio")}); rmErr != nil {
 			logger.Warn("umount: rmmod wekafsio failed (non-fatal)", "err", rmErr)
 		}
 	}
