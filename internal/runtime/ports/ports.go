@@ -33,7 +33,7 @@ func AllocateClient(ctx context.Context, cp config.ClientPorts, in config.Ports)
 
 	// Mirror Python assert base_port > 0, "BASE_PORT is not set" at weka_runtime.py:3537.
 	base := cp.Base
-	if base == 0 {
+	if base <= 0 {
 		return in, fmt.Errorf("ports: BASE_PORT is not set")
 	}
 	// Mirror Python: max_port = base_port + port_range if port_range > 0 else MAX_PORT (weka_runtime.py:3538).
