@@ -15,6 +15,10 @@ operator fails closed (it will not form an unprotected cluster if it cannot crea
 already-running cluster it fails open and emits a `NoAwsTerminationLifecycleHook` Warning event on the
 WekaCluster.
 
+## Pre-requisite: data NICs (ensure-nics)
+
+Pods that join the cluster (compute, drive, S3, NFS, SMB, data-services and client; not envoy, telemetry, ssdproxy or driver containers) on EKS request the extended resource `weka.io/weka-nics`, unless the cluster uses `udpMode`, explicit network devices or `allocateVfPerIoNode: false`. Attach the data NICs to the nodes before creating a WekaCluster by running the `ensure-nics` operation (`type: aws`); see [Ensure NICs](../../operator/operations/ensure-nics.md). Its AWS credentials fall back to the node instance role, which needs EC2 network-interface permissions.
+
 ## Required permissions
 
 The operator manager pod needs the following IAM policy:

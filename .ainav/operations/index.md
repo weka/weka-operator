@@ -46,7 +46,7 @@ See [driver-distribution.md](../../doc/operator/deployment/driver-distribution.m
 | File | Purpose |
 |------|---------|
 | `discover_node.go` | Node discovery; recreates discovery container on owner-spec drift (image/tolerations/pullSecret/serviceAccount) |
-| `ensure_nics.go` | NIC configuration |
+| `ensure_nics.go` | Cloud data NICs (`weka.io/weka-nics`). See [doc](../../doc/operator/operations/ensure-nics.md) |
 | `trace_session.go` | Remote trace collection |
 | `cleanup_persistent_dir.go` | Cleanup operations |
 | `deploy_csi.go` | CSI deployment coordination |
@@ -59,13 +59,8 @@ See [drivers-dist-sizing.md](drivers-dist-sizing.md): how `spec.resources`,
 
 ## Policies vs Manual Operations
 
-- **WekaPolicy**: Recurring/scheduled operations
-  - Controller: `wekapolicy_controller.go`
-  - Runs on intervals
-
-- **WekaManualOperation**: One-time operations
-  - Controller: `wekamanualoperation_controller.go`
-  - Runs once, reports result
+- **WekaPolicy** (`wekapolicy_controller.go`): recurring, on an interval
+- **WekaManualOperation** (`wekamanualoperation_controller.go`): runs once, reports result
 
 ## Adding New Operations
 

@@ -108,6 +108,7 @@ type NICType string
 
 const (
 	AWS NICType = "aws"
+	OCI NICType = "oci"
 )
 
 type EnsureNICsPayload struct {
