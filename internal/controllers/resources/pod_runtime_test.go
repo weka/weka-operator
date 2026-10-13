@@ -26,6 +26,9 @@ func setRuntimeConfig(t *testing.T, global bool, modes ...string) {
 		config.Config.Otel.PythonPackagesInstallerImage = origOtel
 	})
 	config.Config.WekaPodRuntimeImage = "weka-pod-runtime:latest"
+	origPolicy := config.Config.WekaPodRuntimeImagePullPolicy
+	t.Cleanup(func() { config.Config.WekaPodRuntimeImagePullPolicy = origPolicy })
+	config.Config.WekaPodRuntimeImagePullPolicy = string(corev1.PullAlways)
 	config.Config.Otel.PythonPackagesInstallerImage = "otel-packages:latest"
 	config.Config.UsePythonFallback = global
 	config.Config.PythonFallbackModes = map[string]bool{}
@@ -54,6 +57,13 @@ func assertRuntime(t *testing.T, pod *corev1.Pod, wantPython bool) {
 
 	if hasInit(installer) == wantPython {
 		t.Errorf("%s present = %v, want %v", installer, hasInit(installer), !wantPython)
+	}
+	if !wantPython {
+		for _, c := range pod.Spec.InitContainers {
+			if c.Name == installer && c.ImagePullPolicy != corev1.PullAlways {
+				t.Errorf("%s pull policy = %q, want %q", installer, c.ImagePullPolicy, corev1.PullAlways)
+			}
+		}
 	}
 	if hasVolume == wantPython || hasMount == wantPython {
 		t.Errorf("%s volume = %v, mount = %v, want both %v", data, hasVolume, hasMount, !wantPython)

@@ -906,9 +906,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 
 	if !usePython {
 		wekaRuntimeInstaller := corev1.Container{
-			Name:    "weka-pod-runtime-installer",
-			Image:   config.Config.WekaPodRuntimeImage,
-			Command: []string{"cp", "/weka-pod-runtime", "/weka-pod-runtime-data/weka-pod-runtime"},
+			Name:            "weka-pod-runtime-installer",
+			Image:           config.Config.WekaPodRuntimeImage,
+			ImagePullPolicy: corev1.PullPolicy(config.Config.WekaPodRuntimeImagePullPolicy),
+			Command:         []string{"cp", "/weka-pod-runtime", "/weka-pod-runtime-data/weka-pod-runtime"},
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "weka-pod-runtime-data", MountPath: "/weka-pod-runtime-data"},
 			},

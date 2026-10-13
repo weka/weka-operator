@@ -411,9 +411,10 @@ var Config struct {
 	AdmissionControl  AdmissionControlConfig
 	AdmissionPolicies AdmissionPoliciesConfig
 
-	WekaPodRuntimeImage string
-	UsePythonFallback   bool
-	PythonFallbackModes map[string]bool
+	WekaPodRuntimeImage           string
+	WekaPodRuntimeImagePullPolicy string
+	UsePythonFallback             bool
+	PythonFallbackModes           map[string]bool
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -795,6 +796,7 @@ var knownContainerModes = map[string]bool{
 // silently stay on the Go runtime.
 func LoadPodRuntimeEnv() error {
 	Config.WekaPodRuntimeImage = os.Getenv("WEKA_POD_RUNTIME_IMAGE")
+	Config.WekaPodRuntimeImagePullPolicy = getEnvOrDefault("WEKA_POD_RUNTIME_IMAGE_PULL_POLICY", "IfNotPresent")
 	Config.UsePythonFallback = getBoolEnvOrDefault("WEKA_USE_PYTHON_FALLBACK", false)
 	Config.PythonFallbackModes = map[string]bool{}
 	for _, mode := range getStringSlice("WEKA_PYTHON_FALLBACK_MODES") {

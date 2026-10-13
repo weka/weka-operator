@@ -168,6 +168,8 @@ spec:
             {{- end }}
             - name: WEKA_POD_RUNTIME_IMAGE
               value: "{{ .Values.wekaPodRuntime.image.repository }}:{{if not (empty .Values.wekaPodRuntime.image.tag)}}{{ .Values.wekaPodRuntime.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"
+            - name: WEKA_POD_RUNTIME_IMAGE_PULL_POLICY
+              value: "{{ .Values.wekaPodRuntime.image.pullPolicy }}"
             - name: WEKA_USE_PYTHON_FALLBACK
               value: "{{ .Values.wekaPodRuntime.usePythonFallback }}"
             - name: WEKA_PYTHON_FALLBACK_MODES
