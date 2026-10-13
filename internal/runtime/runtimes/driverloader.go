@@ -46,11 +46,10 @@ func runDriverLoader(ctx context.Context, cfg *config.DriverLoaderConfig, deps *
 
 	if err := drivers.SetupOverlayfsForLibModules(ctx, deps.Runner); err != nil {
 		logger.Error(err, "failed to set up overlayfs")
-		writeLoaderResult(ctx, logger, cfg.Results.Path, loaderResult{
+		return writeLoaderResult(ctx, cfg.Results.Path, loaderResult{
 			Err:           fmt.Sprintf("Failed to set up overlayfs: %v", err),
 			DriversLoaded: false,
 		})
-		return nil
 	}
 
 	loadInput := &drivers.LoadInput{
@@ -70,24 +69,25 @@ func runDriverLoader(ctx context.Context, cfg *config.DriverLoaderConfig, deps *
 			case <-deps.Clock.After(5 * time.Second):
 			}
 			if !deps.Clock.Now().Before(deadline) {
-				writeLoaderResult(ctx, logger, cfg.Results.Path, loaderResult{Err: err.Error(), DriversLoaded: false})
-				return nil
+				return writeLoaderResult(ctx, cfg.Results.Path, loaderResult{Err: err.Error(), DriversLoaded: false})
 			}
 			continue
 		}
-		writeLoaderResult(ctx, logger, cfg.Results.Path, loaderResult{Err: nil, DriversLoaded: true})
+		if err := writeLoaderResult(ctx, cfg.Results.Path, loaderResult{Err: nil, DriversLoaded: true}); err != nil {
+			return err
+		}
 		logger.Info("drivers loaded successfully")
 		return nil
 	}
 
-	writeLoaderResult(ctx, logger, cfg.Results.Path, loaderResult{Err: "Failed to load drivers within timeout", DriversLoaded: false})
-	return nil
+	return writeLoaderResult(ctx, cfg.Results.Path, loaderResult{Err: "Failed to load drivers within timeout", DriversLoaded: false})
 }
 
-// writeLoaderResult writes the loader result.json and logs (rather than swallows) any write error.
-// The result is the controller's only signal of loader outcome, so a write failure must be visible.
-func writeLoaderResult(ctx context.Context, logger *instrumentation.SpanLogger, path string, res loaderResult) {
+// writeLoaderResult writes the loader result.json. The result is the controller's only signal of
+// loader outcome, so a write failure fails the runtime instead of leaving the pod waiting.
+func writeLoaderResult(ctx context.Context, path string, res loaderResult) error {
 	if err := results.Write(ctx, path, res); err != nil {
-		logger.Warn("failed to write loader result.json", "err", err)
+		return fmt.Errorf("drivers-loader: write result: %w", err)
 	}
+	return nil
 }
