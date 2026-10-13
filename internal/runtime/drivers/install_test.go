@@ -2,6 +2,7 @@ package drivers
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 )
@@ -64,5 +65,31 @@ func TestLoadDriversLegacyUsesExactFileNames(t *testing.T) {
 		if script := c.Args[len(c.Args)-1]; strings.Contains(script, "*") {
 			t.Errorf("wildcard in command %q", script)
 		}
+	}
+}
+
+func TestLoadDriversNewAlwaysRunsVersionGet(t *testing.T) {
+	for name, tc := range map[string]struct{ target, want string }{
+		"same image":      {"", "weka version get --without-agent --driver-only 4.4.0"},
+		"different image": {"other:img", "weka version get --without-agent --driver-only --from file://shared-weka-version/opt-weka 4.4.0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			optWeka := t.TempDir()
+			if err := os.MkdirAll(optWeka+"/dist/release", 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(optWeka+"/dist/release/4.4.0.spec", nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runner := &fakeRunner{}
+			in := &LoadInput{ImageName: "img", TargetImageName: tc.target, DistService: "http://dist", BuildID: "ubuntu24.04", OptWeka: optWeka}
+			if err := loadDriversNew(context.Background(), runner, in); err != nil {
+				t.Fatal(err)
+			}
+			first := runner.commands[0]
+			if got := strings.TrimPrefix(first.Args[len(first.Args)-1], "set -e\n"); got != tc.want {
+				t.Errorf("first command = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

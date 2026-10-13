@@ -111,14 +111,13 @@ func loadDriversNew(ctx context.Context, runner process.CommandRunner, in *LoadI
 		fromPath = "file://shared-weka-version/opt-weka"
 	}
 
+	versionGetCmd := "weka version get --without-agent --driver-only"
 	if fromPath != "" {
-		versionGetCmd := fmt.Sprintf(
-			"weka version get --without-agent --driver-only --from %s %s",
-			fromPath, version,
-		)
-		if _, err = runner.Run(ctx, process.Shell(versionGetCmd)); err != nil {
-			return fmt.Errorf("loadDriversNew: weka version get: %w", err)
-		}
+		versionGetCmd += " --from " + fromPath
+	}
+	versionGetCmd += " " + version
+	if _, err = runner.Run(ctx, process.Shell(versionGetCmd)); err != nil {
+		return fmt.Errorf("loadDriversNew: weka version get: %w", err)
 	}
 
 	downloadArgs := buildWekaDriverArgs("download", in.DistService, version, kernelBuildID)
