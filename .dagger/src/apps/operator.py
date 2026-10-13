@@ -70,13 +70,17 @@ async def publish_operator(src: Directory, sock: Socket, repository: str, versio
     )
 
 
+def _pod_runtime_repo(operator_repo: str) -> str:
+    return "/".join([*operator_repo.split("/")[:-1], "weka-pod-runtime"])
+
+
 async def publish_pod_runtime(src: Directory, sock: Socket, repository: str, version: str = "",
                               registry_username: Optional[Secret] = None,
                               registry_password: Optional[Secret] = None) -> str:
     """Build and publish multi-arch weka-pod-runtime image (linux/amd64 + linux/arm64)."""
     version = await _calc_operator_version(src, version)
 
-    pod_runtime_repo = repository.replace("weka-operator", "weka-pod-runtime")
+    pod_runtime_repo = _pod_runtime_repo(repository)
 
     async def build_variant(p: str) -> Container:
         target_os, target_arch = p.split("/")
@@ -187,6 +191,7 @@ async def install_helm_chart(image: str, kubeconfig: dagger.Secret, operator_rep
             --version {version} \
             --create-namespace \
             --set image.repository={operator_repo} \
+            --set wekaPodRuntime.image.repository={_pod_runtime_repo(operator_repo)} \
         {"--values /values.yaml" if values_file is not None else ""}
          """])
                   .stdout()
