@@ -74,3 +74,14 @@ func TestWaitFrontendDisconnectTimesOut(t *testing.T) {
 		t.Fatal("WaitFrontendDisconnect did not return after 120s of fake time")
 	}
 }
+
+func TestWaitFrontendDisconnectReturnsReadError(t *testing.T) {
+	roots := paths.Roots{Proc: t.TempDir()}
+	if err := os.MkdirAll(filepath.Join(roots.Proc, "wekafs", "interface"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fc := clock.NewFake(time.Unix(0, 0))
+	if err := WaitFrontendDisconnect(context.Background(), fc, &roots, "envoy"); err == nil {
+		t.Error("expected the read error to be returned")
+	}
+}
