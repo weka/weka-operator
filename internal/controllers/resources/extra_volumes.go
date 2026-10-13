@@ -17,7 +17,7 @@ import (
 // never mounted into it (applyExtraVolumes mounts into the weka container only).
 var ReservedVolumeNames = map[string]struct{}{
 	"osrelease": {}, "dev": {}, "run": {}, "sys": {}, "weka-boot-scripts": {}, "hugepages": {}, "smbw-shm": {},
-	"host-shared-netns": {}, "weka-container-persistence-dir": {}, "weka-container-shared-dir": {},
+	"host-shared-netns": {}, "host-shared-netvfs": {}, "weka-container-persistence-dir": {}, "weka-container-shared-dir": {},
 	"weka-cluster-persistence-dir": {}, "weka-container-global-persistence-dir": {},
 	"weka-proxy-socket-dir": {}, "weka-ssdproxy-local-socket": {}, "node-info": {}, "weka-credentials": {},
 	"proc-sysrq-trigger": {}, "proc-cmdline": {}, "devenv": {}, "google-cloud-key": {}, "host-modules": {},

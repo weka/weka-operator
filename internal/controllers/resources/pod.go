@@ -577,6 +577,20 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 	}
 
+	pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+		Name:      "host-shared-netvfs",
+		MountPath: inPodHostBinds + "/shared-netvfs",
+	})
+	pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+		Name: "host-shared-netvfs",
+		VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{
+				Path: f.nodeInfo.GetHostsideSharedNetvfsPath(),
+				Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+			},
+		},
+	})
+
 	if f.container.HasPersistentStorage() {
 		// TODO: For now we are keeping ephemeral /opt/k8s-weka data along with global
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts,

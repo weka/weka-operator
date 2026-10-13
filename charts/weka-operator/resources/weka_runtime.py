@@ -3440,6 +3440,11 @@ async def configure_persistency():
             mount --make-rshared /opt/weka/external-mounts/shared-netns
         fi
 
+        if [ -d /host-binds/shared-netvfs ]; then
+            mkdir -p /opt/weka/external-mounts/shared-netvfs
+            mount -o bind /host-binds/shared-netvfs /opt/weka/external-mounts/shared-netvfs
+        fi
+
         # The staged bundle lives under the persistent /opt/weka bind, so it is cleared on every
         # boot: a stale copy must not outlive the secret being removed from the pod.
         rm -rf /opt/weka/k8s-runtime/vars/wh-cacert

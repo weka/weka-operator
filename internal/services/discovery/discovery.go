@@ -227,6 +227,13 @@ func (d *DiscoveryNodeInfo) GetHostsideSharedNetnsPath() string {
 	return d.GetHostsideEphemeralShare() + "/shared-netns"
 }
 
+// GetHostsideSharedNetvfsPath returns the host-side directory under the node ephemeral share where weka
+// containers record which of them owns which NIC queue. It must be one directory per node: pods that each
+// see their own copy will claim the same queues.
+func (d *DiscoveryNodeInfo) GetHostsideSharedNetvfsPath() string {
+	return d.GetHostsideEphemeralShare() + "/shared-netvfs"
+}
+
 func (d *DiscoveryNodeInfo) GetHostsideClusterPersistence() string {
 	return d.GetHostsidePersistenceBaseLocation() + "/clusters"
 }
