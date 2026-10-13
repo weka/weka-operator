@@ -82,7 +82,7 @@ func ConfigureHugepages(ctx context.Context, runner process.CommandRunner, host 
 	}
 	logger.Info("Node hugepage configuration has changed, NODE WILL REBOOT NOW!")
 
-	if err := RewriteGrubAndReboot(ctx, runner, sedCmds, "/proc/sysrq-trigger"); err != nil {
+	if err := RewriteGrubAndReboot(ctx, runner, sedCmds, "/hostside/proc/sysrq-trigger"); err != nil {
 		return err
 	}
 	// Block until the reboot actually happens
