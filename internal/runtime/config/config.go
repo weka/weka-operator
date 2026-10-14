@@ -233,15 +233,19 @@ func loadFeatureFlags() domain.FeatureFlags {
 	if err := json.Unmarshal(data, &spec); err != nil || spec.FeatureFlags == "" {
 		return domain.FeatureFlags{}
 	}
-	return featureFlagsFromBitmap(spec.FeatureFlags)
+	flags, err := featureFlagsFromBitmap(spec.FeatureFlags)
+	if err != nil {
+		return domain.FeatureFlags{}
+	}
+	return flags
 }
 
 // featureFlagsFromBitmap decodes a base64 feature bitmap string into a FeatureFlags struct.
 // Bit ordering matches Python's parse_feature_bitmap: byte 0 bit 0 = index 0, etc.
-func featureFlagsFromBitmap(b64 string) domain.FeatureFlags {
+func featureFlagsFromBitmap(b64 string) (domain.FeatureFlags, error) {
 	bitmap, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
-		return domain.FeatureFlags{}
+		return domain.FeatureFlags{}, err
 	}
 	active := make(map[int]bool, len(bitmap)*8)
 	for byteIdx, b := range bitmap {
@@ -267,5 +271,7 @@ func featureFlagsFromBitmap(b64 string) domain.FeatureFlags {
 		SsdProxyIncludesDpdkMemory: active[9],
 		// bits 10, 11 unused
 		WekaManagesNonIonodeAffinity: active[12],
-	}
+		// flag 13 is not used by the operator
+		WekactlAsDefault: active[14],
+	}, nil
 }
