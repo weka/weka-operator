@@ -507,7 +507,19 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 		derivedComputeCores = plan.ComputeCores
 	}
 
-	want := r.desiredRoleCounts(nums)
+	// Only images advertising s3_off_path_forwarder get a forwarder; the rest keep getting envoy.
+	// Resolved here rather than in desiredRoleCounts so the flag is only fetched once S3 is actually
+	// wanted — GetFeatureFlags spawns an ad-hoc container and waits, which must not gate cluster forming.
+	offPathForwarder := false
+	if nums.S3 > 0 && meta.IsStatusConditionTrue(r.cluster.Status.Conditions, condition.CondClusterCreated) {
+		featureFlags, err := r.GetFeatureFlags(ctx)
+		if err != nil {
+			return nil, err
+		}
+		offPathForwarder = featureFlags.S3OffPathForwarder
+	}
+
+	want := r.desiredRoleCounts(nums, offPathForwarder)
 
 	for _, role := range wekaContainerRoles {
 		if (role == weka.WekaContainerModeDrive && (daemonset || capacity)) || (role == weka.WekaContainerModeCompute && daemonset) ||
@@ -560,11 +572,11 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 
 // wekaContainerRoles is the order roles are built in; drive and compute come first so the planner-managed
 // branches are decided before any count-based role consumes headroom.
-var wekaContainerRoles = []string{"drive", "compute", "s3", "envoy", "nfs", "smbw", "telemetry", "data-services"}
+var wekaContainerRoles = []string{"drive", "compute", "s3", "envoy", "forwarder", "nfs", "smbw", "telemetry", "data-services"}
 
 // desiredRoleCounts is how many containers each role should have. Before the cluster is formed only drive and
 // compute are built, and both are capped at the form-cluster maximum — the rest wait until it is up.
-func (r *wekaClusterReconcilerLoop) desiredRoleCounts(nums allocator.IntPerWekaRole) map[string]int {
+func (r *wekaClusterReconcilerLoop) desiredRoleCounts(nums allocator.IntPerWekaRole, offPathForwarder bool) map[string]int {
 	cluster := r.cluster
 	if !meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) {
 		return map[string]int{
@@ -573,12 +585,12 @@ func (r *wekaClusterReconcilerLoop) desiredRoleCounts(nums allocator.IntPerWekaR
 		}
 	}
 
-	envoys := nums.S3 // one envoy per S3 container
+	s3Companion := nums.S3 // one envoy per S3 container
 	if cluster.Spec.S3ActsAsDaemonset() {
-		envoys = 0
+		s3Companion = 0
 		for _, c := range discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeS3) {
 			if !c.IsMarkedForDeletion() && !c.IsDeletingState() && !c.IsDestroyingState() {
-				envoys++
+				s3Companion++
 			}
 		}
 	}
@@ -586,9 +598,14 @@ func (r *wekaClusterReconcilerLoop) desiredRoleCounts(nums allocator.IntPerWekaR
 		"compute": nums.Compute,
 		"drive":   nums.Drive,
 		"s3":      nums.S3,
-		"envoy":   envoys,
 		"nfs":     nums.Nfs,
 		"smbw":    nums.Smbw,
+	}
+	// One off-path sidecar per S3 container, of whichever kind the image supports.
+	if offPathForwarder {
+		want["forwarder"] = s3Companion
+	} else {
+		want["envoy"] = s3Companion
 	}
 	// One telemetry container per compute container, but only when exports are configured.
 	if cluster.Spec.Telemetry != nil && len(cluster.Spec.Telemetry.Exports) > 0 {
@@ -752,7 +769,7 @@ func (r *wekaClusterReconcilerLoop) updateContainersOnNodeSelectorMismatch(ctx c
 			continue
 		}
 
-		if container.Spec.Mode == weka.WekaContainerModeEnvoy {
+		if weka.IsOffPathSidecarMode(container.Spec.Mode) {
 			continue
 		}
 

@@ -196,7 +196,10 @@ type AdditionalMemory struct {
 	// Additional memory in MiB for NFS protocol containers.
 	Nfs int `json:"nfs,omitempty"`
 	// Additional memory in MiB for Envoy proxy containers (used by S3 gateway).
-	Envoy        int `json:"envoy,omitempty"`
+	Envoy int `json:"envoy,omitempty"`
+	// Additional memory in MiB for S3 forwarder containers, which supersede Envoy on images
+	// advertising the s3_off_path_forwarder feature flag.
+	Forwarder    int `json:"forwarder,omitempty"`
 	Smbw         int `json:"smbw,omitempty"`
 	DataServices int `json:"dataServices,omitempty"`
 }
@@ -216,6 +219,8 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 		additionalMemory = a.DataServices
 	case WekaContainerModeEnvoy:
 		additionalMemory = a.Envoy
+	case WekaContainerModeForwarder:
+		additionalMemory = a.Forwarder
 	case WekaContainerModeSmbw:
 		additionalMemory = a.Smbw
 	}
@@ -287,6 +292,10 @@ type WekaClusterTemplate struct {
 	// Number of cores allocated to the Envoy proxy process used by the S3 gateway.
 	// +kubebuilder:validation:Minimum=0
 	EnvoyCores int `json:"envoyCores,omitempty"`
+	// Number of cores allocated to the S3 forwarder process, which supersedes Envoy on images
+	// advertising the s3_off_path_forwarder feature flag.
+	// +kubebuilder:validation:Minimum=0
+	ForwarderCores int `json:"forwarderCores,omitempty"`
 	// Number of NFS protocol containers per cluster node.
 	// +kubebuilder:validation:Minimum=0
 	NfsContainers int `json:"nfsContainers,omitempty"`

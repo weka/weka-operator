@@ -581,7 +581,8 @@ func (r *wekaClusterReconcilerLoop) buildDaemonsetContainers(ctx context.Context
 		r.emitPlannerEvent(reasonAutoFullDrivesResized,
 			fmt.Sprintf("auto full drives resized %d container(s): %s; the affected containers are flagged podOutdated (the pod is recreated by pod rotation when enabled) before the new sizing takes effect", len(grown), strings.Join(grown, "; ")))
 	}
-	want := r.desiredRoleCounts(targets)
+	// Only the drive and compute counts are read below, so the off-path sidecar kind is immaterial.
+	want := r.desiredRoleCounts(targets, false)
 	room := map[string]int{}
 	for _, mode := range []string{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute} {
 		room[mode] = want[mode] - len(live[mode])

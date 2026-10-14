@@ -71,6 +71,7 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 							weka.WekaContainerModeNfs,
 							weka.WekaContainerModeDrive,
 							weka.WekaContainerModeEnvoy,
+							weka.WekaContainerModeForwarder,
 							weka.WekaContainerModeSSDProxy,
 							weka.WekaContainerModeDataServices,
 						}, container.Spec.Mode)
@@ -208,16 +209,21 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 
 	scrapeTargets := []node_agent.ScrapeTarget{}
 
-	if r.container.Spec.Mode == weka.WekaContainerModeEnvoy {
-		if r.container.Spec.ExposedPorts != nil {
-			for _, port := range r.container.Spec.ExposedPorts {
-				if port.Name == "envoy-admin" {
-					scrapeTargets = append(scrapeTargets, node_agent.ScrapeTarget{
-						Port:    int(port.ContainerPort),
-						Path:    "/stats/prometheus",
-						AppName: "weka_s3_envoy",
-					})
-				}
+	adminPortName, sidecarAppName := "", ""
+	switch r.container.Spec.Mode {
+	case weka.WekaContainerModeEnvoy:
+		adminPortName, sidecarAppName = "envoy-admin", "weka_s3_envoy"
+	case weka.WekaContainerModeForwarder:
+		adminPortName, sidecarAppName = "forwarder-admin", "weka_s3_forwarder"
+	}
+	if adminPortName != "" && r.container.Spec.ExposedPorts != nil {
+		for _, port := range r.container.Spec.ExposedPorts {
+			if port.Name == adminPortName {
+				scrapeTargets = append(scrapeTargets, node_agent.ScrapeTarget{
+					Port:    int(port.ContainerPort),
+					Path:    "/stats/prometheus",
+					AppName: sidecarAppName,
+				})
 			}
 		}
 	}

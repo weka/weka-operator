@@ -138,7 +138,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	var hostnamesList []string
 
 	for _, container := range containers {
-		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+		if wekav1alpha1.IsOffPathSidecarMode(container.Spec.Mode) {
 			continue
 		}
 		hostIps = append(hostIps, container.GetHostIps(nil)[0])

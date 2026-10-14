@@ -430,7 +430,8 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Annotations = newAnnotations
 		}
 
-		if role != weka.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
+		// envoy and forwarder stick to s3, so do not need an explicit node selector
+		if !weka.IsOffPathSidecarMode(role) {
 			newNodeSelector := cluster.GetNodeSelectorForRole(role)
 			// Planner-managed drive containers pin via Spec.NodeAffinity (set by the planner), a separate
 			// field this NodeSelector overwrite never touches, so the pin survives untouched.
@@ -833,6 +834,20 @@ func (r *wekaClusterReconcilerLoop) handleImageUpgrade(ctx context.Context) erro
 	}
 
 	uController = upgrade.NewUpgradeController(r.getClient(), feContainers, targetImage)
+	err = uController.RollingUpgrade(ctx)
+	if err != nil {
+		return err
+	}
+
+	// The forwarder is WEKA software version-locked to the S3 containers it fronts, so the roll has to
+	// reach it as well, once those are already on the target. Envoy, the other off-path sidecar, is a
+	// standalone proxy with no such coupling and is deliberately left on the image it came up with.
+	forwarderContainers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeForwarder)
+	if err != nil {
+		return err
+	}
+
+	uController = upgrade.NewUpgradeController(r.getClient(), forwarderContainers, targetImage)
 	err = uController.RollingUpgrade(ctx)
 	if err != nil {
 		return err

@@ -247,6 +247,7 @@
 | s3 | int | Additional memory in MiB for S3 gateway containers. |
 | nfs | int | Additional memory in MiB for NFS protocol containers. |
 | envoy | int | Additional memory in MiB for Envoy proxy containers (used by S3 gateway). |
+| forwarder | int | Additional memory in MiB for S3 forwarder containers, which supersede Envoy on images<br>advertising the s3_off_path_forwarder feature flag. |
 | smbw | int |  |
 | dataServices | int |  |
 
@@ -287,6 +288,7 @@
 | s3FrontendHugepages | int | Hugepage allocation in MiB for S3 gateway frontend threads. |
 | s3FrontendHugepagesOffset | int | Offset in MiB applied to the auto-calculated hugepage allocation for S3 frontend threads. |
 | envoyCores | int | Number of cores allocated to the Envoy proxy process used by the S3 gateway. |
+| forwarderCores | int | Number of cores allocated to the S3 forwarder process, which supersedes Envoy on images<br>advertising the s3_off_path_forwarder feature flag. |
 | nfsContainers | int | Number of NFS protocol containers per cluster node. |
 | nfsCores | int | Number of cores allocated to each NFS container. |
 | nfsExtraCores | int | Additional non-DPDK cores for NFS containers. |

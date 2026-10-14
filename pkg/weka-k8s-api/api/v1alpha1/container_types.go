@@ -94,6 +94,7 @@ const (
 	WekaContainerModeSmbw           = "smbw"
 	WekaContainerModeDataServices   = "data-services"
 	WekaContainerModeEnvoy          = "envoy"
+	WekaContainerModeForwarder      = "forwarder"
 	WekaContainerModeSSDProxy       = "ssdproxy"
 	WekaContainerModeTelemetry      = "telemetry"
 	WekaContainerModeAdhocOpWC      = "adhoc-op-with-container"
@@ -255,7 +256,7 @@ type WekaContainerSpec struct {
 	RotatePod         bool   `json:"rotatePod,omitempty"`
 	ImagePullSecret   string `json:"imagePullSecret,omitempty"`
 	WekaContainerName string `json:"name"`
-	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs;smbw;telemetry;ssdproxy;data-services;data-services-fe
+	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;forwarder;nfs;smbw;telemetry;ssdproxy;data-services;data-services-fe
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             // numCores is weka-specific cores
 	ExtraCores int    `json:"extraCores,omitempty"` // extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
@@ -630,7 +631,7 @@ func (w *WekaContainer) IsDriversLoaderMode() bool {
 }
 
 func (w *WekaContainer) RequiresDrivers() bool {
-	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsEnvoy() && !w.IsTelemetry()
+	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsOffPathSidecar() && !w.IsTelemetry()
 }
 
 func (w *WekaContainer) IsServiceContainer() bool {
@@ -641,6 +642,7 @@ func (w *WekaContainer) IsServiceContainer() bool {
 		WekaContainerModeDiscovery,
 		WekaContainerModeDriversBuilder,
 		WekaContainerModeEnvoy,
+		WekaContainerModeForwarder,
 		WekaContainerModeAdhocOpWC,
 		WekaContainerModeAdhocOp,
 	}, w.Spec.Mode)
@@ -665,7 +667,7 @@ func (w *WekaContainer) IsEnsureNICs() bool {
 }
 
 func (w *WekaContainer) ShouldJoinCluster() bool {
-	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsEnvoy() && !w.IsSSDProxyContainer() && !w.IsTelemetry()
+	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsOffPathSidecar() && !w.IsSSDProxyContainer() && !w.IsTelemetry()
 }
 
 // NamedHugepages2MiMiB returns the hugepages-2Mi amount (MiB) that spec.resources names, and
@@ -717,6 +719,7 @@ func (w *WekaContainer) HasPersistentStorage() bool {
 		WekaContainerModeCompute,
 		WekaContainerModeS3,
 		WekaContainerModeEnvoy,
+		WekaContainerModeForwarder,
 		WekaContainerModeClient,
 		WekaContainerModeDist,
 		WekaContainerModeDriversDist,
@@ -769,6 +772,7 @@ func (w *WekaContainer) IsWekaContainer() bool {
 		WekaContainerModeS3,
 		WekaContainerModeClient,
 		WekaContainerModeEnvoy,
+		WekaContainerModeForwarder,
 		WekaContainerModeDist,
 		WekaContainerModeDriversDist,
 		WekaContainerModeDriversBuilder,
@@ -781,11 +785,11 @@ func (w *WekaContainer) IsWekaContainer() bool {
 }
 
 func (w *WekaContainer) IsAllocatable() bool {
-	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeSmbw, WekaContainerModeTelemetry, WekaContainerModeDataServices}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeEnvoy, WekaContainerModeForwarder, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeSmbw, WekaContainerModeTelemetry, WekaContainerModeDataServices}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) MustHaveNodeAffinity() bool {
-	return w.IsAllocatable() && w.IsBackend() || w.IsEnvoy() || w.IsTelemetry()
+	return w.IsAllocatable() && w.IsBackend() || w.IsOffPathSidecar() || w.IsTelemetry()
 }
 
 func (w *WekaContainer) HasAgent() bool {
@@ -794,6 +798,7 @@ func (w *WekaContainer) HasAgent() bool {
 		WekaContainerModeCompute,
 		WekaContainerModeS3,
 		WekaContainerModeEnvoy,
+		WekaContainerModeForwarder,
 		WekaContainerModeDist,
 		WekaContainerModeDriversDist,
 		WekaContainerModeDriversBuilder,
@@ -868,6 +873,20 @@ func (w *WekaContainer) GetParentClusterId() string {
 		}
 	}
 	return ""
+}
+
+func (w *WekaContainer) IsForwarder() bool {
+	return w.Spec.Mode == WekaContainerModeForwarder
+}
+
+// IsOffPathSidecarMode reports whether mode is the S3 off-path sidecar, which is envoy on images
+// without the s3_off_path_forwarder feature flag and the forwarder on images with it.
+func IsOffPathSidecarMode(mode string) bool {
+	return mode == WekaContainerModeEnvoy || mode == WekaContainerModeForwarder
+}
+
+func (w *WekaContainer) IsOffPathSidecar() bool {
+	return IsOffPathSidecarMode(w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsEnvoy() bool {

@@ -17,7 +17,8 @@ func PausedStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.deleteEnvoyIfNoS3Neighbor,
 			Predicates: lifecycle.Predicates{
-				r.container.IsEnvoy,
+				r.container.IsOffPathSidecar,
+				r.HasNodeAffinity,
 			},
 		},
 		&lifecycle.SimpleStep{
