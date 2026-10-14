@@ -20,6 +20,8 @@ import (
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
+const noS3NeighborKey = "NoS3Neighbor"
+
 func (r *containerReconcilerLoop) IsS3ClusterFormed(ctx context.Context) (bool, error) {
 	cluster, err := r.getCluster(ctx)
 	if err != nil {
@@ -43,8 +45,8 @@ func (r *containerReconcilerLoop) JoinS3Cluster(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context) error {
-	if !r.container.IsEnvoy() {
-		return nil // only envoy containers should be checked
+	if !r.container.IsOffPathSidecar() {
+		return nil // only off-path sidecar containers should be checked
 	}
 
 	logger := instrumentation.CurrentSpanLogger(ctx)
@@ -75,11 +77,16 @@ func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context)
 		}
 		if foundS3Neighbor {
 			logger.Debug("Found S3 neighbor, not deleting envoy container")
+			// Clear stale "no neighbor" timestamp now that the neighbor is back.
+			if _, ok := r.container.Status.Timestamps[noS3NeighborKey]; ok {
+				delete(r.container.Status.Timestamps, noS3NeighborKey)
+				if err := r.Status().Update(ctx, r.container); err != nil {
+					return err
+				}
+			}
 			return nil
 		}
 	}
-
-	noS3NeighborKey := "NoS3Neighbor"
 
 	if r.container.Status.Timestamps == nil {
 		r.container.Status.Timestamps = make(map[string]metav1.Time)

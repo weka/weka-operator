@@ -430,7 +430,8 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Annotations = newAnnotations
 		}
 
-		if role != weka.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
+		// envoy and forwarder stick to s3, so do not need an explicit node selector
+		if !weka.IsOffPathSidecarMode(role) {
 			newNodeSelector := cluster.GetNodeSelectorForRole(role)
 			// Planner-managed drive containers pin via Spec.NodeAffinity (set by the planner), a separate
 			// field this NodeSelector overwrite never touches, so the pin survives untouched.
@@ -814,6 +815,10 @@ func (r *wekaClusterReconcilerLoop) handleImageUpgrade(ctx context.Context) erro
 	if err != nil {
 		return err
 	}
+	forwarderContainers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeForwarder)
+	if err != nil {
+		return err
+	}
 	feContainers := make([]*weka.WekaContainer, 0, len(s3Containers)+len(nfsContainers)+len(smbwContainers))
 	feContainers = append(feContainers, s3Containers...)
 	feContainers = append(feContainers, nfsContainers...)
@@ -832,7 +837,9 @@ func (r *wekaClusterReconcilerLoop) handleImageUpgrade(ctx context.Context) erro
 		}
 	}
 
-	uController = upgrade.NewUpgradeController(r.getClient(), feContainers, targetImage)
+	feRollOrder := frontendRollOrder(s3Containers, forwarderContainers, nfsContainers, smbwContainers)
+
+	uController = upgrade.NewUpgradeController(r.getClient(), feRollOrder, targetImage)
 	err = uController.RollingUpgrade(ctx)
 	if err != nil {
 		return err
@@ -856,6 +863,38 @@ func (r *wekaClusterReconcilerLoop) handleImageUpgrade(ctx context.Context) erro
 	}
 
 	return nil
+}
+
+// frontendRollOrder puts each forwarder directly behind the S3 container sharing its node, there being at
+// most one forwarder per node. The forwarder is WEKA software version-locked to the S3 container it fronts,
+// so the pair has to cross to the target image together before the next S3 container is taken down.
+// Forwarders left without an S3 neighbour roll last. Envoy, the other off-path sidecar, is a standalone
+// proxy with no such coupling and is deliberately left on the image it came up with.
+func frontendRollOrder(s3, forwarders, nfs, smbw []*weka.WekaContainer) []*weka.WekaContainer {
+	byNode := make(map[weka.NodeName]*weka.WekaContainer, len(forwarders))
+	for _, forwarder := range forwarders {
+		if node := forwarder.GetNodeAffinity(); node != "" {
+			byNode[node] = forwarder
+		}
+	}
+
+	paired := make(map[*weka.WekaContainer]bool, len(forwarders))
+	order := make([]*weka.WekaContainer, 0, len(s3)+len(forwarders)+len(nfs)+len(smbw))
+	for _, container := range s3 {
+		order = append(order, container)
+		if forwarder, ok := byNode[container.GetNodeAffinity()]; ok {
+			order = append(order, forwarder)
+			paired[forwarder] = true
+		}
+	}
+	order = append(order, nfs...)
+	order = append(order, smbw...)
+	for _, forwarder := range forwarders {
+		if !paired[forwarder] {
+			order = append(order, forwarder)
+		}
+	}
+	return order
 }
 
 func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context, containers []*weka.WekaContainer, targetVersion string) error {

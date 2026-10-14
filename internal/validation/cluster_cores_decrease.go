@@ -46,6 +46,7 @@ func (clusterCoresDecrease) ValidateUpdate(_ context.Context, _ client.Client, o
 		{"driveCores", o.DriveCores, n.DriveCores},
 		{"s3Cores", o.S3Cores, n.S3Cores},
 		{"envoyCores", o.EnvoyCores, n.EnvoyCores},
+		{"forwarderCores", o.ForwarderCores, n.ForwarderCores},
 		{"nfsCores", o.NfsCores, n.NfsCores},
 		{"smbwCores", o.SmbwCores, n.SmbwCores},
 		{"dataServicesCores", o.DataServicesCores, n.DataServicesCores},

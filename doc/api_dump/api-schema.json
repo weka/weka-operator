@@ -67,6 +67,13 @@
           "optional": true
         },
         {
+          "name": "Forwarder",
+          "jsonName": "forwarder",
+          "type": "int",
+          "description": "Additional memory in MiB for S3 forwarder containers, which supersede Envoy on images\nadvertising the s3_off_path_forwarder feature flag.",
+          "optional": true
+        },
+        {
           "name": "Smbw",
           "jsonName": "smbw",
           "type": "int",
@@ -5338,6 +5345,13 @@
           "jsonName": "envoyCores",
           "type": "int",
           "description": "Number of cores allocated to the Envoy proxy process used by the S3 gateway.",
+          "optional": true
+        },
+        {
+          "name": "ForwarderCores",
+          "jsonName": "forwarderCores",
+          "type": "int",
+          "description": "Number of cores allocated to the S3 forwarder process, which supersedes Envoy on images\nadvertising the s3_off_path_forwarder feature flag.",
           "optional": true
         },
         {

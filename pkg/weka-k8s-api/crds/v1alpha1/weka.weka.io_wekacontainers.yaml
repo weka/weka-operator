@@ -1271,6 +1271,7 @@ spec:
                 - adhoc-op-with-container
                 - adhoc-op
                 - envoy
+                - forwarder
                 - nfs
                 - smbw
                 - telemetry

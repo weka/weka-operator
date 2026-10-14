@@ -145,7 +145,7 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 
 func (r *containerReconcilerLoop) buildPod(ctx context.Context, container *weka.WekaContainer, nodeInfo *discovery.DiscoveryNodeInfo, image string) (*v1.Pod, error) {
 	var ff *domain.FeatureFlags
-	if container.Spec.Mode == weka.WekaContainerModeSSDProxy {
+	if container.Spec.Mode == weka.WekaContainerModeSSDProxy || container.Spec.Mode == weka.WekaContainerModeS3{
 		var err error
 		if ff, err = r.GetFeatureFlags(ctx); err != nil {
 			return nil, errors.Wrap(err, "failed to get feature flags")
