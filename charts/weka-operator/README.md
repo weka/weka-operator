@@ -84,6 +84,10 @@ helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
 | maintenanceImage | string | `"quay.io/weka.io/busybox:1.37.0"` | Image used for maintenance pods; can be overridden with any other basic linux image. If required, a pull secret for it can be set with `maintenanceImagePullSecret` (commented out by default). |
 | signDrivesImage | string | `"quay.io/weka.io/weka-sign-tool:cfbc60804cb627bcd3b7fde8e9c5e82f6f24c0be-multiarch"` | Image of the drive signing tool. |
 | taskmon | object | `{"defaultImage":"quay.io/weka.io/taskmon:92b35aa657e9aba4782b4530b81107fff4c19847_x86_64"}` | Taskmon settings; `defaultImage` is the default taskmon image. |
+| wekaPodRuntime.image.pullPolicy | string | `"IfNotPresent"` | Go pod runtime image pull policy. |
+| wekaPodRuntime.image.repository | string | `"quay.io/weka.io/weka-pod-runtime"` | Go pod runtime image repository. |
+| wekaPodRuntime.image.tag | string | the chart version | Go pod runtime image tag. |
+| wekaPodRuntime.usePythonFallback | bool | `false` | Run weka_runtime.py instead of the Go pod runtime. |
 
 ### Capacity planner tool
 

@@ -15,6 +15,23 @@ image:
   # @default -- the chart version
   # @section -- Images
   tag: ""
+
+wekaPodRuntime:
+  image:
+    # -- Go pod runtime image repository.
+    # @section -- Images
+    repository: quay.io/weka.io/weka-pod-runtime
+    # -- Go pod runtime image tag.
+    # @default -- the chart version
+    # @section -- Images
+    tag: ""
+    # -- Go pod runtime image pull policy.
+    # @section -- Images
+    pullPolicy: IfNotPresent
+  # -- Run weka_runtime.py instead of the Go pod runtime.
+  # @section -- Images
+  usePythonFallback: false
+
 # -- kube-rbac-proxy sidecar image, used in front of the operator metrics endpoint.
 # @section -- Images
 kubeProxyImage: "quay.io/brancz/kube-rbac-proxy:v0.21.0"
