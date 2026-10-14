@@ -84,7 +84,10 @@ async def publish_pod_runtime(src: Directory, sock: Socket, repository: str, ver
                                 program_path="cmd/weka-pod-runtime/main.go",
                                 target_os=target_os, target_arch=target_arch)
         return (
+            # busybox (not scratch): the operator injects this image as an init
+            # container that runs `cp /weka-pod-runtime ...`, so it must have `cp`.
             dag.container(platform=dagger.Platform(p))
+            .from_("quay.io/weka.io/busybox:1.37.0@sha256:b3255e7dfbcd10cb367af0d409747d511aeb66dfac98cf30e97e87e4207dd76f")
             .with_file("/weka-pod-runtime", binary.file("/out-binary"))
         )
 
