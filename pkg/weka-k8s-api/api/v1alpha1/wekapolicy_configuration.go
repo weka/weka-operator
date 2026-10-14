@@ -17,6 +17,10 @@ type CsiSpec struct {
 	// reapplies a pod's fsGroup to the volume. Default value is File.
 	// +kubebuilder:validation:Enum=File;None;ReadWriteOnceWithFSType
 	FsGroupPolicy *string `json:"fsGroupPolicy,omitempty"`
+	// ManageNfsPermissions applies to WekaClients with useNfs only. When true, the CSI plugin creates
+	// and removes NFS client groups, rules and permissions (exports) on the WEKA cluster itself.
+	// When false (default), the WEKA cluster admin must configure them.
+	ManageNfsPermissions *bool `json:"manageNfsPermissions,omitempty"`
 }
 
 // DriversSpec groups settings of the drivers build and distribution

@@ -98,12 +98,19 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, c
 		PriorityClassName:         config.Config.PriorityClasses.Targeted,
 		SelinuxSupport:            config.Config.Csi.SelinuxSupport,
 		KubeletPath:               config.Config.Csi.KubeletPath,
-		HostNetwork:               config.Config.Csi.HostNetwork,
+		HostNetwork:               csiHostNetwork(wekaClient),
 		PlacementScheme:           csiNodePlacementScheme,
 		MetricsEnabled:            settings.MetricsEnabled,
 		NodeResources:             config.Config.Csi.NodeResources,
 	}
 
+	if wekaClient.Spec.UseNfs && settings.ManageNfsPermissions {
+		// Hashed outside the spec struct so installations without it keep their hash.
+		return util2.HashStruct(struct {
+			Spec                 CsiNodeHashableSpec
+			ManageNfsPermissions bool
+		}{spec, true})
+	}
 	return util2.HashStruct(spec)
 }
 
@@ -133,6 +140,9 @@ func GetCSINodeDaemonSetNameForClient(csiGroupName, clientName, clientNamespace 
 // An empty selector keeps its existing "run everywhere" meaning by rendering no affinity at all: a
 // nodeSelectorTerm with no matchExpressions is not valid, and nothing ever deschedules the plugin in
 // that configuration, so a retain term would be pointless.
+//
+// An empty retainLabel renders only the selector term: with no weka client containers there are no
+// mounts to drain and nobody to release the label.
 func buildCsiNodeAffinity(nodeSelector map[string]string, retainLabel string) *corev1.Affinity {
 	if len(nodeSelector) == 0 {
 		return nil
@@ -155,19 +165,23 @@ func buildCsiNodeAffinity(nodeSelector map[string]string, retainLabel string) *c
 		})
 	}
 
+	terms := []corev1.NodeSelectorTerm{{MatchExpressions: selectorExpressions}}
+	if retainLabel != "" {
+		terms = append(terms, corev1.NodeSelectorTerm{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      retainLabel,
+					Operator: corev1.NodeSelectorOpIn,
+					Values:   []string{CsiNodeRetainLabelValue},
+				},
+			},
+		})
+	}
+
 	return &corev1.Affinity{
 		NodeAffinity: &corev1.NodeAffinity{
 			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-				NodeSelectorTerms: []corev1.NodeSelectorTerm{
-					{MatchExpressions: selectorExpressions},
-					{MatchExpressions: []corev1.NodeSelectorRequirement{
-						{
-							Key:      retainLabel,
-							Operator: corev1.NodeSelectorOpIn,
-							Values:   []string{CsiNodeRetainLabelValue},
-						},
-					}},
-				},
+				NodeSelectorTerms: terms,
 			},
 		},
 	}
@@ -206,11 +220,17 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 	nodeSelector := wekaClient.Spec.NodeSelector
 	namespace, _ := util2.GetPodNamespace() //nolint:errcheck // namespace used for object metadata only; failure falls back to empty string
 
+	// Nothing mounts through a weka client container here, so nobody would ever release the
+	// retain label: omit it rather than key an affinity term on a label that never gets set.
+	retainLabel := GetCsiNodeRetainLabel(clientNamespace, clientName)
+	if wekaClient.Spec.UseNfs {
+		retainLabel = ""
+	}
+
 	privileged := true
 
 	args := []string{
 		"--v=$(LOG_LEVEL)",
-		"--wekafscontainername=$(WEKAFS_CONTAINER_NAME)",
 		"--drivername=$(CSI_DRIVER_NAME)",
 		"--endpoint=$(CSI_ENDPOINT)",
 		"--nodeid=$(KUBE_NODE_NAME)",
@@ -233,6 +253,29 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 		args = append(args, "--enablemetrics", fmt.Sprintf("--metricsport=%d", NodeMetricsPort))
 	}
 
+	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
+	if wekaClient.Spec.UseNfs {
+		wekaContainerName = ""
+	}
+
+	if wekaClient.Spec.UseNfs {
+		// Unless manageNfsPermissions is set, the Weka admin owns NFS client groups and exports.
+		args = append(args, "--usenfs", fmt.Sprintf("--manage-nfs-permissions=%t", settings.ManageNfsPermissions))
+	}
+
+	// Flag and env var must appear or vanish together: the flag's value is
+	// $(WEKAFS_CONTAINER_NAME), and with the env var absent Kubernetes leaves that literal text
+	// in argv.
+	if wekaContainerName != "" {
+		args = append(args, "--wekafscontainername=$(WEKAFS_CONTAINER_NAME)")
+	}
+
+	// Hand the plugin its own topology.<driver>/* node labels. Only where no weka client container
+	// exists to derive them from -- the operator stamps them otherwise, and two writers would flap.
+	if wekaClient.Spec.UseNfs {
+		args = append(args, "--managenodetopologylabels")
+	}
+
 	if !enforceTrustedHttps {
 		args = append(args, "--allowinsecurehttps")
 	}
@@ -245,8 +288,6 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 	if tracingFlag != "" {
 		args = append(args, tracingFlag)
 	}
-
-	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
 
 	var selinuxEnabled bool
 	switch config.Config.Csi.SelinuxSupport {
@@ -374,8 +415,8 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 				},
 				Spec: corev1.PodSpec{
 					SecurityContext:    resources.GetSecurityProfile(),
-					Affinity:           buildCsiNodeAffinity(nodeSelector, GetCsiNodeRetainLabel(clientNamespace, clientName)),
-					HostNetwork:        config.Config.Csi.HostNetwork,
+					Affinity:           buildCsiNodeAffinity(nodeSelector, retainLabel),
+					HostNetwork:        csiHostNetwork(wekaClient),
 					ServiceAccountName: "csi-wekafs-node-sa",
 					PriorityClassName:  config.Config.PriorityClasses.Targeted,
 					Containers: []corev1.Container{
@@ -401,7 +442,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 								TimeoutSeconds:      7,
 								PeriodSeconds:       10,
 							},
-							Env: []corev1.EnvVar{
+							Env: append([]corev1.EnvVar{
 								{
 									Name:  "CSI_DRIVER_NAME",
 									Value: csiDriverName,
@@ -438,11 +479,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 									Name:  "LOG_LEVEL",
 									Value: strconv.Itoa(config.Config.Csi.LogLevel),
 								},
-								{
-									Name:  "WEKAFS_CONTAINER_NAME",
-									Value: wekaContainerName,
-								},
-							},
+							}, wekafsContainerNameEnv(wekaContainerName)...),
 							VolumeMounts: wekafsVolumeMounts,
 						},
 						{

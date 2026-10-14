@@ -287,4 +287,19 @@ func TestSettingsFromPayloadCsi(t *testing.T) {
 			t.Errorf("FsGroupPolicy = %q, want %q", got.FsGroupPolicy, storagev1.NoneFSGroupPolicy)
 		}
 	})
+
+	t.Run("manageNfsPermissions defaults to false and honours an explicit value", func(t *testing.T) {
+		if defaults.ManageNfsPermissions {
+			t.Error("default ManageNfsPermissions = true, want false")
+		}
+		if SettingsFromPayload(&weka.ConfigurationPayload{Csi: &weka.CsiSpec{}}).Csi.ManageNfsPermissions {
+			t.Error("unset ManageNfsPermissions resolved to true")
+		}
+		got := SettingsFromPayload(&weka.ConfigurationPayload{
+			Csi: &weka.CsiSpec{ManageNfsPermissions: boolPtr(true)},
+		}).Csi
+		if !got.ManageNfsPermissions {
+			t.Error("ManageNfsPermissions = false, want the explicit true")
+		}
+	})
 }
