@@ -72,6 +72,11 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		nodeSelectorHashable = util2.NewHashableMap(wekaClient.Spec.NodeSelector)
 	}
 
+	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
+	if wekaClient.Spec.UseNfs {
+		wekaContainerName = ""
+	}
+
 	spec := CsiControllerHashableSpec{
 		CsiDriverName:         csiDriverName,
 		CsiImage:              config.Config.Csi.WekafsImage,
@@ -86,14 +91,21 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		SkipGarbageCollection: skipGarbageCollection,
 		LogLevel:              config.Config.Csi.LogLevel,
 		PriorityClassName:     config.Config.PriorityClasses.Targeted,
-		WekaContainerName:     resources.GetWekaClientContainerName(wekaClient),
+		WekaContainerName:     wekaContainerName,
 		SelinuxSupport:        config.Config.Csi.SelinuxSupport,
 		KubeletPath:           config.Config.Csi.KubeletPath,
-		HostNetwork:           config.Config.Csi.HostNetwork,
+		HostNetwork:           csiHostNetwork(wekaClient),
 		MetricsEnabled:        settings.MetricsEnabled,
 		ControllerResources:   config.Config.Csi.ControllerResources,
 	}
 
+	if wekaClient.Spec.UseNfs && settings.ManageNfsPermissions {
+		// Hashed outside the spec struct so installations without it keep their hash.
+		return util2.HashStruct(struct {
+			Spec                 CsiControllerHashableSpec
+			ManageNfsPermissions bool
+		}{spec, true})
+	}
 	return util2.HashStruct(spec)
 }
 
@@ -136,12 +148,18 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 
 	privileged := true
 	replicas := int32(2)
+	podLabels := map[string]string{
+		"app":       name,
+		"component": name,
+	}
 
 	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
+	if wekaClient.Spec.UseNfs {
+		wekaContainerName = ""
+	}
 
 	args := []string{
 		"--drivername=$(CSI_DRIVER_NAME)",
-		"--wekafscontainername=$(WEKAFS_CONTAINER_NAME)",
 		"--v=$(LOG_LEVEL)",
 		"--endpoint=$(CSI_ENDPOINT)",
 		"--nodeid=$(KUBE_NODE_NAME)",
@@ -167,6 +185,18 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 
 	if settings.MetricsEnabled {
 		args = append(args, "--enablemetrics", fmt.Sprintf("--metricsport=%d", ControllerMetricsPort))
+	}
+
+	if wekaClient.Spec.UseNfs {
+		// Unless manageNfsPermissions is set, the Weka admin owns NFS client groups and exports.
+		args = append(args, "--usenfs", fmt.Sprintf("--manage-nfs-permissions=%t", settings.ManageNfsPermissions))
+	}
+
+	// Flag and env var must appear or vanish together: the flag's value is
+	// $(WEKAFS_CONTAINER_NAME), and with the env var absent Kubernetes leaves that literal text
+	// in argv.
+	if wekaContainerName != "" {
+		args = append(args, "--wekafscontainername=$(WEKAFS_CONTAINER_NAME)")
 	}
 
 	if !enforceTrustedHttps {
@@ -276,24 +306,19 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 		},
 		Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app":       name,
-					"component": name,
-				},
+				MatchLabels: podLabels,
 			},
 			Replicas: &replicas,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						"app":       name,
-						"component": name,
-					},
+					Labels:      podLabels,
 					Annotations: podAnnotations,
 				},
 				Spec: corev1.PodSpec{
 					SecurityContext:    resources.GetSecurityProfile(),
 					NodeSelector:       nodeSelector,
-					HostNetwork:        config.Config.Csi.HostNetwork,
+					Affinity:           controllerAntiAffinity(wekaClient, podLabels),
+					HostNetwork:        csiHostNetwork(wekaClient),
 					ServiceAccountName: "csi-wekafs-controller-sa",
 					PriorityClassName:  config.Config.PriorityClasses.Targeted,
 					InitContainers: []corev1.Container{
@@ -335,7 +360,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									},
 								},
 							},
-							Env: []corev1.EnvVar{
+							Env: append([]corev1.EnvVar{
 								{
 									Name:  "CSI_ENDPOINT",
 									Value: "unix:///csi/csi.sock",
@@ -377,10 +402,6 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									},
 								},
 								{
-									Name:  "WEKAFS_CONTAINER_NAME",
-									Value: wekaContainerName,
-								},
-								{
 									Name: "POD_NAMESPACE",
 									ValueFrom: &corev1.EnvVarSource{
 										FieldRef: &corev1.ObjectFieldSelector{
@@ -392,7 +413,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Name:  "HEALTH_PORT",
 									Value: "8081",
 								},
-							},
+							}, wekafsContainerNameEnv(wekaContainerName)...),
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									MountPath: "/csi",

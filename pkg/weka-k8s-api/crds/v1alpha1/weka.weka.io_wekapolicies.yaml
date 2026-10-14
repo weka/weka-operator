@@ -122,6 +122,12 @@ spec:
                             - None
                             - ReadWriteOnceWithFSType
                             type: string
+                          manageNfsPermissions:
+                            description: |-
+                              ManageNfsPermissions applies to WekaClients with useNfs only. When true, the CSI plugin creates
+                              and removes NFS client groups, rules and permissions (exports) on the WEKA cluster itself.
+                              When false (default), the WEKA cluster admin must configure them.
+                            type: boolean
                           metricsEnabled:
                             description: |-
                               MetricsEnabled controls the Prometheus metrics endpoints of the CSI controller, the CSI node

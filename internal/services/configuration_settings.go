@@ -46,6 +46,9 @@ type CsiSettings struct {
 	// FsGroupPolicy is written to the CSIDriver object. Immutable in Kubernetes, so it only takes
 	// effect on an install whose CSIDriver has been removed.
 	FsGroupPolicy storagev1.FSGroupPolicy
+	// ManageNfsPermissions lets the CSI plugin create NFS client groups, rules and exports for
+	// useNfs clients instead of leaving them to the WEKA cluster admin.
+	ManageNfsPermissions bool
 }
 
 // ConfigurationSettings is the effective operator-wide configuration: built-in defaults with any
@@ -64,8 +67,9 @@ func DefaultConfigurationSettings() ConfigurationSettings {
 			ForceBuilderCli: false,
 		},
 		Csi: CsiSettings{
-			MetricsEnabled: true,
-			FsGroupPolicy:  storagev1.FileFSGroupPolicy,
+			MetricsEnabled:       true,
+			FsGroupPolicy:        storagev1.FileFSGroupPolicy,
+			ManageNfsPermissions: false,
 		},
 	}
 }
@@ -89,6 +93,9 @@ func SettingsFromPayload(payload *weka.ConfigurationPayload) ConfigurationSettin
 		}
 		if payload.Csi.FsGroupPolicy != nil {
 			resolved.Csi.FsGroupPolicy = storagev1.FSGroupPolicy(*payload.Csi.FsGroupPolicy)
+		}
+		if payload.Csi.ManageNfsPermissions != nil {
+			resolved.Csi.ManageNfsPermissions = *payload.Csi.ManageNfsPermissions
 		}
 	}
 

@@ -254,6 +254,7 @@
 |------------|------|-------------|
 | metricsEnabled | *bool | MetricsEnabled controls the Prometheus metrics endpoints of the CSI controller, the CSI node<br>plugin and the controller sidecars. Enabled by default. |
 | fsGroupPolicy | *string | FsGroupPolicy sets fsGroupPolicy on the CSIDriver object, which decides whether Kubernetes<br>reapplies a pod's fsGroup to the volume. Default value is File. |
+| manageNfsPermissions | *bool | ManageNfsPermissions applies to WekaClients with useNfs only. When true, the CSI plugin creates<br>and removes NFS client groups, rules and permissions (exports) on the WEKA cluster itself.<br>When false (default), the WEKA cluster admin must configure them. |
 
 ---
 
