@@ -40,7 +40,7 @@ func CPURequestCores(spec *weka.WekaContainerSpec, topo NodeCPUTopology) int {
 	switch policy {
 	case weka.CpuPolicyDedicatedHT:
 		total := totalNumCores*2 + 1
-		if spec.Mode == weka.WekaContainerModeEnvoy {
+		if weka.IsOffPathSidecarMode(spec.Mode) {
 			total = totalNumCores
 		} else if SupportsExtraCores(spec.Mode) {
 			total -= spec.ExtraCores // ExtraCores is counted once, not doubled (mirrors pod.go)
@@ -48,7 +48,7 @@ func CPURequestCores(spec *weka.WekaContainerSpec, topo NodeCPUTopology) int {
 		return roundFullPcpus(total, topo)
 	case weka.CpuPolicyDedicated:
 		total := totalNumCores + 1
-		if spec.Mode == weka.WekaContainerModeEnvoy {
+		if weka.IsOffPathSidecarMode(spec.Mode) {
 			total = totalNumCores
 		}
 		return roundFullPcpus(total, topo)

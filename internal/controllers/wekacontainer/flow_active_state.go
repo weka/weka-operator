@@ -186,7 +186,8 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.deleteEnvoyIfNoS3Neighbor,
 			Predicates: lifecycle.Predicates{
-				r.container.IsEnvoy,
+				r.container.IsOffPathSidecar,
+				r.HasNodeAffinity, // sidecars get affinity only once their pod is scheduled; until then the neighbor lookup would read as "no neighbor"
 			},
 		},
 		&lifecycle.SimpleStep{
@@ -597,7 +598,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Name: "DeleteEnvoyIfProcessNotExists",
 			Run:  r.deleteEnvoyIfProcessNotExists,
 			Predicates: lifecycle.Predicates{
-				r.container.IsEnvoy,
+				r.container.IsOffPathSidecar,
 				r.PodIsSet,
 				func() bool {
 					return r.container.Status.Status == weka.Error

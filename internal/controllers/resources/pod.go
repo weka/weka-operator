@@ -49,6 +49,7 @@ var terminationGracePeriodSecondsMap = map[string]int64{
 	weka.WekaContainerModeAdhocOpWC:      60,
 	weka.WekaContainerModeAdhocOp:        60,
 	weka.WekaContainerModeEnvoy:          60 * 5,
+	weka.WekaContainerModeForwarder:      60 * 5,
 	weka.WekaContainerModeTelemetry:      60 * 5,
 }
 
@@ -1664,7 +1665,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 		}
 	}
 
-	if f.container.Spec.Mode == weka.WekaContainerModeEnvoy {
+	if weka.IsOffPathSidecarMode(f.container.Spec.Mode) {
 		total := 1024 + f.container.Spec.AdditionalMemory
 		memRequest = fmt.Sprintf("%dMi", total)
 		memLimit = fmt.Sprintf("%dMi", total+8192)
@@ -1980,7 +1981,7 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 			pod.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution = terms
 		}
 
-		if f.container.IsEnvoy() {
+		if f.container.IsOffPathSidecar() {
 			// schedule together with s3, required during scheduling
 			term := corev1.PodAffinityTerm{
 				LabelSelector: &metav1.LabelSelector{

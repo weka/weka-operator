@@ -27,7 +27,10 @@ type FeatureFlags struct {
 	// WekactlAsDefault means the go CLI (wekactl) backs the `weka` command. It changes some JSON
 	// schemas, notably `weka nfs interface-group` port identity — see NfsInterfaceGroupPort.
 	WekactlAsDefault bool `json:"wekactl_as_default"` // 14
-	// flags 15, 16 are not used by the operator
+	// flag 15 is not used by the operator
+	// S3OffPathForwarder means the image ships the off-path S3 forwarder that supersedes the S3
+	// envoy. Images without it must keep getting envoy containers.
+	S3OffPathForwarder bool `json:"s3_off_path_forwarder"` // 16
 	// SsdProxyVidLabelAdd means ssd_proxy_add_virtual_drive takes a label and returns the VID it derives from it.
 	SsdProxyVidLabelAdd bool `json:"ssd_proxy_vid_label_add"` // 17
 }
@@ -68,6 +71,7 @@ func parseFeatureBitmap(b64 string) (*FeatureFlags, error) {
 		SsdProxyIncludesDpdkMemory:        bit(9),
 		WekaManagesNonIonodeAffinity:      bit(12),
 		WekactlAsDefault:                  bit(14),
+		S3OffPathForwarder:                bit(16),
 		SsdProxyVidLabelAdd:               bit(17),
 	}, nil
 }

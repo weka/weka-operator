@@ -30,7 +30,8 @@ WekaContainerModeClient         = "client"         # Client mode
 WekaContainerModeDiscovery      = "discovery"      # Discovery mode
 WekaContainerModeS3             = "s3"             # S3 gateway mode
 WekaContainerModeNfs            = "nfs"            # NFS gateway mode
-WekaContainerModeEnvoy          = "envoy"          # Envoy proxy mode
+WekaContainerModeEnvoy          = "envoy"          # S3 off-path sidecar (images without s3_off_path_forwarder)
+WekaContainerModeForwarder      = "forwarder"      # S3 off-path sidecar (images with s3_off_path_forwarder)
 WekaContainerModeAdhocOpWC      = "adhoc-op-with-container" # Ad-hoc operation with container
 WekaContainerModeAdhocOp        = "adhoc-op"       # Ad-hoc operation
 ```

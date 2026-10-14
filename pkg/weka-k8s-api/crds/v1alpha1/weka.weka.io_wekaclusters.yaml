@@ -95,6 +95,11 @@ spec:
                     description: Additional memory in MiB for Envoy proxy containers
                       (used by S3 gateway).
                     type: integer
+                  forwarder:
+                    description: |-
+                      Additional memory in MiB for S3 forwarder containers, which supersede Envoy on images
+                      advertising the s3_off_path_forwarder feature flag.
+                    type: integer
                   nfs:
                     description: Additional memory in MiB for NFS protocol containers.
                     type: integer
@@ -377,6 +382,12 @@ spec:
                   envoyCores:
                     description: Number of cores allocated to the Envoy proxy process
                       used by the S3 gateway.
+                    minimum: 0
+                    type: integer
+                  forwarderCores:
+                    description: |-
+                      Number of cores allocated to the S3 forwarder process, which supersedes Envoy on images
+                      advertising the s3_off_path_forwarder feature flag.
                     minimum: 0
                     type: integer
                   nfsContainers:

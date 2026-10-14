@@ -93,8 +93,9 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 	}
 
 	// Determine which port allocations are needed
-	// Weka port (60 or 100 ports based on feature flags): only for host-network containers that are not Envoy
-	allocateWekaPort := r.container.IsHostNetwork() && !r.container.IsEnvoy()
+	// Weka port (60 or 100 ports based on feature flags): only for host-network containers that are
+	// not an off-path sidecar
+	allocateWekaPort := r.container.IsHostNetwork() && !r.container.IsOffPathSidecar()
 	// Agent port (1 port): only for containers that have an agent
 	allocateAgentPort := r.container.HasAgent()
 
