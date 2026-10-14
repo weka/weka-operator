@@ -176,3 +176,11 @@ func TestRunEnsureNICsHelperStreamsTokenViaStdin(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectRawDrives_FindDisksFailureReportsNotOK(t *testing.T) {
+	runner := &fakeRunner{err: map[string]error{"nsenter": os.ErrInvalid}}
+	drives, ok := collectRawDrives(context.Background(), runner)
+	if ok || drives != nil {
+		t.Errorf("collectRawDrives() = (%v, %v), want (nil, false)", drives, ok)
+	}
+}

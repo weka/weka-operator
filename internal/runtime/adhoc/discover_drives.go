@@ -24,10 +24,11 @@ func RunDiscoverDrives(ctx context.Context, runner process.CommandRunner, result
 		drives = nil
 	}
 
+	rawDrives, rawOK := collectRawDrives(ctx, runner)
 	return results.Write(ctx, resultsPath, domain.DriveNodeResults{
 		Err:                nil,
 		Drives:             drives,
-		RawDrives:          collectRawDrives(ctx, runner),
-		KernelViewComplete: blockdev.IsKernelViewComplete(ctx),
+		RawDrives:          rawDrives,
+		KernelViewComplete: rawOK && blockdev.IsKernelViewComplete(ctx),
 	})
 }

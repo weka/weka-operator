@@ -54,6 +54,7 @@ func RewriteGrubAndReboot(ctx context.Context, runner process.CommandRunner, sed
 	}
 
 	if _, err := runner.Run(ctx, process.Command{Path: "sync"}); err != nil {
+		_, _ = runner.Run(ctx, process.Command{Path: "umount", Args: []string{espMountPath}}) //nolint:errcheck // best-effort cleanup
 		return fmt.Errorf("sync: %w", err)
 	}
 	if _, err := runner.Run(ctx, process.Command{Path: "umount", Args: []string{espMountPath}}); err != nil {

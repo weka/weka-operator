@@ -260,3 +260,21 @@ func TestAgentReadyTimeout(t *testing.T) {
 		t.Errorf("global = %v, want 1500s", got)
 	}
 }
+
+func TestStartAgent_UsesResolvedMachineID(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	deps := &Deps{Runner: &recordingRunner{}, Processes: &fakeLauncher{}, Clock: clock.System, Paths: testRoots(t), Coord: testCoordinator(ctx)}
+	cc := &config.ContainerConfig{Identity: config.Identity{Name: "n", MachineIdentifier: "orig"}}
+
+	if err := startAgent(ctx, deps, "compute", cc, config.Ports{Agent: 1}, "resolved", false, nil); err != nil {
+		t.Fatalf("startAgent() error = %v", err)
+	}
+	got, err := os.ReadFile(deps.Paths.OptWeka + "/data/agent/machine-identifier")
+	if err != nil {
+		t.Fatalf("reading machine-identifier: %v", err)
+	}
+	if string(got) != "resolved" {
+		t.Errorf("machine-identifier = %q, want %q", got, "resolved")
+	}
+}

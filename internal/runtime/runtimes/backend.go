@@ -37,7 +37,7 @@ func (r *backendRuntime) Start(ctx context.Context) error {
 		return err
 	}
 
-	err = startAgent(ctx, r.deps, r.mode, r.cfg, state.Ports, true, &r.agentLaunched)
+	err = startAgent(ctx, r.deps, r.mode, r.cfg, state.Ports, state.MachineID, true, &r.agentLaunched)
 	if err != nil {
 		return err
 	}

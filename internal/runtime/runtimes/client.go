@@ -42,7 +42,7 @@ func (r *clientRuntime) Start(ctx context.Context) error {
 		return err
 	}
 
-	err = startAgent(ctx, r.deps, "client", &r.cfg.ContainerConfig, state.Ports, true, &r.agentLaunched)
+	err = startAgent(ctx, r.deps, "client", &r.cfg.ContainerConfig, state.Ports, state.MachineID, true, &r.agentLaunched)
 	if err != nil {
 		return err
 	}

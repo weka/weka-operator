@@ -362,7 +362,7 @@ func createContainer(ctx context.Context, in *ContainerInput, isClient bool, ima
 		parts = append(parts, joinSecretFlag, joinSecretCmd)
 	}
 	if len(in.JoinIPs) > 0 {
-		parts = append(parts, "--join-ips", strings.Join(in.JoinIPs, ","))
+		parts = append(parts, "--join-ips", process.ShellQuote(strings.Join(in.JoinIPs, ",")))
 	}
 	if isClient {
 		parts = append(parts, "--client")

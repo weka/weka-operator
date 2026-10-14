@@ -32,12 +32,13 @@ func (r *driverDistRuntime) Start(ctx context.Context) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "runtimes.driverDistRuntime.Start")
 	defer logger.End()
 
-	if _, err := acquirePersistentState(ctx, deps, "drivers-dist", cfg, cfg.Ports); err != nil {
-		return err
+	state, acqErr := acquirePersistentState(ctx, deps, "drivers-dist", cfg, cfg.Ports)
+	if acqErr != nil {
+		return acqErr
 	}
 
 	// EnsureDrivers intentionally skipped — drivers-dist is on Python's special_modes list.
-	if err := startAgent(ctx, deps, "drivers-dist", cfg, cfg.Ports, false, &r.agentLaunched); err != nil {
+	if err := startAgent(ctx, deps, "drivers-dist", cfg, cfg.Ports, state.MachineID, false, &r.agentLaunched); err != nil {
 		return err
 	}
 	features, err := readFeatures(deps)

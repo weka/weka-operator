@@ -121,3 +121,26 @@ func TestRewriteGrubAndReboot_UmountFailureAbortsReboot(t *testing.T) {
 		t.Errorf("sysrq trigger written despite umount failure: %q", trigger)
 	}
 }
+
+// TestRewriteGrubAndReboot_SyncFailureUnmounts verifies a sync failure still unmounts the ESP.
+func TestRewriteGrubAndReboot_SyncFailureUnmounts(t *testing.T) {
+	dir := t.TempDir()
+	origMountPath := espMountPath
+	espMountPath = dir
+	defer func() { espMountPath = origMountPath }()
+
+	if err := os.MkdirAll(filepath.Join(dir, "efi/boot"), 0o755); err != nil {
+		t.Fatalf("setup grub dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, grubCfgPath), []byte("linux cros_efi\n"), 0o644); err != nil {
+		t.Fatalf("setup grub.cfg: %v", err)
+	}
+
+	runner := &fakeRunner{errs: map[string]error{"sync": errors.New("sync boom")}}
+	if err := RewriteGrubAndReboot(context.Background(), runner, nil, filepath.Join(dir, "sysrq-trigger")); err == nil {
+		t.Fatal("expected sync error, got nil")
+	}
+	if last := runner.commands[len(runner.commands)-1]; last.Path != "umount" {
+		t.Errorf("last command = %q, want umount", last.Path)
+	}
+}

@@ -31,9 +31,17 @@ func TestResolveAllocations(t *testing.T) {
 			req:  allocation{Ports: config.Ports{Weka: 0, Agent: 0}, FailureDomain: strp("fd"), MachineID: "orig", NetDevice: "vf_0"},
 			alloc: &v1alpha1.ContainerAllocations{
 				WekaPort: 100, AgentPort: 200, FailureDomain: strp("other"),
-				MachineIdentifier: "new-machine", NetDevices: []string{"eth1_0"}, Drives: []string{"/dev/sda"},
+				MachineIdentifier: "new-machine", NetDevices: []string{"vf_eth1_0"}, Drives: []string{"/dev/sda"},
 			},
-			want: allocation{Ports: config.Ports{Weka: 0, Agent: 0}, FailureDomain: strp("fd"), MachineID: "new-machine", NetDevice: "eth1_0"},
+			want: allocation{Ports: config.Ports{Weka: 0, Agent: 0}, FailureDomain: strp("fd"), MachineID: "new-machine", NetDevice: "vf_eth1_0"},
+		},
+		{
+			// rule 2: VF eligibility is judged on the joined allocated devices, for every mode.
+			name:  "backend takes all allocated VF net-devices joined",
+			mode:  "compute",
+			req:   allocation{NetDevice: "udp"},
+			alloc: &v1alpha1.ContainerAllocations{NetDevices: []string{"vf_eth1_0", "vf_eth2_0"}},
+			want:  allocation{NetDevice: "vf_eth1_0,vf_eth2_0"},
 		},
 		{
 			// rule 2: client net-device ineligible for VF -> not overridden.

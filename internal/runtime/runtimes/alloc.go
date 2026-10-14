@@ -1,6 +1,8 @@
 package runtimes
 
 import (
+	"strings"
+
 	"github.com/weka/weka-operator/internal/runtime/config"
 	"github.com/weka/weka-operator/internal/runtime/network"
 	v1alpha1 "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
@@ -19,7 +21,7 @@ type allocation struct {
 // resolveAllocations merges the operator-written resources.json allocation into the request.
 // Rules:
 //  1. Client allocates and persists its ports before waiting (caller concern, not here).
-//  2. Client accepts eligible VF network-device and nonempty machine-identifier overrides.
+//  2. All modes accept the joined allocated network devices when they are VF devices, and a nonempty machine-identifier override.
 //  3. Client does not apply allocation ports, backend failure domain, or requested drives.
 //  4. Non-client modes preserve nonzero requested ports and fill unresolved ports from allocations.
 //  5. Envoy does not take its Weka port from allocations.
@@ -43,10 +45,11 @@ func resolveAllocations(mode string, req *allocation, alloc *v1alpha1.ContainerA
 		res.MachineID = alloc.MachineIdentifier
 	}
 
+	if netDevices := strings.Join(alloc.NetDevices, ","); netDevices != "" && network.ShouldAllocateVFPerIoNode(netDevices) {
+		res.NetDevice = netDevices
+	}
+
 	if mode == "client" {
-		if network.ShouldAllocateVFPerIoNode(req.NetDevice) && len(alloc.NetDevices) > 0 {
-			res.NetDevice = alloc.NetDevices[0]
-		}
 		return res
 	}
 

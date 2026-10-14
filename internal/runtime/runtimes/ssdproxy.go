@@ -32,11 +32,12 @@ func (r *ssdProxyRuntime) Start(ctx context.Context) error {
 		return fmt.Errorf("ssdproxy: MEMORY environment variable must be set for ssdproxy")
 	}
 
-	if _, err := acquirePersistentState(ctx, deps, "ssdproxy", cfg, cfg.Ports); err != nil {
-		return err
+	state, acqErr := acquirePersistentState(ctx, deps, "ssdproxy", cfg, cfg.Ports)
+	if acqErr != nil {
+		return acqErr
 	}
 
-	if err := startAgent(ctx, deps, "ssdproxy", cfg, cfg.Ports, true, &r.agentLaunched); err != nil {
+	if err := startAgent(ctx, deps, "ssdproxy", cfg, cfg.Ports, state.MachineID, true, &r.agentLaunched); err != nil {
 		return err
 	}
 	features, err := readFeatures(deps)

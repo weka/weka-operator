@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weka/weka-operator/internal/runtime/config"
 	"github.com/weka/weka-operator/internal/runtime/process"
 	v1alpha1 "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
@@ -347,5 +348,19 @@ func TestParseIPPort(t *testing.T) {
 				t.Fatalf("parseIPPort(%q) = %q, %d; want %q, %d", tt.in, host, port, tt.host, tt.port)
 			}
 		})
+	}
+}
+
+func TestCreateContainer_QuotesJoinIPs(t *testing.T) {
+	runner := &fakeRunner{}
+	in := &ContainerInput{
+		Runner: runner, Name: "c", Mode: "client", Port: 15000, Cores: 1, CoreIDs: config.CoreSelection{IDs: []int{1}},
+		JoinIPs: []string{"[fd00::1]:14000", "10.0.0.1:14000"}, NetDevice: "udp", UDPMode: true,
+	}
+	if err := createContainer(context.Background(), in, true, "img"); err != nil {
+		t.Fatalf("createContainer() error = %v", err)
+	}
+	if !runner.ranAny("--join-ips '[fd00::1]:14000,10.0.0.1:14000'") {
+		t.Errorf("join-ips not shell-quoted: %+v", runner.calls)
 	}
 }

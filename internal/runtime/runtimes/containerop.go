@@ -38,7 +38,7 @@ func (r *containerOpRuntime) Start(ctx context.Context) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "runtimes.containerOpRuntime.Start")
 	defer logger.End()
 
-	if err := startAgent(ctx, deps, "adhoc-op-with-container", &cfg.ContainerConfig, cfg.Ports, false, &r.agentLaunched); err != nil {
+	if err := startAgent(ctx, deps, "adhoc-op-with-container", &cfg.ContainerConfig, cfg.Ports, cfg.Identity.MachineIdentifier, false, &r.agentLaunched); err != nil {
 		return err
 	}
 	features, err := readFeatures(deps)

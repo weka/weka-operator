@@ -112,8 +112,10 @@ func acquirePersistentState(ctx context.Context, deps *Deps, mode string, cc *co
 // startAgent runs the shared agent bring-up sequence: configure the agent, start syslog,
 // override dependency settings, ensure drivers (when ensureDrivers), launch the agent, then
 // wait for it to come up.
-func startAgent(ctx context.Context, deps *Deps, mode string, cc *config.ContainerConfig, ports config.Ports, ensureDrivers bool, launched *bool) error {
-	cfgIn := agent.ConfigureInput{Mode: mode, Identity: cc.Identity, Agent: cc.Agent, Ports: ports, Persistence: cc.Persistence, Paths: deps.Paths}
+func startAgent(ctx context.Context, deps *Deps, mode string, cc *config.ContainerConfig, ports config.Ports, machineID string, ensureDrivers bool, launched *bool) error {
+	identity := cc.Identity
+	identity.MachineIdentifier = machineID
+	cfgIn := agent.ConfigureInput{Mode: mode, Identity: identity, Agent: cc.Agent, Ports: ports, Persistence: cc.Persistence, Paths: deps.Paths}
 	if err := agent.Configure(ctx, deps.Runner, cfgIn, false); err != nil {
 		return err
 	}

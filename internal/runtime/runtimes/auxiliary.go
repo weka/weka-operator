@@ -35,7 +35,7 @@ func (r *auxiliaryRuntime) Start(ctx context.Context) error {
 		return err
 	}
 
-	err = startAgent(ctx, r.deps, r.mode, cc, state.Ports, false, &r.agentLaunched)
+	err = startAgent(ctx, r.deps, r.mode, cc, state.Ports, state.MachineID, false, &r.agentLaunched)
 	if err != nil {
 		return err
 	}
