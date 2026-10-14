@@ -65,9 +65,14 @@ func (r *containerReconcilerLoop) deleteEnvoyIfProcessNotExists(ctx context.Cont
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
-	// Check if envoy process exists
-	// Use pgrep to check for envoy process (more reliable than ps | grep)
-	stdout, stderr, err := executor.ExecNamed(ctx, "CheckEnvoyProcess", []string{"bash", "-ce", "pgrep -f 'envoy' || true"})
+	// Check if the sidecar process exists
+	// Use pgrep to check for the process (more reliable than ps | grep)
+	processName := "envoy"
+	if container.IsForwarder() {
+		processName = "forwarder"
+	}
+	stdout, stderr, err := executor.ExecNamed(ctx, "CheckEnvoyProcess",
+		[]string{"bash", "-ce", fmt.Sprintf("pgrep -f '%s' || true", processName)})
 	if err != nil {
 		logger.Error(err, "Error checking envoy process", "stderr", stderr.String())
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)

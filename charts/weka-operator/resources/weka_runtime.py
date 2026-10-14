@@ -330,7 +330,8 @@ class FeaturesFlags:
     weka_manages_non_ionode_affinity: Union[bool, int] = 12
     # flag 13 is not used by the operator
     wekactl_as_default: Union[bool, int] = 14
-    # flags 15, 16 are not used by the operator
+    # flag 15 is not used by the operator
+    s3_off_path_forwarder: Union[bool, int] = 16
     ssd_proxy_vid_label_add: Union[bool, int] = 17
 
     def __init__(self, b64_flags: Optional[str]) -> None:
@@ -3460,7 +3461,14 @@ async def configure_persistency():
             mkdir -p $ENVOY_DIR
             mkdir -p $EXT_ENVOY_DIR
             mount -o bind $EXT_ENVOY_DIR $ENVOY_DIR
-            
+
+            # Forwarder-specific due to lack of generic support
+            FORWARDER_DIR=/opt/weka/forwarder
+            EXT_FORWARDER_DIR=/host-binds/shared-configs/forwarder
+            mkdir -p $FORWARDER_DIR
+            mkdir -p $EXT_FORWARDER_DIR
+            mount -o bind $EXT_FORWARDER_DIR $FORWARDER_DIR
+
             # Audit-traces specific due to lack of generic support
             mkdir -p /opt/weka/wtracer
             mkdir -p /host-binds/shared-configs/audit-traces
@@ -3503,16 +3511,31 @@ async def configure_agent(agent_handle_drivers=False):
 
     env_vars = dict()
 
-    skip_envoy_setup = ""
+    s3_off_path_forwarder = MODE == "s3" and (await get_feature_flags()).s3_off_path_forwarder
+
+    skip_protocol_setup = ""
     if MODE == "s3":
-        skip_envoy_setup = "sed -i 's/skip_envoy_setup=.*/skip_envoy_setup=true/g' /etc/wekaio/service.conf || true"
+        # The operator owns the off-path sidecar in both modes, so the s3 container must never set one
+        # up itself. skip_envoy_setup is always written: /etc/wekaio is not persisted, so a pod that
+        # came up on a forwarder-capable image would otherwise fall back to the default and spawn envoy.
+        skip_protocol_setup = "sed -i 's/skip_envoy_setup=.*/skip_envoy_setup=true/g' /etc/wekaio/service.conf || true"
+        if s3_off_path_forwarder:
+            skip_protocol_setup += "\nsed -i 's/skip_forwarder_setup=.*/skip_forwarder_setup=true/g' /etc/wekaio/service.conf || true"
 
     if MODE == "envoy":
         env_vars['RESTART_EPOCH_WANTED'] = str(int(os.environ.get("envoy_restart_epoch", time.time())))
         env_vars['BASE_ID'] = PORT
 
+    if MODE == "forwarder":
+        # an operator that predates forwarder support only sets envoy_restart_epoch
+        env_vars['RESTART_EPOCH_WANTED'] = str(int(os.environ.get(
+            "forwarder_restart_epoch", os.environ.get("envoy_restart_epoch", time.time()))))
+        env_vars['BASE_ID'] = PORT
+
     expand_condition_mounts = ""
-    if MODE in ['envoy', 's3']:
+    if MODE == 'forwarder' or s3_off_path_forwarder:
+        expand_condition_mounts = ",forwarder-data"
+    elif MODE in ['envoy', 's3']:
         expand_condition_mounts = ",envoy-data"
 
     # weka images do not always ship a [mounts] section, so create it before setting the key
@@ -3548,7 +3571,7 @@ async def configure_agent(agent_handle_drivers=False):
 
     sed -i "s@external_mounts=.*@external_mounts=/opt/weka/external-mounts@g" /etc/wekaio/service.conf || true
     sed -i "s@conditional_mounts_ids=.*@conditional_mounts_ids=kube-serviceaccount,etc-hosts,etc-resolv{expand_condition_mounts}@g" /etc/wekaio/service.conf || true
-    {skip_envoy_setup}
+    {skip_protocol_setup}
     """
 
     cmd = dedent(f"""
@@ -3908,6 +3931,7 @@ _server = None
 
 
 ENVOY_LOCAL_CONTAINER = "envoy"
+FORWARDER_LOCAL_CONTAINER = "forwarder"
 TELEMETRY_LOCAL_CONTAINER = "telemetry"
 
 
@@ -3955,6 +3979,11 @@ async def ensure_managed_local_container(name: str, setup_cmd: str):
 async def ensure_envoy_container():
     await ensure_managed_local_container(
         ENVOY_LOCAL_CONTAINER, "weka local setup envoy --no-start --disable")
+
+
+async def ensure_forwarder_container():
+    await ensure_managed_local_container(
+        FORWARDER_LOCAL_CONTAINER, "weka local setup forwarder --disable --no-start")
 
 
 async def ensure_telemetry_container():
@@ -4244,7 +4273,8 @@ async def wait_for_resources():
     if MODE == 'client':
         await ensure_client_ports()
 
-    if MODE not in ['drive', 's3', 'compute', 'nfs', 'smbw', 'envoy', 'client', 'telemetry', 'data-services']:
+    if MODE not in ['drive', 's3', 'compute', 'nfs', 'smbw', 'envoy', 'forwarder', 'client', 'telemetry',
+                    'data-services']:
         return
 
     logging.info("waiting for controller to set resources")
@@ -4302,7 +4332,7 @@ async def wait_for_resources():
     if "failureDomain" in data:
         FAILURE_DOMAIN = data["failureDomain"]
         logging.info("Failure Domain: %s", FAILURE_DOMAIN)
-    if parse_port(PORT) == 0 and MODE not in ['envoy', 'telemetry']:
+    if parse_port(PORT) == 0 and MODE not in ['envoy', 'forwarder', 'telemetry']:
         PORT = data["wekaPort"]
     if parse_port(AGENT_PORT) == 0 and MODE != 'telemetry':
         AGENT_PORT = data["agentPort"]
@@ -4890,7 +4920,7 @@ async def main():
 
     await override_dependencies_flag()
     if MODE not in ["drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy",
-                    "adhoc-op", "telemetry"]:
+                    "forwarder", "adhoc-op", "telemetry"]:
         await ensure_drivers()
 
     if MODE != "adhoc-op":
@@ -4977,6 +5007,10 @@ async def main():
 
     if MODE == "envoy":
         await ensure_envoy_container()
+        return
+
+    if MODE == "forwarder":
+        await ensure_forwarder_container()
         return
 
     if MODE == "ssdproxy":

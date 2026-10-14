@@ -149,6 +149,8 @@ func (r *containerReconcilerLoop) checkContainerNotFound(localPsResponse []servi
 			found = true
 		case localPsResponse[i].Name == "envoy" && container.IsEnvoy():
 			found = true
+		case localPsResponse[i].Name == "forwarder" && container.IsForwarder():
+			found = true
 		case localPsResponse[i].Name == "telemetry" && container.IsTelemetry():
 			found = true
 		}

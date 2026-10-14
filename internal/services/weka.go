@@ -1466,6 +1466,9 @@ func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params)
 	cmd := []string{
 		"wekaauthcli", "s3", "cluster", "create", "default", ".config_fs",
 		"--port", strconv.Itoa(s3Params.EnvoyPort),
+		// The off-path forwarder serves its admin surface on Envoy's admin port, so this one flag
+		// covers both modes. --slb-forwarder-admin-port only asserts equality against the configured
+		// envoy admin port, it never sets it.
 		"--envoy-admin-port", strconv.Itoa(s3Params.EnvoyAdminPort),
 		"--internal-port", strconv.Itoa(s3Params.S3Port),
 		"--container", commaSeparatedInts(s3Params.ContainerIds),

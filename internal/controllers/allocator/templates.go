@@ -19,6 +19,7 @@ type IntPerWekaRole struct {
 	Drive        int
 	S3           int
 	Envoy        int
+	Forwarder    int
 	Nfs          int
 	Smbw         int
 	DataServices int
@@ -121,6 +122,7 @@ func GetWekaContainerCores(config *weka.WekaClusterTemplate) IntPerWekaRole {
 		Smbw:         util.GetNonZeroOrDefault(config.SmbwCores, 1),
 		DataServices: util.GetNonZeroOrDefault(config.DataServicesCores, 1),
 		Envoy:        util.GetNonZeroOrDefault(config.EnvoyCores, 1),
+		Forwarder:    util.GetNonZeroOrDefault(config.ForwarderCores, 1),
 	}
 }
 
@@ -316,8 +318,8 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 
 	var numCores int
 	switch role {
-	case "envoy", "telemetry":
-		return hp, nil // Envoy and telemetry containers don't require hugepages
+	case "envoy", "forwarder", "telemetry":
+		return hp, nil // off-path sidecar and telemetry containers don't require hugepages
 	case "drive":
 		if dynamicTemplate.DriveHugepages > 0 {
 			hp.Hugepages = dynamicTemplate.DriveHugepages

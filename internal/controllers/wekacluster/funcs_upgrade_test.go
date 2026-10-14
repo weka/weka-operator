@@ -751,3 +751,46 @@ func TestHandleUpgrade_AllAtOnceWaitsForPods(t *testing.T) {
 		t.Errorf("cluster lastAppliedImage = %q, want old", got.Status.LastAppliedImage)
 	}
 }
+
+func rollOrderContainer(name string, node weka.NodeName) *weka.WekaContainer {
+	return &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec:       weka.WekaContainerSpec{NodeAffinity: node},
+	}
+}
+
+func rollOrderNames(containers []*weka.WekaContainer) []string {
+	names := make([]string, 0, len(containers))
+	for _, c := range containers {
+		names = append(names, c.Name)
+	}
+	return names
+}
+
+func TestFrontendRollOrder_ForwarderFollowsItsS3(t *testing.T) {
+	s3 := []*weka.WekaContainer{rollOrderContainer("s3-a", "n1"), rollOrderContainer("s3-b", "n2")}
+	forwarders := []*weka.WekaContainer{rollOrderContainer("fwd-b", "n2"), rollOrderContainer("fwd-a", "n1")}
+	nfs := []*weka.WekaContainer{rollOrderContainer("nfs-a", "n1")}
+	smbw := []*weka.WekaContainer{rollOrderContainer("smbw-a", "n1")}
+
+	got := rollOrderNames(frontendRollOrder(s3, forwarders, nfs, smbw))
+	want := []string{"s3-a", "fwd-a", "s3-b", "fwd-b", "nfs-a", "smbw-a"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("roll order = %v, want %v", got, want)
+	}
+}
+
+func TestFrontendRollOrder_UnpairedForwardersRollLast(t *testing.T) {
+	s3 := []*weka.WekaContainer{rollOrderContainer("s3-a", "n1"), rollOrderContainer("s3-pending", "")}
+	forwarders := []*weka.WekaContainer{
+		rollOrderContainer("fwd-orphan", "n9"),
+		rollOrderContainer("fwd-a", "n1"),
+		rollOrderContainer("fwd-pending", ""),
+	}
+
+	got := rollOrderNames(frontendRollOrder(s3, forwarders, nil, nil))
+	want := []string{"s3-a", "fwd-a", "s3-pending", "fwd-orphan", "fwd-pending"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("roll order = %v, want %v", got, want)
+	}
+}

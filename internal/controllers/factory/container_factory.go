@@ -69,6 +69,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	case "envoy":
 		additionalMemory = cluster.Spec.AdditionalMemory.Envoy
 		numCores = template.Cores.Envoy
+	case "forwarder":
+		additionalMemory = cluster.Spec.AdditionalMemory.Forwarder
+		numCores = template.Cores.Forwarder
 	case "telemetry":
 		// Telemetry container doesn't need weka cores or hugepages - resources are hardcoded in pod.go
 		numCores = 0
@@ -77,7 +80,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	dpdkBaseMemoryMb := utils.GetDpdkBaseMemoryMbByRole(&cluster.Spec, role)
 
 	containerGroup := ""
-	if slices.Contains([]string{"s3", "envoy"}, role) {
+	if slices.Contains([]string{"s3", "envoy", "forwarder"}, role) {
 		containerGroup = "s3"
 	}
 	if slices.Contains([]string{"compute", "telemetry"}, role) {
@@ -92,7 +95,8 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	additionalSecrets := domain.WekaHomeAdditionalSecrets(nil, wekahomeConfig.CacertSecret)
 
 	nodeSelector := cluster.GetNodeSelectorForRole(role)
-	if role == wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
+	// envoy and forwarder stick to s3, so do not need an explicit node selector
+	if wekav1alpha1.IsOffPathSidecarMode(role) {
 		nodeSelector = map[string]string{}
 	}
 	if role == wekav1alpha1.WekaContainerModeTelemetry { // telemetry sticks to compute, so does not need explicit node selector
@@ -152,7 +156,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		},
 	}
 
-	if role == wekav1alpha1.WekaContainerModeEnvoy {
+	if wekav1alpha1.IsOffPathSidecarMode(role) {
 		container.Spec.ExposePorts = []int{cluster.Status.Ports.LbPort, cluster.Status.Ports.LbAdminPort}
 	}
 

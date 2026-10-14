@@ -17,18 +17,24 @@ func (r *containerReconcilerLoop) migrateEnsurePorts(ctx context.Context) error 
 		return nil
 	}
 
-	if !r.container.IsEnvoy() {
-		return nil // we never set old format for anything but envoy
+	var dataPortName, adminPortName string
+	switch {
+	case r.container.IsEnvoy():
+		dataPortName, adminPortName = "envoy", "envoy-admin"
+	case r.container.IsForwarder():
+		dataPortName, adminPortName = "forwarder", "forwarder-admin"
+	default:
+		return nil // we never set old format for anything but the off-path sidecar
 	}
 
 	if len(r.container.Spec.ExposePorts) == 2 {
 		r.container.Spec.ExposedPorts = []v1.ContainerPort{{
-			Name:          "envoy",
+			Name:          dataPortName,
 			ContainerPort: int32(r.container.Spec.ExposePorts[0]),
 			HostPort:      int32(r.container.Spec.ExposePorts[0]),
 		},
 			{
-				Name:          "envoy-admin",
+				Name:          adminPortName,
 				ContainerPort: int32(r.container.Spec.ExposePorts[1]),
 				HostPort:      int32(r.container.Spec.ExposePorts[1]),
 			},

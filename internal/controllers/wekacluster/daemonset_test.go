@@ -19,6 +19,7 @@ import (
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
 )
 
 func dsCons(maxCores int, ratio float64) *capacityplanner.CapacityConstraints {
@@ -692,6 +693,9 @@ func dsS3Loop(t *testing.T, formed bool, s3Nodes []string, containers ...*weka.W
 	loop := dsGlueLoop(t, map[string]int{"n1": 4, "n2": 4}, formed, containers...)
 	loop.cluster.Spec.Dynamic.S3Containers = -1
 	loop.cluster.Spec.RoleNodeSelector.S3 = &map[string]string{"s3": "1"}
+	if err := services.SetFeatureFlags(context.Background(), loop.cluster.Spec.Image, &domain.FeatureFlags{}); err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range s3Nodes {
 		node := &corev1.Node{}
 		if err := loop.getClient().Get(context.Background(), client.ObjectKey{Name: name}, node); err != nil {

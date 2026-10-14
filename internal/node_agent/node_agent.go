@@ -462,7 +462,7 @@ func (a *NodeAgent) generateMetricsResponse(ctx context.Context) ([]byte, error)
 		}
 
 		switch container.mode {
-		case weka.WekaContainerModeEnvoy: // nothing todo, scrapeTargets is common
+		case weka.WekaContainerModeEnvoy, weka.WekaContainerModeForwarder: // nothing todo, scrapeTargets is common
 		default:
 			snap := container.snapshot()
 			if snap.pulledAt.Add(5 * time.Minute).Before(time.Now()) {
@@ -970,7 +970,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "metrics.fetch_container_data", "container_name", container.containerName, "container_mode", container.mode)
 	defer logger.End()
 
-	if container.mode != weka.WekaContainerModeEnvoy {
+	if !weka.IsOffPathSidecarMode(container.mode) {
 		var response LocalConfigStateResponse
 		pulledAt := time.Now()
 		err := a.jrpcCall(ctx, container, "get_local_config_summary", nil, &response)

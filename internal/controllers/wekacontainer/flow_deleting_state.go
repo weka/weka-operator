@@ -165,6 +165,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 							weka.WekaContainerModeNfs,
 							weka.WekaContainerModeDrive,
 							weka.WekaContainerModeEnvoy,
+							weka.WekaContainerModeForwarder,
 						}, r.container.Spec.Mode)
 				},
 			},
