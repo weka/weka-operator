@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"time"
 
 	"github.com/pkg/errors"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
@@ -13,15 +15,22 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
+)
+
+const (
+	ensureNICsEventReasonFailed = "EnsureNICsFailed"
+	ensureNICsWaitDuration      = 15 * time.Second
 )
 
 type EnsureNICsOperation struct {
@@ -39,6 +48,10 @@ type EnsureNICsOperation struct {
 	mgr             ctrl.Manager
 	successCallback lifecycle.StepFunc
 	tolerations     []v1.Toleration
+
+	recorder         events.EventRecorder
+	progressCallback lifecycle.StepFunc
+	failureCallback  lifecycle.StepFunc
 }
 
 func (o *EnsureNICsOperation) AsStep() lifecycle.Step {
@@ -49,38 +62,42 @@ func (o *EnsureNICsOperation) AsStep() lifecycle.Step {
 }
 
 type ensureNICsResult struct {
-	Err     error        `json:"err"`
+	Err     string       `json:"err"`
 	NICs    []domain.NIC `json:"nics"`
 	Ensured bool         `json:"ensured"`
 }
 
 type EnsureNICsResult struct {
-	Err     error                       `json:"err,omitempty"`
+	Err     string                      `json:"err,omitempty"`
 	Results map[string]ensureNICsResult `json:"results"`
 }
 
-func NewEnsureNICsOperation(mgr ctrl.Manager, payload *weka.EnsureNICsPayload, ownerRef client.Object, ownerDetails weka.WekaOwnerDetails, ownerStatus string, successCallback lifecycle.StepFunc) *EnsureNICsOperation { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
+func NewEnsureNICsOperation(mgr ctrl.Manager, payload *weka.EnsureNICsPayload, ownerRef client.Object, ownerDetails weka.WekaOwnerDetails, ownerStatus string, recorder events.EventRecorder, progressCallback, successCallback, failureCallback lifecycle.StepFunc) *EnsureNICsOperation { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	kclient := mgr.GetClient()
 	return &EnsureNICsOperation{
-		mgr:             mgr,
-		client:          kclient,
-		kubeService:     kubernetes.NewKubeService(kclient),
-		scheme:          mgr.GetScheme(),
-		payload:         payload,
-		image:           ownerDetails.Image,
-		pullSecret:      ownerDetails.ImagePullSecret,
-		serviceAccount:  ownerDetails.ServiceAccountName,
-		ownerRef:        ownerRef,
-		ownerStatus:     ownerStatus,
-		tolerations:     ownerDetails.Tolerations,
-		successCallback: successCallback,
+		mgr:              mgr,
+		client:           kclient,
+		kubeService:      kubernetes.NewKubeService(kclient),
+		scheme:           mgr.GetScheme(),
+		payload:          payload,
+		image:            ownerDetails.Image,
+		pullSecret:       ownerDetails.ImagePullSecret,
+		serviceAccount:   ownerDetails.ServiceAccountName,
+		ownerRef:         ownerRef,
+		ownerStatus:      ownerStatus,
+		tolerations:      ownerDetails.Tolerations,
+		successCallback:  successCallback,
+		recorder:         recorder,
+		progressCallback: progressCallback,
+		failureCallback:  failureCallback,
 	}
 }
 
 func (o *EnsureNICsOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
+		&lifecycle.SimpleStep{Name: "SkipIfTerminal", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsTerminal}, FinishOnSuccess: true},
 		&lifecycle.SimpleStep{Name: "GetContainers", Run: o.GetContainers},
-		&lifecycle.SimpleStep{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsDone}, FinishOnSuccess: true},
+		&lifecycle.SimpleStep{Name: "MarkRunning", Run: o.progressCallback, Predicates: lifecycle.Predicates{func() bool { return o.progressCallback != nil }}},
 		&lifecycle.SimpleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
 		&lifecycle.SimpleStep{Name: "ProcessResult", Run: o.ProcessResult},
 		&lifecycle.SimpleStep{Name: "SuccessUpdate", Run: o.SuccessUpdate},
@@ -184,12 +201,13 @@ func (o *EnsureNICsOperation) ProcessResult(ctx context.Context) error {
 		err := json.Unmarshal([]byte(*container.Status.ExecutionResult), &opResult)
 		if err != nil {
 			results[string(container.GetNodeAffinity())] = ensureNICsResult{
-				Err: fmt.Errorf("failed to unmarshal execution result: %w", err),
+				Err: fmt.Sprintf("failed to unmarshal execution result: %v", err),
 			}
+			errorCount++
 			continue
 		}
 		results[string(container.GetNodeAffinity())] = opResult
-		if opResult.Err != nil {
+		if opResult.Err != "" {
 			errorCount++
 			continue
 		}
@@ -205,16 +223,48 @@ func (o *EnsureNICsOperation) ProcessResult(ctx context.Context) error {
 	}
 
 	if errorCount > 0 {
-		finalResult.Err = fmt.Errorf("operation failed on %d nodes", errorCount)
+		finalResult.Err = fmt.Sprintf("operation failed on %d nodes", errorCount)
 	}
 
 	o.results = finalResult
+	o.recordNodeFailures()
 
 	if !allReady {
 		return lifecycle.NewWaitError(fmt.Errorf("not all container execution results are ready"))
 	}
 
+	if errorCount > 0 {
+		return o.failTerminally(ctx)
+	}
+
 	return nil
+}
+
+func (o *EnsureNICsOperation) recordNodeFailures() {
+	nodes := make([]string, 0, len(o.results.Results))
+	for node, r := range o.results.Results {
+		if r.Err != "" {
+			nodes = append(nodes, node)
+		}
+	}
+	sort.Strings(nodes)
+	for _, node := range nodes {
+		util2.RecordEvent(o.recorder, o.ownerRef, v1.EventTypeWarning, ensureNICsEventReasonFailed, consts.ActionEnsureNICs,
+			fmt.Sprintf("node %s: %s", node, o.results.Results[node].Err))
+	}
+}
+
+func (o *EnsureNICsOperation) failTerminally(ctx context.Context) error {
+	if o.failureCallback != nil {
+		if err := o.failureCallback(ctx); err != nil {
+			return err
+		}
+	}
+
+	if err := o.DeleteContainers(ctx); err != nil {
+		return err
+	}
+	return lifecycle.NewWaitErrorWithDuration(errors.New(o.results.Err), ensureNICsWaitDuration)
 }
 
 func (o *EnsureNICsOperation) patchNodeNICs(ctx context.Context, container *weka.WekaContainer, opResult ensureNICsResult) error {
@@ -294,8 +344,8 @@ func (o *EnsureNICsOperation) DeleteContainers(ctx context.Context) error {
 	return nil
 }
 
-func (o *EnsureNICsOperation) IsDone() bool {
-	return o.ownerStatus == "Done"
+func (o *EnsureNICsOperation) IsTerminal() bool {
+	return o.ownerStatus == "Done" || o.ownerStatus == "Failed"
 }
 
 func (o *EnsureNICsOperation) Cleanup() lifecycle.Step {
