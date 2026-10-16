@@ -1864,7 +1864,8 @@
     "NICType": {
       "kind": "enum",
       "enumValues": [
-        "aws"
+        "aws",
+        "oci"
       ],
       "baseType": "string",
       "usedBy": [

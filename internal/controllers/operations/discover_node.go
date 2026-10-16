@@ -137,11 +137,11 @@ func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {
 	o.result.Provider = o.GetProvider()
 	o.result.Arch = o.node.Status.NodeInfo.Architecture
 
-	fp, err := discovery.DetectKubeletFullPcpusOnly(ctx, o.mgr.GetConfig(), o.node.Name)
+	policy, fp, err := discovery.DetectKubeletCPUManager(ctx, o.mgr.GetConfig(), o.node.Name)
 	if err != nil {
-		logger.Error(err, "failed to detect kubelet full-pcpus-only; defaulting to false", "node", o.node.Name)
-		fp = false
+		logger.Error(err, "failed to detect kubelet CPU manager; defaulting full-pcpus-only to false", "node", o.node.Name)
 	}
+	o.result.NodeCPUManagerPolicy = policy
 	o.result.NodeFullPcpusOnly = fp
 
 	if o.result.IsRhCos() {

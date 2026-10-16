@@ -58,10 +58,21 @@ func assertRuntime(t *testing.T, pod *corev1.Pod, wantPython bool) {
 	if hasInit(installer) == wantPython {
 		t.Errorf("%s present = %v, want %v", installer, hasInit(installer), !wantPython)
 	}
-	if !wantPython {
-		for _, c := range pod.Spec.InitContainers {
-			if c.Name == installer && c.ImagePullPolicy != corev1.PullAlways {
-				t.Errorf("%s pull policy = %q, want %q", installer, c.ImagePullPolicy, corev1.PullAlways)
+	for _, c := range pod.Spec.InitContainers {
+		if c.Name == installer && c.ImagePullPolicy != corev1.PullAlways {
+			t.Errorf("%s pull policy = %q, want %q", installer, c.ImagePullPolicy, corev1.PullAlways)
+		}
+	}
+	for _, c := range pod.Spec.InitContainers {
+		if cpu := c.Resources.Requests[corev1.ResourceCPU]; cpu.MilliValue()%1000 == 0 {
+			t.Errorf("%s cpu request = %s: a whole-core init container takes exclusive CPUs and fails full-pcpus-only admission on SMT nodes", c.Name, cpu.String())
+		}
+	}
+	for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
+		for _, r := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+			req, lim := c.Resources.Requests[r], c.Resources.Limits[r]
+			if req.IsZero() || req.Cmp(lim) != 0 {
+				t.Errorf("%s %s request = %s, limit = %s: must be set and equal or the pod loses Guaranteed QoS", c.Name, r, req.String(), lim.String())
 			}
 		}
 	}
@@ -106,5 +117,18 @@ func TestPodRuntimeImageRequiredForGoRuntime(t *testing.T) {
 	}
 	if _, err := createTestPod(t, weka.WekaContainerModeClient, nil); err != nil {
 		t.Errorf("Python-fallback pod without WEKA_POD_RUNTIME_IMAGE: unexpected error %v", err)
+	}
+}
+
+func TestDedicatedPodExpectsExclusiveCPUs(t *testing.T) {
+	setRuntimeConfig(t, false)
+	pod, err := createTestPod(t, weka.WekaContainerModeCompute, func(s *weka.WekaContainerSpec) {
+		s.CpuPolicy = weka.CpuPolicyDedicated
+	})
+	if err != nil {
+		t.Fatalf("Create returned unexpected error: %v", err)
+	}
+	if !ExpectsExclusiveCPUs(pod) {
+		t.Error("dedicated pod: ExpectsExclusiveCPUs = false, want true")
 	}
 }

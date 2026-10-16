@@ -127,9 +127,6 @@ func resolveNumaClaimCPUPolicy(spec *weka.WekaContainerSpec, isHt bool) (weka.Cp
 		return "", fmt.Errorf("invalid CPU policy: %s", cpuPolicy)
 	}
 	if cpuPolicy == weka.CpuPolicyAuto {
-		if len(spec.CoreIds) > 0 {
-			cpuPolicy = weka.CpuPolicyManual
-		}
 		if isHt {
 			cpuPolicy = weka.CpuPolicyDedicatedHT
 		} else {

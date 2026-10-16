@@ -910,6 +910,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			Image:           config.Config.WekaPodRuntimeImage,
 			ImagePullPolicy: corev1.PullPolicy(config.Config.WekaPodRuntimeImagePullPolicy),
 			Command:         []string{"cp", "/weka-pod-runtime", "/weka-pod-runtime-data/weka-pod-runtime"},
+			Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
+			}},
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "weka-pod-runtime-data", MountPath: "/weka-pod-runtime-data"},
 			},
@@ -1002,7 +1006,59 @@ echo "=== OTEL Init Container Completed ==="`,
 
 	pod.Spec.SecurityContext = GetSecurityProfile()
 
+	guaranteeInitContainers(pod)
+
 	return pod, nil
+}
+
+// guaranteeInitContainers raises init container requests to their limits when the weka container
+// itself is sized for Guaranteed QoS. One init container with requests below limits drops the pod to
+// Burstable; the static CPU manager then gives it no exclusive CPUs and weka containers on the node pin
+// the same cores. Pods not meant to be Guaranteed (drivers, shared) keep the cheaper requests.
+// A whole-core cpu limit is cut by 1m: an integer request would make the init container take exclusive
+// CPUs, and with full-pcpus-only on an SMT node an odd count fails admission (SMTAlignmentError).
+func guaranteeInitContainers(pod *corev1.Pod) {
+	main, err := GetWekaPodContainer(pod)
+	if err != nil || !requestsEqualLimits(main.Resources) {
+		return
+	}
+	for i := range pod.Spec.InitContainers {
+		r := &pod.Spec.InitContainers[i].Resources
+		if r.Requests == nil {
+			r.Requests = corev1.ResourceList{}
+		}
+		if cpu, ok := r.Limits[corev1.ResourceCPU]; ok && cpu.MilliValue()%1000 == 0 {
+			r.Limits[corev1.ResourceCPU] = *resource.NewMilliQuantity(cpu.MilliValue()-1, resource.DecimalSI)
+		}
+		for _, name := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+			if lim, ok := r.Limits[name]; ok {
+				r.Requests[name] = lim
+			}
+		}
+	}
+}
+
+func requestsEqualLimits(r corev1.ResourceRequirements) bool {
+	for _, name := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+		req, lim := r.Requests[name], r.Limits[name]
+		if req.IsZero() || req.Cmp(lim) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// ExpectsExclusiveCPUs reports whether the runtime picks weka cores from the pod's own cpuset
+// (CORE_IDS=auto) and the weka container has the whole-core cpu request equal to its limit that the
+// static CPU manager turns into an exclusive cpuset. Modes that override cpu to fractional values
+// (drivers, ssdproxy) don't qualify.
+func ExpectsExclusiveCPUs(pod *corev1.Pod) bool {
+	main, err := GetWekaPodContainer(pod)
+	if err != nil || !slices.Contains(main.Env, corev1.EnvVar{Name: "CORE_IDS", Value: "auto"}) {
+		return false
+	}
+	req, lim := main.Resources.Requests[corev1.ResourceCPU], main.Resources.Limits[corev1.ResourceCPU]
+	return !req.IsZero() && req.Cmp(lim) == 0 && req.MilliValue()%1000 == 0
 }
 
 // applyExtraVolumes appends WekaContainerSpec.ExtraVolumes/ExtraVolumeMounts to the pod. It
@@ -1354,9 +1410,6 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 	}
 
 	if cpuPolicy == weka.CpuPolicyAuto {
-		if len(f.container.Spec.CoreIds) > 0 {
-			cpuPolicy = weka.CpuPolicyManual
-		}
 		if f.nodeInfo.IsHt {
 			cpuPolicy = weka.CpuPolicyDedicatedHT
 		} else {
@@ -1398,8 +1451,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 	switch cpuPolicy {
 	case weka.CpuPolicyDedicatedHT, weka.CpuPolicyDedicated:
 		// cpuPolicy is already the concrete resolved policy (auto handled above); feed it through so
-		// CPURequestCores computes the same integer the planner charges, and does NOT re-resolve auto
-		// (which would diverge from pod.go for auto+coreIds). See cpu.go.
+		// CPURequestCores computes the same integer the planner charges. See cpu.go.
 		specForCPU := f.container.Spec
 		specForCPU.CpuPolicy = cpuPolicy
 		cpuRequestStr = fmt.Sprintf("%d", capacityplanner.CPURequestCores(&specForCPU, cpuTopo))
