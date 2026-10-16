@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"sort"
+	"time"
 
 	"github.com/pkg/errors"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
@@ -16,17 +19,32 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
 )
+
+const (
+	ensureNICsEventReasonFailed   = "EnsureNICsFailed"
+	ensureNICsEventReasonRetrying = "EnsureNICsRetrying"
+	EnsureNICsWaitDuration        = 15 * time.Second
+	ensureNICsMaxBackoff          = 2 * time.Minute
+	ensureNICsMaxAttempts         = 10
+	ensureNICsAttemptsAnnotation  = "weka.io/ensure-nics-attempts"
+)
+
+// Cloud APIs reject back-to-back VNIC attachments transiently: HTTP 409 (OCI "instance is currently
+// being modified, try again later"), 429/throttling and 5xx. Anything else, e.g. MaxNicsExceededError, is terminal.
+var transientNICErrorPattern = regexp.MustCompile(`(?i)(status|code)\D{0,10}(409|429|5\d\d)\b|IncorrectState|try again later|TooManyRequests|throttl|InternalServerError|ServiceUnavailable`)
 
 type EnsureNICsOperation struct {
 	client          client.Client
@@ -44,6 +62,11 @@ type EnsureNICsOperation struct {
 	successCallback lifecycle.StepFunc
 	tolerations     []v1.Toleration
 	npnPendingNodes []string
+	retryAfter      time.Time
+
+	recorder         events.EventRecorder
+	progressCallback lifecycle.StepFunc
+	failureCallback  lifecycle.StepFunc
 }
 
 func (o *EnsureNICsOperation) AsStep() lifecycle.Step {
@@ -53,39 +76,59 @@ func (o *EnsureNICsOperation) AsStep() lifecycle.Step {
 	}
 }
 
+// nodeAttempts is persisted on the owner: owner updates trigger immediate reconciles, so the backoff
+// must be enforced from RetryAfter rather than by the wait duration alone.
+type nodeAttempts struct {
+	Attempts   int       `json:"attempts"`
+	RetryAfter time.Time `json:"retryAfter"`
+}
+
 type ensureNICsResult struct {
-	Err     error        `json:"err"`
+	Err     string       `json:"err"`
 	NICs    []domain.NIC `json:"nics"`
 	Ensured bool         `json:"ensured"`
+	// Retryable is set by cloud-helper when it knows the failure is transient.
+	Retryable bool `json:"retryable,omitempty"`
+}
+
+func (r ensureNICsResult) isRetryable() bool {
+	return r.Err != "" && (r.Retryable || transientNICErrorPattern.MatchString(r.Err))
 }
 
 type EnsureNICsResult struct {
-	Err     error                       `json:"err,omitempty"`
+	Err     string                      `json:"err,omitempty"`
 	Results map[string]ensureNICsResult `json:"results"`
 }
 
-func NewEnsureNICsOperation(mgr ctrl.Manager, payload *weka.EnsureNICsPayload, ownerRef client.Object, ownerDetails weka.WekaOwnerDetails, ownerStatus string, successCallback lifecycle.StepFunc) *EnsureNICsOperation { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
+func NewEnsureNICsOperation(mgr ctrl.Manager, payload *weka.EnsureNICsPayload, ownerRef client.Object, ownerDetails weka.WekaOwnerDetails, ownerStatus string, retryAfter time.Time, recorder events.EventRecorder, progressCallback, successCallback, failureCallback lifecycle.StepFunc) *EnsureNICsOperation { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	kclient := mgr.GetClient()
 	return &EnsureNICsOperation{
-		mgr:             mgr,
-		client:          kclient,
-		kubeService:     kubernetes.NewKubeService(kclient),
-		scheme:          mgr.GetScheme(),
-		payload:         payload,
-		image:           ownerDetails.Image,
-		pullSecret:      ownerDetails.ImagePullSecret,
-		serviceAccount:  ownerDetails.ServiceAccountName,
-		ownerRef:        ownerRef,
-		ownerStatus:     ownerStatus,
-		tolerations:     ownerDetails.Tolerations,
-		successCallback: successCallback,
+		mgr:              mgr,
+		client:           kclient,
+		kubeService:      kubernetes.NewKubeService(kclient),
+		scheme:           mgr.GetScheme(),
+		payload:          payload,
+		image:            ownerDetails.Image,
+		pullSecret:       ownerDetails.ImagePullSecret,
+		serviceAccount:   ownerDetails.ServiceAccountName,
+		ownerRef:         ownerRef,
+		ownerStatus:      ownerStatus,
+		retryAfter:       retryAfter,
+		tolerations:      ownerDetails.Tolerations,
+		successCallback:  successCallback,
+		recorder:         recorder,
+		progressCallback: progressCallback,
+		failureCallback:  failureCallback,
 	}
 }
 
 func (o *EnsureNICsOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
+		&lifecycle.SimpleStep{Name: "SkipIfTerminal", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsTerminal}, FinishOnSuccess: true},
 		&lifecycle.SimpleStep{Name: "GetContainers", Run: o.GetContainers},
-		&lifecycle.SimpleStep{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsDone}, FinishOnSuccess: true},
+		&lifecycle.SimpleStep{Name: "WaitForTerminatingContainers", Run: o.WaitForTerminatingContainers},
+		&lifecycle.SimpleStep{Name: "WaitRetryAfter", Run: o.WaitRetryAfter, Predicates: lifecycle.Predicates{o.isBackingOff}},
+		&lifecycle.SimpleStep{Name: "MarkRunning", Run: o.progressCallback, Predicates: lifecycle.Predicates{func() bool { return o.progressCallback != nil }}},
 		&lifecycle.SimpleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
 		&lifecycle.SimpleStep{Name: "ProcessResult", Run: o.ProcessResult},
 		&lifecycle.SimpleStep{Name: "SuccessUpdate", Run: o.SuccessUpdate},
@@ -100,6 +143,27 @@ func (o *EnsureNICsOperation) GetContainers(ctx context.Context) error {
 	}
 	o.containers = existing
 	return nil
+}
+
+// Finalizers keep deleted containers listable with their previous results, which must not be read as current.
+func (o *EnsureNICsOperation) WaitForTerminatingContainers(_ context.Context) error {
+	for _, container := range o.containers {
+		if container.DeletionTimestamp != nil {
+			return lifecycle.NewWaitError(fmt.Errorf("waiting for container %s to finish terminating", container.Name))
+		}
+	}
+	return nil
+}
+
+func (o *EnsureNICsOperation) isBackingOff() bool {
+	return time.Now().Before(o.retryAfter)
+}
+
+func (o *EnsureNICsOperation) WaitRetryAfter(ctx context.Context) error {
+	if err := o.DeleteContainers(ctx); err != nil {
+		return err
+	}
+	return lifecycle.NewWaitErrorWithDuration(errors.New("backing off after failure"), time.Until(o.retryAfter))
 }
 
 // ensureNICsInstructionPayload carries per-node data the runtime needs but the user API does not expose.
@@ -173,6 +237,12 @@ func (o *EnsureNICsOperation) EnsureContainers(ctx context.Context) error {
 		existingContainerNodes[string(container.GetNodeAffinity())] = true
 	}
 
+	attempts, err := o.getAttempts()
+	if err != nil {
+		return err
+	}
+	var retryWait time.Duration
+
 	var podVNICMACs map[string][]string
 	podVNICMACsLoaded := false
 	o.npnPendingNodes = nil
@@ -181,6 +251,11 @@ func (o *EnsureNICsOperation) EnsureContainers(ctx context.Context) error {
 			continue
 		}
 		node := &matchingNodes[i]
+
+		if remaining := time.Until(attempts[node.Name].RetryAfter); remaining > 0 {
+			retryWait = max(retryWait, remaining)
+			continue
+		}
 
 		if !podVNICMACsLoaded {
 			podVNICMACs, err = o.getPodVNICMACs(ctx)
@@ -241,6 +316,9 @@ func (o *EnsureNICsOperation) EnsureContainers(ctx context.Context) error {
 		o.containers = append(o.containers, newContainer)
 	}
 
+	if retryWait > 0 {
+		return lifecycle.NewWaitErrorWithDuration(fmt.Errorf("waiting to retry ensure-nics after a transient failure"), retryWait)
+	}
 	return nil
 }
 
@@ -248,6 +326,11 @@ func (o *EnsureNICsOperation) ProcessResult(ctx context.Context) error {
 	results := make(map[string]ensureNICsResult)
 	errorCount := 0
 	allReady := true
+	attempts, err := o.getAttempts()
+	if err != nil {
+		return err
+	}
+	retries := map[string]*weka.WekaContainer{}
 
 	for _, container := range o.containers {
 		if container.Status.ExecutionResult == nil {
@@ -255,16 +338,34 @@ func (o *EnsureNICsOperation) ProcessResult(ctx context.Context) error {
 			continue
 		}
 
+		node := string(container.GetNodeAffinity())
 		var opResult ensureNICsResult
 		err := json.Unmarshal([]byte(*container.Status.ExecutionResult), &opResult)
 		if err != nil {
-			results[string(container.GetNodeAffinity())] = ensureNICsResult{
-				Err: fmt.Errorf("failed to unmarshal execution result: %w", err),
+			results[node] = ensureNICsResult{
+				Err: fmt.Sprintf("failed to unmarshal execution result: %v", err),
 			}
+			errorCount++
 			continue
 		}
-		results[string(container.GetNodeAffinity())] = opResult
-		if opResult.Err != nil {
+		if opResult.isRetryable() {
+			if time.Now().Before(attempts[node].RetryAfter) {
+				// Already counted; only the delete in retryNodes failed.
+				if err := o.client.Delete(ctx, container); err != nil && !apierrors.IsNotFound(err) {
+					return err
+				}
+				allReady = false
+				continue
+			}
+			if attempts[node].Attempts < ensureNICsMaxAttempts {
+				retries[node] = container
+				results[node] = opResult
+				continue
+			}
+			opResult.Err += fmt.Sprintf(" (gave up after %d attempts)", ensureNICsMaxAttempts)
+		}
+		results[node] = opResult
+		if opResult.Err != "" {
 			errorCount++
 			continue
 		}
@@ -280,11 +381,15 @@ func (o *EnsureNICsOperation) ProcessResult(ctx context.Context) error {
 	}
 
 	if errorCount > 0 {
-		finalResult.Err = fmt.Errorf("operation failed on %d nodes", errorCount)
+		finalResult.Err = fmt.Sprintf("operation failed on %d nodes", errorCount)
 	}
 
 	o.results = finalResult
+	o.recordNodeFailures(retries)
 
+	if len(retries) > 0 {
+		return o.retryNodes(ctx, retries, attempts)
+	}
 	if !allReady {
 		return lifecycle.NewWaitError(fmt.Errorf("not all container execution results are ready"))
 	}
@@ -292,7 +397,108 @@ func (o *EnsureNICsOperation) ProcessResult(ctx context.Context) error {
 		return lifecycle.NewWaitError(fmt.Errorf("waiting for NativePodNetwork to reach SUCCESS on nodes %v", o.npnPendingNodes))
 	}
 
+	if errorCount > 0 {
+		return o.failTerminally(ctx)
+	}
+
 	return nil
+}
+
+func (o *EnsureNICsOperation) recordNodeFailures(retries map[string]*weka.WekaContainer) {
+	nodes := make([]string, 0, len(o.results.Results))
+	for node, r := range o.results.Results {
+		if _, retrying := retries[node]; r.Err != "" && !retrying {
+			nodes = append(nodes, node)
+		}
+	}
+	sort.Strings(nodes)
+	for _, node := range nodes {
+		util2.RecordEvent(o.recorder, o.ownerRef, v1.EventTypeWarning, ensureNICsEventReasonFailed, consts.ActionEnsureNICs,
+			fmt.Sprintf("node %s: %s", node, o.results.Results[node].Err))
+	}
+}
+
+// The failure is saved before the containers go, so a failed status write keeps the results to retry from.
+func (o *EnsureNICsOperation) failTerminally(ctx context.Context) error {
+	if o.failureCallback != nil {
+		if err := o.failureCallback(ctx); err != nil {
+			return err
+		}
+	}
+	if err := o.DeleteContainers(ctx); err != nil {
+		return err
+	}
+	return lifecycle.NewWaitErrorWithDuration(errors.New(o.results.Err), EnsureNICsWaitDuration)
+}
+
+// retryNodes recreates the containers of nodes that failed transiently, counting attempts on the owner so
+// they survive reconciles.
+func (o *EnsureNICsOperation) retryNodes(ctx context.Context, retries map[string]*weka.WekaContainer, attempts map[string]nodeAttempts) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	nodes := make([]string, 0, len(retries))
+	for node := range retries {
+		nodes = append(nodes, node)
+	}
+	sort.Strings(nodes)
+
+	var backoff time.Duration
+	for _, node := range nodes {
+		attempt := attempts[node].Attempts + 1
+		delay := min(EnsureNICsWaitDuration<<(attempt-1), ensureNICsMaxBackoff)
+		attempts[node] = nodeAttempts{Attempts: attempt, RetryAfter: time.Now().Add(delay)}
+		msg := fmt.Sprintf("node %s: attempt %d/%d: %s", node, attempt, ensureNICsMaxAttempts, o.results.Results[node].Err)
+		logger.Info("Retrying ensure-nics after transient failure", "node", node, "attempt", attempt, "error", o.results.Results[node].Err)
+		util2.RecordEvent(o.recorder, o.ownerRef, v1.EventTypeWarning, ensureNICsEventReasonRetrying, consts.ActionEnsureNICs, msg)
+		backoff = max(backoff, delay)
+	}
+	if err := o.setAttempts(ctx, attempts); err != nil {
+		return err
+	}
+	for _, node := range nodes {
+		if err := o.client.Delete(ctx, retries[node]); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return lifecycle.NewWaitErrorWithDuration(fmt.Errorf("retrying ensure-nics on nodes %v", nodes), backoff)
+}
+
+func (o *EnsureNICsOperation) getAttempts() (map[string]nodeAttempts, error) {
+	attempts := map[string]nodeAttempts{}
+	raw := o.ownerRef.GetAnnotations()[ensureNICsAttemptsAnnotation]
+	if raw == "" {
+		return attempts, nil
+	}
+	if err := json.Unmarshal([]byte(raw), &attempts); err != nil {
+		return nil, errors.Wrapf(err, "failed to parse annotation %s", ensureNICsAttemptsAnnotation)
+	}
+	return attempts, nil
+}
+
+// setAttempts removes the annotation when attempts is nil.
+func (o *EnsureNICsOperation) setAttempts(ctx context.Context, attempts map[string]nodeAttempts) error {
+	base, ok := o.ownerRef.DeepCopyObject().(client.Object)
+	if !ok {
+		return fmt.Errorf("owner %T is not a client.Object", o.ownerRef)
+	}
+	annotations := o.ownerRef.GetAnnotations()
+	if attempts == nil {
+		if _, found := annotations[ensureNICsAttemptsAnnotation]; !found {
+			return nil
+		}
+		delete(annotations, ensureNICsAttemptsAnnotation)
+	} else {
+		raw, err := json.Marshal(attempts)
+		if err != nil {
+			return errors.Wrap(err, "failed to marshal attempts")
+		}
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		annotations[ensureNICsAttemptsAnnotation] = string(raw)
+	}
+	o.ownerRef.SetAnnotations(annotations)
+	return o.client.Patch(ctx, o.ownerRef, client.MergeFrom(base))
 }
 
 func (o *EnsureNICsOperation) patchNodeNICs(ctx context.Context, container *weka.WekaContainer, opResult ensureNICsResult) error {
@@ -369,10 +575,15 @@ func (o *EnsureNICsOperation) DeleteContainers(ctx context.Context) error {
 		}
 	}
 	o.containers = nil
-	return nil
+	return o.setAttempts(ctx, nil)
 }
 
-func (o *EnsureNICsOperation) IsDone() bool {
+// A WekaPolicy can be Failed from type resolution and nothing resets that after a spec fix, so only a
+// manual operation treats Failed as final.
+func (o *EnsureNICsOperation) IsTerminal() bool {
+	if _, isManualOp := o.ownerRef.(*weka.WekaManualOperation); isManualOp && o.ownerStatus == "Failed" {
+		return true
+	}
 	return o.ownerStatus == "Done"
 }
 

@@ -182,13 +182,22 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		)
 		loop.Op = discoverDrivesOp
 	case weka.WekaPolicyTypeEnsureNICs:
+		ensureNICsOnFailure := func(ctx context.Context) error {
+			wekaPolicy.Status.LastResult = loop.Op.GetJsonResult()
+			wekaPolicy.Status.LastRunTime = metav1.Now()
+			return r.Status().Update(ctx, wekaPolicy)
+		}
 		ensureNICsOp := operations.NewEnsureNICsOperation(
 			r.Mgr,
 			wekaPolicy.Spec.Payload.EnsureNICs,
 			wekaPolicy,
 			ownerDetails,
 			wekaPolicy.Status.Status,
+			ensureNICsRetryAfter(wekaPolicy, logger),
+			r.Recorder,
+			nil,
 			onSuccess,
+			ensureNICsOnFailure,
 		)
 		loop.Op = ensureNICsOp
 	case weka.WekaPolicyTypeEnableLocalDriversDistribution:
@@ -256,6 +265,24 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	return result, nil
+}
+
+// ensureNICsRetryAfter is state-based so status-update events cannot bypass the interval.
+func ensureNICsRetryAfter(policy *weka.WekaPolicy, logger *instrumentation.SpanLogger) time.Time {
+	if policy.Status.LastResult == "" {
+		return time.Time{}
+	}
+	var res operations.EnsureNICsResult
+	if err := json.Unmarshal([]byte(policy.Status.LastResult), &res); err != nil {
+		logger.Error(err, "Failed to parse EnsureNICs last result, skipping backoff")
+		return time.Time{}
+	}
+	if res.Err == "" {
+		return time.Time{}
+	}
+	// Floor at the operation's own wait: with a shorter interval the failure status update would rerun cloud-helper at once.
+	backoff := max(policy.Spec.Payload.Interval.Duration, operations.EnsureNICsWaitDuration)
+	return policy.Status.LastRunTime.Add(backoff)
 }
 
 func (r *policyLoop) DurationTillNext() time.Duration {
