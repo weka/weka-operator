@@ -1,59 +1,37 @@
 package weka
 
-import "testing"
+import (
+	"context"
 
-func TestContainsContainerName(t *testing.T) {
-	tests := []struct {
-		name    string
-		psJSON  string
-		target  string
-		want    bool
-		wantErr bool
-	}{
-		{
-			name:   "exact match found",
-			psJSON: `[{"name":"envoy"},{"name":"telemetry"}]`,
-			target: "envoy",
-			want:   true,
-		},
-		{
-			name:   "no match",
-			psJSON: `[{"name":"telemetry"}]`,
-			target: "envoy",
-			want:   false,
-		},
-		{
-			name:   "substring is not a match",
-			psJSON: `[{"name":"envoy-sidecar"}]`,
-			target: "envoy",
-			want:   false,
-		},
-		{
-			name:   "empty list",
-			psJSON: `[]`,
-			target: "envoy",
-			want:   false,
-		},
-		{
-			name:    "invalid JSON errors",
-			psJSON:  `not json`,
-			target:  "envoy",
-			wantErr: true,
-		},
+	"github.com/weka/weka-operator/internal/runtime/process"
+)
+
+// stubRunner is a fake process.CommandRunner shared by this package's tests. It records every
+// command it's asked to run, in order, and returns scripted results/errors by call index,
+// holding the last scripted entry for any call past the end of the list.
+type stubRunner struct {
+	calls   []process.Command
+	results []process.Result
+	errs    []error
+}
+
+func (s *stubRunner) Run(_ context.Context, c process.Command) (process.Result, error) {
+	i := len(s.calls)
+	s.calls = append(s.calls, c)
+
+	var res process.Result
+	if i < len(s.results) {
+		res = s.results[i]
+	} else if len(s.results) > 0 {
+		res = s.results[len(s.results)-1]
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := containsContainerName([]byte(tt.psJSON), tt.target)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("containsContainerName() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr {
-				return
-			}
-			if got != tt.want {
-				t.Errorf("containsContainerName() = %v, want %v", got, tt.want)
-			}
-		})
+	var err error
+	if i < len(s.errs) {
+		err = s.errs[i]
+	} else if len(s.errs) > 0 {
+		err = s.errs[len(s.errs)-1]
 	}
+
+	return res, err
 }

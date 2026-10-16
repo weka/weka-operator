@@ -1,10 +1,51 @@
 package blockdev
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/weka/weka-operator/internal/runtime/process"
 )
+
+// fakeRunner returns a scripted stdout per binary path.
+type fakeRunner struct {
+	stdout map[string][]byte
+	err    map[string]error
+}
+
+func (f *fakeRunner) Run(_ context.Context, c process.Command) (process.Result, error) {
+	if err, ok := f.err[c.Path]; ok {
+		return process.Result{}, err
+	}
+	return process.Result{Stdout: f.stdout[c.Path]}, nil
+}
+
+func TestGetCapacityGiB(t *testing.T) {
+	tests := []struct {
+		name    string
+		stdout  string
+		want    int
+		wantErr bool
+	}{
+		{name: "1 GiB device", stdout: "1073741824\n", want: 1},
+		{name: "zero size returns zero, no error", stdout: "0\n", want: 0},
+		{name: "unparsable output errors", stdout: "not-a-number\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &fakeRunner{stdout: map[string][]byte{"blockdev": []byte(tt.stdout)}}
+			got, err := GetCapacityGiB(context.Background(), runner, "/dev/sda")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("GetCapacityGiB() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && got != tt.want {
+				t.Errorf("GetCapacityGiB() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
 
 // realLsblkJSON is a fixture derived from a live node.
 // The node's ~37 type:"loop" entries are trimmed here to 3 representative ones
@@ -315,5 +356,27 @@ func TestResolveDriveModel(t *testing.T) {
 					tt.hardwareModel, tt.hardwareModelNumber, tt.devicePath, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDevicePathBySerial(t *testing.T) {
+	runner := &fakeRunner{stdout: map[string][]byte{"lsblk": []byte("/dev/sda\n/dev/nvme0n1\n/dev/nvme1n1\n")}}
+	serials := map[string]string{"/dev/sda": "A", "/dev/nvme0n1": "B", "/dev/nvme1n1": "C"}
+	serialOf := func(_ context.Context, p string) (string, error) {
+		if p == "/dev/sda" {
+			return "", os.ErrNotExist
+		}
+		return serials[p], nil
+	}
+	got, err := devicePathBySerial(context.Background(), runner, "C", serialOf)
+	if err != nil || got != "/dev/nvme1n1" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if _, err := devicePathBySerial(context.Background(), runner, "missing", serialOf); err == nil {
+		t.Error("want error for unmatched serial")
+	}
+	failing := &fakeRunner{err: map[string]error{"lsblk": os.ErrPermission}}
+	if _, err := devicePathBySerial(context.Background(), failing, "C", serialOf); err == nil {
+		t.Error("want error when lsblk fails")
 	}
 }

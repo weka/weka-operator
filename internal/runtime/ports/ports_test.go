@@ -1,7 +1,10 @@
 package ports
 
 import (
+	"context"
 	"testing"
+
+	"github.com/weka/weka-operator/internal/runtime/config"
 )
 
 // ---- getFreeSubrange tests ----
@@ -186,5 +189,13 @@ func TestFindFreePort(t *testing.T) {
 				t.Errorf("findFreePort() = %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAllocateClientRejectsNonPositiveBase(t *testing.T) {
+	for _, base := range []int{0, -1} {
+		if _, err := AllocateClient(context.Background(), config.ClientPorts{Base: base}, config.Ports{}); err == nil {
+			t.Errorf("base %d: expected error", base)
+		}
 	}
 }

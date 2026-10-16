@@ -39,6 +39,9 @@ var _ = BeforeSuite(func() {
 	var err error
 	otelShutdown, err = instrumentation.SetupOTelSDKWithOptions(ctx, "load-drivers-tests", "", logger)
 	Expect(err).NotTo(HaveOccurred())
+
+	// Helm always sets WEKA_POD_RUNTIME_IMAGE on the manager; pods built without it are rejected.
+	config.Config.WekaPodRuntimeImage = "weka-pod-runtime:test"
 })
 
 var _ = AfterSuite(func() {

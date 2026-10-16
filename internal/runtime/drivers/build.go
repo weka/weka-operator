@@ -2,22 +2,25 @@
 package drivers
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/weka/weka-operator/internal/pkg/osinfo"
+	"github.com/weka/weka-operator/internal/runtime/process"
 )
 
 const ubuntu24BuildID = "ubuntu24.04"
 
 // GetWekaVersion returns the version string from the release spec directory.
-// Scans /opt/weka/dist/release and /shared-weka-version/opt-weka/dist/release;
+// Scans <optWekaRoot>/dist/release and /shared-weka-version/opt-weka/dist/release;
 // expects exactly one .spec file in whichever directory is found first.
-func GetWekaVersion() (string, error) {
+func GetWekaVersion(optWekaRoot string) (string, error) {
 	dirs := []string{
-		"/opt/weka/dist/release",
+		optWekaRoot + "/dist/release",
 		"/shared-weka-version/opt-weka/dist/release",
 	}
 	for _, dir := range dirs {
@@ -55,12 +58,61 @@ func KernelBuildID(driversBuildID, distService string) (string, error) {
 		}
 		return nodeInfo.OsBuildId, nil
 
+	case nodeInfo.IsNixos():
+		return nodeInfo.OsBuildId, nil
+
 	case isUbuntu24(nodeInfo) && distService != "":
 		return ubuntu24BuildID, nil
 	}
 	// Elsewhere weka resolves drivers by uname -r: drivers.weka.io has no packages keyed by
 	// other OS build IDs (e.g. "22.04"), so passing one fails the download.
 	return "", nil
+}
+
+// BuilderKernelBuildID returns the kernel build ID for the drivers-builder mode: "ubuntu24.04"
+// on Ubuntu 24, the OS build ID on NixOS, otherwise "" (weka falls back to uname -r). Unlike KernelBuildID, the builder
+// has no DRIVERS_BUILD_ID override and no COS/OS_BUILD_ID or dist-service branch — it mirrors
+// the narrower logic in Python's builder mode at weka_runtime.py:4505-4509.
+func BuilderKernelBuildID(nodeInfo *osinfo.NodeInfo) string {
+	switch {
+	case isUbuntu24(nodeInfo):
+		return ubuntu24BuildID
+	case nodeInfo.IsNixos():
+		return nodeInfo.OsBuildId
+	}
+	return ""
+}
+
+// Build packs weka drivers for version into optWeka/dist and returns the kernel signature.
+// kernelBuildID may be empty, in which case --kernel-build-id is omitted from the pack command.
+func Build(ctx context.Context, runner process.CommandRunner, optWeka, version, kernelBuildID string) (string, error) {
+	versionGetCmd := fmt.Sprintf(
+		"weka version get --driver-only --without-agent --no-progress-bar --from file://shared-weka-version/opt-weka %s",
+		version,
+	)
+	if _, err := runner.Run(ctx, process.Shell(versionGetCmd)); err != nil {
+		return "", fmt.Errorf("weka version get: %w", err)
+	}
+
+	packCmd := fmt.Sprintf("weka driver pack --without-agent --version %s", version)
+	if kernelBuildID != "" {
+		packCmd += " --kernel-build-id " + kernelBuildID
+	}
+	if _, err := runner.Run(ctx, process.Shell(packCmd)); err != nil {
+		return "", fmt.Errorf("weka driver pack: %w", err)
+	}
+
+	distDir := optWeka + "/dist"
+	if err := os.MkdirAll(distDir, 0o755); err != nil {
+		return "", fmt.Errorf("mkdir %s: %w", distDir, err)
+	}
+	// v1 symlink makes GET /dist/v1/drivers/... resolve to <distDir>/drivers/...
+	_ = os.Remove(distDir + "/v1") //nolint:errcheck // best-effort: absent is fine, Symlink below handles IsExist
+	if err := os.Symlink(distDir, distDir+"/v1"); err != nil && !os.IsExist(err) {
+		return "", fmt.Errorf("symlink v1: %w", err)
+	}
+
+	return KernelSignature(distDir + "/drivers")
 }
 
 // KernelSignature scans driversDir for a file matching
@@ -93,15 +145,9 @@ func isUbuntu24(nodeInfo *osinfo.NodeInfo) bool {
 		return false
 	}
 	parts := strings.SplitN(nodeInfo.OsBuildId, ".", 2)
-	if len(parts) == 0 {
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
 		return false
-	}
-	major := 0
-	for _, c := range parts[0] {
-		if c < '0' || c > '9' {
-			return false
-		}
-		major = major*10 + int(c-'0')
 	}
 	return major >= 24
 }

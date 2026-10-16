@@ -1,11 +1,19 @@
 {
   "err": null,
-  "drives": ["drive-1", "drive-2"],
+  "drives": [
+    {
+      "serial_id": "SN-0001",
+      "block_device": "/dev/nvme0n1",
+      "partition": "/dev/nvme0n1p1",
+      "is_signed": true
+    }
+  ],
   "raw_drives": [
     {
+      "serial_id": "SN-0001",
       "path": "/dev/nvme0n1",
-      "serial": "SN-0001",
-      "size_bytes": 1000204886016
+      "is_mounted": false,
+      "capacity_gib": 931
     }
   ],
   "kernel_view_complete": true
