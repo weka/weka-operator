@@ -214,7 +214,10 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			wekaManualOperation,
 			ownerDetails,
 			wekaManualOperation.Status.Status,
+			r.Recorder,
+			onRunning,
 			onSuccess,
+			onFailure,
 		)
 		loop.Op = ensureNICsOp
 	case weka.WekaManualOperationActionCleanStaleVirtualDrives:
