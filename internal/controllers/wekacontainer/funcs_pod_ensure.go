@@ -199,6 +199,7 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		return err
 	}
 
+	r.reportSharedCPUs(ctx, nodeInfo)
 	return nil
 }
 
