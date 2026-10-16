@@ -34,6 +34,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/runtime/blockdev"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	metrics2 "github.com/weka/weka-operator/pkg/metrics"
@@ -1367,16 +1368,15 @@ func (a *NodeAgent) getDeviceInfo(ctx context.Context, partName string) (serialI
 			return "", "", fmt.Errorf("invalid PCI device path")
 		}
 
-		// Serial is 2 directories up
-		serialPath := strings.Join(pathParts[:len(pathParts)-2], "/") + "/serial"
-		serialData, err := os.ReadFile(serialPath)
+		// Device path is the parent of the partition
+		blockDevice = "/dev/" + pathParts[len(pathParts)-2]
+
+		// Must match the serial drive signing recorded: on COS every GCP local SSD reports
+		// serial "nvme_card", so the pod runtime signs by wwid instead.
+		serialID, err = blockdev.GetDeviceSerialID(ctx, blockDevice)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to read serial: %w", err)
 		}
-		serialID = strings.TrimSpace(string(serialData))
-
-		// Device path is the parent of the partition
-		blockDevice = "/dev/" + pathParts[len(pathParts)-2]
 	} else {
 		// Regular SCSI device
 		pathParts := strings.Split(pciDevicePath, "/")
