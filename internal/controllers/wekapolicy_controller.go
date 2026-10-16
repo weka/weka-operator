@@ -115,10 +115,6 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	if slices.Contains([]string{"Done", ""}, wekaPolicy.Status.Status) {
 		wekaPolicy.Status.Status = "Running"
-		if wekaPolicy.Status.LastRunTime.IsZero() {
-			// put old time to avoid "invalidValue" error
-			wekaPolicy.Status.LastRunTime = metav1.NewTime(time.Now().Add(-time.Hour))
-		}
 		err = r.Status().Update(ctx, wekaPolicy)
 		if err != nil {
 			logger.Error(err, "Failed to update WekaPolicy status")
