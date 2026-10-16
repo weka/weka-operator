@@ -6425,7 +6425,7 @@
           "name": "LastRunTime",
           "jsonName": "lastRunTime",
           "type": "k8s:metav1.Time",
-          "optional": false
+          "optional": true
         },
         {
           "name": "Progress",
