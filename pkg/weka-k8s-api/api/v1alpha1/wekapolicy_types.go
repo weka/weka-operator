@@ -32,7 +32,8 @@ type WekaPolicySpec struct {
 type WekaPolicyStatus struct {
 	Status      string             `json:"status"`
 	LastResult  string             `json:"result"`
-	LastRunTime metav1.Time        `json:"lastRunTime"`
+	// +optional
+	LastRunTime metav1.Time        `json:"lastRunTime,omitempty"`
 	Progress    string             `json:"progress,omitempty"`
 	TypedStatus *TypedPolicyStatus `json:"typedStatus,omitempty"`
 }

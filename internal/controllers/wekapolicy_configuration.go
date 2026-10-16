@@ -3,11 +3,9 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/weka/weka-operator/internal/services"
@@ -65,13 +63,6 @@ func (r *WekaPolicyReconciler) reconcileConfiguration(ctx context.Context, wekaP
 
 	wekaPolicy.Status.Status = configurationPolicyStatus
 	wekaPolicy.Status.LastResult = ""
-	if wekaPolicy.Status.LastRunTime.IsZero() {
-		// lastRunTime is required by the CRD and a zero metav1.Time marshals to null, which the
-		// API server rejects. A configuration policy never runs, so backdate it the same way the
-		// operation path does; DurationTillNext only schedules on status "Done", so this does not
-		// cause a requeue.
-		wekaPolicy.Status.LastRunTime = metav1.NewTime(time.Now().Add(-time.Hour))
-	}
 	if err := r.Status().Update(ctx, wekaPolicy); err != nil {
 		logger.Error(err, "Failed to update configuration WekaPolicy status")
 		return ctrl.Result{}, err
@@ -93,9 +84,6 @@ func (r *WekaPolicyReconciler) ignoreConfiguration(ctx context.Context, wekaPoli
 
 	wekaPolicy.Status.Status = configurationPolicyIgnoredStatus
 	wekaPolicy.Status.LastResult = reason
-	if wekaPolicy.Status.LastRunTime.IsZero() {
-		wekaPolicy.Status.LastRunTime = metav1.NewTime(time.Now().Add(-time.Hour))
-	}
 
 	if err := r.Status().Update(ctx, wekaPolicy); err != nil {
 		return ctrl.Result{}, err
@@ -117,11 +105,6 @@ func (r *WekaPolicyReconciler) reportPolicyFailure(ctx context.Context, wekaPoli
 
 	wekaPolicy.Status.Status = policyFailedStatus
 	wekaPolicy.Status.LastResult = cause.Error()
-	if wekaPolicy.Status.LastRunTime.IsZero() {
-		// lastRunTime is required by the CRD and a zero metav1.Time marshals to null, which the
-		// API server rejects
-		wekaPolicy.Status.LastRunTime = metav1.NewTime(time.Now().Add(-time.Hour))
-	}
 
 	if err := r.Status().Update(ctx, wekaPolicy); err != nil {
 		logger.Error(err, "Failed to record WekaPolicy failure status")
