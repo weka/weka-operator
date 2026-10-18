@@ -87,9 +87,8 @@ func cpuModel(policy weka.CpuPolicy, topo NodeCPUTopology) (perCore, base int) {
 }
 
 // resolveCPUPolicy resolves cpuPolicy=auto exactly as pod.go setResources() does: HT => dedicated_ht,
-// non-HT => dedicated. pod.go ignores coreIds under auto (its HT/non-HT assignment overwrites the
-// coreIds-implied manual), so this must too — explicit core pinning requires cpuPolicy=manual. Non-auto
-// policies pass through unchanged.
+// non-HT => dedicated. coreIds are ignored under auto: explicit core pinning requires cpuPolicy=manual.
+// Non-auto policies pass through unchanged.
 func resolveCPUPolicy(policy weka.CpuPolicy, isHt bool) weka.CpuPolicy {
 	if policy != weka.CpuPolicyAuto && policy != "" {
 		return policy

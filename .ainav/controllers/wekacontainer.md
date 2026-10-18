@@ -20,6 +20,7 @@ Container states and their flow files:
 | File | Purpose |
 |------|---------|
 | `funcs_pod_ensure.go` | Pod creation/updates |
+| `funcs_exclusive_cpus.go` | Warning event at pod creation when the pod gets no exclusive CPUs |
 | `funcs_pod_termination.go` | Pod shutdown handling |
 | `funcs_drivers.go` | Driver loading state |
 | `funcs_drives.go` | Drive management |
