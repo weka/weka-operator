@@ -21,7 +21,7 @@ var ReservedVolumeNames = map[string]struct{}{
 	"weka-cluster-persistence-dir": {}, "weka-container-global-persistence-dir": {},
 	"weka-proxy-socket-dir": {}, "weka-ssdproxy-local-socket": {}, "node-info": {}, "weka-credentials": {},
 	"proc-sysrq-trigger": {}, "proc-cmdline": {}, "devenv": {}, "google-cloud-key": {}, "host-modules": {},
-	"host-usr-src": {}, "shared-weka-version": {}, "otel-packages": {},
+	"host-usr-src": {}, "shared-weka-version": {}, "otel-packages": {}, "weka-pod-runtime-data": {},
 	// The drivers container declares these alongside, not instead of, the host-* pair above;
 	// all are live volume names, so all are reserved (see resources/drivers.go).
 	"libmodules": {}, "usrsrc": {}, "gcloud-credentials": {},
@@ -39,7 +39,7 @@ var ReservedVolumeNames = map[string]struct{}{
 var ReservedMountPaths = []string{
 	"/dev", "/sys", "/host", "/host-binds", "/hostside", "/opt/weka",
 	"/opt/weka-global-persistence", "/var/run/secrets/weka-operator", "/usr/local/bin/weka",
-	"/etc/wekaio", "/etc/syslog-ng", "/shared-python-packages", "/shared-weka-version",
+	"/etc/wekaio", "/etc/syslog-ng", "/shared-python-packages", "/shared-weka-version", "/weka-pod-runtime-data",
 	"/var/log", "/lib/modules", "/usr/src", "/var/secrets/google",
 	// Files, not directories: the /-boundary rule means "/opt/weka" does not cover a sibling
 	// like "/opt/weka_runtime.py", so each of these needs its own entry.

@@ -1168,7 +1168,7 @@ func TestEnsureContainers_ExtendedPayloadPerNode_NoCrossNodeLeak(t *testing.T) {
 		if getErr := c.Get(ctx, client.ObjectKey{Name: name, Namespace: "default"}, container); getErr != nil {
 			t.Fatalf("failed to get container for %s: %v", nodeName, getErr)
 		}
-		var payload SignedDrivesExtendedPayload
+		var payload domain.SignedDrivesExtendedPayload
 		if unmarshalErr := json.Unmarshal([]byte(container.Spec.Instructions.Payload), &payload); unmarshalErr != nil {
 			t.Fatalf("failed to unmarshal instructions payload for %s: %v", nodeName, unmarshalErr)
 		}
