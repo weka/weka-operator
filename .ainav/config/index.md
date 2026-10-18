@@ -16,6 +16,7 @@ Use this map for operator settings, deployment templates and CRD definitions.
 
 - Capacity constraints: `CapacityPlannerConfig` is shared by both planners; `ClusterCapacityConfig` applies to clusterCapacity. `allocator.CapacityConstraintsFromConfig` wires them to the planner. See the [Helm constraints table](../../doc/operator/deployment/cluster-capacity.md) and [planner map](../controllers/wekacluster-drive-planning.md). `capacityPlannerConstraints` configures the algorithm; `capacityPlanner` configures the optional toolbox pod.
 - Pod security: `internal/controllers/resources/security_context.go` (`ApplySecurityProfile`, `mergePodSecurityContext`) applies `WEKA_POD_SECURITY_CONTEXT` / Helm `podSecurityContext`. Only supported fields are merged; inspect the helper before adding a field.
+- Pod runtime per mode (Go vs `weka_runtime.py`): `config.UsePythonRuntime`, Helm `wekaPodRuntime.pythonFallbackModes`. See "Runtime selection" in `doc/dev/pod-runtime-go-runtime.md`.
 - Management proxy: [management-proxy.md](../controllers/management-proxy.md).
 - Generated API reference: `doc/api_dump/` (do not edit); shared conditions live in `pkg/weka-k8s-api/api/v1alpha1/condition/conditions.go`.
 - Extra volumes: `manager.extraVolumes`/`extraVolumeMounts` (Helm) add volumes to the operator's

@@ -191,4 +191,8 @@
         <tags>reference site, GitHub Pages, mkdocs, website, crd-ref-docs, helm-docs, preview-docs.sh, docs.yaml, NAV_GROUPS</tags>
         <summary>How the public Helm chart and CRD reference site in website/ is generated, previewed locally and published to GitHub Pages.</summary>
     </file>
+    <file relpath="dev/pod-runtime-go-runtime.md">
+        <tags>pod runtime, weka_runtime.py, Go rewrite, runtime families, lifecycle coordinator, shutdown policy, python fallback, process manager, orphan reaping, mode runtime, startup order</tags>
+        <summary>Architecture explanation of the Go rewrite of weka_runtime.py: runtime families and mode mapping, startup order, the lifecycle coordinator's state machine and context tree, process ownership and reaping, the shutdown approval policy table, runtime selection between Go and weka_runtime.py, intentional differences from Python and known limitations.</summary>
+    </file>
 </documentation>
