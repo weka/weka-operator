@@ -11,7 +11,7 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/runtime/blockdev"
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
+	"github.com/weka/weka-operator/internal/runtime/process"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 // are skipped (a drive held by a running ssdproxy is unbound from the nvme driver and never listed;
 // this catches drives signed for proxy but not yet taken by it). discover-drives passes true,
 // ensure/shutdown paths pass false because the sign tool binary is absent from the weka container image.
-func FindWekaPartitions(ctx context.Context, useSignTool bool) ([]domain.DriveInfo, error) {
+func FindWekaPartitions(ctx context.Context, runner process.CommandRunner, useSignTool bool) ([]domain.DriveInfo, error) {
 	partNames, err := collectPartNames(ctx)
 	if err != nil {
 		return nil, err
@@ -34,7 +34,7 @@ func FindWekaPartitions(ctx context.Context, useSignTool bool) ([]domain.DriveIn
 
 	var proxyPaths map[string]struct{}
 	if useSignTool {
-		proxyPaths, err = ProxySignedPaths(ctx)
+		proxyPaths, err = ProxySignedPaths(ctx, runner)
 		if err != nil {
 			return nil, fmt.Errorf("ProxySignedPaths: %w", err)
 		}
@@ -49,7 +49,7 @@ func FindWekaPartitions(ctx context.Context, useSignTool bool) ([]domain.DriveIn
 		}
 		seen[partName] = struct{}{}
 
-		typeID, err := getPartEntryType(ctx, partName)
+		typeID, err := getPartEntryType(ctx, runner, partName)
 		if err != nil {
 			continue
 		}
@@ -57,7 +57,7 @@ func FindWekaPartitions(ctx context.Context, useSignTool bool) ([]domain.DriveIn
 			continue
 		}
 
-		signature, err := readDriveSignature(ctx, partName)
+		signature, err := readDriveSignature(ctx, runner, partName)
 		if err != nil {
 			signature = ""
 		}
@@ -135,19 +135,19 @@ func collectPartNames(_ context.Context) ([]string, error) {
 	return partNames, nil
 }
 
-func getPartEntryType(ctx context.Context, partName string) (string, error) {
-	out, err := cmdutil.Output(ctx, "blkid", "-s", "PART_ENTRY_TYPE", "-o", "value", "-p", "/dev/"+partName)
+func getPartEntryType(ctx context.Context, runner process.CommandRunner, partName string) (string, error) {
+	res, err := runner.Run(ctx, process.Command{Path: "blkid", Args: []string{"-s", "PART_ENTRY_TYPE", "-o", "value", "-p", "/dev/" + partName}})
 	if err != nil {
 		return "", fmt.Errorf("blkid for %s: %w", partName, err)
 	}
-	return strings.TrimSpace(string(out)), nil
+	return strings.TrimSpace(string(res.Stdout)), nil
 }
 
-func readDriveSignature(ctx context.Context, partName string) (string, error) {
+func readDriveSignature(ctx context.Context, runner process.CommandRunner, partName string) (string, error) {
 	// Read 16 bytes at offset 8, formatted as hex (matches Python hexdump -v -e '1/1 "%.2x"' -s 8 -n 16)
-	out, err := cmdutil.Output(ctx, "hexdump", "-v", "-e", `1/1 "%.2x"`, "-s", "8", "-n", "16", "/dev/"+partName)
+	res, err := runner.Run(ctx, process.Command{Path: "hexdump", Args: []string{"-v", "-e", `1/1 "%.2x"`, "-s", "8", "-n", "16", "/dev/" + partName}})
 	if err != nil {
 		return "", fmt.Errorf("hexdump for %s: %w", partName, err)
 	}
-	return strings.TrimSpace(string(out)), nil
+	return strings.TrimSpace(string(res.Stdout)), nil
 }

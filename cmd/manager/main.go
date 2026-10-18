@@ -103,6 +103,7 @@ func main() {
 		fmt.Println("OTEL_DEPLOYMENT_IDENTIFIER or POD_UID are not set, using generated one:", deploymentIdentifier)
 	}
 	fmt.Println("Using " + deploymentIdentifier + " as deployment identifier")
+	config.Config.Otel.DeploymentIdentifier = deploymentIdentifier
 
 	logger := logrInstance.WithValues("deployment_identifier", deploymentIdentifier)
 	ctx = obslogger.ContextWithLogr(ctx, logger)

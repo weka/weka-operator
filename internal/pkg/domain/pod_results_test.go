@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 )
 
@@ -210,4 +211,24 @@ func TestFeatureFlagsResult_JSONContract(t *testing.T) {
 			t.Error("feature_flags should not be null for non-nil struct")
 		}
 	})
+}
+
+func TestDriveNodeResults_DiscoveryFixture(t *testing.T) {
+	data, err := os.ReadFile("../../runtime/testdata/discovery_results.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got DriveNodeResults
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Err != nil || len(got.Drives) != 1 || len(got.RawDrives) != 1 || !got.KernelViewComplete {
+		t.Fatalf("unexpected decode: %+v", got)
+	}
+	if got.Drives[0].SerialId != "SN-0001" || got.Drives[0].DevicePath != "/dev/nvme0n1" || !got.Drives[0].IsSigned {
+		t.Errorf("drive not decoded: %+v", got.Drives[0])
+	}
+	if got.RawDrives[0].SerialId != "SN-0001" || got.RawDrives[0].CapacityGiB != 931 {
+		t.Errorf("raw drive not decoded: %+v", got.RawDrives[0])
+	}
 }

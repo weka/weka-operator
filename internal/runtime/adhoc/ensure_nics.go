@@ -9,8 +9,8 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
 	"github.com/weka/weka-operator/internal/runtime/config"
+	"github.com/weka/weka-operator/internal/runtime/process"
 	"github.com/weka/weka-operator/internal/runtime/results"
 )
 
@@ -28,21 +28,21 @@ type ensureNICsResult struct {
 // RunEnsureNICs runs the cloud-helper inside the adhoc container to provision NICs,
 // then writes the NIC list to results.json.
 // Mirrors Python ensure_nics() at weka_runtime.py:2474.
-func RunEnsureNICs(ctx context.Context, cfg *config.Config) error {
+func RunEnsureNICs(ctx context.Context, runner process.CommandRunner, payloadJSON string, aws config.AWS, resultsPath string) error {
 	var payload ensureNICsPayload
-	if err := json.Unmarshal([]byte(cfg.Instructions.Payload), &payload); err != nil {
+	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
 		return fmt.Errorf("ensure-nics: parse payload: %w", err)
 	}
 	if payload.Type != "aws" && payload.Type != "oci" {
 		return fmt.Errorf("ensure-nics: payload type %q not supported (must be 'aws' or 'oci')", payload.Type)
 	}
 
-	if err := cmdutil.Run(ctx, "mkdir", "-p", "/opt/weka/k8s-scripts"); err != nil {
+	if _, err := runner.Run(ctx, process.Command{Path: "mkdir", Args: []string{"-p", "/opt/weka/k8s-scripts"}}); err != nil {
 		return fmt.Errorf("ensure-nics: %w", err)
 	}
 
 	helperCmd := fmt.Sprintf("/weka/go-helpers/cloud-helper ensure-nics -n %d", payload.DataNICsNumber)
-	out, err := runEnsureNICsHelper(ctx, cfg, helperCmd)
+	out, err := runEnsureNICsHelper(ctx, runner, aws, helperCmd)
 	if err != nil {
 		return fmt.Errorf("ensure-nics: cloud-helper: %w", err)
 	}
@@ -61,7 +61,7 @@ func RunEnsureNICs(ctx context.Context, cfg *config.Config) error {
 		nics = nics[1:] // skip first VNIC, matches Python behavior
 	}
 
-	return results.Write(ensureNICsResult{Err: nil, Ensured: true, NICs: nics})
+	return results.Write(ctx, resultsPath, ensureNICsResult{Err: nil, Ensured: true, NICs: nics})
 }
 
 // runEnsureNICsHelper runs helperCmd inside the adhoc container. When the pod env carries an AWS
@@ -70,14 +70,14 @@ func RunEnsureNICs(ctx context.Context, cfg *config.Config) error {
 // because `weka local run` does not forward the pod's env into the nested container on its own.
 // Falls back to a plain invocation (node instance role via IMDS) otherwise.
 // Mirrors Python ensure_nics()'s use_web_identity branch at weka_runtime.py (commit dc0932f3).
-func runEnsureNICsHelper(ctx context.Context, cfg *config.Config, helperCmd string) ([]byte, error) {
+func runEnsureNICsHelper(ctx context.Context, runner process.CommandRunner, aws config.AWS, helperCmd string) ([]byte, error) {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
-	roleARN := cfg.AWSRoleARN
-	tokenFile := cfg.AWSWebIdentityTokenFile
-	region := cfg.AWSRegion
+	roleARN := aws.RoleARN
+	tokenFile := aws.WebIdentityTokenFile
+	region := aws.Region
 	if region == "" {
-		region = cfg.AWSDefaultRegion
+		region = aws.DefaultRegion
 	}
 	tokenPresent := false
 	if tokenFile != "" {
@@ -89,7 +89,8 @@ func runEnsureNICsHelper(ctx context.Context, cfg *config.Config, helperCmd stri
 	if roleARN == "" || !tokenPresent {
 		logger.Warn("ensure-nics: no IRSA web-identity in pod env, falling back to node instance role via IMDS",
 			"role_arn", roleARN, "token_file", tokenFile, "token_present", tokenPresent)
-		return cmdutil.Output(ctx, "weka", "local", "run", "--container", "adhoc", "sh", "-c", helperCmd)
+		res, err := runner.Run(ctx, process.Command{Path: "weka", Args: []string{"local", "run", "--container", "adhoc", "sh", "-c", helperCmd}})
+		return res.Stdout, err
 	}
 
 	token, err := os.ReadFile(tokenFile)
@@ -114,6 +115,13 @@ AWS_ROLE_ARN=%s AWS_WEB_IDENTITY_TOKEN_FILE=/dev/shm/aws-web-identity-token %sAW
 
 	logger.Info("ensure-nics: streaming IRSA web-identity into nested container via stdin", "role_arn", roleARN)
 	// Read the token ourselves and pipe it in directly instead of shelling out to `cat` and an
-	// outer `sh -c` (Python's shlex.quote dance): exec.Command's argv form needs no shell quoting.
-	return cmdutil.OutputWithStdin(ctx, bytes.NewReader(token), "weka", "local", "run", "--container", "adhoc", "sh", "-c", nested)
+	// outer `sh -c` (Python's shlex.quote dance): an argv-form command needs no shell quoting.
+	// Stdin + LogNone keeps the token out of args and out of logs.
+	res, err := runner.Run(ctx, process.Command{
+		Path:  "weka",
+		Args:  []string{"local", "run", "--container", "adhoc", "sh", "-c", nested},
+		Stdin: bytes.NewReader(token),
+		Log:   process.LogNone,
+	})
+	return res.Stdout, err
 }

@@ -2,6 +2,7 @@ package wekadrive
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -226,7 +227,7 @@ const realSignDriveListJSON = `{
 func mustParseSignDriveList(t *testing.T, jsonStr string) signDriveListOutput {
 	t.Helper()
 	var out signDriveListOutput
-	if err := parseSignDriveListJSON([]byte(jsonStr), &out); err != nil {
+	if err := json.Unmarshal([]byte(jsonStr), &out); err != nil {
 		t.Fatalf("JSON parse failed: %v", err)
 	}
 	return out

@@ -6,14 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/runtime/blockdev"
-	"github.com/weka/weka-operator/internal/runtime/cmdutil"
+	"github.com/weka/weka-operator/internal/runtime/process"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
@@ -75,21 +74,14 @@ type signDriveWekaInfo struct {
 	IsProxy     bool   `json:"is_proxy"`
 }
 
-// parseSignDriveListJSON is a thin helper that unmarshals raw JSON into a signDriveListOutput.
-// It is used by both the production callers and tests.
-func parseSignDriveListJSON(data []byte, out *signDriveListOutput) error {
-	return json.Unmarshal(data, out)
-}
-
 // filterClusterGUIDDrives returns a serial→path map from a parsed list, keeping only devices
 // that have a non-empty WekaInfo.ClusterGUID.  Devices with empty serial, empty path, or nil
 // WekaInfo are skipped.  hardware.Path takes priority over the top-level path field.
 func filterClusterGUIDDrives(parsed signDriveListOutput) map[string]string {
 	result := make(map[string]string, len(parsed.Devices))
-	for _, dev := range parsed.Devices {
-		// M9 review: plan stated Python reads top-level device['serial'], but the actual
-		// Python code at weka_runtime.py:513-515 reads hardware.get('serial_number') —
-		// identical to dev.Hardware.SerialNumber here.  No change needed; already correct.
+	for i := range parsed.Devices {
+		dev := &parsed.Devices[i]
+		// Serial comes from hardware.serial_number, as in Python (weka_runtime.py:513-515).
 		serial := dev.Hardware.SerialNumber
 		path := dev.Hardware.Path
 		if path == "" {
@@ -115,7 +107,8 @@ func filterClusterGUIDDrives(parsed signDriveListOutput) map[string]string {
 func extractProxyDrives(ctx context.Context, parsed signDriveListOutput) []domain.SharedDriveInfo {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 	var drives []domain.SharedDriveInfo
-	for _, dev := range parsed.Devices {
+	for i := range parsed.Devices {
+		dev := &parsed.Devices[i]
 		if dev.Status != "weka_formatted" {
 			continue
 		}
@@ -148,7 +141,7 @@ func extractProxyDrives(ctx context.Context, parsed signDriveListOutput) []domai
 
 // listDevicesWithSignTool runs `weka-sign-drive list -j` (using the proxy socket if requested and
 // present) and returns the parsed devices array. Mirrors Python _list_devices_with_sign_tool().
-func listDevicesWithSignTool(ctx context.Context, useProxySocket bool) ([]signDriveDevice, error) {
+func listDevicesWithSignTool(ctx context.Context, runner process.CommandRunner, useProxySocket bool) ([]signDriveDevice, error) {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	args := []string{}
@@ -160,10 +153,11 @@ func listDevicesWithSignTool(ctx context.Context, useProxySocket bool) ([]signDr
 	}
 	args = append(args, "list", "-j")
 
-	out, err := cmdutil.Output(ctx, "/weka-sign-drive", args...)
+	res, err := runner.Run(ctx, process.Command{Path: "/weka-sign-drive", Args: args})
 	if err != nil {
 		return nil, fmt.Errorf("weka-sign-drive list: %w", err)
 	}
+	out := res.Stdout
 
 	// Skip any non-JSON preamble (matches Python json_start = output_text.find('{'))
 	jsonStart := bytes.IndexByte(out, '{')
@@ -172,7 +166,7 @@ func listDevicesWithSignTool(ctx context.Context, useProxySocket bool) ([]signDr
 	}
 
 	var parsed signDriveListOutput
-	if jsonErr := parseSignDriveListJSON(out[jsonStart:], &parsed); jsonErr != nil {
+	if jsonErr := json.Unmarshal(out[jsonStart:], &parsed); jsonErr != nil {
 		return nil, fmt.Errorf("weka-sign-drive list: JSON parse: %w", jsonErr)
 	}
 	return parsed.Devices, nil
@@ -181,11 +175,11 @@ func listDevicesWithSignTool(ctx context.Context, useProxySocket bool) ([]signDr
 // GetDrivesWithClusterGUID runs `weka-sign-drive list -j` and returns a map of serial → path
 // for drives that have a cluster_guid (i.e. are claimed by a Weka cluster).
 // If useProxySocket is true and the socket file exists, the proxy socket is used.
-func GetDrivesWithClusterGUID(ctx context.Context, useProxySocket bool) (map[string]string, error) {
+func GetDrivesWithClusterGUID(ctx context.Context, runner process.CommandRunner, useProxySocket bool) (map[string]string, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetDrivesWithClusterGUID")
 	defer logger.End()
 
-	devices, err := listDevicesWithSignTool(ctx, useProxySocket)
+	devices, err := listDevicesWithSignTool(ctx, runner, useProxySocket)
 	if err != nil {
 		logger.Warn("list failed", "err", err)
 		return map[string]string{}, nil
@@ -203,11 +197,11 @@ const proxySignedGUID = "026938d8-a8a2-4ad4-a316-2f23358a1e7a"
 // ListAllProxyDrives runs `weka-sign-drive list -j` (using the proxy socket if available)
 // and returns SharedDriveInfo for every proxy-signed drive currently visible on the node.
 // Mirrors Python list_weka_proxy_drives_with_sign_tool().
-func ListAllProxyDrives(ctx context.Context) ([]domain.SharedDriveInfo, error) {
+func ListAllProxyDrives(ctx context.Context, runner process.CommandRunner) ([]domain.SharedDriveInfo, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "ListAllProxyDrives")
 	defer logger.End()
 
-	devices, err := listDevicesWithSignTool(ctx, true)
+	devices, err := listDevicesWithSignTool(ctx, runner, true)
 	if err != nil {
 		return nil, err
 	}
@@ -264,11 +258,11 @@ func drivesFromDevices(ctx context.Context, devices []signDriveDevice) map[strin
 
 // GetDrivesWithSignTool maps block device path to the sign tool's view of the drive.
 // Mirrors Python get_drives_with_sign_tool().
-func GetDrivesWithSignTool(ctx context.Context, useProxySocket bool) (map[string]SignToolDrive, error) {
+func GetDrivesWithSignTool(ctx context.Context, runner process.CommandRunner, useProxySocket bool) (map[string]SignToolDrive, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetDrivesWithSignTool")
 	defer logger.End()
 
-	devices, err := listDevicesWithSignTool(ctx, useProxySocket)
+	devices, err := listDevicesWithSignTool(ctx, runner, useProxySocket)
 	if err != nil {
 		return nil, err
 	}
@@ -279,8 +273,8 @@ func GetDrivesWithSignTool(ctx context.Context, useProxySocket bool) (map[string
 }
 
 // ProxySignedPaths returns the resolved device paths of drives signed for ssdproxy.
-func ProxySignedPaths(ctx context.Context) (map[string]struct{}, error) {
-	drives, err := GetDrivesWithSignTool(ctx, false)
+func ProxySignedPaths(ctx context.Context, runner process.CommandRunner) (map[string]struct{}, error) {
+	drives, err := GetDrivesWithSignTool(ctx, runner, false)
 	if err != nil {
 		return nil, err
 	}
@@ -355,20 +349,10 @@ func ExcludedPathsByRules(ctx context.Context, rules []weka.DriveExclusionRule, 
 	return excluded
 }
 
-// runWithStderr runs a command and returns stdout, stderr, and any error.
-// Used when callers need to inspect stderr independently of the error value.
-func runWithStderr(ctx context.Context, name string, args ...string) (stdout, stderr []byte, err error) {
-	var stderrBuf bytes.Buffer
-	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // args are controlled by internal callers
-	cmd.Stderr = &stderrBuf
-	stdout, err = cmd.Output()
-	return stdout, stderrBuf.Bytes(), err
-}
-
 // SignBatch signs paths in a single batch invocation of weka-sign-drive.
 // Falls back to per-device signing if the batch fails.
 // Returns the list of successfully signed paths.
-func SignBatch(ctx context.Context, paths []string, opts *SignOptions) ([]string, error) {
+func SignBatch(ctx context.Context, runner process.CommandRunner, paths []string, opts *SignOptions) ([]string, error) {
 	if len(paths) == 0 {
 		return nil, nil
 	}
@@ -381,7 +365,7 @@ func SignBatch(ctx context.Context, paths []string, opts *SignOptions) ([]string
 	args = append(args, "--")
 	args = append(args, paths...)
 
-	if _, err := cmdutil.Output(ctx, "/weka-sign-drive", args...); err == nil {
+	if _, err := runner.Run(ctx, process.Command{Path: "/weka-sign-drive", Args: args}); err == nil {
 		return paths, nil
 	} else {
 		logger.Warn("batch sign failed, falling back to per-device", "err", err)
@@ -392,7 +376,7 @@ func SignBatch(ctx context.Context, paths []string, opts *SignOptions) ([]string
 	for _, p := range paths {
 		perArgs := append([]string{"sign"}, flags...)
 		perArgs = append(perArgs, "--", p)
-		if _, err := cmdutil.Output(ctx, "/weka-sign-drive", perArgs...); err != nil {
+		if _, err := runner.Run(ctx, process.Command{Path: "/weka-sign-drive", Args: perArgs}); err != nil {
 			logger.Error(err, "failed to sign device", "path", p)
 			continue
 		}
@@ -403,7 +387,7 @@ func SignBatch(ctx context.Context, paths []string, opts *SignOptions) ([]string
 
 // SignBatchProxy signs paths using `weka-sign-drive sign proxy` and returns SharedDriveInfo for each.
 // Falls back to per-device signing if the batch fails.
-func SignBatchProxy(ctx context.Context, paths []string, opts *SignOptions) ([]domain.SharedDriveInfo, error) {
+func SignBatchProxy(ctx context.Context, runner process.CommandRunner, paths []string, opts *SignOptions) ([]domain.SharedDriveInfo, error) {
 	if len(paths) == 0 {
 		return nil, nil
 	}
@@ -416,10 +400,10 @@ func SignBatchProxy(ctx context.Context, paths []string, opts *SignOptions) ([]d
 	args = append(args, "--")
 	args = append(args, paths...)
 
-	if _, err := cmdutil.Output(ctx, "/weka-sign-drive", args...); err == nil {
+	if _, err := runner.Run(ctx, process.Command{Path: "/weka-sign-drive", Args: args}); err == nil {
 		var infos []domain.SharedDriveInfo
 		for _, p := range paths {
-			info, infoErr := GetProxyDriveInfo(ctx, p)
+			info, infoErr := GetProxyDriveInfo(ctx, runner, p)
 			if infoErr != nil {
 				logger.Warn("failed to get proxy drive info", "path", p, "err", infoErr)
 				continue
@@ -436,14 +420,15 @@ func SignBatchProxy(ctx context.Context, paths []string, opts *SignOptions) ([]d
 	for _, p := range paths {
 		perArgs := append([]string{"sign", "proxy"}, flags...)
 		perArgs = append(perArgs, "--", p)
-		_, perStderr, perErr := runWithStderr(ctx, "/weka-sign-drive", perArgs...)
+		perRes, perErr := runner.Run(ctx, process.Command{Path: "/weka-sign-drive", Args: perArgs})
+		perStderr := perRes.Stderr
 		if perErr != nil {
 			// Python sign_device_path_for_proxy (weka_runtime.py:559-581): if stderr contains
 			// "already a Weka partition" the drive is already proxy-signed — not an error.
 			// Read existing drive metadata and include the drive in the result set.
 			if strings.Contains(string(perStderr), "already a Weka partition") {
 				logger.Info("device already proxy-signed, reading existing metadata", "path", p)
-				info, infoErr := GetProxyDriveInfo(ctx, p)
+				info, infoErr := GetProxyDriveInfo(ctx, runner, p)
 				if infoErr != nil {
 					logger.Warn("failed to get proxy drive info for already-signed device", "path", p, "err", infoErr)
 					continue
@@ -454,7 +439,7 @@ func SignBatchProxy(ctx context.Context, paths []string, opts *SignOptions) ([]d
 			logger.Error(perErr, "failed to sign device for proxy", "path", p, "stderr", string(perStderr))
 			continue
 		}
-		info, infoErr := GetProxyDriveInfo(ctx, p)
+		info, infoErr := GetProxyDriveInfo(ctx, runner, p)
 		if infoErr != nil {
 			logger.Warn("failed to get proxy drive info after per-device sign", "path", p, "err", infoErr)
 			continue
@@ -499,17 +484,17 @@ func iuSizeToDriveType(iuSize int) string {
 }
 
 // GetProxyDriveInfo queries weka-sign-drive show for a single path and returns the SharedDriveInfo.
-func GetProxyDriveInfo(ctx context.Context, path string) (domain.SharedDriveInfo, error) {
+func GetProxyDriveInfo(ctx context.Context, runner process.CommandRunner, path string) (domain.SharedDriveInfo, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetProxyDriveInfo", "path", path)
 	defer logger.End()
 
-	out, err := cmdutil.Output(ctx, "/weka-sign-drive", "show", path, "--json")
+	res, err := runner.Run(ctx, process.Command{Path: "/weka-sign-drive", Args: []string{"show", path, "--json"}})
 	if err != nil {
 		return domain.SharedDriveInfo{}, fmt.Errorf("weka-sign-drive show %s: %w", path, err)
 	}
 
 	var parsed signDriveShowOutput
-	if jsonErr := json.Unmarshal(out, &parsed); jsonErr != nil {
+	if jsonErr := json.Unmarshal(res.Stdout, &parsed); jsonErr != nil {
 		return domain.SharedDriveInfo{}, fmt.Errorf("weka-sign-drive show %s: JSON parse: %w", path, jsonErr)
 	}
 
@@ -546,7 +531,7 @@ func GetProxyDriveInfo(ctx context.Context, path string) (domain.SharedDriveInfo
 	}
 	capacityGiB := int(sizeBytes / (1024 * 1024 * 1024))
 	if capacityGiB == 0 {
-		if devCap, capErr := blockdev.GetCapacityGiB(ctx, path); capErr == nil {
+		if devCap, capErr := blockdev.GetCapacityGiB(ctx, runner, path); capErr == nil {
 			capacityGiB = devCap
 		} else {
 			logger.Warn("failed to get capacity via blockdev", "err", capErr)
