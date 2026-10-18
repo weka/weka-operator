@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/runtime/agent"
 	"github.com/weka/weka-operator/internal/runtime/cmdutil"
 	"github.com/weka/weka-operator/internal/runtime/config"
@@ -42,6 +43,9 @@ var (
 // loadResources waits for node resources to become available, loads them, and
 // populates cfg with the resource values.
 func loadResources(ctx context.Context, cfg *config.Config) (*resources.NodeResources, error) {
+	if !domain.NeedsOperatorResources(cfg.Mode) {
+		return nil, nil
+	}
 	bootID := shutdown.GetBootID()
 	abort := func() bool {
 		return shutdown.GetShutdownInstructions(cfg.PodID, bootID).AllowStop
@@ -220,8 +224,8 @@ func updateCfgFromResources(cfg *config.Config, res *resources.NodeResources) {
 	if cfg.AgentPort == 0 && res.AgentPort != 0 && cfg.Mode != "telemetry" {
 		cfg.AgentPort = res.AgentPort
 	}
-	if res.FailureDomain != "" {
-		cfg.FailureDomain = res.FailureDomain
+	if res.FailureDomain != nil {
+		cfg.FailureDomain = *res.FailureDomain
 	}
 	if res.MachineIdentifier != "" {
 		cfg.MachineIdentifier = res.MachineIdentifier
