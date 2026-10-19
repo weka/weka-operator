@@ -18,3 +18,27 @@ func (r *containerReconcilerLoop) GetFeatureFlags(ctx context.Context) (*domain.
 		r.container,
 	)
 }
+
+// ssdProxyUsesVidLabel reports the node ssdproxy image's ssd_proxy_vid_label_add flag, which decides
+// whether the allocator fills in the VID or leaves it for the proxy to return.
+func (r *containerReconcilerLoop) ssdProxyUsesVidLabel(ctx context.Context) (bool, error) {
+	proxy, err := r.findSSDProxyOnNode(ctx)
+	if err != nil {
+		return false, err
+	}
+	image := proxy.Status.LastAppliedImage
+	if image == "" {
+		image = proxy.Spec.Image
+	}
+	// The ssdproxy runtime never writes its feature flags file, so they come from the image.
+	flags, err := operations.GetFeatureFlagsForImage(ctx, r.Manager.GetClient(), r.Manager.GetScheme(), &operations.AdhocContainerParams{
+		Image:           image,
+		NodeAffinity:    proxy.GetNodeAffinity(),
+		ImagePullSecret: proxy.Spec.ImagePullSecret,
+		Tolerations:     proxy.Spec.Tolerations,
+	})
+	if err != nil {
+		return false, err
+	}
+	return flags.SsdProxyVidLabelAdd, nil
+}

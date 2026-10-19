@@ -448,6 +448,13 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 		return nil
 	}
 
+	if container.UsesDriveSharing() {
+		reallocRequest.SsdProxyVidLabelAdd, err = r.ssdProxyUsesVidLabel(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Use ReallocateDrives for both regular and virtual drives
 	containerAllocator := allocator.NewContainerResourceAllocator(r.Client)
 
