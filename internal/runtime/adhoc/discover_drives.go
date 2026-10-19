@@ -16,19 +16,22 @@ func RunDiscoverDrives(ctx context.Context, runner process.CommandRunner, result
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "RunDiscoverDrives")
 	defer logger.End()
 
+	return results.Write(ctx, resultsPath, discoverDriveResults(ctx, runner))
+}
+
+func discoverDriveResults(ctx context.Context, runner process.CommandRunner) domain.DriveNodeResults {
 	// use_sign_tool=true: mirrors Python discover_drives() calling find_weka_drives() with its
 	// default, so drives signed for ssdproxy but not yet taken by it are skipped.
 	drives, err := wekadrive.FindWekaPartitions(ctx, runner, true)
 	if err != nil {
-		logger.Info("FindWekaPartitions failed, continuing with empty drives list", "err", err.Error())
+		instrumentation.CurrentSpanLogger(ctx).Info("FindWekaPartitions failed, continuing with empty drives list", "err", err.Error())
 		drives = nil
 	}
 
 	rawDrives, rawOK := collectRawDrives(ctx, runner)
-	return results.Write(ctx, resultsPath, domain.DriveNodeResults{
-		Err:                nil,
+	return domain.DriveNodeResults{
 		Drives:             drives,
 		RawDrives:          rawDrives,
 		KernelViewComplete: rawOK && blockdev.IsKernelViewComplete(ctx),
-	})
+	}
 }

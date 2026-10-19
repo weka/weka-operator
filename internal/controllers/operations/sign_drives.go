@@ -710,8 +710,14 @@ func (o *SignDrivesOperation) ProcessResult(ctx context.Context) error {
 	return err
 }
 
+type signDrivesNodeCounts struct {
+	Signed        int `json:"signed"`
+	AlreadySigned int `json:"alreadySigned"`
+	Excluded      int `json:"excluded"`
+	Total         int `json:"total"` // all Weka-signed drives discovered on the node after the run
+}
+
 func (o *SignDrivesOperation) GetJsonResult() string {
-	total := 0
 	errs := []string{}
 	maxErrors := 5
 
@@ -719,13 +725,20 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 		return o.results.Err
 	}
 
-	drivesByNode := map[string]int{}
+	var total signDrivesNodeCounts
+	countsByNode := map[string]signDrivesNodeCounts{}
 	for nodeName, nodeResults := range o.results.Results {
-		drivesCount := len(nodeResults.Drives) + len(nodeResults.ProxyDrives)
-		total += drivesCount
-		if drivesCount > 0 {
-			drivesByNode[nodeName] = drivesCount
+		c := signDrivesNodeCounts{
+			Signed:        nodeResults.Signed,
+			AlreadySigned: nodeResults.AlreadySigned,
+			Excluded:      nodeResults.Excluded,
+			Total:         len(nodeResults.Drives) + len(nodeResults.ProxyDrives),
 		}
+		countsByNode[nodeName] = c
+		total.Signed += c.Signed
+		total.AlreadySigned += c.AlreadySigned
+		total.Excluded += c.Excluded
+		total.Total += c.Total
 		if nodeResults.Err != nil {
 			if len(errs) < maxErrors {
 				errs = append(errs, *nodeResults.Err)
@@ -734,9 +747,12 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 	}
 
 	ret := map[string]any{}
-	if len(drivesByNode) > 0 {
-		ret["results"] = drivesByNode
-		ret["message"] = fmt.Sprintf("Signed %d drives on %d nodes", total, len(o.results.Results))
+	if len(countsByNode) > 0 {
+		ret["results"] = countsByNode
+	}
+	if total.Signed > 0 {
+		ret["message"] = fmt.Sprintf("Signed %d drives on %d nodes (%d already signed, %d excluded, %d total)",
+			total.Signed, len(countsByNode), total.AlreadySigned, total.Excluded, total.Total)
 	} else {
 		ret["message"] = "No new drives signed"
 	}
@@ -747,7 +763,7 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 	resultJSON, _ := json.Marshal(ret) //nolint:errcheck // marshal of known-serializable struct; error not possible
 	res := string(resultJSON)
 
-	if len(drivesByNode) > 0 {
+	if total.Signed > 0 {
 		_ = o.RecordEvent("SignDrives", consts.ActionSignDrives, res) //nolint:errcheck // event recording is best-effort; error not actionable
 	}
 	return res

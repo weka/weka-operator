@@ -26,6 +26,10 @@ type DriveNodeResults struct {
 	RawDrives          []DriveRawInfo    `json:"raw_drives"`
 	ProxyDrives        []SharedDriveInfo `json:"proxy_drives,omitempty"`
 	KernelViewComplete bool              `json:"kernel_view_complete"` // every NVMe PCI slot is bound to the kernel "nvme" driver
+	// Set only by sign-drives; absent (plain discovery or a runtime that predates them) reads as 0.
+	Signed        int `json:"signed,omitempty"`
+	AlreadySigned int `json:"already_signed,omitempty"`
+	Excluded      int `json:"excluded,omitempty"`
 }
 
 // ResignDrivesResult is written by force-resign-drives adhoc operation.

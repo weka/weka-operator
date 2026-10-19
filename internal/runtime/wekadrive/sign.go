@@ -385,11 +385,12 @@ func SignBatch(ctx context.Context, runner process.CommandRunner, paths []string
 	return signed, nil
 }
 
-// SignBatchProxy signs paths using `weka-sign-drive sign proxy` and returns SharedDriveInfo for each.
+// SignBatchProxy signs paths using `weka-sign-drive sign proxy` and returns SharedDriveInfo for each
+// drive it signed, plus how many drives the per-device fallback found already proxy-signed.
 // Falls back to per-device signing if the batch fails.
-func SignBatchProxy(ctx context.Context, runner process.CommandRunner, paths []string, opts *SignOptions) ([]domain.SharedDriveInfo, error) {
+func SignBatchProxy(ctx context.Context, runner process.CommandRunner, paths []string, opts *SignOptions) ([]domain.SharedDriveInfo, int, error) {
 	if len(paths) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "SignBatchProxy")
@@ -410,30 +411,25 @@ func SignBatchProxy(ctx context.Context, runner process.CommandRunner, paths []s
 			}
 			infos = append(infos, info)
 		}
-		return infos, nil
+		return infos, 0, nil
 	} else {
 		logger.Warn("batch sign failed, falling back to per-device", "err", err)
 	}
 
 	// Per-device fallback
 	var infos []domain.SharedDriveInfo
+	alreadySigned := 0
 	for _, p := range paths {
 		perArgs := append([]string{"sign", "proxy"}, flags...)
 		perArgs = append(perArgs, "--", p)
 		perRes, perErr := runner.Run(ctx, process.Command{Path: "/weka-sign-drive", Args: perArgs})
 		perStderr := perRes.Stderr
 		if perErr != nil {
-			// Python sign_device_path_for_proxy (weka_runtime.py:559-581): if stderr contains
-			// "already a Weka partition" the drive is already proxy-signed — not an error.
-			// Read existing drive metadata and include the drive in the result set.
+			// Mirrors Python sign_device_path_for_proxy: an already proxy-signed drive is not an error,
+			// and it is not reported as signed by this run.
 			if strings.Contains(string(perStderr), "already a Weka partition") {
-				logger.Info("device already proxy-signed, reading existing metadata", "path", p)
-				info, infoErr := GetProxyDriveInfo(ctx, runner, p)
-				if infoErr != nil {
-					logger.Warn("failed to get proxy drive info for already-signed device", "path", p, "err", infoErr)
-					continue
-				}
-				infos = append(infos, info)
+				logger.Info("device already proxy-signed, not counting it as signed", "path", p)
+				alreadySigned++
 				continue
 			}
 			logger.Error(perErr, "failed to sign device for proxy", "path", p, "stderr", string(perStderr))
@@ -446,7 +442,7 @@ func SignBatchProxy(ctx context.Context, runner process.CommandRunner, paths []s
 		}
 		infos = append(infos, info)
 	}
-	return infos, nil
+	return infos, alreadySigned, nil
 }
 
 // signDriveShowOutput matches the JSON produced by `weka-sign-drive show <path> --json`.

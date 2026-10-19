@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -1328,4 +1329,90 @@ func TestApplyDriveTypeOverrides_StaleCachedRead_NoBogusDenominator(t *testing.T
 	if len(rules) != 1 {
 		t.Errorf("persisted rules = %d, want 1 (a not-yet-signed node still stores the rules)", len(rules))
 	}
+}
+
+func TestSignDrivesGetJsonResult(t *testing.T) {
+	boom := "boom"
+	tests := []struct {
+		name      string
+		results   map[string]domain.DriveNodeResults
+		wantMsg   string
+		wantNodes map[string]signDrivesNodeCounts
+		wantErrs  []string
+		wantEvent bool
+	}{
+		{
+			name:      "signed only",
+			results:   map[string]domain.DriveNodeResults{"n1": {Drives: make([]domain.DriveInfo, 2), Signed: 2}},
+			wantMsg:   "Signed 2 drives on 1 nodes (0 already signed, 0 excluded, 2 total)",
+			wantNodes: map[string]signDrivesNodeCounts{"n1": {Signed: 2, Total: 2}},
+			wantEvent: true,
+		},
+		{
+			name: "signed, already signed and excluded across two nodes",
+			results: map[string]domain.DriveNodeResults{
+				"n1": {Drives: make([]domain.DriveInfo, 6), Signed: 1, AlreadySigned: 5},
+				"n2": {ProxyDrives: make([]domain.SharedDriveInfo, 1), AlreadySigned: 3, Excluded: 1},
+			},
+			wantMsg:   "Signed 1 drives on 2 nodes (8 already signed, 1 excluded, 7 total)",
+			wantNodes: map[string]signDrivesNodeCounts{"n1": {Signed: 1, AlreadySigned: 5, Total: 6}, "n2": {AlreadySigned: 3, Excluded: 1, Total: 1}},
+			wantEvent: true,
+		},
+		{
+			name:      "nothing signed",
+			results:   map[string]domain.DriveNodeResults{"n1": {Drives: make([]domain.DriveInfo, 2), AlreadySigned: 2}},
+			wantMsg:   "No new drives signed",
+			wantNodes: map[string]signDrivesNodeCounts{"n1": {AlreadySigned: 2, Total: 2}},
+		},
+		{
+			name:      "per-node errors",
+			results:   map[string]domain.DriveNodeResults{"n1": {Err: &boom}, "n2": {Signed: 3}},
+			wantMsg:   "Signed 3 drives on 2 nodes (0 already signed, 0 excluded, 0 total)",
+			wantNodes: map[string]signDrivesNodeCounts{"n1": {}, "n2": {Signed: 3}},
+			wantErrs:  []string{"boom"},
+			wantEvent: true,
+		},
+		{
+			name:      "runtime without counts reads as zero",
+			results:   map[string]domain.DriveNodeResults{"n1": unmarshalNodeResult(t, `{"drives":[{},{},{}]}`)},
+			wantMsg:   "No new drives signed",
+			wantNodes: map[string]signDrivesNodeCounts{"n1": {Total: 3}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := events.NewFakeRecorder(10)
+			op := &SignDrivesOperation{results: DiscoverDrivesResult{Results: tt.results}, recorder: recorder, ownerRef: testOwnerRef()}
+
+			var got struct {
+				Message string                          `json:"message"`
+				Results map[string]signDrivesNodeCounts `json:"results"`
+				Errors  []string                        `json:"errors"`
+			}
+			if err := json.Unmarshal([]byte(op.GetJsonResult()), &got); err != nil {
+				t.Fatalf("unmarshal result: %v", err)
+			}
+			if got.Message != tt.wantMsg {
+				t.Errorf("message = %q, want %q", got.Message, tt.wantMsg)
+			}
+			if !maps.Equal(got.Results, tt.wantNodes) {
+				t.Errorf("results = %+v, want %+v", got.Results, tt.wantNodes)
+			}
+			if !slices.Equal(got.Errors, tt.wantErrs) {
+				t.Errorf("errors = %v, want %v", got.Errors, tt.wantErrs)
+			}
+			if gotEvent := len(recorder.Events) > 0; gotEvent != tt.wantEvent {
+				t.Errorf("event recorded = %v, want %v", gotEvent, tt.wantEvent)
+			}
+		})
+	}
+}
+
+func unmarshalNodeResult(t *testing.T, raw string) domain.DriveNodeResults {
+	t.Helper()
+	var r domain.DriveNodeResults
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	return r
 }

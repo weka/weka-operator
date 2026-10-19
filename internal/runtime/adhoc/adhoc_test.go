@@ -2,13 +2,19 @@ package adhoc
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/runtime/config"
 	"github.com/weka/weka-operator/internal/runtime/process"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 // fakeRunner returns a scripted result per binary path, matching the pattern used
@@ -182,5 +188,116 @@ func TestCollectRawDrives_FindDisksFailureReportsNotOK(t *testing.T) {
 	drives, ok := collectRawDrives(context.Background(), runner)
 	if ok || drives != nil {
 		t.Errorf("collectRawDrives() = (%v, %v), want (nil, false)", drives, ok)
+	}
+}
+
+type instantClock struct{}
+
+func (instantClock) Now() time.Time { return time.Time{} }
+func (instantClock) After(time.Duration) <-chan time.Time {
+	ch := make(chan time.Time, 1)
+	ch <- time.Time{}
+	return ch
+}
+
+// signToolRunner fakes /weka-sign-drive: `list -j` returns list, `show <p>` reports p as proxy-signed,
+// and a sign of exactly one path returns perDevice[path]. Any other sign (the batch) returns batchErr.
+// Every other binary fails, so discovery reports no drives.
+type signToolRunner struct {
+	list      string
+	batchErr  error
+	perDevice map[string]process.Result
+	signed    [][]string
+}
+
+func (r *signToolRunner) Run(_ context.Context, c process.Command) (process.Result, error) {
+	if c.Path != "/weka-sign-drive" {
+		return process.Result{}, os.ErrNotExist
+	}
+	switch c.Args[0] {
+	case "list":
+		return process.Result{Stdout: []byte(r.list)}, nil
+	case "show":
+		return process.Result{Stdout: []byte(`{"partitions":[{"header":{"physical_uuid":"u","is_proxy":true}}],"hardware":{"serial_number":"s","size_bytes":1073741824}}`)}, nil
+	case "sign":
+		paths := c.Args[slices.Index(c.Args, "--")+1:]
+		r.signed = append(r.signed, paths)
+		if len(paths) == 1 {
+			if res, ok := r.perDevice[paths[0]]; ok {
+				if res.ExitCode != 0 {
+					return res, errors.New("exit status 1")
+				}
+				return res, nil
+			}
+		}
+		return process.Result{}, r.batchErr
+	}
+	return process.Result{}, os.ErrNotExist
+}
+
+func runSignDrives(t *testing.T, runner process.CommandRunner, payload domain.SignedDrivesExtendedPayload) domain.DriveNodeResults {
+	t.Helper()
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultsPath := filepath.Join(t.TempDir(), "results.json")
+	if err = RunSignDrives(context.Background(), runner, instantClock{}, string(payloadJSON), resultsPath); err != nil {
+		t.Fatalf("RunSignDrives() error = %v", err)
+	}
+	data, err := os.ReadFile(resultsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res domain.DriveNodeResults
+	if err = json.Unmarshal(data, &res); err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func TestRunSignDrivesCountsFull(t *testing.T) {
+	// a: annotated + cluster GUID + rule match -> already signed only. c: rule match -> excluded.
+	// x, y: already signed / rule-matched but not candidates of this run -> not counted.
+	// b: annotated serial without a cluster GUID -> signed again.
+	runner := &signToolRunner{list: `{"devices":[
+		{"path":"/dev/a","hardware":{"serial_number":"SA","model":"EXCL"},"weka_info":{"cluster_guid":"g"}},
+		{"path":"/dev/b","hardware":{"serial_number":"SB"}},
+		{"path":"/dev/c","hardware":{"serial_number":"SC","model":"EXCL"}},
+		{"path":"/dev/x","hardware":{"serial_number":"SX"},"weka_info":{"cluster_guid":"g"}},
+		{"path":"/dev/y","hardware":{"serial_number":"SY","model":"EXCL"}}]}`}
+	res := runSignDrives(t, runner, domain.SignedDrivesExtendedPayload{
+		SignDrivesPayload: weka.SignDrivesPayload{
+			Type:            "device-paths",
+			DevicePaths:     []string{"/dev/a", "/dev/b", "/dev/c", "/dev/d", "/dev/e"},
+			DriveExclusions: &weka.DriveExclusions{Rules: []weka.DriveExclusionRule{{Model: "EXCL"}}},
+		},
+		ExcludedSerialIds: []string{"SA", "SB", "SX"},
+	})
+
+	if got, want := runner.signed, [][]string{{"/dev/b", "/dev/d", "/dev/e"}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("signed paths = %v, want %v", got, want)
+	}
+	if res.Signed != 3 || res.AlreadySigned != 1 || res.Excluded != 1 {
+		t.Errorf("counts = signed %d, alreadySigned %d, excluded %d; want 3, 1, 1", res.Signed, res.AlreadySigned, res.Excluded)
+	}
+}
+
+func TestRunSignDrivesCountsSharedFallback(t *testing.T) {
+	runner := &signToolRunner{
+		list:     `{"devices":[]}`,
+		batchErr: errors.New("batch failed"),
+		perDevice: map[string]process.Result{
+			"/dev/a": {},
+			"/dev/b": {ExitCode: 1, Stderr: []byte("/dev/b is already a Weka partition")},
+			"/dev/c": {ExitCode: 1, Stderr: []byte("some other failure")},
+		},
+	}
+	res := runSignDrives(t, runner, domain.SignedDrivesExtendedPayload{
+		SignDrivesPayload: weka.SignDrivesPayload{Type: "device-paths", DevicePaths: []string{"/dev/a", "/dev/b", "/dev/c"}, Shared: true},
+	})
+
+	if res.Signed != 1 || res.AlreadySigned != 1 || res.Excluded != 0 {
+		t.Errorf("counts = signed %d, alreadySigned %d, excluded %d; want 1, 1, 0", res.Signed, res.AlreadySigned, res.Excluded)
 	}
 }
