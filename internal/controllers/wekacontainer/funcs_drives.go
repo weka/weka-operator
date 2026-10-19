@@ -215,6 +215,12 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		// keep doing so on every pass for as long as its proxy erase kept failing.
 		blockedVids := r.blockedVirtualUuidSet(ctx)
 
+		// A failed RemoveDrivesByPhysicalUuids keeps the allocation, and that step continues on error.
+		blockedPhysical, err := r.getNodeBlockedDriveUuids(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get blocked drive UUIDs from node: %w", err)
+		}
+
 		// Add each virtual drive to the cluster
 		for _, vd := range container.Status.Allocations.VirtualDrives {
 			_, l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "serial", vd.Serial, "physical_uuid", vd.PhysicalUUID)
@@ -226,6 +232,11 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 			if blockedVids[vd.VirtualUUID] {
 				l.Info("Virtual drive is blocked on the node, skipping until its removal completes")
+				continue
+			}
+
+			if slices.Contains(blockedPhysical, vd.PhysicalUUID) {
+				l.Info("Physical drive is blocked on the node, skipping virtual drive until its removal completes")
 				continue
 			}
 
@@ -678,13 +689,14 @@ func (r *containerReconcilerLoop) RemoveDrivesByPhysicalUuids(ctx context.Contex
 	}
 
 	// Dropping an allocation whose VID the proxy still holds would orphan it. Pending ones are removed
-	// by label; ones with a VID that never reached weka are removed by VID.
+	// by label; ones with a VID missing from AddedDrives are removed by VID from weka and the proxy.
 	proxyClient := ssdproxy.NewClient(r.KubeService)
 	addedVids := make(map[string]bool, len(container.Status.AddedDrives))
 	for _, d := range container.Status.AddedDrives {
 		addedVids[d.Uuid] = true
 	}
 	var onProxy map[string]bool
+	var wekaService services.WekaService
 	dropsAllocations := false
 	if container.Status.Allocations != nil {
 		for _, vd := range container.Status.Allocations.VirtualDrives {
@@ -693,6 +705,10 @@ func (r *containerReconcilerLoop) RemoveDrivesByPhysicalUuids(ctx context.Contex
 			}
 			switch {
 			case vidPending(&vd):
+				if container.Spec.GetOverrides().SkipVirtualDrivesRemoval {
+					dropsAllocations = true
+					continue
+				}
 				if onProxy == nil {
 					onProxy, err = proxyPhysicalUuids(ctx, proxyClient, agentPod, token, string(ssdproxyContainer.GetUID()))
 					if err != nil {
@@ -704,10 +720,13 @@ func (r *containerReconcilerLoop) RemoveDrivesByPhysicalUuids(ctx context.Contex
 				}
 				dropsAllocations = true
 			case vd.VirtualUUID != "" && !addedVids[vd.VirtualUUID]:
-				if _, listed := virtualToPhysicalUuidsMap[vd.VirtualUUID]; listed {
-					if err = proxyClient.RemoveVirtualDrive(ctx, agentPod, token, string(ssdproxyContainer.GetUID()), vd.VirtualUUID); err != nil {
-						return fmt.Errorf("failed to remove virtual drive %s: %w", vd.VirtualUUID, err)
-					}
+				// AddedDrives is refreshed only while the container is READY, so weka may still hold the VID.
+				if wekaService == nil {
+					timeout := time.Minute * 2
+					wekaService = services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
+				}
+				if err = r.removeVirtualDriveFromWekaAndProxy(ctx, vd.VirtualUUID, wekaService, string(ssdproxyContainer.GetUID()), agentPod, token); err != nil {
+					return fmt.Errorf("failed to remove virtual drive %s: %w", vd.VirtualUUID, err)
 				}
 				dropsAllocations = true
 			}

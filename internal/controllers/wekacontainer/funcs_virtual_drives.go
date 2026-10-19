@@ -146,7 +146,7 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 		}
 
 		if vidLost(vd) {
-			err := fmt.Errorf("VID %s of label %s is missing on the proxy; re-adding it by virtualUuid would not recreate the label-derived VID", vd.VirtualUUID, vd.Label)
+			err := fmt.Errorf("VID %s of label %s is missing on the proxy; re-adding it by virtualUuid would not recreate the label-derived VID; block the VID to replace it", vd.VirtualUUID, vd.Label)
 			_ = r.RecordEvent(v1.EventTypeWarning, "VirtualDriveVidMismatch", consts.ActionManageDrives, err.Error()) //nolint:errcheck // error return value intentionally not checked
 			errs = append(errs, err)
 			continue
@@ -400,14 +400,18 @@ func (r *containerReconcilerLoop) removeVirtualDriveViaProxy(
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "removeVirtualDriveViaProxy", "virtual_uuid", virtualDriveUuid)
 	defer logger.End()
 
-	// Query first - check if VD exists
-	existingVDs, err := r.getAddedVirtualDrives(ctx, ssdproxyUID, agentPod, token)
+	// Query across every physical drive, not just the allocated ones: a blocked physical drive is
+	// already gone from the allocations but may still hold the VID.
+	proxyHolds := func() (bool, error) {
+		vds, err := r.ssdProxyListVirtualDrives(ctx, ssdproxyUID, agentPod, token)
+		return slices.ContainsFunc(vds, func(vd ssdproxy.VirtualDrive) bool { return vd.VirtualUUID == virtualDriveUuid }), err
+	}
+
+	held, err := proxyHolds()
 	if err != nil {
 		return fmt.Errorf("failed to query existing virtual drives: %w", err)
 	}
-
-	// If VD doesn't exist, treat as already deleted
-	if !existingVDs[virtualDriveUuid] {
+	if !held {
 		logger.Info("Virtual drive does not exist on proxy, treating as already deleted", "virtual_uuid", virtualDriveUuid)
 		return nil
 	}
@@ -418,13 +422,13 @@ func (r *containerReconcilerLoop) removeVirtualDriveViaProxy(
 	}
 
 	// Defensively verify removal via query before returning success
-	verifyVDs, verifyErr := r.getAddedVirtualDrives(ctx, ssdproxyUID, agentPod, token)
+	held, verifyErr := proxyHolds()
 	if verifyErr != nil {
 		logger.Error(verifyErr, "Could not verify removal via query, but deletion call succeeded", "virtual_uuid", virtualDriveUuid)
 		return fmt.Errorf("could not verify removal via query, but deletion call succeeded %s: %w", virtualDriveUuid, verifyErr)
 	}
 
-	if verifyVDs[virtualDriveUuid] {
+	if held {
 		return fmt.Errorf("virtual drive %s still exists after deletion call, may be transient", virtualDriveUuid)
 	}
 
@@ -497,10 +501,20 @@ func (r *containerReconcilerLoop) getAddedVirtualDrives(ctx context.Context, ssd
 		return make(map[string]bool), nil
 	}
 
+	// Listing a physical drive the proxy no longer has fails, and it holds no VIDs anyway.
+	onProxy, err := proxyPhysicalUuids(ctx, ssdproxy.NewClient(r.KubeService), agentPod, token, ssdproxyContainerUuid)
+	if err != nil {
+		return nil, err
+	}
+
 	// Query each physical drive via JSONRPC
 	addedVirtualDrives := make(map[string]bool)
 	for _, physicalUUID := range physicalUUIDs {
 		physCtx, l := logger.WithValues("physical_uuid", physicalUUID)
+		if !onProxy[physicalUUID] {
+			l.Info("Physical drive is not on the proxy, it holds no virtual drives")
+			continue
+		}
 		l.Info("Querying virtual drives for physical drive via JSONRPC")
 
 		virtualDrives, err := r.ssdProxyListVirtualDrivesByPhysicalUuid(physCtx, ssdproxyContainerUuid, physicalUUID, agentPod, token)

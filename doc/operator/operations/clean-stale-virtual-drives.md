@@ -96,7 +96,8 @@ On a proxy without `ssd_proxy_vid_label_add`, allocation is persisted to `Status
 On a proxy with `ssd_proxy_vid_label_add` the proxy derives the VID from the allocation's `label`,
 so a VID exists on the proxy before `AddVirtualDrives` persists it. Such a VID cannot be told apart
 from an orphan on the same physical drive, so every unclaimed VID on a physical drive with a pending
-(empty-`virtualUUID`) allocation is skipped until the VID is persisted.
+(empty-`virtualUUID`) allocation is skipped until the VID is persisted. The result's
+`skippedPendingCount` counts them.
 
 ## Result & surfacing
 

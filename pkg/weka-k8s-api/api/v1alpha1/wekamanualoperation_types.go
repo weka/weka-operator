@@ -321,6 +321,9 @@ type StaleVirtualDrivesResult struct {
 	ScannedNodes int     `json:"scannedNodes"`
 	StaleCount   int     `json:"staleCount"`
 	StaleTiB     float64 `json:"staleTiB"`
+	// SkippedPendingCount counts unclaimed VIDs left alone because their physical drive has an
+	// allocation still waiting for the proxy to return its VID; they may be that VID.
+	SkippedPendingCount int `json:"skippedPendingCount,omitempty"`
 	// Fingerprint is a stable hash over the sorted (node+virtualUuid) of the stale set.
 	Fingerprint string `json:"fingerprint"`
 	// DeletionEligible is true when Fingerprint == the previous run's fingerprint (set unchanged).
