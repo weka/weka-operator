@@ -185,14 +185,13 @@ func (o *GetFeatureFlagsOperation) readFeatureFlagsFromContainer(ctx context.Con
 		return nil, fmt.Errorf("error reading feature flags file: %w", err)
 	}
 
-	// Parse JSON to FeatureFlags struct
-	var flags domain.FeatureFlags
-	if err := json.Unmarshal(stdout.Bytes(), &flags); err != nil {
+	flags, err := domain.ParseFeatureFlags(stdout.Bytes())
+	if err != nil {
 		return nil, fmt.Errorf("error parsing feature_flags.json: %w", err)
 	}
 
 	logger.Info("Successfully read feature flags from container", "flags", flags)
-	return &flags, nil
+	return flags, nil
 }
 
 // GetAdhocContainer gets existing ad-hoc container if any

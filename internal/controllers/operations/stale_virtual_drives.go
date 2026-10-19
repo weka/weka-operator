@@ -227,7 +227,7 @@ func (o *StaleVirtualDrivesOperation) Scan(ctx context.Context) error {
 		}
 	}
 
-	stale := computeStaleVids(scanned, claimed, pendingPhysical, liveGUIDs, o.payload.OnlyNonExistingClusters)
+	stale, skippedPending := computeStaleVids(scanned, claimed, pendingPhysical, liveGUIDs, o.payload.OnlyNonExistingClusters)
 	for _, info := range stale {
 		logger.Warn("Stale virtual drive detected",
 			"virtual_uuid", info.VirtualUUID,
@@ -247,6 +247,7 @@ func (o *StaleVirtualDrivesOperation) Scan(ctx context.Context) error {
 	o.results.ScannedNodes = len(scannedNodes)
 	o.results.StaleVids = stale
 	o.results.StaleCount = len(stale)
+	o.results.SkippedPendingCount = skippedPending
 	o.results.StaleTiB = float64(totalGB) / 1024.0
 	o.results.Fingerprint = fingerprintStaleVids(stale)
 	o.results.Deleted = nil
@@ -409,14 +410,15 @@ type scannedVID struct {
 // computeStaleVids is the pure core of the scan: every scanned VID not in the claimed set, and not on
 // a physical drive in pendingPhysical, is stale, categorized dead_cluster (no live WekaCluster owns its GUID) vs live_cluster_unclaimed.
 // onlyNonExisting keeps only the dead_cluster subset. Output is sorted by (node, virtualUuid).
-func computeStaleVids(scanned []scannedVID, claimed, pendingPhysical, liveGUIDs map[string]bool, onlyNonExisting bool) []weka.StaleVirtualDriveInfo {
-	var stale []weka.StaleVirtualDriveInfo
+// skippedPending counts the unclaimed VIDs spared for being on a pending physical drive.
+func computeStaleVids(scanned []scannedVID, claimed, pendingPhysical, liveGUIDs map[string]bool, onlyNonExisting bool) (stale []weka.StaleVirtualDriveInfo, skippedPending int) {
 	for _, s := range scanned {
 		if claimed[s.vd.VirtualUUID] {
 			continue // in use by a live container allocation
 		}
 		if pendingPhysical[s.vd.PhysicalUUID] {
-			continue // may be the not-yet-persisted VID of an allocation
+			skippedPending++ // may be the not-yet-persisted VID of an allocation
+			continue
 		}
 		category := weka.StaleVidCategoryLiveClusterUnclaimed
 		if !liveGUIDs[s.vd.ClusterGUID] {
@@ -440,7 +442,7 @@ func computeStaleVids(scanned []scannedVID, claimed, pendingPhysical, liveGUIDs 
 		}
 		return stale[i].VirtualUUID < stale[j].VirtualUUID
 	})
-	return stale
+	return stale, skippedPending
 }
 
 // deletionEligible gates removal: only when the stale set is non-empty and its fingerprint

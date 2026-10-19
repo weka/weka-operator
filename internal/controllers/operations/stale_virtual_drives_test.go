@@ -32,7 +32,7 @@ func TestComputeStaleVids_CategoriesAndClaimedExclusion(t *testing.T) {
 	claimed := map[string]bool{"vid-live-1": true, "vid-live-2": true}
 	liveGUIDs := map[string]bool{"guid-live": true}
 
-	stale := computeStaleVids(scanFixture(), claimed, nil, liveGUIDs, false)
+	stale, _ := computeStaleVids(scanFixture(), claimed, nil, liveGUIDs, false)
 
 	if len(stale) != 3 {
 		t.Fatalf("expected 3 stale VIDs, got %d: %+v", len(stale), stale)
@@ -60,7 +60,7 @@ func TestComputeStaleVids_OnlyNonExistingClusters(t *testing.T) {
 	claimed := map[string]bool{"vid-live-1": true, "vid-live-2": true}
 	liveGUIDs := map[string]bool{"guid-live": true}
 
-	stale := computeStaleVids(scanFixture(), claimed, nil, liveGUIDs, true)
+	stale, _ := computeStaleVids(scanFixture(), claimed, nil, liveGUIDs, true)
 
 	byUUID := staleByUUID(stale)
 	if len(stale) != 2 {
@@ -81,14 +81,14 @@ func TestComputeStaleVids_ReappearingClaimClearsIt(t *testing.T) {
 
 	// Cycle 1: vid-unclaimed is stale.
 	claimed1 := map[string]bool{"vid-live-1": true, "vid-live-2": true}
-	stale1 := computeStaleVids(scanFixture(), claimed1, nil, liveGUIDs, false)
+	stale1, _ := computeStaleVids(scanFixture(), claimed1, nil, liveGUIDs, false)
 	if _, ok := staleByUUID(stale1)["vid-unclaimed"]; !ok {
 		t.Fatalf("vid-unclaimed should be stale in cycle 1")
 	}
 
 	// Cycle 2: a container now claims vid-unclaimed -> it must drop out of the stale set.
 	claimed2 := map[string]bool{"vid-live-1": true, "vid-live-2": true, "vid-unclaimed": true}
-	stale2 := computeStaleVids(scanFixture(), claimed2, nil, liveGUIDs, false)
+	stale2, _ := computeStaleVids(scanFixture(), claimed2, nil, liveGUIDs, false)
 	if _, ok := staleByUUID(stale2)["vid-unclaimed"]; ok {
 		t.Errorf("vid-unclaimed became claimed and must no longer be stale")
 	}
@@ -106,15 +106,15 @@ func TestFingerprint_StableAndSensitive(t *testing.T) {
 		t.Errorf("empty stale set fingerprint should be empty, got %q", fpEmpty)
 	}
 
-	a := computeStaleVids(scanFixture(), claimed, nil, liveGUIDs, false)
-	b := computeStaleVids(scanFixture(), claimed, nil, liveGUIDs, false)
+	a, _ := computeStaleVids(scanFixture(), claimed, nil, liveGUIDs, false)
+	b, _ := computeStaleVids(scanFixture(), claimed, nil, liveGUIDs, false)
 	if fingerprintStaleVids(a) != fingerprintStaleVids(b) {
 		t.Errorf("identical stale sets must produce identical fingerprints")
 	}
 
 	// A VID becoming claimed changes the set -> fingerprint must differ.
 	claimedMore := map[string]bool{"vid-live-1": true, "vid-live-2": true, "vid-unclaimed": true}
-	c := computeStaleVids(scanFixture(), claimedMore, nil, liveGUIDs, false)
+	c, _ := computeStaleVids(scanFixture(), claimedMore, nil, liveGUIDs, false)
 	if fingerprintStaleVids(a) == fingerprintStaleVids(c) {
 		t.Errorf("a changed stale set must produce a different fingerprint")
 	}
@@ -152,7 +152,12 @@ func TestComputeStaleVids_PendingPhysicalDriveSpared(t *testing.T) {
 	pending := map[string]bool{"phys-2": true}
 	liveGUIDs := map[string]bool{"guid-live": true}
 
-	byUUID := staleByUUID(computeStaleVids(scanFixture(), claimed, pending, liveGUIDs, false))
+	stale, skipped := computeStaleVids(scanFixture(), claimed, pending, liveGUIDs, false)
+	byUUID := staleByUUID(stale)
+
+	if skipped != 2 {
+		t.Errorf("expected vid-dead-2 and vid-unclaimed counted as skipped, got %d", skipped)
+	}
 
 	if len(byUUID) != 1 {
 		t.Fatalf("expected only vid-dead-1 stale, got %+v", byUUID)
