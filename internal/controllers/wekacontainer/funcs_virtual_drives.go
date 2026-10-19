@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"slices"
 	"time"
 
@@ -17,9 +15,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/weka/weka-operator/internal/consts"
-	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/internal/services/ssdproxy"
-	"github.com/weka/weka-operator/pkg/util"
 )
 
 // AddVirtualDrives adds virtual drives on physical proxy devices using jrpc
@@ -136,8 +132,8 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 		)
 
 		if vidPending(vd) {
-			vid, err := ssdproxy.NewClient(r.KubeService).AddVirtualDriveByLabel(vdCtx, agentPod, token,
-				string(ssdproxyContainer.GetUID()), vd.Label, vd.PhysicalUUID, clusterUUID, vd.CapacityGiB)
+			vid, err := ssdproxy.NewClient(r.KubeService).AddVirtualDrive(vdCtx, agentPod, token,
+				string(ssdproxyContainer.GetUID()), "label", vd.Label, vd.PhysicalUUID, clusterUUID, vd.CapacityGiB)
 			if err != nil {
 				l.Error(err, "Failed to add virtual drive via JSONRPC")
 				errs = append(errs, fmt.Errorf("failed to add virtual drive with label %s: %w", vd.Label, err))
@@ -157,7 +153,8 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 		}
 
 		// Add the virtual drive via JSONRPC
-		err := r.addVirtualDriveViaJSONRPC(vdCtx, string(ssdproxyContainer.GetUID()), agentPod, token, clusterUUID, *vd)
+		_, err := ssdproxy.NewClient(r.KubeService).AddVirtualDrive(vdCtx, agentPod, token,
+			string(ssdproxyContainer.GetUID()), "virtualUuid", vd.VirtualUUID, vd.PhysicalUUID, clusterUUID, vd.CapacityGiB)
 		if err != nil {
 			l.Error(err, "Failed to add virtual drive via JSONRPC")
 			errs = append(errs, fmt.Errorf("failed to add virtual drive %s: %w", vd.VirtualUUID, err))
@@ -215,63 +212,6 @@ func removeVidByLabel(ctx context.Context, c *ssdproxy.Client, agentPod *v1.Pod,
 		return nil
 	}
 	return c.RemoveVirtualDriveByLabel(ctx, agentPod, token, ssdproxyUID, vd.Label, vd.PhysicalUUID)
-}
-
-// addVirtualDriveViaJSONRPC adds a virtual drive by calling ssd_proxy_add_virtual_drive via node agent
-func (r *containerReconcilerLoop) addVirtualDriveViaJSONRPC(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token, clusterUUID string, vd weka.VirtualDrive) error {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "addVirtualDriveViaJSONRPC")
-	defer logger.End()
-
-	method := "ssd_proxy_add_virtual_drive"
-
-	params := map[string]any{
-		"virtualUuid":  vd.VirtualUUID,
-		"physicalUuid": vd.PhysicalUUID,
-		"clusterGuid":  clusterUUID,
-		"sizeGiB":      vd.CapacityGiB,
-	}
-
-	payload := node_agent.JSONRPCProxyPayload{
-		ContainerId: ssdproxyContainerUuid,
-		Method:      method,
-		Params:      params,
-	}
-
-	logger.Info("Calling ssdproxy JSONRPC via node agent",
-		"method", method,
-		"params", params,
-		"ssdproxy_container_id", ssdproxyContainerUuid,
-	)
-
-	// Marshal payload to JSON
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSONRPC payload: %w", err)
-	}
-
-	// Call node agent's /jsonrpc endpoint
-	url := "http://" + agentPod.Status.PodIP + ":8090/jsonrpc"
-	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
-	if err != nil {
-		return fmt.Errorf("failed to call node agent /jsonrpc endpoint: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
-
-	// Read response body
-	respBody, readErr := io.ReadAll(resp.Body)
-	if readErr != nil {
-		return fmt.Errorf("failed to read JSONRPC response body: %w", readErr)
-	}
-
-	// Log the JSONRPC response for debugging
-	logger.Info("JSONRPC response received", "status_code", resp.StatusCode, "response", string(respBody))
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("node agent returned non-OK status: %s, body: %s", resp.Status, string(respBody))
-	}
-
-	logger.Info("Virtual drive added successfully via JSONRPC", "virtual_uuid", vd.VirtualUUID)
-	return nil
 }
 
 // RemoveVirtualDrives removes virtual drives from physical proxy devices using jrpc
