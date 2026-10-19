@@ -773,7 +773,30 @@ prod-cluster-drive-0   [{"virtualUUID":"31de939a-...","physicalUUID":"fb05d910-.
 dev-cluster-drive-0    [{"virtualUUID":"7b3f82cd-...","physicalUUID":"fb05d910-...","capacityGiB":1500,"serial":"S5XYNS0T...","type":"TLC"}]
 ```
 
-Each entry is a `VirtualDrive` (`virtualUUID`, `physicalUUID`, `capacityGiB`, `serial`, `type`).
+Each entry is a `VirtualDrive` (`virtualUUID`, `label`, `physicalUUID`, `capacityGiB`, `serial`, `type`).
+
+`virtualUUID` is the weka VID used for `weka cluster drive add/remove` and for blocking. `label` is
+the id the operator generates at allocation. How the two relate depends on the node ssdproxy image's
+`ssd_proxy_vid_label_add` feature flag:
+
+- **Flag off:** `virtualUUID` equals `label`. The operator sends it to `ssd_proxy_add_virtual_drive`
+  as `virtualUuid`.
+- **Flag on:** the proxy derives the VID from `label`. The operator sends `label`, stores the
+  returned VID in `virtualUUID`, and only then adds the drive to the cluster. `virtualUUID` is empty
+  until then. The add step picks the path from status, not the flag: `label` set and `virtualUUID`
+  empty adds by label; anything else uses the `virtualUuid` add. A stored `virtualUUID` is never
+  overwritten: if a label-resolved VID is missing on the proxy, the add fails with a
+  `VirtualDriveVidMismatch` warning event instead of falling back to the `virtualUuid` add.
+- Allocations made before `label` existed have only `virtualUUID` and use the flag-off path.
+
+The ssdproxy's flags must be known before allocation; until they are, allocation retries. When a
+container is deleted, or its physical drive is blocked, while a drive's `virtualUUID` is still
+empty, the VID is removed from the proxy by label before the allocation is dropped (blocking removes
+such allocations even when the container has no added drive on that physical drive).
+
+The add step skips allocations on a blocked physical drive. Removal by label is skipped when the
+proxy no longer lists the physical drive, since it holds no VID. When blocking drops allocations whose
+VID has a value but was never added to the cluster, their VIDs are removed from the proxy first.
 
 ### Check Cluster Status
 

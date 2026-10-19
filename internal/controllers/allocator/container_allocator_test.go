@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -145,6 +146,47 @@ func TestGetAvailableDrivesFromStatus_FiltersAllocated(t *testing.T) {
 	for i, serial := range expected {
 		if drives[i] != serial {
 			t.Errorf("position %d: expected serial %q, got %q (full order: %v)", i, serial, drives[i], drives)
+		}
+	}
+}
+
+// With ssd_proxy_vid_label_add the VID is unknown until the proxy add returns it; without it the
+// label doubles as the VID.
+func TestAllocateSharedDrives_LabelAndVID(t *testing.T) {
+	shared, err := json.Marshal([]domain.SharedDriveInfo{
+		{PhysicalUUID: "phys-1", Serial: "SN-1", CapacityGiB: 1000, Type: "TLC"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name:        "node-a",
+		Annotations: map[string]string{consts.AnnotationSharedDrives: string(shared)},
+	}}
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	a := &ContainerResourceAllocator{client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()}
+	container := &weka.WekaContainer{Spec: weka.WekaContainerSpec{NumDrives: 2, DriveCapacity: 100}}
+
+	for _, labelAdd := range []bool{false, true} {
+		vds, err := a.AllocateSharedDrives(context.Background(), &AllocationRequest{
+			Container: container, Node: node, NumDrives: 2, SsdProxyVidLabelAdd: labelAdd,
+		}, nil)
+		if err != nil {
+			t.Fatalf("labelAdd=%v: %v", labelAdd, err)
+		}
+		if len(vds) != 2 || vds[0].Label == "" || vds[0].Label == vds[1].Label {
+			t.Fatalf("labelAdd=%v: want 2 distinct labels, got %+v", labelAdd, vds)
+		}
+		for _, vd := range vds {
+			if labelAdd && vd.VirtualUUID != "" {
+				t.Errorf("labelAdd: VID must stay empty until the proxy add, got %q", vd.VirtualUUID)
+			}
+			if !labelAdd && vd.VirtualUUID != vd.Label {
+				t.Errorf("legacy: VID %q must equal label %q", vd.VirtualUUID, vd.Label)
+			}
 		}
 	}
 }

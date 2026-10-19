@@ -264,15 +264,82 @@ func (c *Client) ListVirtualDrives(ctx context.Context, agentPod *v1.Pod, token,
 	return all, nil
 }
 
+type jsonrpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// AddVirtualDriveByLabel adds a virtual drive via ssd_proxy_add_virtual_drive on a proxy with
+// ssd_proxy_vid_label_add and returns the VID the proxy derived from label. Re-adding a label whose
+// VID is still active returns that same VID.
+func (c *Client) AddVirtualDriveByLabel(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID, label, physicalUUID, clusterGUID string, sizeGiB int) (string, error) {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "AddVirtualDriveByLabel", "label", label, "physical_uuid", physicalUUID)
+	defer logger.End()
+
+	respBody, status, err := jsonrpc(ctx, agentPod, token, ssdproxyContainerUUID, "ssd_proxy_add_virtual_drive", map[string]any{
+		"label":        label,
+		"physicalUuid": physicalUUID,
+		"clusterGuid":  clusterGUID,
+		"sizeGiB":      sizeGiB,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	logger.Info("JSONRPC response received", "status_code", status, "response", string(respBody))
+
+	if status != http.StatusOK {
+		return "", fmt.Errorf("node agent returned non-OK status: %d, body: %s", status, string(respBody))
+	}
+
+	return parseAddVirtualDriveReply(respBody)
+}
+
+// parseAddVirtualDriveReply extracts the VID from an ssd_proxy_add_virtual_drive reply, whose result
+// is the bare VID string.
+func parseAddVirtualDriveReply(respBody []byte) (string, error) {
+	var jsonrpcResp struct {
+		Result string        `json:"result"`
+		Error  *jsonrpcError `json:"error"`
+	}
+	if err := json.Unmarshal(respBody, &jsonrpcResp); err != nil {
+		return "", fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))
+	}
+	if jsonrpcResp.Error != nil {
+		return "", fmt.Errorf("JSONRPC error [%d]: %s", jsonrpcResp.Error.Code, jsonrpcResp.Error.Message)
+	}
+	if jsonrpcResp.Result == "" {
+		return "", fmt.Errorf("JSONRPC reply has no VID, body: %s", string(respBody))
+	}
+	return jsonrpcResp.Result, nil
+}
+
 // RemoveVirtualDrive removes a single virtual drive via ssd_proxy_remove_virtual_drive.
 // It treats both a JSONRPC error object and a result:false reply as failure.
 func (c *Client) RemoveVirtualDrive(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID, virtualUUID string) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "RemoveVirtualDrive", "virtual_uuid", virtualUUID)
 	defer logger.End()
 
-	respBody, status, err := jsonrpc(ctx, agentPod, token, ssdproxyContainerUUID, "ssd_proxy_remove_virtual_drive", map[string]any{
-		"virtualUuid": virtualUUID,
+	return removeVirtualDrive(ctx, agentPod, token, ssdproxyContainerUUID, map[string]any{"virtualUuid": virtualUUID})
+}
+
+// RemoveVirtualDriveByLabel removes the active VID the proxy derived from label, for an allocation
+// whose VID was never persisted. Only valid on proxies with ssd_proxy_vid_label_add.
+func (c *Client) RemoveVirtualDriveByLabel(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID, label, physicalUUID string) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "RemoveVirtualDriveByLabel", "label", label, "physical_uuid", physicalUUID)
+	defer logger.End()
+
+	// the label goes in virtualUuid; physicalUuid is what tells the proxy it is a label
+	return removeVirtualDrive(ctx, agentPod, token, ssdproxyContainerUUID, map[string]any{
+		"virtualUuid":  label,
+		"physicalUuid": physicalUUID,
 	})
+}
+
+func removeVirtualDrive(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID string, params map[string]any) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	respBody, status, err := jsonrpc(ctx, agentPod, token, ssdproxyContainerUUID, "ssd_proxy_remove_virtual_drive", params)
 	if err != nil {
 		return err
 	}
@@ -284,11 +351,8 @@ func (c *Client) RemoveVirtualDrive(ctx context.Context, agentPod *v1.Pod, token
 	}
 
 	var jsonrpcResp struct {
-		Result interface{} `json:"result"`
-		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
+		Result interface{}   `json:"result"`
+		Error  *jsonrpcError `json:"error"`
 	}
 	if err := json.Unmarshal(respBody, &jsonrpcResp); err != nil {
 		return fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))

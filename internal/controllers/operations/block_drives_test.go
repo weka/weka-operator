@@ -820,6 +820,8 @@ func TestBuildNodeClaimedVids(t *testing.T) {
 	)
 	onNode1b := newVidTestContainer("drives1", "node1",
 		weka.VirtualDrive{VirtualUUID: "vid-3", PhysicalUUID: "phys-b"},
+		// VID not returned by the proxy yet: "" must not become blockable
+		weka.VirtualDrive{Label: "label-pending", PhysicalUUID: "phys-b"},
 	)
 	onNode2 := newVidTestContainer("drives2", "node2",
 		weka.VirtualDrive{VirtualUUID: "vid-elsewhere", PhysicalUUID: "phys-c"},
@@ -835,7 +837,7 @@ func TestBuildNodeClaimedVids(t *testing.T) {
 		t.Fatalf("buildNodeClaimedVids returned error: %v", err)
 	}
 
-	// Unions every container on the node, skips nil allocations, excludes other nodes.
+	// Unions every container on the node, skips nil allocations and empty VIDs, excludes other nodes.
 	want := map[string]bool{"vid-1": true, "vid-2": true, "vid-3": true}
 	if len(claimed) != len(want) {
 		t.Fatalf("claimed = %#v, want the 3 VIDs on node1", claimed)

@@ -62,7 +62,10 @@ spec:
 2. **Scan** — list each proxy's VIDs via node-agent JSONRPC.
 3. **Build the claimed set** — union of `Status.Allocations.VirtualDrives[].VirtualUUID` over **all**
    `WekaContainer`s in **all** states, read **uncached** so a just-written allocation is never missed.
-4. **Diff & categorize** — a scanned VID not in the claimed set is *stale*, categorized by owner GUID
+   An allocation whose `virtualUUID` is still empty (label-based proxy, VID not yet returned) marks
+   its **physical drive** as pending instead.
+4. **Diff & categorize** — a scanned VID not in the claimed set, and not on a pending physical drive,
+   is *stale*, categorized by owner GUID
    against all `WekaCluster.Status.ClusterID`:
    - `dead_cluster` — no `WekaCluster` CR has that GUID (safe-by-construction subset).
    - `live_cluster_unclaimed` — a `WekaCluster` has the GUID, but no container claims the VID.
@@ -82,13 +85,18 @@ Deletion is **double-gated** and never acts on a single observation:
   - *Manual op*: cycle 1 persists the result and requeues (~15s); cycle 2 confirms and deletes.
   - *Policy*: the gate spans `interval` runs via `Status.LastResult` — run 1 detects, run 2 deletes.
 - **Final uncached re-validation** — immediately before each removal the claimed set is re-read; a
-  VID that became claimed since the scan is spared.
+  VID that became claimed since the scan, or whose physical drive became pending, is spared.
 - **Partial scans never delete** — if any proxy fails to scan, the gate stays closed for that run.
 - **Per-VID failures are non-fatal** — recorded and retried on the next scan.
 
-Because allocation is persisted to `Status.Allocations` **before** the VID is registered on the
-proxy (and `AddVirtualDrives` guards on a populated `ClusterID`), a forming cluster's in-flight VID
-is always already in the claimed set — "on proxy but not yet claimed" cannot occur.
+On a proxy without `ssd_proxy_vid_label_add`, allocation is persisted to `Status.Allocations`
+**before** the VID is registered on the proxy (and `AddVirtualDrives` guards on a populated
+`ClusterID`), so a forming cluster's in-flight VID is always already in the claimed set.
+
+On a proxy with `ssd_proxy_vid_label_add` the proxy derives the VID from the allocation's `label`,
+so a VID exists on the proxy before `AddVirtualDrives` persists it. Such a VID cannot be told apart
+from an orphan on the same physical drive, so every unclaimed VID on a physical drive with a pending
+(empty-`virtualUUID`) allocation is skipped until the VID is persisted.
 
 ## Result & surfacing
 
