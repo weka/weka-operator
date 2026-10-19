@@ -71,6 +71,35 @@ func TestDriveNodeResults_JSONContract(t *testing.T) {
 	}
 }
 
+func TestDriveNodeResults_SignCountsJSONContract(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		input DriveNodeResults
+		want  map[string]string // key -> raw JSON; "" = key must be absent
+	}{
+		{"counts set", DriveNodeResults{Signed: 1, AlreadySigned: 2, Excluded: 3},
+			map[string]string{"signed": "1", "already_signed": "2", "excluded": "3"}},
+		{"zero counts omitted", DriveNodeResults{},
+			map[string]string{"signed": "", "already_signed": "", "excluded": ""}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.input)
+			if err != nil {
+				t.Fatalf("marshal error: %v", err)
+			}
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal(data, &raw); err != nil {
+				t.Fatalf("unmarshal to map: %v", err)
+			}
+			for key, want := range tt.want {
+				if got := string(raw[key]); got != want {
+					t.Errorf("%s = %q, want %q", key, got, want)
+				}
+			}
+		})
+	}
+}
+
 func TestDriveRawInfo_JSONContract(t *testing.T) {
 	input := DriveRawInfo{
 		SerialId:    "SN123",

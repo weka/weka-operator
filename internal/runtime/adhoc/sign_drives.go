@@ -56,25 +56,25 @@ func RunSignDrives(ctx context.Context, runner process.CommandRunner, clk clock.
 		guidMap = map[string]string{}
 	}
 
-	// 4. Build excluded paths set
-	excludedPaths := make(map[string]struct{})
+	// 4. Paths to skip: drives already signed into a cluster (annotation serials that still carry a
+	// cluster GUID), and drives matching a driveExclusions rule.
+	alreadySignedPaths := make(map[string]struct{})
 	for _, serial := range payload.ExcludedSerialIds {
 		if p, ok := guidMap[serial]; ok {
-			excludedPaths[wekadrive.RealPath(p)] = struct{}{}
+			alreadySignedPaths[wekadrive.RealPath(p)] = struct{}{}
 			logger.Info("sign-drives: excluding drive", "serial", serial, "path", p)
 		} else {
 			logger.Info("sign-drives: serial has no cluster_guid, not excluding", "serial", serial)
 		}
 	}
 
+	var ruleExcludedPaths map[string]struct{}
 	if payload.DriveExclusions != nil && len(payload.DriveExclusions.Rules) > 0 {
 		drives, dErr := wekadrive.GetDrivesWithSignTool(ctx, runner, payload.Shared)
 		if dErr != nil {
 			return fmt.Errorf("sign-drives: GetDrivesWithSignTool: %w", dErr)
 		}
-		for p := range wekadrive.ExcludedPathsByRules(ctx, payload.DriveExclusions.Rules, drives) {
-			excludedPaths[p] = struct{}{}
-		}
+		ruleExcludedPaths = wekadrive.ExcludedPathsByRules(ctx, payload.DriveExclusions.Rules, drives)
 	}
 
 	// 5. Enumerate device paths by payload type
@@ -83,50 +83,65 @@ func RunSignDrives(ctx context.Context, runner process.CommandRunner, clk clock.
 		return fmt.Errorf("sign-drives: enumerate paths: %w", pathErr)
 	}
 
-	// 6. Filter out excluded paths
+	// 6. Filter out skipped paths, counting only this run's candidates; already-signed wins over a rule match.
 	var filtered []string
+	alreadySigned, excluded := 0, 0
 	for _, p := range paths {
-		if _, excluded := excludedPaths[wekadrive.RealPath(p)]; excluded {
-			logger.Info("sign-drives: skipping excluded path", "path", p)
-			continue
+		rp := wekadrive.RealPath(p)
+		if _, ok := alreadySignedPaths[rp]; ok {
+			alreadySigned++
+			logger.Info("sign-drives: skipping already-signed path", "path", p)
+		} else if _, ok := ruleExcludedPaths[rp]; ok {
+			excluded++
+			logger.Info("sign-drives: skipping path matching driveExclusions", "path", p)
+		} else {
+			filtered = append(filtered, p)
 		}
-		filtered = append(filtered, p)
 	}
 
 	logger.Info("sign-drives: signing drives", "type", payload.Type, "shared", payload.Shared, "count", len(filtered))
 
-	// 7. Sign and write results
+	// 7. Sign
+	var signed int
 	if payload.Shared {
-		if _, signErr := wekadrive.SignBatchProxy(ctx, runner, filtered, opts); signErr != nil {
+		signedPaths, fallbackAlreadySigned, signErr := wekadrive.SignBatchProxy(ctx, runner, filtered, opts)
+		if signErr != nil {
 			return fmt.Errorf("sign-drives: SignBatchProxy: %w", signErr)
 		}
-		// Mirror Python asyncio.sleep(3) hack at weka_runtime.py:4298 — DO NOT remove.
-		if sleepErr := clock.Sleep(ctx, clk, 3*time.Second); sleepErr != nil {
-			return sleepErr
+		signed = len(signedPaths)
+		alreadySigned += fallbackAlreadySigned
+	} else {
+		signedPaths, signErr := wekadrive.SignBatch(ctx, runner, filtered, opts)
+		if signErr != nil {
+			return fmt.Errorf("sign-drives: SignBatch: %w", signErr)
 		}
+		signed = len(signedPaths)
+	}
+	// Mirror Python asyncio.sleep(3) hack — the kernel does not update device paths instantly. DO NOT remove.
+	if sleepErr := clock.Sleep(ctx, clk, 3*time.Second); sleepErr != nil {
+		return sleepErr
+	}
+
+	// 8. Discover and write results
+	var res domain.DriveNodeResults
+	if payload.Shared {
 		proxyDrives, listErr := wekadrive.ListAllProxyDrives(ctx, runner)
 		if listErr != nil {
 			return fmt.Errorf("sign-drives: ListAllProxyDrives: %w", listErr)
 		}
-		// Mirror Python discover_ssdproxy_drives() (commit 44c5d512): also return
-		// raw_drives and kernel_view_complete alongside proxy_drives.
+		// Mirror Python discover_ssdproxy_drives(): raw_drives and kernel_view_complete alongside proxy_drives.
 		rawDrives, rawOK := collectRawDrives(ctx, runner)
-		return results.Write(ctx, resultsPath, domain.DriveNodeResults{
+		res = domain.DriveNodeResults{
 			ProxyDrives:        proxyDrives,
 			RawDrives:          rawDrives,
 			KernelViewComplete: rawOK && blockdev.IsKernelViewComplete(ctx),
-		})
+		}
+	} else {
+		res = discoverDriveResults(ctx, runner)
 	}
-
-	// Regular signing — signed paths themselves are not needed in result; discover-drives populates it
-	if _, signErr := wekadrive.SignBatch(ctx, runner, filtered, opts); signErr != nil {
-		return fmt.Errorf("sign-drives: SignBatch: %w", signErr)
-	}
-	// Mirror Python asyncio.sleep(3) hack at weka_runtime.py:4316 — DO NOT remove.
-	if sleepErr := clock.Sleep(ctx, clk, 3*time.Second); sleepErr != nil {
-		return sleepErr
-	}
-	return RunDiscoverDrives(ctx, runner, resultsPath)
+	res.Signed, res.AlreadySigned, res.Excluded = signed, alreadySigned, excluded
+	logger.Info("sign-drives: done", "signed", signed, "alreadySigned", alreadySigned, "excluded", excluded)
+	return results.Write(ctx, resultsPath, res)
 }
 
 // enumerateDevicePaths resolves which device paths should be signed based on the payload type.

@@ -63,6 +63,28 @@ When the operation does run on a node that already has drive annotations, it is 
 
 The exclusion list is derived from the drive annotations, so deleting **only** `weka.io/sign-drives-hash` yields an incremental run (sign new drives, keep old ones). Deleting the drive annotations as well removes the exclusions and causes a full re-sign of every eligible drive on the node — a full reset.
 
+#### Operation result
+
+The sign-drives result (`status.result` of a WekaManualOperation, `status.lastResult` of a WekaPolicy) reports what this run did, per node that reported:
+
+```json
+{
+  "message": "Signed 1 drives on 1 nodes (5 already signed, 0 excluded, 6 total)",
+  "results": {"node-a": {"signed": 1, "alreadySigned": 5, "excluded": 0, "total": 6}},
+  "errors": ["..."]
+}
+```
+
+- `signed` — drives signed in this run.
+- `alreadySigned` — drives this run would have signed but skipped: their serial is in the node's drive annotations and they still carry a Weka cluster GUID, or (shared mode, per-drive fallback) the sign tool reported them as already a Weka partition.
+- `excluded` — drives this run would have signed but skipped because they match a `driveExclusions` rule (a drive that is also already signed counts only as `alreadySigned`).
+- `total` — all Weka-signed drives discovered on the node after the run (what the drive annotation lists). It can exceed `signed + alreadySigned`: drives outside a scoped run (`device-paths` / `device-serials` / `device-identifiers`) and already-signed drives skipped by a `driveExclusions` rule are still discovered.
+- Only drives selected by the operation `type` (its candidates) are counted; annotated or rule-matched drives outside that selection are not.
+- In `message`, the node count is the number of nodes that signed at least one drive. When no node signed anything, `message` is `No new drives signed`; `results` is still present with the per-node counts.
+- `errors` lists up to 5 node errors (the node's result could not be parsed) and is omitted when there are none. If a node's signing container itself reported an error, the whole result is the plain string `operation failed on N nodes` instead of this JSON.
+- A `SignDrives` Event carrying the same JSON is recorded only when at least one drive was signed.
+- A result written by a pod runtime that predates these counters reports all three as `0`.
+
 ### Drive type overrides (TLC/QLC, shared mode only)
 
 In [drive-sharing](drive-sharing.md) (proxy) mode, each physical drive is classified as `TLC` or
