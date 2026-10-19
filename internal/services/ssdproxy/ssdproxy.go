@@ -269,15 +269,15 @@ type jsonrpcError struct {
 	Message string `json:"message"`
 }
 
-// AddVirtualDriveByLabel adds a virtual drive via ssd_proxy_add_virtual_drive on a proxy with
-// ssd_proxy_vid_label_add and returns the VID the proxy derived from label. Re-adding a label whose
-// VID is still active returns that same VID.
-func (c *Client) AddVirtualDriveByLabel(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID, label, physicalUUID, clusterGUID string, sizeGiB int) (string, error) {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "AddVirtualDriveByLabel", "label", label, "physical_uuid", physicalUUID)
+// AddVirtualDrive adds a virtual drive via ssd_proxy_add_virtual_drive and returns the VID. idParam is
+// "virtualUuid" (legacy proxy) or "label" (proxy with ssd_proxy_vid_label_add, which derives the VID
+// from the label; re-adding a label whose VID is still active returns that same VID).
+func (c *Client) AddVirtualDrive(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID, idParam, id, physicalUUID, clusterGUID string, sizeGiB int) (string, error) {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "AddVirtualDrive", idParam, id, "physical_uuid", physicalUUID)
 	defer logger.End()
 
 	respBody, status, err := jsonrpc(ctx, agentPod, token, ssdproxyContainerUUID, "ssd_proxy_add_virtual_drive", map[string]any{
-		"label":        label,
+		idParam:        id,
 		"physicalUuid": physicalUUID,
 		"clusterGuid":  clusterGUID,
 		"sizeGiB":      sizeGiB,
