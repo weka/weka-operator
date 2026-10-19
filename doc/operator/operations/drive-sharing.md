@@ -786,17 +786,25 @@ the id the operator generates at allocation. How the two relate depends on the n
   until then. The add step picks the path from status, not the flag: `label` set and `virtualUUID`
   empty adds by label; anything else uses the `virtualUuid` add. A stored `virtualUUID` is never
   overwritten: if a label-resolved VID is missing on the proxy, the add fails with a
-  `VirtualDriveVidMismatch` warning event instead of falling back to the `virtualUuid` add.
+  `VirtualDriveVidMismatch` warning event instead of falling back to the `virtualUuid` add. To
+  clear it, block the VID ([Block Drives](block-drives.md), `virtualUUIDs`): its allocation is
+  dropped and, with dynamic drive scaling on, a replacement is allocated.
 - Allocations made before `label` existed have only `virtualUUID` and use the flag-off path.
 
-The ssdproxy's flags must be known before allocation; until they are, allocation retries. When a
-container is deleted, or its physical drive is blocked, while a drive's `virtualUUID` is still
-empty, the VID is removed from the proxy by label before the allocation is dropped (blocking removes
-such allocations even when the container has no added drive on that physical drive).
+The ssdproxy's flags must be known before allocation; until they are, allocation retries. Flags
+read from a running pod's `feature_flags.json` are discarded when the file lacks a flag the operator
+knows (a pod started by an older operator wrote it without that flag); an ad-hoc container fetches
+them instead. When a container is deleted, or its physical drive is blocked, while a drive's
+`virtualUUID` is still empty, the VID is removed from the proxy by label (`ssd_proxy_remove_label`,
+which returns the VID) before the allocation is dropped (blocking removes such allocations even when
+the container has no added drive on that physical drive).
 
-The add step skips allocations on a blocked physical drive. Removal by label is skipped when the
-proxy no longer lists the physical drive, since it holds no VID. When blocking drops allocations whose
-VID has a value but was never added to the cluster, their VIDs are removed from the proxy first.
+The proxy add and cluster add steps skip allocations on a blocked physical drive, so a failed
+cleanup that keeps the allocation does not put the VID back into the cluster. A physical drive the
+proxy no longer lists holds no VID, so it is not queried and removal by label skips it. When blocking drops
+allocations whose VID has a value but is missing from `addedDrives` (refreshed only while the
+container is READY), their VIDs are removed from the cluster and then from the proxy first. With
+`SkipVirtualDrivesRemoval` the proxy is left alone and the allocations are still dropped.
 
 ### Check Cluster Status
 

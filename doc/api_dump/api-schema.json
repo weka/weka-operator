@@ -3389,6 +3389,13 @@
           "optional": false
         },
         {
+          "name": "SkippedPendingCount",
+          "jsonName": "skippedPendingCount",
+          "type": "int",
+          "description": "SkippedPendingCount counts unclaimed VIDs left alone because their physical drive has an\nallocation still waiting for the proxy to return its VID; they may be that VID.",
+          "optional": true
+        },
+        {
           "name": "Fingerprint",
           "jsonName": "fingerprint",
           "type": "string",

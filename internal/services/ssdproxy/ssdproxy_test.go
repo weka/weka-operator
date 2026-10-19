@@ -21,3 +21,22 @@ func TestParseAddVirtualDriveReply(t *testing.T) {
 		}
 	}
 }
+
+func TestIsException(t *testing.T) {
+	tests := []struct {
+		data string
+		want bool
+	}{
+		{data: `{"virtualUuid":"v","exceptionClass":["VirtualDriveNotFoundException","OperationFailedException"]}`, want: true},
+		{data: `{"exceptionClass":["VirtualDriveInUseException","BadStateException"]}`},
+		{data: `{"exceptionClass":"VirtualDriveNotFoundException"}`},
+		{data: `"no space"`},
+		{},
+	}
+	for _, tt := range tests {
+		e := jsonrpcError{Data: []byte(tt.data)}
+		if got := e.isException("VirtualDriveNotFoundException"); got != tt.want {
+			t.Errorf("%s: got %v, want %v", tt.data, got, tt.want)
+		}
+	}
+}
