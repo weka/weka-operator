@@ -200,8 +200,7 @@ func (instantClock) After(time.Duration) <-chan time.Time {
 	return ch
 }
 
-// signToolRunner fakes /weka-sign-drive: `list -j` returns list, `show <p>` reports p as proxy-signed,
-// and a sign of exactly one path returns perDevice[path]. Any other sign (the batch) returns batchErr.
+// signToolRunner fakes /weka-sign-drive: `list -j` returns list, and a sign of exactly one path returns perDevice[path]. Any other sign (the batch) returns batchErr.
 // Every other binary fails, so discovery reports no drives.
 type signToolRunner struct {
 	list      string
@@ -217,8 +216,6 @@ func (r *signToolRunner) Run(_ context.Context, c process.Command) (process.Resu
 	switch c.Args[0] {
 	case "list":
 		return process.Result{Stdout: []byte(r.list)}, nil
-	case "show":
-		return process.Result{Stdout: []byte(`{"partitions":[{"header":{"physical_uuid":"u","is_proxy":true}}],"hardware":{"serial_number":"s","size_bytes":1073741824}}`)}, nil
 	case "sign":
 		paths := c.Args[slices.Index(c.Args, "--")+1:]
 		r.signed = append(r.signed, paths)
@@ -299,5 +296,16 @@ func TestRunSignDrivesCountsSharedFallback(t *testing.T) {
 
 	if res.Signed != 1 || res.AlreadySigned != 1 || res.Excluded != 0 {
 		t.Errorf("counts = signed %d, alreadySigned %d, excluded %d; want 1, 1, 0", res.Signed, res.AlreadySigned, res.Excluded)
+	}
+}
+
+func TestRunSignDrivesCountsSharedBatch(t *testing.T) {
+	runner := &signToolRunner{list: `{"devices":[]}`}
+	res := runSignDrives(t, runner, domain.SignedDrivesExtendedPayload{
+		SignDrivesPayload: weka.SignDrivesPayload{Type: "device-paths", DevicePaths: []string{"/dev/a", "/dev/b"}, Shared: true},
+	})
+
+	if res.Signed != 2 || res.AlreadySigned != 0 || res.Excluded != 0 {
+		t.Errorf("counts = signed %d, alreadySigned %d, excluded %d; want 2, 0, 0", res.Signed, res.AlreadySigned, res.Excluded)
 	}
 }

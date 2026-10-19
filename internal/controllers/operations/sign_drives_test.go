@@ -1354,7 +1354,7 @@ func TestSignDrivesGetJsonResult(t *testing.T) {
 				"n1": {Drives: make([]domain.DriveInfo, 6), Signed: 1, AlreadySigned: 5},
 				"n2": {ProxyDrives: make([]domain.SharedDriveInfo, 1), AlreadySigned: 3, Excluded: 1},
 			},
-			wantMsg:   "Signed 1 drives on 2 nodes (8 already signed, 1 excluded, 7 total)",
+			wantMsg:   "Signed 1 drives on 1 nodes (8 already signed, 1 excluded, 7 total)",
 			wantNodes: map[string]signDrivesNodeCounts{"n1": {Signed: 1, AlreadySigned: 5, Total: 6}, "n2": {AlreadySigned: 3, Excluded: 1, Total: 1}},
 			wantEvent: true,
 		},
@@ -1367,7 +1367,7 @@ func TestSignDrivesGetJsonResult(t *testing.T) {
 		{
 			name:      "per-node errors",
 			results:   map[string]domain.DriveNodeResults{"n1": {Err: &boom}, "n2": {Signed: 3}},
-			wantMsg:   "Signed 3 drives on 2 nodes (0 already signed, 0 excluded, 0 total)",
+			wantMsg:   "Signed 3 drives on 1 nodes (0 already signed, 0 excluded, 0 total)",
 			wantNodes: map[string]signDrivesNodeCounts{"n1": {}, "n2": {Signed: 3}},
 			wantErrs:  []string{"boom"},
 			wantEvent: true,

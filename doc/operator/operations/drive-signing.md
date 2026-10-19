@@ -80,7 +80,7 @@ The sign-drives result (`status.result` of a WekaManualOperation, `status.lastRe
 - `excluded` — drives this run would have signed but skipped because they match a `driveExclusions` rule (a drive that is also already signed counts only as `alreadySigned`).
 - `total` — all Weka-signed drives discovered on the node after the run (what the drive annotation lists). It can exceed `signed + alreadySigned`: drives outside a scoped run (`device-paths` / `device-serials` / `device-identifiers`) and already-signed drives skipped by a `driveExclusions` rule are still discovered.
 - Only drives selected by the operation `type` (its candidates) are counted; annotated or rule-matched drives outside that selection are not.
-- When no node signed anything, `message` is `No new drives signed`; `results` is still present with the per-node counts.
+- In `message`, the node count is the number of nodes that signed at least one drive. When no node signed anything, `message` is `No new drives signed`; `results` is still present with the per-node counts.
 - `errors` lists up to 5 node errors (the node's result could not be parsed) and is omitted when there are none. If a node's signing container itself reported an error, the whole result is the plain string `operation failed on N nodes` instead of this JSON.
 - A `SignDrives` Event carrying the same JSON is recorded only when at least one drive was signed.
 - A result written by a pod runtime that predates these counters reports all three as `0`.

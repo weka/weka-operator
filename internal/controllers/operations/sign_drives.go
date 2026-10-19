@@ -726,6 +726,7 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 	}
 
 	var total signDrivesNodeCounts
+	signedNodes := 0
 	countsByNode := map[string]signDrivesNodeCounts{}
 	for nodeName, nodeResults := range o.results.Results {
 		c := signDrivesNodeCounts{
@@ -739,6 +740,9 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 		total.AlreadySigned += c.AlreadySigned
 		total.Excluded += c.Excluded
 		total.Total += c.Total
+		if c.Signed > 0 {
+			signedNodes++
+		}
 		if nodeResults.Err != nil {
 			if len(errs) < maxErrors {
 				errs = append(errs, *nodeResults.Err)
@@ -752,7 +756,7 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 	}
 	if total.Signed > 0 {
 		ret["message"] = fmt.Sprintf("Signed %d drives on %d nodes (%d already signed, %d excluded, %d total)",
-			total.Signed, len(countsByNode), total.AlreadySigned, total.Excluded, total.Total)
+			total.Signed, signedNodes, total.AlreadySigned, total.Excluded, total.Total)
 	} else {
 		ret["message"] = "No new drives signed"
 	}

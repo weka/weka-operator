@@ -104,11 +104,11 @@ func RunSignDrives(ctx context.Context, runner process.CommandRunner, clk clock.
 	// 7. Sign
 	var signed int
 	if payload.Shared {
-		infos, fallbackAlreadySigned, signErr := wekadrive.SignBatchProxy(ctx, runner, filtered, opts)
+		signedPaths, fallbackAlreadySigned, signErr := wekadrive.SignBatchProxy(ctx, runner, filtered, opts)
 		if signErr != nil {
 			return fmt.Errorf("sign-drives: SignBatchProxy: %w", signErr)
 		}
-		signed = len(infos)
+		signed = len(signedPaths)
 		alreadySigned += fallbackAlreadySigned
 	} else {
 		signedPaths, signErr := wekadrive.SignBatch(ctx, runner, filtered, opts)

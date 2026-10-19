@@ -385,10 +385,10 @@ func SignBatch(ctx context.Context, runner process.CommandRunner, paths []string
 	return signed, nil
 }
 
-// SignBatchProxy signs paths using `weka-sign-drive sign proxy` and returns SharedDriveInfo for each
-// drive it signed, plus how many drives the per-device fallback found already proxy-signed.
+// SignBatchProxy signs paths using `weka-sign-drive sign proxy` and returns the paths it signed,
+// plus how many drives the per-device fallback found already proxy-signed.
 // Falls back to per-device signing if the batch fails.
-func SignBatchProxy(ctx context.Context, runner process.CommandRunner, paths []string, opts *SignOptions) ([]domain.SharedDriveInfo, int, error) {
+func SignBatchProxy(ctx context.Context, runner process.CommandRunner, paths []string, opts *SignOptions) (signed []string, alreadySigned int, err error) {
 	if len(paths) == 0 {
 		return nil, 0, nil
 	}
@@ -401,24 +401,13 @@ func SignBatchProxy(ctx context.Context, runner process.CommandRunner, paths []s
 	args = append(args, "--")
 	args = append(args, paths...)
 
-	if _, err := runner.Run(ctx, process.Command{Path: "/weka-sign-drive", Args: args}); err == nil {
-		var infos []domain.SharedDriveInfo
-		for _, p := range paths {
-			info, infoErr := GetProxyDriveInfo(ctx, runner, p)
-			if infoErr != nil {
-				logger.Warn("failed to get proxy drive info", "path", p, "err", infoErr)
-				continue
-			}
-			infos = append(infos, info)
-		}
-		return infos, 0, nil
+	if _, batchErr := runner.Run(ctx, process.Command{Path: "/weka-sign-drive", Args: args}); batchErr == nil {
+		return paths, 0, nil
 	} else {
-		logger.Warn("batch sign failed, falling back to per-device", "err", err)
+		logger.Warn("batch sign failed, falling back to per-device", "err", batchErr)
 	}
 
 	// Per-device fallback
-	var infos []domain.SharedDriveInfo
-	alreadySigned := 0
 	for _, p := range paths {
 		perArgs := append([]string{"sign", "proxy"}, flags...)
 		perArgs = append(perArgs, "--", p)
@@ -435,39 +424,9 @@ func SignBatchProxy(ctx context.Context, runner process.CommandRunner, paths []s
 			logger.Error(perErr, "failed to sign device for proxy", "path", p, "stderr", string(perStderr))
 			continue
 		}
-		info, infoErr := GetProxyDriveInfo(ctx, runner, p)
-		if infoErr != nil {
-			logger.Warn("failed to get proxy drive info after per-device sign", "path", p, "err", infoErr)
-			continue
-		}
-		infos = append(infos, info)
+		signed = append(signed, p)
 	}
-	return infos, alreadySigned, nil
-}
-
-// signDriveShowOutput matches the JSON produced by `weka-sign-drive show <path> --json`.
-type signDriveShowOutput struct {
-	Partitions []signDrivePartition `json:"partitions"`
-	Hardware   signDriveShowHW      `json:"hardware"`
-}
-
-type signDrivePartition struct {
-	Header signDrivePartHeader `json:"header"`
-	Size   int64               `json:"size"`
-}
-
-type signDrivePartHeader struct {
-	PhysicalUUID string `json:"physical_uuid"`
-	IsProxy      bool   `json:"is_proxy"`
-}
-
-type signDriveShowHW struct {
-	SerialNumber string `json:"serial_number"`
-	Serial       string `json:"serial"`
-	Model        string `json:"model"`
-	ModelNumber  string `json:"model_number"`
-	IuSize       int    `json:"iu_size"`
-	SizeBytes    int64  `json:"size_bytes"`
+	return signed, alreadySigned, nil
 }
 
 // iuSizeToDriveType converts the IU size from weka-sign-drive into a human-readable type string.
@@ -477,74 +436,4 @@ func iuSizeToDriveType(iuSize int) string {
 		return "QLC"
 	}
 	return "TLC"
-}
-
-// GetProxyDriveInfo queries weka-sign-drive show for a single path and returns the SharedDriveInfo.
-func GetProxyDriveInfo(ctx context.Context, runner process.CommandRunner, path string) (domain.SharedDriveInfo, error) {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetProxyDriveInfo", "path", path)
-	defer logger.End()
-
-	res, err := runner.Run(ctx, process.Command{Path: "/weka-sign-drive", Args: []string{"show", path, "--json"}})
-	if err != nil {
-		return domain.SharedDriveInfo{}, fmt.Errorf("weka-sign-drive show %s: %w", path, err)
-	}
-
-	var parsed signDriveShowOutput
-	if jsonErr := json.Unmarshal(res.Stdout, &parsed); jsonErr != nil {
-		return domain.SharedDriveInfo{}, fmt.Errorf("weka-sign-drive show %s: JSON parse: %w", path, jsonErr)
-	}
-
-	if len(parsed.Partitions) == 0 {
-		return domain.SharedDriveInfo{}, fmt.Errorf("weka-sign-drive show %s: no partitions found", path)
-	}
-
-	partition := parsed.Partitions[0]
-	if !partition.Header.IsProxy {
-		return domain.SharedDriveInfo{}, fmt.Errorf("weka-sign-drive show %s: drive is not signed for proxy mode", path)
-	}
-	physicalUUID := partition.Header.PhysicalUUID
-	if physicalUUID == "" {
-		return domain.SharedDriveInfo{}, fmt.Errorf("weka-sign-drive show %s: no physical_uuid found", path)
-	}
-
-	// Serial: prefer hardware.serial_number, fallback to hardware.serial
-	serial := parsed.Hardware.SerialNumber
-	if serial == "" {
-		serial = parsed.Hardware.Serial
-	}
-	// Last-resort: use blockdev serial resolution
-	if serial == "" {
-		serial, _ = blockdev.GetDeviceSerialID(ctx, path) //nolint:errcheck // best-effort serial resolution
-	}
-	if serial == "" {
-		serial = "UNKNOWN"
-	}
-
-	// Capacity: prefer hardware.size_bytes, fallback to partition size, then blockdev
-	sizeBytes := parsed.Hardware.SizeBytes
-	if sizeBytes == 0 {
-		sizeBytes = partition.Size
-	}
-	capacityGiB := int(sizeBytes / (1024 * 1024 * 1024))
-	if capacityGiB == 0 {
-		if devCap, capErr := blockdev.GetCapacityGiB(ctx, runner, path); capErr == nil {
-			capacityGiB = devCap
-		} else {
-			logger.Warn("failed to get capacity via blockdev", "err", capErr)
-		}
-	}
-
-	// Model: prefer hardware info, falling back to sysfs resolution.
-	model := blockdev.ResolveDriveModel(parsed.Hardware.Model, parsed.Hardware.ModelNumber, path)
-	if model == "" {
-		logger.Warn("could not determine model", "path", path)
-	}
-
-	return domain.SharedDriveInfo{
-		PhysicalUUID: physicalUUID,
-		Serial:       serial,
-		CapacityGiB:  capacityGiB,
-		Type:         iuSizeToDriveType(parsed.Hardware.IuSize),
-		Model:        model,
-	}, nil
 }
