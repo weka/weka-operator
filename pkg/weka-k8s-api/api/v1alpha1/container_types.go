@@ -335,8 +335,12 @@ type WekaContainerSpec struct {
 
 // VirtualDrive represents a virtual drive allocation in drive sharing mode
 type VirtualDrive struct {
-	// VirtualUUID is the virtual drive identifier
+	// VirtualUUID is the weka VID used by the proxy and the cluster.
+	// Empty until the proxy add returns it when the ssdproxy derives VIDs from labels (flag ssd_proxy_vid_label_add).
 	VirtualUUID string `json:"virtualUUID"`
+	// Label is the operator-chosen id the ssdproxy derives the VID from. Equal to VirtualUUID on proxies
+	// without ssd_proxy_vid_label_add; empty on allocations made before labels existed.
+	Label string `json:"label,omitempty"`
 	// PhysicalUUID is the physical drive UUID obtained from proxy signing
 	PhysicalUUID string `json:"physicalUUID"`
 	// CapacityGiB is the allocated capacity in GiB
@@ -388,6 +392,7 @@ func (c *ContainerAllocations) Equals(other *ContainerAllocations) bool {
 	}
 	for i := range c.VirtualDrives {
 		if c.VirtualDrives[i].VirtualUUID != other.VirtualDrives[i].VirtualUUID ||
+			c.VirtualDrives[i].Label != other.VirtualDrives[i].Label ||
 			c.VirtualDrives[i].PhysicalUUID != other.VirtualDrives[i].PhysicalUUID ||
 			c.VirtualDrives[i].CapacityGiB != other.VirtualDrives[i].CapacityGiB ||
 			c.VirtualDrives[i].Serial != other.VirtualDrives[i].Serial {
@@ -400,7 +405,10 @@ func (c *ContainerAllocations) Equals(other *ContainerAllocations) bool {
 func (c *ContainerAllocations) GetVirtualDrivesUuids() []string {
 	uuids := make([]string, 0, len(c.VirtualDrives))
 	for _, d := range c.VirtualDrives {
-		uuids = append(uuids, d.VirtualUUID)
+		// an allocation whose VID the proxy has not returned yet claims nothing
+		if d.VirtualUUID != "" {
+			uuids = append(uuids, d.VirtualUUID)
+		}
 	}
 	return uuids
 }

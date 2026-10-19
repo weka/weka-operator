@@ -105,19 +105,28 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 		return err
 	}
 
+	var ssdProxyVidLabelAdd bool
+	if r.container.UsesDriveSharing() {
+		ssdProxyVidLabelAdd, err = r.ssdProxyUsesVidLabel(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Use ContainerResourceAllocator service to allocate resources
 	// NOTE: The allocator should read existing allocations from all container Status objects
 	containerAllocator := allocator.NewContainerResourceAllocator(r.Client)
 	allocationRequest := &allocator.AllocationRequest{
-		Container:     r.container,
-		Node:          node,
-		Cluster:       cluster,
-		FeatureFlags:  featureFlags,
-		NumDrives:     r.container.Spec.NumDrives,
-		CapacityGiB:   r.container.Spec.ContainerCapacity,
-		FailureDomain: failureDomain,
-		AllocateWeka:  allocateWekaPort,
-		AllocateAgent: allocateAgentPort,
+		Container:           r.container,
+		Node:                node,
+		Cluster:             cluster,
+		FeatureFlags:        featureFlags,
+		NumDrives:           r.container.Spec.NumDrives,
+		CapacityGiB:         r.container.Spec.ContainerCapacity,
+		FailureDomain:       failureDomain,
+		AllocateWeka:        allocateWekaPort,
+		AllocateAgent:       allocateAgentPort,
+		SsdProxyVidLabelAdd: ssdProxyVidLabelAdd,
 	}
 
 	result, err := containerAllocator.AllocateResources(ctx, allocationRequest)

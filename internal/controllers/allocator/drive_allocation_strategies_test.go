@@ -953,7 +953,7 @@ func TestAllocationStrategyGenerator_MaxDrivesLimit(t *testing.T) {
 	}
 }
 
-// compareVirtualDrives compares actual virtual drives with expected ones (ignoring VirtualUUID which is random)
+// compareVirtualDrives compares actual virtual drives with expected ones (ignoring VirtualUUID and Label, set by AllocateSharedDrives)
 func compareVirtualDrives(t *testing.T, actual, expected []weka.VirtualDrive) {
 	t.Helper()
 	if len(actual) != len(expected) {
@@ -963,13 +963,6 @@ func compareVirtualDrives(t *testing.T, actual, expected []weka.VirtualDrive) {
 	// Sort both by PhysicalUUID+CapacityGiB for deterministic comparison
 	sortKey := func(vd weka.VirtualDrive) string {
 		return fmt.Sprintf("%s-%d", vd.PhysicalUUID, vd.CapacityGiB)
-	}
-
-	// Verify VirtualUUIDs are set
-	for i, vd := range actual {
-		if vd.VirtualUUID == "" {
-			t.Errorf("Virtual drive %d has empty VirtualUUID", i)
-		}
 	}
 
 	// Sort both slices
@@ -1678,9 +1671,6 @@ func TestAllocateSharedDrivesByDrivesNum(t *testing.T) {
 				}
 				if vd.CapacityGiB != tt.driveCapacity {
 					t.Errorf("Drive %d: expected capacity %d, got %d", i, tt.driveCapacity, vd.CapacityGiB)
-				}
-				if vd.VirtualUUID == "" {
-					t.Errorf("Drive %d: VirtualUUID should not be empty", i)
 				}
 			}
 

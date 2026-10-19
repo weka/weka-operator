@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/pkg/errors"
@@ -15,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/internal/services/ssdproxy"
 	"github.com/weka/weka-operator/pkg/util"
@@ -83,10 +85,15 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	// A blocked VID is on its way out: re-signing it would undo the removal in progress.
 	blockedVids := r.blockedVirtualUuidSet(ctx)
 
+	blockedPhysical, err := r.getNodeBlockedDriveUuids(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get blocked drive UUIDs from node: %w", err)
+	}
+
 	// Check if all allocated virtual drives are already added
 	allAdded := true
 	for _, vd := range container.Status.Allocations.VirtualDrives {
-		if !addedVirtualDrives[vd.VirtualUUID] && !blockedVids[vd.VirtualUUID] {
+		if !addedVirtualDrives[vd.VirtualUUID] && !blockedVids[vd.VirtualUUID] && !slices.Contains(blockedPhysical, vd.PhysicalUUID) {
 			allAdded = false
 			break
 		}
@@ -98,13 +105,20 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	}
 
 	var errs []error
+	vidsChanged := false
 
 	// Add each virtual drive that hasn't been added yet
-	for _, vd := range container.Status.Allocations.VirtualDrives {
-		vdCtx, l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "physical_uuid", vd.PhysicalUUID)
+	for i := range container.Status.Allocations.VirtualDrives {
+		vd := &container.Status.Allocations.VirtualDrives[i]
+		vdCtx, l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "label", vd.Label, "physical_uuid", vd.PhysicalUUID)
 
 		if blockedVids[vd.VirtualUUID] {
 			l.Info("Virtual drive is blocked on the node, skipping until its removal completes")
+			continue
+		}
+
+		if slices.Contains(blockedPhysical, vd.PhysicalUUID) {
+			l.Info("Physical drive is blocked on the node, skipping virtual drive")
 			continue
 		}
 
@@ -121,8 +135,29 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 			"node", container.GetNodeAffinity(),
 		)
 
+		if vidPending(vd) {
+			vid, err := ssdproxy.NewClient(r.KubeService).AddVirtualDriveByLabel(vdCtx, agentPod, token,
+				string(ssdproxyContainer.GetUID()), vd.Label, vd.PhysicalUUID, clusterUUID, vd.CapacityGiB)
+			if err != nil {
+				l.Error(err, "Failed to add virtual drive via JSONRPC")
+				errs = append(errs, fmt.Errorf("failed to add virtual drive with label %s: %w", vd.Label, err))
+				continue
+			}
+			vd.VirtualUUID = vid
+			l.Info("Proxy returned VID for label", "returned_vid", vid)
+			vidsChanged = true
+			continue
+		}
+
+		if vidLost(vd) {
+			err := fmt.Errorf("VID %s of label %s is missing on the proxy; re-adding it by virtualUuid would not recreate the label-derived VID", vd.VirtualUUID, vd.Label)
+			_ = r.RecordEvent(v1.EventTypeWarning, "VirtualDriveVidMismatch", consts.ActionManageDrives, err.Error()) //nolint:errcheck // error return value intentionally not checked
+			errs = append(errs, err)
+			continue
+		}
+
 		// Add the virtual drive via JSONRPC
-		err := r.addVirtualDriveViaJSONRPC(vdCtx, string(ssdproxyContainer.GetUID()), agentPod, token, clusterUUID, vd)
+		err := r.addVirtualDriveViaJSONRPC(vdCtx, string(ssdproxyContainer.GetUID()), agentPod, token, clusterUUID, *vd)
 		if err != nil {
 			l.Error(err, "Failed to add virtual drive via JSONRPC")
 			errs = append(errs, fmt.Errorf("failed to add virtual drive %s: %w", vd.VirtualUUID, err))
@@ -132,6 +167,13 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 		l.Info("Virtual drive added successfully via ssdproxy JSONRPC")
 	}
 
+	// The cluster add uses the stored VID, so it must be persisted before anything else runs.
+	if vidsChanged {
+		if err := r.Status().Update(ctx, container); err != nil {
+			errs = append(errs, fmt.Errorf("failed to persist VIDs returned by ssdproxy: %w", err))
+		}
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("errors while adding virtual drives: %v", errs)
 	}
@@ -139,6 +181,40 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	logger.InfoWithStatus(codes.Ok, "All virtual drives added successfully")
 
 	return nil
+}
+
+// vidPending reports whether vd has a label but no VID yet, so it is added and removed through the label API.
+func vidPending(vd *weka.VirtualDrive) bool {
+	return vd.Label != "" && vd.VirtualUUID == ""
+}
+
+// vidLost reports whether vd holds a VID the proxy resolved from its label (VID differs from label)
+// and is missing on the proxy. The caller has already established that it is missing; the legacy add
+// cannot recreate it.
+func vidLost(vd *weka.VirtualDrive) bool {
+	return vd.Label != "" && vd.VirtualUUID != "" && vd.VirtualUUID != vd.Label
+}
+
+// proxyPhysicalUuids returns the physical drives the proxy currently lists.
+func proxyPhysicalUuids(ctx context.Context, c *ssdproxy.Client, agentPod *v1.Pod, token, ssdproxyUID string) (map[string]bool, error) {
+	drives, err := c.ListPhysicalDrives(ctx, agentPod, token, ssdproxyUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list physical drives: %w", err)
+	}
+	set := make(map[string]bool, len(drives))
+	for _, d := range drives {
+		set[d.PhysicalUUID] = true
+	}
+	return set, nil
+}
+
+// removeVidByLabel removes a pending allocation's VID by label. A physical drive the proxy no longer
+// lists holds no VID, so there is nothing to remove.
+func removeVidByLabel(ctx context.Context, c *ssdproxy.Client, agentPod *v1.Pod, token, ssdproxyUID string, onProxy map[string]bool, vd *weka.VirtualDrive) error {
+	if !onProxy[vd.PhysicalUUID] {
+		return nil
+	}
+	return c.RemoveVirtualDriveByLabel(ctx, agentPod, token, ssdproxyUID, vd.Label, vd.PhysicalUUID)
 }
 
 // addVirtualDriveViaJSONRPC adds a virtual drive by calling ssd_proxy_add_virtual_drive via node agent
@@ -152,7 +228,7 @@ func (r *containerReconcilerLoop) addVirtualDriveViaJSONRPC(ctx context.Context,
 		"virtualUuid":  vd.VirtualUUID,
 		"physicalUuid": vd.PhysicalUUID,
 		"clusterGuid":  clusterUUID,
-		"sizeGB":       vd.CapacityGiB,
+		"sizeGiB":      vd.CapacityGiB,
 	}
 
 	payload := node_agent.JSONRPCProxyPayload{
@@ -254,6 +330,8 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 		return fmt.Errorf("failed to query existing virtual drives: %w", err)
 	}
 
+	proxyClient := ssdproxy.NewClient(r.KubeService)
+	var onProxy map[string]bool
 	var errs []error
 	var attemptedVDUUIDs []string
 	var removedVDUUIDs []string
@@ -261,7 +339,25 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 
 	// Remove each virtual drive via JSONRPC
 	for _, vd := range container.Status.Allocations.VirtualDrives {
-		vdCtx, l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "physical_uuid", vd.PhysicalUUID)
+		vdCtx, l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "label", vd.Label, "physical_uuid", vd.PhysicalUUID)
+
+		// The proxy may have created a VID for this label that was never persisted; without this the
+		// VID is orphaned until a manual stale-VID cleanup. Cannot be verified by listing: the VID is unknown.
+		if vidPending(&vd) {
+			l.Info("Virtual drive has no persisted VID, removing it by label")
+			if onProxy == nil {
+				onProxy, err = proxyPhysicalUuids(ctx, proxyClient, agentPod, token, string(ssdproxyContainer.GetUID()))
+				if err != nil {
+					return err
+				}
+			}
+			err := removeVidByLabel(vdCtx, proxyClient, agentPod, token, string(ssdproxyContainer.GetUID()), onProxy, &vd)
+			if err != nil {
+				l.Error(err, "Failed to remove virtual drive by label via JSONRPC")
+				errs = append(errs, fmt.Errorf("failed to remove virtual drive with label %s: %w", vd.Label, err))
+			}
+			continue
+		}
 
 		// Check if VD already doesn't exist (query-first approach)
 		if !existingVDs[vd.VirtualUUID] {

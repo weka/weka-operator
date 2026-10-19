@@ -348,7 +348,8 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| virtualUUID | string | VirtualUUID is the virtual drive identifier |
+| virtualUUID | string | VirtualUUID is the weka VID used by the proxy and the cluster.<br>Empty until the proxy add returns it when the ssdproxy derives VIDs from labels (flag ssd_proxy_vid_label_add). |
+| label | string | Label is the operator-chosen id the ssdproxy derives the VID from. Equal to VirtualUUID on proxies<br>without ssd_proxy_vid_label_add; empty on allocations made before labels existed. |
 | physicalUUID | string | PhysicalUUID is the physical drive UUID obtained from proxy signing |
 | capacityGiB | int | CapacityGiB is the allocated capacity in GiB |
 | serial | string | Serial is the serial number of the physical drive |

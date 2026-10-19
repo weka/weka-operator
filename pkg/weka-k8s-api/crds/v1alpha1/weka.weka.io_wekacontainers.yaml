@@ -2062,6 +2062,11 @@ spec:
                         capacityGiB:
                           description: CapacityGiB is the allocated capacity in GiB
                           type: integer
+                        label:
+                          description: |-
+                            Label is the operator-chosen id the ssdproxy derives the VID from. Equal to VirtualUUID on proxies
+                            without ssd_proxy_vid_label_add; empty on allocations made before labels existed.
+                          type: string
                         physicalUUID:
                           description: PhysicalUUID is the physical drive UUID obtained
                             from proxy signing
@@ -2074,7 +2079,9 @@ spec:
                           description: Type is the type of the drive (e.g., TLC, QLC)
                           type: string
                         virtualUUID:
-                          description: VirtualUUID is the virtual drive identifier
+                          description: |-
+                            VirtualUUID is the weka VID used by the proxy and the cluster.
+                            Empty until the proxy add returns it when the ssdproxy derives VIDs from labels (flag ssd_proxy_vid_label_add).
                           type: string
                       required:
                       - capacityGiB
