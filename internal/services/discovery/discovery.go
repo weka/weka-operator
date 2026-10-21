@@ -320,14 +320,14 @@ func SelectRunningContainersByRole(containers []*weka.WekaContainer, numContaine
 	selected := []*weka.WekaContainer{}
 
 	for _, container := range containers {
+		if len(selected) >= numContainers {
+			break
+		}
 		if container.Spec.Mode != role {
 			continue
 		}
 		if container.Status.Status == weka.Running {
 			selected = append(selected, container)
-		}
-		if len(selected) >= numContainers {
-			break
 		}
 	}
 
