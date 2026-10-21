@@ -271,7 +271,7 @@
 |------------|------|-------------|
 | computeContainers | int | Number of compute containers per cluster node. |
 | driveContainers | int | Number of drive containers per cluster node. |
-| s3Containers | int | Number of S3 gateway containers per cluster node. |
+| s3Containers | int | Total number of S3 gateway containers in the cluster. -1 (act-as-daemonset mode only) puts one S3 and<br>one envoy container on every eligible node matching roleNodeSelector.s3, else the cluster nodeSelector. |
 | computeCores | int | Number of cores allocated to each compute container. |
 | driveCores | int | Number of cores allocated to each drive container. |
 | s3Cores | int | Number of cores allocated to each S3 gateway container. |

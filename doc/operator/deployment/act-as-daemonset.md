@@ -76,6 +76,8 @@ Each reconcile classifies the nodes from the client cache.
 - **Drive-role nodes** match `roleNodeSelector.drive`, falling back to the cluster `nodeSelector`.
   **Compute-role nodes** match `roleNodeSelector.compute`, with the same fallback.
 - Containers are **node-pinned**: one per node and role.
+- **S3-role nodes** match `roleNodeSelector.s3`, with the same fallback, and get S3 only with
+  `s3Containers: -1`; see [S3](#s3).
 - The selector therefore sets the cluster size.
 - Nodes may be shared with other clusters. See
   [Shared nodes](#shared-nodes-and-free-drives).
@@ -181,6 +183,54 @@ Before the cluster is formed (`ClusterCreated` not yet set), creation is capped 
 form-cluster maximum a regular cluster uses (10 per role by default). Missing containers are created
 **nodes holding both roles first**, then by node name. After formation the rest are created on the next
 reconcile.
+
+## S3
+
+S3 follows the daemonset when `s3Containers` is `-1`:
+
+```yaml
+spec:
+  dynamicTemplate:
+    s3Containers: -1
+  roleNodeSelector: # optional; without it S3 goes on every cluster nodeSelector node
+    s3:
+      weka.io/s3: "true"
+```
+
+- **One S3 container per eligible node** matching the s3 role's selector (`roleNodeSelector.s3`, else the
+  cluster `nodeSelector`), node-pinned. A node does not need a drive or compute role to get S3. Ineligible
+  nodes get none and are listed in `AutoFullDrivesNodeIneligible`.
+- **One envoy per S3 container**, built on the count-based path (on the reconcile after its S3 container
+  exists) and not node-pinned: pod affinity places it next to an S3 pod, one envoy per node.
+- **Created only after the cluster forms** (`ClusterCreated`). The S3 cluster is then formed from the
+  running S3 containers; containers added later join it on their own.
+- **Cores and hugepages come from the template**: `s3Cores` (default 1), `s3FrontendHugepages` and
+  `s3FrontendHugepagesOffset`, the same as in count mode. They are never resized by the planner.
+- **Other `s3Containers` values keep their meaning.** Unset or `0` deploys no S3, even with
+  `roleNodeSelector.s3` set. A positive value keeps the count-based path: that many unpinned S3 containers
+  and as many envoys, placed by the scheduler on nodes matching the s3 selector. Admission rejects `-1`
+  outside act-as-daemonset mode.
+- **Scale-down** works like drive and compute: sizing never deletes a container. Deleting the
+  `WekaContainer` only replaces it, because the planner recreates it while `s3Containers: -1` is set and the
+  node is still eligible. To remove S3 from a node, take it out of the S3 selector: remove its s3 label (with
+  `roleNodeSelector.s3` unset the selector falls back to `nodeSelector`). With
+  `cleanupOnNodeSelectorMismatch` on, the container is deleted; but if the node still matches the cluster
+  `nodeSelector`, the container's `nodeSelector` may be rewritten instead, and then delete the container
+  manually. A deleted S3 container leaves the S3 cluster first, and its envoy is deleted once it has no S3
+  neighbour. Changing `s3Containers` from `-1` back to unset stops new S3 containers; with
+  `overrides.allowS3ClusterDestroy`, the S3 cluster is destroyed once at most one S3 container is left.
+
+Caveats:
+
+- S3 pods have a per-node pod anti-affinity against other frontend pods (NFS, client, SMB-W, or another
+  cluster's S3). A node that already runs one leaves the S3 pod **Pending**, unless the operator runs with `ALLOW_MULTIPLE_PROTOCOLS_PER_NODE`
+  (or `overrides.disregardRedundancy` is set).
+- Switching an existing cluster from `s3Containers: N` to `-1` while count-path S3 containers are still
+  unscheduled (no node affinity yet): the planner does not see them and adds a pinned S3 on every node, so a
+  leftover can stay Pending (frontend anti-affinity). Let the old S3 containers schedule, or delete them,
+  before switching.
+- The planner does not reserve CPU or hugepages for S3 on nodes it shares with drive and compute
+  containers. A node too small for all three leaves a pod Pending.
 
 ## Growth, lowering and pod restart
 

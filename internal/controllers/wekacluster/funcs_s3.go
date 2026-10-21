@@ -14,7 +14,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -45,8 +44,7 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 		return nil
 	}
 
-	nums := allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic)
-	s3Containers := discovery.SelectRunningContainersByRole(r.containers, nums.S3, weka.WekaContainerModeS3)
+	s3Containers := discovery.SelectRunningContainersByRole(r.containers, r.s3ContainerLimit(), weka.WekaContainerModeS3)
 
 	containerIds := []int{}
 	for _, c := range s3Containers {
@@ -101,8 +99,7 @@ func (r *wekaClusterReconcilerLoop) ShouldDestroyS3Cluster() bool {
 	}
 
 	// if spec contains desired S3 containers, do not destroy the cluster
-	nums := allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic)
-	if nums.S3 > 0 {
+	if r.s3ContainerLimit() > 0 {
 		return false
 	}
 

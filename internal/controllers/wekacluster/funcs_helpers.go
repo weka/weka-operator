@@ -3,6 +3,7 @@ package wekacluster
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
@@ -55,10 +56,16 @@ func (r *wekaClusterReconcilerLoop) HasPostFormClusterScript() bool {
 	return r.cluster.Spec.GetOverrides().PostFormClusterScript != ""
 }
 
-func (r *wekaClusterReconcilerLoop) HasRunningS3Containers() bool {
-	nums := allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic)
+// s3ContainerLimit is how many S3 containers the cluster wants; per-node S3 is bounded by nodes, not a count.
+func (r *wekaClusterReconcilerLoop) s3ContainerLimit() int {
+	if r.cluster.Spec.S3ActsAsDaemonset() {
+		return math.MaxInt
+	}
+	return allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic).S3
+}
 
-	c := discovery.SelectRunningContainersByRole(r.containers, nums.S3, weka.WekaContainerModeS3)
+func (r *wekaClusterReconcilerLoop) HasRunningS3Containers() bool {
+	c := discovery.SelectRunningContainersByRole(r.containers, r.s3ContainerLimit(), weka.WekaContainerModeS3)
 	return len(c) > 0
 }
 
