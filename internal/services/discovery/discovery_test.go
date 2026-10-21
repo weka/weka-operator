@@ -5,6 +5,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 func TestInstanceIDAndRegionFromProviderID(t *testing.T) {
@@ -131,6 +133,49 @@ func TestIsKarpenterManagedNode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := IsKarpenterManagedNode(tc.node); got != tc.want {
 				t.Errorf("IsKarpenterManagedNode() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSelectRunningContainersByRole(t *testing.T) {
+	mk := func(name, mode string, status weka.ContainerStatus) *weka.WekaContainer {
+		c := &weka.WekaContainer{ObjectMeta: metav1.ObjectMeta{Name: name}}
+		c.Spec.Mode = mode
+		c.Status.Status = status
+		return c
+	}
+	s3 := weka.WekaContainerModeS3
+	containers := []*weka.WekaContainer{
+		mk("s3-stopped", s3, weka.Unhealthy),
+		mk("s3-a", s3, weka.Running),
+		mk("nfs", weka.WekaContainerModeNfs, weka.Running),
+		mk("s3-b", s3, weka.Running),
+	}
+
+	cases := []struct {
+		name  string
+		limit int
+		want  []string
+	}{
+		{"zero limit", 0, nil},
+		{"negative limit", -1, nil},
+		{"limit one", 1, []string{"s3-a"}},
+		{"limit two skips non-running and other roles", 2, []string{"s3-a", "s3-b"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []string
+			for _, c := range SelectRunningContainersByRole(containers, tc.limit, s3) {
+				got = append(got, c.Name)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("got %v, want %v", got, tc.want)
+				}
 			}
 		})
 	}
