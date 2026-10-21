@@ -20,7 +20,8 @@ type roleSpec struct {
 	// countDerived marks a role whose container count the operator supplies when the spec leaves it
 	// unset: Drive and Compute get a floor from allocator.GetWekaContainerNumbers, and a cluster acting
 	// as a daemonset leaves both unset by definition. For the frontend roles an unset count is literal —
-	// the role deploys nothing — so a per-container check on them has nothing to check.
+	// the role deploys nothing — so a per-container check on them has nothing to check. S3 at -1 (one per
+	// node) is count-derived too.
 	countDerived bool
 }
 
@@ -37,7 +38,7 @@ func rolesForTemplate(d *weka.WekaClusterTemplate) []roleSpec {
 		{weka.WekaContainerModeCompute, "computeCores", "computeHugepages", "computeContainers",
 			d.ComputeCores, d.ComputeHugepages, d.ComputeContainers, true},
 		{weka.WekaContainerModeS3, "s3Cores", "s3FrontendHugepages", "s3Containers",
-			d.S3Cores, d.S3FrontendHugepages, d.S3Containers, false},
+			d.S3Cores, d.S3FrontendHugepages, d.S3Containers, d.S3Containers < 0},
 		{weka.WekaContainerModeNfs, "nfsCores", "nfsFrontendHugepages", "nfsContainers",
 			d.NfsCores, d.NfsFrontendHugepages, d.NfsContainers, false},
 		{weka.WekaContainerModeSmbw, "smbwCores", "smbwFrontendHugepages", "smbwContainers",

@@ -1,6 +1,6 @@
 # WekaCluster Capacity Planning
 
-Maps whole-cluster drive targets (clusterCapacity) and daemonset sizing (auto full drives) to node-pinned containers.
+Maps whole-cluster drive targets (clusterCapacity) and daemonset sizing (auto full drives, s3) to node-pinned containers.
 Code is the source of truth.
 
 ## Reconciliation path
@@ -19,7 +19,7 @@ Device allocation then populates `Status.Allocations.VirtualDrives`.
 |---|---|
 | `internal/controllers/wekacluster/funcs_fd_planning.go` | Planning orchestration, `steadyStatePlan`, `summarizeDriveContainers` |
 | `internal/controllers/wekacluster/steps_planner_apply.go` | clusterCapacity drive/compute create and growth paths |
-| `internal/controllers/wekacluster/daemonset.go` | `planDaemonset`, `buildDaemonsetContainers`, `listFreeDrives` |
+| `internal/controllers/wekacluster/daemonset.go` | `planDaemonset`, `planDaemonsetS3`, `buildDaemonsetContainers`, `listFreeDrives` |
 | `internal/capacityplanner/inventory/collect.go` | `Collector`, `NodeInventory`, `ExistingDrives`, `ExistingCompute`, `DriveContainerCapacities` |
 | `internal/capacityplanner/planner.go` | `PlanCapacity` |
 | `internal/capacityplanner/cpu.go`, `cores.go`, `hugepages.go` | `CPURequestCores`, `RequiredComputeCores`, pod-resource formulas |

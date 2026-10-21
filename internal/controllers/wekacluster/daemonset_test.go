@@ -77,6 +77,9 @@ func TestPlanDaemonset(t *testing.T) {
 	c := func(node string, cores, hugepages int) dsWant {
 		return dsWant{mode: "compute", node: node, cores: cores, hugepages: hugepages}
 	}
+	s3 := func(node string) dsWant { return dsWant{mode: "s3", node: node} }
+	s3Node := func(n dsNode) dsNode { n.s3Role = true; return n }
+	liveS3 := map[string]map[string]*weka.WekaContainer{weka.WekaContainerModeS3: {"s1": ctr(0, 1)}}
 
 	for _, tc := range []struct {
 		name           string
@@ -87,6 +90,7 @@ func TestPlanDaemonset(t *testing.T) {
 		unused, noFree []string
 		capped         int
 		statusD, statC int
+		statS3         int
 	}{
 		{
 			name:    "shared homogeneous selector",
@@ -318,6 +322,32 @@ func TestPlanDaemonset(t *testing.T) {
 			},
 			want: []dsWant{d("n1", 6, 6), c("n1", 12, hp(6000, 1, 12))}, statusD: 1, statC: 1,
 		},
+		{
+			name:    "s3 node gets an s3",
+			in:      daemonsetInput{nodes: map[string]dsNode{"n1": s3Node(shared(4))}, s3: true, cons: cons},
+			want:    []dsWant{d("n1", 4, 4), c("n1", 8, hp(4000, 1, 8)), s3("n1")},
+			statusD: 1, statC: 1, statS3: 1,
+		},
+		{
+			name:   "s3-only node still gets s3",
+			in:     daemonsetInput{nodes: map[string]dsNode{"s1": s3Node(dsNode{})}, s3: true, cons: cons},
+			want:   []dsWant{s3("s1")},
+			statS3: 1,
+		},
+		{
+			name:   "live s3 gets nothing new",
+			in:     daemonsetInput{nodes: map[string]dsNode{"s1": s3Node(dsNode{})}, live: liveS3, s3: true, cons: cons},
+			statS3: 1,
+		},
+		{
+			name:       "ineligible s3 node gets nothing",
+			in:         daemonsetInput{nodes: map[string]dsNode{"s1": s3Node(dsNode{ineligible: "cordoned"})}, s3: true, cons: cons},
+			ineligible: map[string]string{"s1": "cordoned"},
+		},
+		{
+			name: "per-node s3 off gives no s3 targets",
+			in:   daemonsetInput{nodes: map[string]dsNode{"s1": s3Node(dsNode{})}, live: liveS3, cons: cons},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := planDaemonset(&tc.in)
@@ -349,8 +379,8 @@ func TestPlanDaemonset(t *testing.T) {
 			if len(p.capped) != tc.capped {
 				t.Errorf("capped = %v, want %d entries", p.capped, tc.capped)
 			}
-			if p.statusDesiredDrive != tc.statusD || p.statusDesiredCompute != tc.statC {
-				t.Errorf("status desired = %d/%d, want %d/%d", p.statusDesiredDrive, p.statusDesiredCompute, tc.statusD, tc.statC)
+			if p.statusDesiredDrive != tc.statusD || p.statusDesiredCompute != tc.statC || p.statusDesiredS3 != tc.statS3 {
+				t.Errorf("status desired = %d/%d/%d, want %d/%d/%d", p.statusDesiredDrive, p.statusDesiredCompute, p.statusDesiredS3, tc.statusD, tc.statC, tc.statS3)
 			}
 		})
 	}
@@ -661,6 +691,123 @@ func TestBuildMissingContainersDaemonsetWritesStatusDesired(t *testing.T) {
 	st := loop.cluster.Status.Stats
 	if st == nil || st.Containers.Drive.Containers.Desired != 2 || st.Containers.Compute.Containers.Desired != 2 || st.Drives.DriveCounters.Desired != 6 {
 		t.Errorf("desired drive/compute containers, drives = %+v, want 2/2/6", st)
+	}
+}
+
+// dsS3Loop is dsGlueLoop over n1 and n2 with s3Containers: -1, roleNodeSelector.s3 = {s3: 1}, and that
+// label on s3Nodes.
+func dsS3Loop(t *testing.T, formed bool, s3Nodes []string, containers ...*weka.WekaContainer) *wekaClusterReconcilerLoop {
+	t.Helper()
+	loop := dsGlueLoop(t, map[string]int{"n1": 4, "n2": 4}, formed, containers...)
+	loop.cluster.Spec.Dynamic.S3Containers = -1
+	loop.cluster.Spec.RoleNodeSelector.S3 = &map[string]string{"s3": "1"}
+	for _, name := range s3Nodes {
+		node := &corev1.Node{}
+		if err := loop.getClient().Get(context.Background(), client.ObjectKey{Name: name}, node); err != nil {
+			t.Fatal(err)
+		}
+		node.Labels["s3"] = "1"
+		if err := loop.getClient().Update(context.Background(), node); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return loop
+}
+
+// builtS3 runs BuildMissingContainers and returns the s3 and envoy containers built, as "mode/node", sorted.
+func builtS3(t *testing.T, loop *wekaClusterReconcilerLoop) []string {
+	t.Helper()
+	built, err := loop.BuildMissingContainers(context.Background())
+	if err != nil {
+		t.Fatalf("BuildMissingContainers: %v", err)
+	}
+	var got []string
+	for _, c := range built {
+		if c.Spec.Mode == weka.WekaContainerModeS3 || c.Spec.Mode == weka.WekaContainerModeEnvoy {
+			got = append(got, c.Spec.Mode+"/"+string(c.Spec.NodeAffinity))
+		}
+	}
+	slices.Sort(got)
+	return got
+}
+
+func TestBuildMissingContainersDaemonsetS3WaitsForFormation(t *testing.T) {
+	if got := builtS3(t, dsS3Loop(t, false, []string{"n1"})); len(got) != 0 {
+		t.Errorf("built %v before formation, want none", got)
+	}
+}
+
+func TestBuildMissingContainersDaemonsetS3PinnedPerNode(t *testing.T) {
+	loop := dsS3Loop(t, true, []string{"n1"})
+	if got := builtS3(t, loop); strings.Join(got, ",") != "s3/n1" {
+		t.Errorf("built %v, want s3 on n1", got)
+	}
+	if st := loop.cluster.Status.Stats.Containers.S3; st == nil || st.Containers.Desired != 1 {
+		t.Errorf("s3 desired = %+v, want 1", st)
+	}
+}
+
+func TestBuildMissingContainersDaemonsetS3FallsBackToNodeSelector(t *testing.T) {
+	loop := dsS3Loop(t, true, nil)
+	loop.cluster.Spec.RoleNodeSelector.S3 = nil
+	if got := builtS3(t, loop); strings.Join(got, ",") != "s3/n1,s3/n2" {
+		t.Errorf("built %v, want s3 on every nodeSelector node", got)
+	}
+}
+
+func TestBuildMissingContainersDaemonsetS3EnvoyPerS3Container(t *testing.T) {
+	var live []*weka.WekaContainer
+	for _, node := range []string{"n1", "n2"} {
+		c := &weka.WekaContainer{ObjectMeta: metav1.ObjectMeta{Name: "s3-" + node, Namespace: "default", Labels: map[string]string{domain.WekaLabelMode: weka.WekaContainerModeS3}}}
+		c.Spec.Mode, c.Spec.NodeAffinity = weka.WekaContainerModeS3, weka.NodeName(node)
+		live = append(live, c)
+	}
+	if got := builtS3(t, dsS3Loop(t, true, []string{"n1", "n2"}, live...)); strings.Join(got, ",") != "envoy/,envoy/" {
+		t.Errorf("built %v, want 2 unpinned envoys", got)
+	}
+}
+
+func TestBuildMissingContainersDaemonsetS3NoEnvoyForDeletingS3(t *testing.T) {
+	var live []*weka.WekaContainer
+	for i, node := range []string{"n1", "n2"} {
+		c := &weka.WekaContainer{ObjectMeta: metav1.ObjectMeta{Name: "s3-" + node, Namespace: "default", Labels: map[string]string{domain.WekaLabelMode: weka.WekaContainerModeS3}}}
+		c.Spec.Mode, c.Spec.NodeAffinity = weka.WekaContainerModeS3, weka.NodeName(node)
+		if i == 1 {
+			c.Spec.State = weka.ContainerStateDeleting
+		}
+		live = append(live, c)
+	}
+	if got := builtS3(t, dsS3Loop(t, true, []string{"n1", "n2"}, live...)); strings.Join(got, ",") != "envoy/" {
+		t.Errorf("built %v, want 1 unpinned envoy", got)
+	}
+}
+
+func TestBuildMissingContainersDaemonsetS3SelectorAloneBuildsNothing(t *testing.T) {
+	loop := dsS3Loop(t, true, []string{"n1"})
+	loop.cluster.Spec.Dynamic.S3Containers = 0
+	if got := builtS3(t, loop); len(got) != 0 {
+		t.Errorf("built %v with s3Containers unset, want none", got)
+	}
+}
+
+func TestBuildMissingContainersDaemonsetS3CountWins(t *testing.T) {
+	loop := dsS3Loop(t, true, []string{"n1"})
+	loop.cluster.Spec.Dynamic.S3Containers = 2
+	if got := builtS3(t, loop); strings.Join(got, ",") != "envoy/,envoy/,s3/,s3/" {
+		t.Errorf("built %v, want 2 unpinned s3 and 2 unpinned envoy", got)
+	}
+}
+
+func TestShouldDestroyS3ClusterDaemonset(t *testing.T) {
+	loop := dsS3Loop(t, true, []string{"n1"})
+	loop.cluster.Spec.Overrides = &weka.WekaClusterSpecOverrides{AllowS3ClusterDestroy: true}
+	loop.cluster.Status.Conditions = append(loop.cluster.Status.Conditions, metav1.Condition{Type: condition.CondS3ClusterCreated, Status: metav1.ConditionTrue})
+	if loop.ShouldDestroyS3Cluster() {
+		t.Error("destroy while s3Containers is -1")
+	}
+	loop.cluster.Spec.Dynamic.S3Containers = 0
+	if !loop.ShouldDestroyS3Cluster() {
+		t.Error("no destroy after s3Containers went from -1 to unset")
 	}
 }
 

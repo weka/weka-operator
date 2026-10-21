@@ -215,11 +215,18 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 		cluster.Status.Stats.Containers.Compute.Containers.Desired = weka.IntMetric(template.Containers.Compute)
 		cluster.Status.Stats.Containers.Drive.Containers.Desired = weka.IntMetric(template.Containers.Drive)
 	}
-	if template.Containers.S3 != 0 {
-		if cluster.Status.Stats.Containers.S3 == nil {
-			cluster.Status.Stats.Containers.S3 = &weka.ContainerMetrics{}
+	s3Daemonset := cluster.Spec.S3ActsAsDaemonset()
+	s3Tracked := template.Containers.S3 > 0 || s3Daemonset
+	if s3Tracked && cluster.Status.Stats.Containers.S3 == nil {
+		cluster.Status.Stats.Containers.S3 = &weka.ContainerMetrics{}
+	}
+	// Per-node S3's desired count is written by buildDaemonsetContainers.
+	if s3 := cluster.Status.Stats.Containers.S3; s3 != nil && !s3Daemonset {
+		desired := 0
+		if template.Containers.S3 > 0 {
+			desired = template.Containers.S3
 		}
-		cluster.Status.Stats.Containers.S3.Containers.Desired = weka.IntMetric(template.Containers.S3)
+		s3.Containers.Desired = weka.IntMetric(desired)
 	}
 	if template.Containers.Nfs != 0 {
 		if cluster.Status.Stats.Containers.Nfs == nil {
@@ -270,7 +277,7 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 	cluster.Status.Stats.Containers.Drive.Containers.Created = weka.IntMetric(getCounter(roleCreatedCounts, weka.WekaContainerModeDrive))
 
 	// propagate "active" counters for these that not exposed explicitly in weka status --json
-	if template.Containers.S3 != 0 {
+	if s3Tracked {
 		cluster.Status.Stats.Containers.S3.Containers.Active = weka.IntMetric(getCounter(roleActiveCounts, weka.WekaContainerModeS3))
 	}
 	if template.Containers.Nfs != 0 {
@@ -286,7 +293,7 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 		cluster.Status.Stats.Containers.Drive.CpuUtilization = weka.NewFloatMetric(maxCpu[weka.WekaContainerModeDrive])
 	}
 
-	if maxCpu[weka.WekaContainerModeS3] > 0 {
+	if s3Tracked && maxCpu[weka.WekaContainerModeS3] > 0 {
 		cluster.Status.Stats.Containers.S3.CpuUtilization = weka.NewFloatMetric(maxCpu[weka.WekaContainerModeS3])
 	}
 

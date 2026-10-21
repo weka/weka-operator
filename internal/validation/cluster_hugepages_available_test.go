@@ -90,6 +90,13 @@ func TestClusterHugepagesAvailable(t *testing.T) {
 			wantNoSub: []string{"s3Containers"}, // one container fits the fleet total; only the weakest node does not
 		},
 		{
+			name:     "per-node s3 (-1) checks the pin against every node",
+			nodeMiB:  []int{10000, 90000},
+			dynamic:  &weka.WekaClusterTemplate{S3FrontendHugepages: 90000, S3Containers: -1},
+			wantN:    1,
+			wantSubs: []string{"s3FrontendHugepages", "10000 MiB", "At least one matched node cannot host"},
+		},
+		{
 			// Regression guard for the split: with a count set, both checks still apply.
 			name:     "counted mode: fits one node but not the fleet",
 			nodeMiB:  []int{10000, 10000},

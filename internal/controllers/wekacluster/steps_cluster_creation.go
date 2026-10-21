@@ -33,6 +33,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/services"
+	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util "github.com/weka/weka-operator/pkg/util"
 )
@@ -457,7 +458,7 @@ func (r *wekaClusterReconcilerLoop) GarbageCollectUnschedulablePlannerContainers
 }
 
 // BuildMissingContainers returns the containers still needed to reach the cluster's desired role counts:
-// act-as-daemonset builds drive and compute; clusterCapacity builds drive and supplies the compute layout
+// act-as-daemonset builds drive and compute (and s3 under S3ActsAsDaemonset); clusterCapacity builds drive and supplies the compute layout
 // (pinned to the planner's reserved nodes); every other role takes the count-based path.
 func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) ([]*weka.WekaContainer, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "BuildMissingContainers")
@@ -513,7 +514,8 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 	want := r.desiredRoleCounts(nums)
 
 	for _, role := range wekaContainerRoles {
-		if (role == weka.WekaContainerModeDrive && (daemonset || capacity)) || (role == weka.WekaContainerModeCompute && daemonset) {
+		if (role == weka.WekaContainerModeDrive && (daemonset || capacity)) || (role == weka.WekaContainerModeCompute && daemonset) ||
+			(role == weka.WekaContainerModeS3 && cluster.Spec.S3ActsAsDaemonset()) {
 			continue // built above
 		}
 		// A per-container compute layout supersedes the uniform count-based path: each missing entry is created
@@ -575,11 +577,20 @@ func (r *wekaClusterReconcilerLoop) desiredRoleCounts(nums allocator.IntPerWekaR
 		}
 	}
 
+	envoys := nums.S3 // one envoy per S3 container
+	if cluster.Spec.S3ActsAsDaemonset() {
+		envoys = 0
+		for _, c := range discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeS3) {
+			if !c.IsMarkedForDeletion() && !c.IsDeletingState() && !c.IsDestroyingState() {
+				envoys++
+			}
+		}
+	}
 	want := map[string]int{
 		"compute": nums.Compute,
 		"drive":   nums.Drive,
 		"s3":      nums.S3,
-		"envoy":   nums.S3, // one envoy per S3 container
+		"envoy":   envoys,
 		"nfs":     nums.Nfs,
 		"smbw":    nums.Smbw,
 	}

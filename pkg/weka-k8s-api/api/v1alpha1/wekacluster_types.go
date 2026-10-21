@@ -232,6 +232,7 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity > 0",message="driveCapacity must be greater than 0 when specified"
 // +kubebuilder:validation:XValidation:rule="!has(self.clusterCapacity) || self.clusterCapacity.size() == 0 || ((!has(self.containerCapacity) || self.containerCapacity == 0) && (!has(self.numDrives) || self.numDrives == 0) && (!has(self.driveCapacity) || self.driveCapacity == 0))",message="clusterCapacity is mutually exclusive with containerCapacity, numDrives and driveCapacity"
 // +kubebuilder:validation:XValidation:rule="(has(self.clusterCapacity) && self.clusterCapacity.size() > 0) || (has(self.containerCapacity) && self.containerCapacity > 0) || (has(self.driveCapacity) && self.driveCapacity > 0) || ((has(self.computeContainers) && self.computeContainers > 0) == (has(self.driveContainers) && self.driveContainers > 0))",message="computeContainers and driveContainers must be set together: setting both sizes the cluster by container counts, while leaving both unset makes the operator act as a daemonset over its drive-role nodeSelector (one drive container per eligible node, sized from that node's own full drives). numDrives, driveCores and computeCores may be pinned either way. For capacity-based sizing, use clusterCapacity, containerCapacity or driveCapacity instead"
+// +kubebuilder:validation:XValidation:rule="!has(self.s3Containers) || self.s3Containers != -1 || ((!has(self.computeContainers) || self.computeContainers == 0) && (!has(self.driveContainers) || self.driveContainers == 0) && (!has(self.containerCapacity) || self.containerCapacity == 0) && (!has(self.driveCapacity) || self.driveCapacity == 0) && (!has(self.clusterCapacity) || self.clusterCapacity.size() == 0))",message="s3Containers: -1 (one S3 container per eligible node) is only allowed in act-as-daemonset mode: computeContainers, driveContainers, containerCapacity, driveCapacity and clusterCapacity must all be unset"
 type WekaClusterTemplate struct {
 	// Number of compute containers per cluster node.
 	// +kubebuilder:validation:Minimum=0
@@ -239,8 +240,9 @@ type WekaClusterTemplate struct {
 	// Number of drive containers per cluster node.
 	// +kubebuilder:validation:Minimum=0
 	DriveContainers int `json:"driveContainers,omitempty"`
-	// Number of S3 gateway containers per cluster node.
-	// +kubebuilder:validation:Minimum=0
+	// Total number of S3 gateway containers in the cluster. -1 (act-as-daemonset mode only) puts one S3 and
+	// one envoy container on every eligible node matching roleNodeSelector.s3, else the cluster nodeSelector.
+	// +kubebuilder:validation:Minimum=-1
 	S3Containers int `json:"s3Containers,omitempty"`
 	// Number of cores allocated to each compute container.
 	// +kubebuilder:validation:Minimum=0
@@ -404,6 +406,12 @@ func (d *WekaClusterTemplate) UsesAutoFullDrives() bool {
 	return d.ComputeContainers <= 0 && d.DriveContainers <= 0 &&
 		d.ContainerCapacity <= 0 && d.DriveCapacity <= 0 &&
 		!d.UsesClusterCapacity()
+}
+
+// S3ActsAsDaemonset reports whether S3 follows act-as-daemonset mode (s3Containers: -1): one S3 and one
+// envoy container on every eligible node matching the s3 role's node selector.
+func (s *WekaClusterSpec) S3ActsAsDaemonset() bool {
+	return s.Dynamic != nil && s.Dynamic.S3Containers == -1 && s.Dynamic.UsesAutoFullDrives()
 }
 
 // GetClusterCapacityGiB parses ClusterCapacity into whole GiB.

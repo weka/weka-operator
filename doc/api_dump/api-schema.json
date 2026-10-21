@@ -4943,7 +4943,7 @@
           "name": "S3Containers",
           "jsonName": "s3Containers",
           "type": "int",
-          "description": "Number of S3 gateway containers per cluster node.",
+          "description": "Total number of S3 gateway containers in the cluster. -1 (act-as-daemonset mode only) puts one S3 and\none envoy container on every eligible node matching roleNodeSelector.s3, else the cluster nodeSelector.",
           "optional": true
         },
         {

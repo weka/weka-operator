@@ -388,8 +388,10 @@ spec:
                     minimum: 0
                     type: integer
                   s3Containers:
-                    description: Number of S3 gateway containers per cluster node.
-                    minimum: 0
+                    description: |-
+                      Total number of S3 gateway containers in the cluster. -1 (act-as-daemonset mode only) puts one S3 and
+                      one envoy container on every eligible node matching roleNodeSelector.s3, else the cluster nodeSelector.
+                    minimum: -1
                     type: integer
                   s3Cores:
                     description: Number of cores allocated to each S3 gateway container.
@@ -488,6 +490,16 @@ spec:
                     > 0) || (has(self.driveCapacity) && self.driveCapacity > 0) ||
                     ((has(self.computeContainers) && self.computeContainers > 0) ==
                     (has(self.driveContainers) && self.driveContainers > 0))
+                - message: 's3Containers: -1 (one S3 container per eligible node)
+                    is only allowed in act-as-daemonset mode: computeContainers, driveContainers,
+                    containerCapacity, driveCapacity and clusterCapacity must all
+                    be unset'
+                  rule: '!has(self.s3Containers) || self.s3Containers != -1 || ((!has(self.computeContainers)
+                    || self.computeContainers == 0) && (!has(self.driveContainers)
+                    || self.driveContainers == 0) && (!has(self.containerCapacity)
+                    || self.containerCapacity == 0) && (!has(self.driveCapacity) ||
+                    self.driveCapacity == 0) && (!has(self.clusterCapacity) || self.clusterCapacity.size()
+                    == 0))'
               encryption:
                 description: Encryption configuration for data at rest. Configure
                   a HashiCorp Vault KMS for production use.

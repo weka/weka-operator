@@ -12,7 +12,9 @@ import (
 
 	"github.com/weka/go-steps-engine/throttling"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1/condition"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
@@ -26,10 +28,12 @@ import (
 )
 
 // daemonset.go sizes a cluster with no counts or capacity (Spec.Dynamic.UsesAutoFullDrives): one drive and
-// one compute container per matching node. A pod that does not fit its node stays Pending.
+// one compute container per matching node, and with Spec.S3ActsAsDaemonset one S3 per s3 node.
+// A pod that does not fit its node stays Pending.
 
 type dsNode struct {
 	driveRole, computeRole bool   // matches the role's node selector
+	s3Role                 bool   // matches the s3 role's node selector, set only under S3ActsAsDaemonset
 	ineligible             string // "" or the reason new containers are withheld
 	drivesGiB              []int  // non-blocked full drives from the annotation, largest first
 	badAnnotation          string // parse error of the drive annotation, if any
@@ -48,6 +52,7 @@ type daemonsetInput struct {
 	numDrivesPin, driveCoresPin, computeCoresPin int
 	hugepagesPin, hugepagesOffsetPin             map[string]bool // by mode
 	cons                                         *capacityplanner.CapacityConstraints
+	s3                                           bool // Spec.S3ActsAsDaemonset
 }
 
 type dsContainerTarget struct {
@@ -65,13 +70,13 @@ type dsContainerTarget struct {
 }
 
 type daemonsetPlan struct {
-	targets []dsContainerTarget // drive then compute, each by node
+	targets []dsContainerTarget // drive, compute, s3, each by node
 	// Inputs for the aggregated events.
 	unsigned, unused, capped, noFree []string
 	ineligible                       map[string]string // node -> reason
 	driveCores, computeCores         int
 	// Printer columns only; placement never reads them.
-	statusDesiredDrive, statusDesiredCompute int
+	statusDesiredDrive, statusDesiredCompute, statusDesiredS3 int
 }
 
 func planDaemonset(in *daemonsetInput) daemonsetPlan {
@@ -265,7 +270,40 @@ func planDaemonset(in *daemonsetInput) daemonsetPlan {
 			p.statusDesiredCompute++
 		}
 	}
+	if in.s3 {
+		planDaemonsetS3(in, &p)
+	}
 	return p
+}
+
+// planDaemonsetS3 adds an s3 target on each eligible s3 node without one. It never sizes or removes anything.
+func planDaemonsetS3(in *daemonsetInput, p *daemonsetPlan) {
+	liveS3 := in.live[weka.WekaContainerModeS3]
+	all := map[string]bool{}
+	for name, n := range in.nodes {
+		if n.s3Role {
+			all[name] = true
+		}
+	}
+	for name := range liveS3 {
+		all[name] = true
+	}
+
+	for _, name := range slices.Sorted(maps.Keys(all)) {
+		n := in.nodes[name]
+		if liveS3[name] != nil {
+			p.statusDesiredS3++
+			continue
+		}
+		if n.ineligible != "" {
+			p.ineligible[name] = n.ineligible
+			continue
+		}
+		p.statusDesiredS3++
+		if !in.deleting[weka.WekaContainerModeS3][name] {
+			p.targets = append(p.targets, dsContainerTarget{node: name, mode: weka.WekaContainerModeS3})
+		}
+	}
 }
 
 func sum(xs []int) (total int) {
@@ -311,10 +349,12 @@ func olderThan(a, b *weka.WekaContainer) bool {
 	return a.Name < b.Name
 }
 
-// containersByMode indexes this cluster's drive and compute containers by mode, then node.
+var daemonsetModes = []string{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute, weka.WekaContainerModeS3}
+
+// containersByMode indexes this cluster's daemonset-managed containers by mode, then node.
 func (r *wekaClusterReconcilerLoop) containersByMode() (live map[string]map[string]*weka.WekaContainer, deleting map[string]map[string]bool) {
 	live, deleting = map[string]map[string]*weka.WekaContainer{}, map[string]map[string]bool{}
-	for _, mode := range []string{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute} {
+	for _, mode := range daemonsetModes {
 		live[mode], deleting[mode] = map[string]*weka.WekaContainer{}, map[string]bool{}
 	}
 	for _, c := range r.containers {
@@ -340,6 +380,7 @@ func (r *wekaClusterReconcilerLoop) collectDaemonsetInput(ctx context.Context) (
 		hugepagesOffsetPin: map[string]bool{weka.WekaContainerModeDrive: dyn.DriveHugepagesOffset > 0, weka.WekaContainerModeCompute: dyn.ComputeHugepagesOffset > 0},
 		cons:               allocator.ConstraintsForClusterSpec(&cluster.Spec),
 		nodes:              map[string]dsNode{},
+		s3:                 cluster.Spec.S3ActsAsDaemonset() && meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated),
 	}
 	in.live, in.deleting = r.containersByMode()
 
@@ -362,10 +403,13 @@ func (r *wekaClusterReconcilerLoop) collectDaemonsetInput(ctx context.Context) (
 					n.drivesGiB = append(n.drivesGiB, d.CapacityGiB)
 				}
 			}
-			if role == weka.WekaContainerModeDrive {
+			switch role {
+			case weka.WekaContainerModeDrive:
 				n.driveRole = true
-			} else {
+			case weka.WekaContainerModeCompute:
 				n.computeRole = true
+			default:
+				n.s3Role = true
 			}
 			in.nodes[node.Name] = n
 		}
@@ -383,6 +427,13 @@ func (r *wekaClusterReconcilerLoop) collectDaemonsetInput(ctx context.Context) (
 		}
 	}
 	add(computeNodes, weka.WekaContainerModeCompute)
+	if in.s3 {
+		s3Nodes, err := inventory.ListNodesForSelector(ctx, r.getClient(), cluster.GetNodeSelectorForRole(weka.WekaContainerModeS3))
+		if err != nil {
+			return in, fmt.Errorf("collectDaemonsetInput: failed to list s3 nodes: %w", err)
+		}
+		add(s3Nodes, weka.WekaContainerModeS3)
+	}
 	if err := r.listFreeDrives(ctx, in); err != nil {
 		return in, err
 	}
@@ -492,9 +543,10 @@ func (r *wekaClusterReconcilerLoop) buildDaemonsetContainers(ctx context.Context
 	var desiredDrives int
 	for _, t := range p.targets {
 		desiredDrives += t.numDrives
-		if t.mode == weka.WekaContainerModeDrive {
+		switch t.mode {
+		case weka.WekaContainerModeDrive:
 			targets.Drive++
-		} else {
+		case weka.WekaContainerModeCompute:
 			targets.Compute++
 		}
 	}
@@ -502,6 +554,12 @@ func (r *wekaClusterReconcilerLoop) buildDaemonsetContainers(ctx context.Context
 	cluster.Status.Stats.Containers.Drive.Containers.Desired = weka.IntMetric(p.statusDesiredDrive)
 	cluster.Status.Stats.Containers.Compute.Containers.Desired = weka.IntMetric(p.statusDesiredCompute)
 	cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(desiredDrives)
+	if in.s3 {
+		if cluster.Status.Stats.Containers.S3 == nil {
+			cluster.Status.Stats.Containers.S3 = &weka.ContainerMetrics{}
+		}
+		cluster.Status.Stats.Containers.S3.Containers.Desired = weka.IntMetric(p.statusDesiredS3)
+	}
 
 	var grown, belowAuto []string
 	var growErrs []error
@@ -537,25 +595,36 @@ func (r *wekaClusterReconcilerLoop) buildDaemonsetContainers(ctx context.Context
 	})
 	baseTemplate := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
 	for _, t := range missing {
-		if room[t.mode] <= 0 {
-			continue
+		if n, capped := room[t.mode]; capped {
+			if n <= 0 {
+				continue
+			}
+			room[t.mode]--
 		}
-		room[t.mode]--
 		template := baseTemplate
 		var hp allocator.ContainerHugepages
-		if t.mode == weka.WekaContainerModeDrive {
+		switch t.mode {
+		case weka.WekaContainerModeDrive:
 			template.Cores.Drive = t.cores
 			hp = allocator.DriveHugepagesFromPlan(cluster, t.cores, t.numDrives)
-		} else {
+		case weka.WekaContainerModeCompute:
 			template.Cores.Compute = t.cores
 			template.Containers.Compute = computeCount
 			hp = allocator.ComputeHugepagesFromPlan(cluster, t.computeHugepagesMiB, t.cores)
+		default:
+			var hpErr error
+			if hp, hpErr = allocator.GetContainerHugepages(ctx, r.getClient(), template, cluster, r.containers, t.mode); hpErr != nil {
+				skipped = append(skipped, fmt.Sprintf("role %s hugepages: %s", t.mode, hpErr))
+				continue
+			}
 		}
 		name := allocator.NewContainerName(t.mode)
-		auto := autoHugepagesFor(cluster, &t, t.cores, t.numDrives)
-		var below []string
-		hp.Hugepages, hp.HugepagesOffset, below = floorHugepages(fmt.Sprintf("new %s on %s", t.mode, t.node), hp, auto, 0, 0, in.hugepagesPin[t.mode], in.hugepagesOffsetPin[t.mode])
-		belowAuto = append(belowAuto, below...)
+		if t.mode != weka.WekaContainerModeS3 {
+			auto := autoHugepagesFor(cluster, &t, t.cores, t.numDrives)
+			var below []string
+			hp.Hugepages, hp.HugepagesOffset, below = floorHugepages(fmt.Sprintf("new %s on %s", t.mode, t.node), hp, auto, 0, 0, in.hugepagesPin[t.mode], in.hugepagesOffsetPin[t.mode])
+			belowAuto = append(belowAuto, below...)
+		}
 		container, buildErr := factory.NewWekaContainerForWekaCluster(cluster, template, hp, t.mode, name)
 		if buildErr != nil {
 			skipped = append(skipped, fmt.Sprintf("role %s container %s: %s", t.mode, name, buildErr))
@@ -715,10 +784,12 @@ func (r *wekaClusterReconcilerLoop) emitDaemonsetEvents(p *daemonsetPlan, ratio 
 func (r *wekaClusterReconcilerLoop) announceDaemonsetCreated(created []*weka.WekaContainer) {
 	nodes := map[string][]string{}
 	for _, c := range created {
-		nodes[c.Spec.Mode] = append(nodes[c.Spec.Mode], string(c.Spec.NodeAffinity))
+		if c.Spec.NodeAffinity != "" { // count-path s3 containers are not pinned
+			nodes[c.Spec.Mode] = append(nodes[c.Spec.Mode], string(c.Spec.NodeAffinity))
+		}
 	}
 	var parts []string
-	for _, mode := range []string{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute} {
+	for _, mode := range daemonsetModes {
 		if n := nodes[mode]; len(n) > 0 {
 			slices.Sort(n)
 			parts = append(parts, fmt.Sprintf("%d %s container(s) on [%s]", len(n), mode, util.JoinCapped(n, ",", 10)))
