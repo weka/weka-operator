@@ -1,6 +1,5 @@
 #!/usr/bin/env -S uv run --no-project --with openai-agents
 import argparse
-import asyncio
 # Removed requests import, handled by GitHubClient
 import logging
 import math  # Added for ceiling division
@@ -28,7 +27,7 @@ CHUNK_SIZE = 300  # bytes for summarizing large file deltas
 # Set up logging
 logger = logging.getLogger(__name__)
 
-from util_gemini import final_release_notes_model
+from util_gemini import final_release_notes_model, run_sync
 
 # --- Commit Info Class ---
 class CommitInfo:
@@ -644,7 +643,7 @@ Do not begin with “This page...” or “This topic ...” for the line under 
 
     # logger.debug(instructions)
     # logger.debug(input_text)
-    result = asyncio.run(Runner.run(agent, input_text))
+    result = run_sync(Runner.run(agent, input_text))
     final_output = result.final_output
 
     # Validate commits (SHAs) - handles both regular SHAs and API SHAs (api:abc1234)
