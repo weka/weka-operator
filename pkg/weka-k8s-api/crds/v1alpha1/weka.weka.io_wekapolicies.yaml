@@ -567,7 +567,6 @@ spec:
                     type: object
                 type: object
             required:
-            - lastRunTime
             - result
             - status
             type: object
