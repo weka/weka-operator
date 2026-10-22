@@ -2906,7 +2906,7 @@ async def configure_traces():
     logging.info("Traces configured successfully")
 
 
-async def ensure_nics(num: int):
+async def ensure_nics(num: int, exclude_macs: list):
     # `weka local run` does not forward the pod environment
     # into the nested container, so cloud-helper finds no AWS_ROLE_ARN /
     # AWS_WEB_IDENTITY_TOKEN_FILE and the AWS SDK falls back to IMDS (the node instance
@@ -2921,13 +2921,15 @@ async def ensure_nics(num: int):
     # num flows from a JSON instruction payload into a shell command; coerce to int so a
     # malformed value fails fast here rather than breaking (or injecting into) the shell.
     num = int(num)
+    exclude = {m.lower() for m in exclude_macs}
 
     role_arn = os.environ.get("AWS_ROLE_ARN")
     token_file = os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE")
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or ""
     use_web_identity = bool(role_arn and token_file and exists(token_file))
 
-    helper_cmd = f"/weka/go-helpers/cloud-helper ensure-nics -n {num}"
+    # OKE pod VNICs (from NativePodNetwork) count toward cloud-helper's -n, so ask for that many more
+    helper_cmd = f"/weka/go-helpers/cloud-helper ensure-nics -n {num + len(exclude)}"
 
     if use_web_identity:
         # runs INSIDE the nested container; reads the token from stdin. role_arn/region are
@@ -2974,8 +2976,9 @@ async def ensure_nics(num: int):
     if ec != 0:
         raise Exception(f"Failed to ensure NICs: {stderr}")
     logging.info("Ensured NICs successfully")
+    vnics = json.loads(stdout.decode('utf-8').strip())['metadata']['vnics']
     write_results(
-        dict(err=None, ensured=True, nics=json.loads(stdout.decode('utf-8').strip())['metadata']['vnics'][1:]))
+        dict(err=None, ensured=True, nics=[v for v in vnics[1:] if v['mac_address'].lower() not in exclude]))
 
 
 async def get_containers():
@@ -4927,7 +4930,7 @@ async def main():
         if instruction.get('type') == 'ensure-nics':
             payload = json.loads(instruction['payload'])
             if payload.get('type') in ["aws", "oci"]:
-                await ensure_nics(payload['dataNICsNumber'])
+                await ensure_nics(payload['dataNICsNumber'], payload.get('excludeMACs', []))
                 return
             else:
                 raise ValueError(f"Ensure NICs instruction type not supported: {payload.get('type')}")
