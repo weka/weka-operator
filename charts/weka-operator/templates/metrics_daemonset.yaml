@@ -12,11 +12,7 @@ metadata:
     control-plane: node-agent
 spec:
   updateStrategy:
-    type: RollingUpdate
-    rollingUpdate:
-      # "maxSurge" & "maxUnavailable" can't be non-zero at the same time while it's supported in Deployment.
-      maxSurge: 0
-      maxUnavailable: 100%
+    {{- toYaml .Values.nodeAgent.updateStrategy | nindent 4 }}
   selector:
     matchLabels:
       control-plane: weka-node-agent

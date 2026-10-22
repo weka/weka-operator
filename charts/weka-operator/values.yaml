@@ -376,6 +376,14 @@ nodeAgent:
   # -- Affinity of the node-agent DaemonSet.
   # @section -- Node agent
   affinity: {}
+  # -- Update strategy of the node-agent DaemonSet. By default all node-agent pods restart at once.
+  # `maxSurge` and `maxUnavailable` cannot both be zero.
+  # @section -- Node agent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 100%
   # -- Host path used for node-agent persistence. The default suits generic OSes; override with
   # /root/k8s-weka for OpenShift, or /mnt/stateful_partition/k8s-weka for Google Container-Optimized OS.
   # @section -- Node agent
