@@ -59,6 +59,7 @@ type policyLoop struct {
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=oci.oraclecloud.com,resources=nativepodnetworks,verbs=get;list
 
 func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "WekaPolicyReconcile", "namespace", req.Namespace, "object_name", req.Name)

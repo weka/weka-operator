@@ -9,15 +9,19 @@ import (
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -39,6 +43,7 @@ type EnsureNICsOperation struct {
 	mgr             ctrl.Manager
 	successCallback lifecycle.StepFunc
 	tolerations     []v1.Toleration
+	npnPendingNodes []string
 }
 
 func (o *EnsureNICsOperation) AsStep() lifecycle.Step {
@@ -97,16 +102,62 @@ func (o *EnsureNICsOperation) GetContainers(ctx context.Context) error {
 	return nil
 }
 
-func (o *EnsureNICsOperation) EnsureContainers(ctx context.Context) error {
-	payloadBytes, err := json.Marshal(o.payload)
-	if err != nil {
-		return err
-	}
+// ensureNICsInstructionPayload carries per-node data the runtime needs but the user API does not expose.
+type ensureNICsInstructionPayload struct {
+	*weka.EnsureNICsPayload
+	ExcludeMACs []string `json:"excludeMACs,omitempty"`
+}
 
-	instructions := &weka.Instructions{
-		Type:    weka.InstructionTypeEnsureNICs,
-		Payload: string(payloadBytes),
+// OKE VCN-Native Pod Networking attaches pod VNICs to every node; IMDS cannot tell them apart from
+// Weka data VNICs, so they must be excluded using the cluster-scoped NativePodNetwork objects.
+var nativePodNetworkListGVK = schema.GroupVersionKind{Group: "oci.oraclecloud.com", Version: "v1beta1", Kind: "NativePodNetworkList"}
+
+// getPodVNICMACs returns nil when the cluster does not use NPN. Otherwise it maps each node whose
+// NativePodNetwork reached SUCCESS to its pod VNIC MACs; a node missing from the map is not ready yet.
+func (o *EnsureNICsOperation) getPodVNICMACs(ctx context.Context) (map[string][]string, error) {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(nativePodNetworkListGVK)
+	if err := o.mgr.GetAPIReader().List(ctx, list); err != nil {
+		if meta.IsNoMatchError(err) || apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, errors.Wrap(err, "failed to list NativePodNetworks (operator needs get/list on nativepodnetworks.oci.oraclecloud.com)")
 	}
+	return podVNICMACsByNode(list.Items), nil
+}
+
+func podVNICMACsByNode(items []unstructured.Unstructured) map[string][]string {
+	if len(items) == 0 {
+		return nil
+	}
+	result := map[string][]string{}
+	for _, item := range items {
+		if state, _, _ := unstructured.NestedString(item.Object, "status", "state"); state != "SUCCESS" { //nolint:errcheck // a missing or malformed state means not ready
+			continue
+		}
+		vnics, _, _ := unstructured.NestedSlice(item.Object, "status", "vnics") //nolint:errcheck // no or malformed status.vnics means nothing to exclude
+		for _, owner := range item.GetOwnerReferences() {
+			if owner.Kind != "Node" {
+				continue
+			}
+			macs := []string{}
+			for _, v := range vnics {
+				vnic, ok := v.(map[string]any)
+				if !ok {
+					continue
+				}
+				if mac, ok := vnic["macAddress"].(string); ok && mac != "" {
+					macs = append(macs, mac)
+				}
+			}
+			result[owner.Name] = macs
+		}
+	}
+	return result
+}
+
+func (o *EnsureNICsOperation) EnsureContainers(ctx context.Context) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	matchingNodes, err := o.kubeService.GetNodes(ctx, o.payload.NodeSelector)
 	if err != nil {
@@ -122,11 +173,35 @@ func (o *EnsureNICsOperation) EnsureContainers(ctx context.Context) error {
 		existingContainerNodes[string(container.GetNodeAffinity())] = true
 	}
 
+	var podVNICMACs map[string][]string
+	podVNICMACsLoaded := false
+	o.npnPendingNodes = nil
 	for i := range matchingNodes {
 		if existingContainerNodes[matchingNodes[i].Name] {
 			continue
 		}
 		node := &matchingNodes[i]
+
+		if !podVNICMACsLoaded {
+			podVNICMACs, err = o.getPodVNICMACs(ctx)
+			if err != nil {
+				return err
+			}
+			podVNICMACsLoaded = true
+		}
+		// The instruction is fixed at container creation, so a node whose pod VNICs are not known yet must wait.
+		excludeMACs, ready := podVNICMACs[node.Name]
+		if podVNICMACs != nil && !ready {
+			o.npnPendingNodes = append(o.npnPendingNodes, node.Name)
+			continue
+		}
+		if len(excludeMACs) > 0 {
+			logger.Info("Excluding OKE pod VNICs from Weka data NICs", "node", node.Name, "macs", excludeMACs)
+		}
+		payloadBytes, err := json.Marshal(ensureNICsInstructionPayload{EnsureNICsPayload: o.payload, ExcludeMACs: excludeMACs})
+		if err != nil {
+			return err
+		}
 
 		labels := map[string]string{
 			"weka.io/mode": weka.WekaContainerModeAdhocOpWC,
@@ -147,7 +222,7 @@ func (o *EnsureNICsOperation) EnsureContainers(ctx context.Context) error {
 				NodeAffinity:       weka.NodeName(node.Name),
 				Image:              o.image,
 				ImagePullSecret:    o.pullSecret,
-				Instructions:       instructions,
+				Instructions:       &weka.Instructions{Type: weka.InstructionTypeEnsureNICs, Payload: string(payloadBytes)},
 				Tolerations:        o.tolerations,
 				ServiceAccountName: o.serviceAccount,
 			},
@@ -212,6 +287,9 @@ func (o *EnsureNICsOperation) ProcessResult(ctx context.Context) error {
 
 	if !allReady {
 		return lifecycle.NewWaitError(fmt.Errorf("not all container execution results are ready"))
+	}
+	if len(o.npnPendingNodes) > 0 {
+		return lifecycle.NewWaitError(fmt.Errorf("waiting for NativePodNetwork to reach SUCCESS on nodes %v", o.npnPendingNodes))
 	}
 
 	return nil

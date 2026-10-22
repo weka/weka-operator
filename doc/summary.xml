@@ -45,6 +45,10 @@
         <tags>AWS, EKS, provisioning, IAM role, subnet, security groups, node group, instance type, converged, separate, dataNICsNumber, quay.io secret, wekacluster ports, basePort, pre-requisites, ensure nics, sign drives, instance types</tags>
         <summary>Guide on provisioning Weka clusters in AWS EKS. Covers EKS setup requirements, IAM roles, node group configuration, secrets management, port configuration, and pre-requisite policies like ensure-nics and sign-drives.</summary>
     </file>
+    <file relpath="providers/oci/oke-vcn-native-pod-networking.md">
+        <tags>OKE, OCI, VCN-Native Pod Networking, NativePodNetwork, pod VNICs, ensure-nics, excludeMACs, dataNICsNumber, weka.io/weka-nics, VNIC limit</tags>
+        <summary>How ensure-nics excludes OKE pod VNICs listed in NativePodNetwork from Weka data NICs, the RBAC it needs, shape VNIC limit sizing, remediation for nodes where a pod VNIC was already offered, and how to verify.</summary>
+    </file>
     <file relpath="operator/deployment/cluster-oci-oke.md">
         <tags>OCI, OKE, provisioning, subnet, security groups, instance type, converged, VNICs, data NICs, hugepages, quay.io secret, ports, basePort, ensure nics, sign drives</tags>
         <summary>Guide for provisioning Weka clusters in Oracle Cloud Infrastructure (OCI) using Oracle Kubernetes Engine (OKE). Covers OKE setup requirements, node pool configuration, VNIC configuration, secrets management, and port configuration.</summary>

@@ -29,8 +29,9 @@ type fakeManager struct {
 	scheme *runtime.Scheme
 }
 
-func (m *fakeManager) GetClient() client.Client   { return m.client }
-func (m *fakeManager) GetScheme() *runtime.Scheme { return m.scheme }
+func (m *fakeManager) GetClient() client.Client    { return m.client }
+func (m *fakeManager) GetScheme() *runtime.Scheme  { return m.scheme }
+func (m *fakeManager) GetAPIReader() client.Reader { return m.client }
 
 func newReconcileScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
