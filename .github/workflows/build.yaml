@@ -8,15 +8,19 @@ on:
 permissions:
   contents: read
 
+# These jobs need no secrets, so they run on fork PRs too (once a maintainer approves the run).
+# Every github.com/weka module is public and resolves through the module proxy, so neither the
+# app token nor GOPRIVATE is needed here. The .gitmodules URL is SSH and there is no key on the
+# runner, so the rewrite to HTTPS below is what lets the submodule clone.
 jobs:
   # In a stack only the top layer runs CI: it contains every lower layer. Non-stacked
-  # PRs and pushes to main always run. Fork PRs are excluded because the jobs need secrets.
+  # PRs and pushes to main always run. Fork PRs are never stacked, so they land here and run
+  # once a maintainer approves the run (Actions approval policy: all_external_contributors).
   stack_gate:
     if: >-
       github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-       (github.event.pull_request.stack == null ||
-        github.event.pull_request.stack.position == github.event.pull_request.stack.size))
+      github.event.pull_request.stack == null ||
+      github.event.pull_request.stack.position == github.event.pull_request.stack.size
     runs-on: ubuntu-latest
     steps:
       - run: echo "stack=${{ toJson(github.event.pull_request.stack) }}"
@@ -25,25 +29,14 @@ jobs:
     name: Lint
     needs: stack_gate
     runs-on: ubuntu-latest
-    env:
-      GOPRIVATE: github.com/weka
     steps:
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        id: app-token
-        with:
-          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
-          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
-      - name: Setup access for private go modules
+      - name: Use HTTPS for the submodule's SSH remote
         run: |
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
+          git config --global url."https://github.com/".insteadOf git@github.com:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
-          token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -70,25 +63,14 @@ jobs:
     name: Static Checks (deadcode)
     needs: stack_gate
     runs-on: ubuntu-latest
-    env:
-      GOPRIVATE: github.com/weka
     steps:
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        id: app-token
-        with:
-          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
-          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
-      - name: Setup access for private go modules
+      - name: Use HTTPS for the submodule's SSH remote
         run: |
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
+          git config --global url."https://github.com/".insteadOf git@github.com:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
-          token: ${{ steps.app-token.outputs.token }}
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -109,25 +91,14 @@ jobs:
     name: Security (govulncheck)
     needs: stack_gate
     runs-on: ubuntu-latest
-    env:
-      GOPRIVATE: github.com/weka
     steps:
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        id: app-token
-        with:
-          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
-          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
-      - name: Setup access for private go modules
+      - name: Use HTTPS for the submodule's SSH remote
         run: |
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
+          git config --global url."https://github.com/".insteadOf git@github.com:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
-          token: ${{ steps.app-token.outputs.token }}
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -148,25 +119,14 @@ jobs:
     name: Test
     needs: stack_gate
     runs-on: ubuntu-latest
-    env:
-      GOPRIVATE: github.com/weka
     steps:
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        id: app-token
-        with:
-          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
-          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
-      - name: Setup access for private go modules
+      - name: Use HTTPS for the submodule's SSH remote
         run: |
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
+          git config --global url."https://github.com/".insteadOf git@github.com:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
-          token: ${{ steps.app-token.outputs.token }}
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -192,25 +152,14 @@ jobs:
     name: Build
     needs: stack_gate
     runs-on: ubuntu-latest
-    env:
-      GOPRIVATE: github.com/weka
     steps:
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        id: app-token
-        with:
-          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
-          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
-      - name: Setup access for private go modules
+      - name: Use HTTPS for the submodule's SSH remote
         run: |
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
+          git config --global url."https://github.com/".insteadOf git@github.com:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
-          token: ${{ steps.app-token.outputs.token }}
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -228,25 +177,14 @@ jobs:
     name: Verify (mod tidy + generated code)
     needs: stack_gate
     runs-on: ubuntu-latest
-    env:
-      GOPRIVATE: github.com/weka
     steps:
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        id: app-token
-        with:
-          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
-          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
-      - name: Setup access for private go modules
+      - name: Use HTTPS for the submodule's SSH remote
         run: |
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
+          git config --global url."https://github.com/".insteadOf git@github.com:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
-          token: ${{ steps.app-token.outputs.token }}
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -289,6 +227,21 @@ jobs:
           fetch-depth: 0
 
       - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+      # The action refuses to scan an organization repo without GITLEAKS_LICENSE, which a fork PR
+      # never receives. The CLI carries no such restriction. It must be scoped to the PR's own
+      # commits: the default is a full-history scan, which reports findings from long-merged
+      # commits and would fail every fork PR regardless of what it changed.
+      - name: Scan with gitleaks CLI (fork PR, no license available)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          docker run --rm -v "$PWD:/repo" \
+            ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            detect --source=/repo --redact --no-banner --log-opts="$BASE_SHA..$HEAD_SHA"
