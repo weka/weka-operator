@@ -2,16 +2,16 @@
 #
 # `ci-gate` is a COMMIT STATUS posted by the `report_status` job, never a job name:
 # - a lower stack layer gets no status, shows "Expected", and cannot be merged on its own,
-#   UNLESS its own commits need no test (all chore/docs, or label `skip_ci_gate`), in which
+#   UNLESS its own commits need no test (all chore/docs/ci, or label `skip_ci_gate`), in which
 #   case it passes itself and never waits for the layer above;
 # - the top of a stack (or any layer with label `run_ci_gate`) runs the tests, marks the
 #   layers below `pending` while it runs and `success` when it passes, so a human can merge the
 #   stack up to that layer with "Merge stack";
 # - adding `run_ci_gate` starts the lab tests from scratch and the label is removed when the run
 #   ends; any other run on the same SHA continues the last failed or interrupted execution;
-# - label `skip_ci_gate`, or a PR whose commits are all chore/docs, counts as a pass for
+# - label `skip_ci_gate`, or a PR whose commits are all chore/docs/ci, counts as a pass for
 #   that PR; a lower layer inherits such a pass only if it is skippable itself (same label, or
-#   its own commits are all chore/docs).
+#   its own commits are all chore/docs/ci).
 name: ci-gate
 on:
   pull_request:
@@ -83,13 +83,13 @@ jobs:
       # 1. Verdict for THIS PR:
       #      skip_ci_gate label                 -> skip (counts as a pass)
       #      run_ci_gate label                  -> test
-      #      lower layer, own commits chore/docs -> skip
+      #      lower layer, own commits chore/docs/ci -> skip
       #      lower layer, own commits need test -> blocked (no status, the top covers it)
       #      all commits since the stack base   -> skip
-      #        (or base branch) are chore/docs
+      #        (or base branch) are chore/docs/ci
       #      otherwise                          -> test
       # 2. Layers below this PR in the stack (only when stacked), bottom to top:
-      #      a layer skippable on its own merits (skip label, or its own commits are chore/docs)
+      #      a layer skippable on its own merits (skip label, or its own commits are chore/docs/ci)
       #        is greened right away under either verdict; a skip verdict leaves others untouched.
       #      verdict = test: cancel the remaining layers' in-progress runs (redundant, this run
       #        covers them), post `pending` unless one already has its own green result, and
@@ -111,15 +111,15 @@ jobs:
         run: |
           set -euo pipefail
           labels() { gh api "repos/$GITHUB_REPOSITORY/pulls/$1" --jq '.labels[].name'; }
-          # 0 when every non-merge commit in the range is chore/docs (nothing to test). An empty
-          # range is NOT chore-only: for a stack top or non-stacked PR it means the range itself
-          # is wrong, and a test is the safe answer.
+          # 0 when every non-merge commit in the range is chore/docs/ci (nothing to test). An
+          # empty range is NOT chore-only: for a stack top or non-stacked PR it means the range
+          # itself is wrong, and a test is the safe answer.
           chore_only() {
             local msgs; msgs=$(git log --no-merges --format=%s "$1")
             [[ -z "$msgs" ]] && return 1
             while IFS= read -r m; do
               [[ -z "$m" ]] && continue
-              [[ "$m" =~ ^(chore|docs)(\(|:|\!) ]] || return 1
+              [[ "$m" =~ ^(chore|docs|ci)(\(|:|\!) ]] || return 1
             done <<< "$msgs"
           }
           # Cancels a lower layer's own in-progress ci-gate runs: this run covers it, and a run
@@ -155,7 +155,7 @@ jobs:
             base=""
             git fetch --no-tags --quiet origin "$BASE_REF" && base=$(git rev-parse FETCH_HEAD)
             if [[ -n "$base" ]] && chore_only "$base..$HEAD_SHA"; then
-              skip=true; why="skipped: all commits since $BASE_REF are chore/docs"
+              skip=true; why="skipped: all commits since $BASE_REF are chore/docs/ci"
             else
               blocked=true; skip=true; why="lower layer with code commits: covered by the stack top"
             fi
@@ -163,7 +163,7 @@ jobs:
             # A stack top covers every layer: inspect all commits since the stack base, up to the
             # PR head (HEAD is the synthetic merge commit on pull_request events).
             range="origin/${STACK_BASE:-$BASE_REF}..$HEAD_SHA"
-            if chore_only "$range"; then skip=true; why="skipped: all commits since ${STACK_BASE:-$BASE_REF} are chore/docs"
+            if chore_only "$range"; then skip=true; why="skipped: all commits since ${STACK_BASE:-$BASE_REF} are chore/docs/ci"
             else skip=false; why="commits in $range need the upgrade test"; fi
           fi
           echo "skip_test=$skip blocked=$blocked ($why)"
@@ -213,7 +213,7 @@ jobs:
                 post "$sha" success "skipped: label skip_ci_gate on PR #$num, via PR #$PR"
               elif chore_only "$prev..$sha"; then
                 cancel_runs "$sha" "$num"
-                post "$sha" success "skipped: chore/docs only, via PR #$PR"
+                post "$sha" success "skipped: chore/docs/ci only, via PR #$PR"
               elif [[ "$skip" == "true" ]]; then
                 echo "#$num is not skippable, left as is"
               else
