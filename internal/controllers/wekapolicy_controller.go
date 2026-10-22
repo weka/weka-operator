@@ -185,13 +185,25 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		)
 		loop.Op = discoverDrivesOp
 	case weka.WekaPolicyTypeEnsureNICs:
+		if remaining := ensureNICsBackoffRemaining(wekaPolicy, logger); remaining > 0 {
+			logger.Info("EnsureNICs backing off after failure", "requeueAfter", remaining)
+			return ctrl.Result{RequeueAfter: remaining}, nil
+		}
+		ensureNICsOnFailure := func(ctx context.Context) error {
+			wekaPolicy.Status.LastResult = loop.Op.GetJsonResult()
+			wekaPolicy.Status.LastRunTime = metav1.Now()
+			return r.Status().Update(ctx, wekaPolicy)
+		}
 		ensureNICsOp := operations.NewEnsureNICsOperation(
 			r.Mgr,
 			wekaPolicy.Spec.Payload.EnsureNICs,
 			wekaPolicy,
 			ownerDetails,
 			wekaPolicy.Status.Status,
+			r.Recorder,
+			nil,
 			onSuccess,
+			ensureNICsOnFailure,
 		)
 		loop.Op = ensureNICsOp
 	case weka.WekaPolicyTypeEnableLocalDriversDistribution:
@@ -259,6 +271,22 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	return result, nil
+}
+
+// ensureNICsBackoffRemaining is state-based so status-update events cannot bypass the interval.
+func ensureNICsBackoffRemaining(policy *weka.WekaPolicy, logger *instrumentation.SpanLogger) time.Duration {
+	if policy.Status.LastResult == "" {
+		return 0
+	}
+	var res operations.EnsureNICsResult
+	if err := json.Unmarshal([]byte(policy.Status.LastResult), &res); err != nil {
+		logger.Error(err, "Failed to parse EnsureNICs last result, skipping backoff")
+		return 0
+	}
+	if res.Err == "" {
+		return 0
+	}
+	return time.Until(policy.Status.LastRunTime.Add(policy.Spec.Payload.Interval.Duration))
 }
 
 func (r *policyLoop) DurationTillNext() time.Duration {

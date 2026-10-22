@@ -2972,7 +2972,10 @@ async def ensure_nics(num: int):
 
     stdout, stderr, ec = await run_command(command)
     if ec != 0:
-        raise Exception(f"Failed to ensure NICs: {stderr}")
+        err = stdout.decode('utf-8', errors='replace').strip() or stderr.decode('utf-8', errors='replace').strip()
+        logging.error("ensure_nics failed: %s", err)
+        write_results(dict(err=err or f"cloud-helper ensure-nics exited with code {ec}", ensured=False, nics=[]))
+        return
     logging.info("Ensured NICs successfully")
     write_results(
         dict(err=None, ensured=True, nics=json.loads(stdout.decode('utf-8').strip())['metadata']['vnics'][1:]))
@@ -4930,7 +4933,8 @@ async def main():
                 await ensure_nics(payload['dataNICsNumber'])
                 return
             else:
-                raise ValueError(f"Ensure NICs instruction type not supported: {payload.get('type')}")
+                write_results(dict(err=f"Ensure NICs instruction type not supported: {payload.get('type')}", ensured=False, nics=[]))
+                return
         elif instruction.get('type') == 'feature-flags-update':
             ff = await get_feature_flags()
             write_results({
