@@ -1,3 +1,5 @@
+import asyncio
+import atexit
 import logging
 import os
 
@@ -5,6 +7,28 @@ from agents import OpenAIChatCompletionsModel
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
+
+_runner = None
+
+
+def run_sync(coro):
+    """Run a coroutine on one process-wide event loop.
+
+    The module-level AsyncOpenAI client pools keep-alive connections bound to the
+    loop that opened them. asyncio.run() per call closes that loop, so a later
+    call reusing a pooled connection closes it against a dead loop and raises
+    "Event loop is closed".
+    """
+    global _runner
+    if _runner is None:
+        _runner = asyncio.Runner()
+    return _runner.run(coro)
+
+
+@atexit.register
+def _close_runner():
+    if _runner is not None:
+        _runner.close()
 
 # Aggregation Model Setup (assuming it might be different or needs separate config)
 # If it's the same model, this could potentially be imported too, but let's keep it separate for now.
