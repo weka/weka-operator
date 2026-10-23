@@ -58,4 +58,8 @@ const (
 	CondJoinedCatalogCluster         = "JoinedCatalogCluster"
 	CondRemovedFromCatalogCluster    = "RemovedFromCatalogCluster"
 	CondCatalogConfigured            = "CatalogConfigured"
+
+	// CondLicenseApplied records which version of the license Secret was last applied to WEKA;
+	// its message holds the Secret's UID/resourceVersion.
+	CondLicenseApplied = "LicenseApplied"
 )

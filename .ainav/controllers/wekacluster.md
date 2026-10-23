@@ -34,6 +34,10 @@ protocols and management access. Source: `internal/controllers/wekacluster/`.
 - `EnsureWekaHomeCacertOverride` (`funcs_overrides.go`): keeps/removes the override as the secret changes.
 - Path constant: `domain.WekaHomeCacertPath`. Semantics: `doc/operator/operations/weka-home-tls.md`.
 
+## License
+
+- `EnsureLicense` (`funcs_license.go`), first step of `GetPostClusterSteps`. Semantics: `doc/operator/operations/license.md`.
+
 ## Extra volumes
 
 - `spec.podConfig.extraVolumes`/`extraVolumeMounts` propagate through `HandleSpecUpdates`

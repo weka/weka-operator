@@ -4709,6 +4709,13 @@
           "description": "NUMA confinement configuration for all weka containers, overridden per role by roleNuma",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "LicenseSecret",
+          "jsonName": "licenseSecret",
+          "type": "string",
+          "description": "Name of a Secret in the WekaCluster's namespace holding the WEKA license under key \"license\".\nApplied after the cluster forms and re-applied when the Secret changes.",
+          "optional": true
         }
       ],
       "usedBy": [
