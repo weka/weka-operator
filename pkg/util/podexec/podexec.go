@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ type Exec interface {
 	Exec(ctx context.Context, command []string) (stdout, stderr bytes.Buffer, err error)
 	ExecNamed(ctx context.Context, name string, command []string) (stdout, stderr bytes.Buffer, err error)
 	ExecSensitive(ctx context.Context, name string, command []string) (stdout, stderr bytes.Buffer, err error)
+	ExecSensitiveWithStdin(ctx context.Context, name string, command []string, stdin string) (stdout, stderr bytes.Buffer, err error)
 }
 
 type PodExec struct {
@@ -74,7 +76,7 @@ func NewExecInPodByName(restClient rest.Interface, cfg *rest.Config, pod *v1.Pod
 	return NewExecWithConfig(restClient, cfg, namespacedObject, timeout, containerName, pod.Spec.NodeName)
 }
 
-func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout, stderr bytes.Buffer, err error) {
+func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string, stdin io.Reader) (stdout, stderr bytes.Buffer, err error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "Exec", "command_name", name)
 	defer logger.End()
 
@@ -99,6 +101,7 @@ func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command
 		VersionedParams(&v1.PodExecOptions{
 			Container: e.ContainerName,
 			Command:   command,
+			Stdin:     stdin != nil,
 			Stdout:    true,
 			Stderr:    true,
 			TTY:       false,
@@ -111,6 +114,7 @@ func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command
 	}
 
 	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdin:  stdin,
 		Stdout: &stdout,
 		Stderr: &stderr,
 		Tty:    false,
@@ -137,14 +141,19 @@ func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command
 
 // Exec executes a command in a pod. Logs input and output if exit code != 0. Should be used in rare cases as might reveal sensitive data.
 func (e *PodExec) Exec(ctx context.Context, command []string) (stdout, stderr bytes.Buffer, err error) {
-	return e.exec(ctx, "", false, command)
+	return e.exec(ctx, "", false, command, nil)
 }
 
 // ExecNamed executes a command in a pod. Logs input and output if exit code != 0. However, provides a name for the span.
 func (e *PodExec) ExecNamed(ctx context.Context, name string, command []string) (stdout, stderr bytes.Buffer, err error) {
-	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), false, command)
+	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), false, command, nil)
 }
 
 func (e *PodExec) ExecSensitive(ctx context.Context, name string, command []string) (stdout, stderr bytes.Buffer, err error) {
-	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), true, command)
+	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), true, command, nil)
+}
+
+// ExecSensitiveWithStdin is for secrets: unlike argv, stdin is not part of the pods/exec request URI that API server audit logs record.
+func (e *PodExec) ExecSensitiveWithStdin(ctx context.Context, name string, command []string, stdin string) (stdout, stderr bytes.Buffer, err error) {
+	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), true, command, strings.NewReader(stdin))
 }

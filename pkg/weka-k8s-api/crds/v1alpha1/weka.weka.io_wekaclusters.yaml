@@ -104,6 +104,26 @@ spec:
                   smbw:
                     type: integer
                 type: object
+              adminCredentialsSecretRef:
+                description: 'reference to a user-provided secret (keys: username,
+                  password) used as the weka admin user credentials instead of generating
+                  them; immutable'
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: adminCredentialsSecretRef.name must be a valid Secret name
+                    (lowercase DNS subdomain)
+                  rule: size(self.name) <= 253 && self.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$')
               bucketRaftSize:
                 description: size of raft for buckets, defaults to 5, 5/9 are supported
                 type: integer
@@ -2367,6 +2387,11 @@ spec:
             required:
             - image
             type: object
+            x-kubernetes-validations:
+            - message: adminCredentialsSecretRef is immutable
+              rule: has(self.adminCredentialsSecretRef) == has(oldSelf.adminCredentialsSecretRef)
+                && (!has(self.adminCredentialsSecretRef) || self.adminCredentialsSecretRef
+                == oldSelf.adminCredentialsSecretRef)
           status:
             description: WekaClusterStatus defines the observed state of WekaCluster
             properties:

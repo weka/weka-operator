@@ -13,7 +13,7 @@ certificates for telemetry/support connectivity) — see
 For each WekaCluster, the operator creates four distinct secrets:
 
 1. **Operator Secret**: Used by the operator to authenticate with the Weka cluster
-2. **User Admin Secret**: Created for administrators to access the Weka cluster
+2. **User Admin Secret**: Created for administrators to access the Weka cluster, unless you provide your own (see [Providing your own admin credentials](#providing-your-own-admin-credentials))
 3. **Client Secret**: Used by Weka clients to connect to the Weka cluster
 4. **CSI Secret**: Used by the CSI plugin to provision and manage storage
 
@@ -99,6 +99,30 @@ kubectl create secret generic weka-cluster-<cluster-name> \
   --from-literal=password=<generated-password> \
   --from-literal=org=Root
 ```
+
+#### Providing your own admin credentials
+
+To supply the admin credentials yourself (for example from Vault, External Secrets or GitOps), create a Secret in the WekaCluster's namespace and reference it from the cluster spec:
+
+```bash
+kubectl create secret generic my-admin \
+  --from-literal=username=myadmin \
+  --from-literal=password=<password>
+```
+
+```yaml
+spec:
+  adminCredentialsSecretRef:
+    name: my-admin
+```
+
+- The Secret must have non-empty `username` and `password` keys. `username` must not be `admin` or one of the operator-managed usernames (operator, client, CSI). The password is applied byte for byte, including a trailing newline (common with `--from-file`), so create it with `--from-literal` or without the newline. A password containing a NUL byte is rejected. The Secret name must not be one the operator manages for this cluster (`weka-operator-<cluster-uid>`, `weka-client-<cluster-name>`, `weka-csi-<cluster-name>`).
+- The operator does not create `weka-cluster-<cluster-name>`; the user is created in WEKA with role `clusteradmin` from the referenced Secret. Until the Secret exists and is valid, cluster creation waits on this step.
+- `adminCredentialsSecretRef` is immutable: it cannot be added, removed or changed after the WekaCluster is created.
+- The Secret is owned by you: it has no owner reference and is not deleted with the WekaCluster.
+- Edits to the admin Secret (the referenced one, or the generated `weka-cluster-<cluster-name>`) are applied to WEKA within about one reconcile. The `AdminCredentialsSynced` cluster condition records the Secret's `UID/resourceVersion` that was last applied. If a sync fails (for example an invalid Secret), the condition is `False` with the error as its message, and the sync is retried every reconcile.
+- Changing `username` in the Secret creates a new `clusteradmin` user; the old user stays in WEKA.
+- The Secret is the source of truth: a password changed directly in WEKA is overwritten on the next Secret change, including metadata-only edits such as labels or annotations. On a cluster created before rotation sync, the first reconcile only records the current Secret version; it does not reset the password.
 
 ### Client Secret
 
@@ -209,7 +233,7 @@ The operator manages the entire lifecycle of these secrets:
 - Updates them when necessary (e.g., after password changes)
 - Deletes them when the WekaCluster resource is deleted
 
-All secrets have owner references to the WekaCluster resource, ensuring proper garbage collection.
+All secrets have owner references to the WekaCluster resource, ensuring proper garbage collection. A Secret referenced by `adminCredentialsSecretRef` is the exception: it is user-owned and left in place.
 
 ## Manual Secret Management
 
