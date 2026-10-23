@@ -72,6 +72,12 @@ to open a ticket instead.
 
 A change is in scope only if the requested fix does not work without it.
 
+## Pod runtime: keep Python and Go aligned
+
+`charts/weka-operator/resources/weka_runtime.py` is kept as a fallback for the Go
+runtime (`cmd/weka-pod-runtime/`, `internal/runtime/`). Any behaviour change to one
+must be mirrored in the other in the same change.
+
 ## After any code change
 
 Run `/simplify` once the change is complete and working. Not after each edit —
