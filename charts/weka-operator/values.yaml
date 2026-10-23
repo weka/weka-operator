@@ -28,9 +28,12 @@ wekaPodRuntime:
     # -- Go pod runtime image pull policy.
     # @section -- Images
     pullPolicy: IfNotPresent
-  # -- Run weka_runtime.py instead of the Go pod runtime.
+  # -- Run weka_runtime.py instead of the Go pod runtime for every container mode. When true, `pythonFallbackModes` is ignored.
   # @section -- Images
   usePythonFallback: false
+  # -- Container modes (e.g. `client`, `drivers-builder`) that run weka_runtime.py while all other modes stay on the Go pod runtime. Applies to pods created after the change.
+  # @section -- Images
+  pythonFallbackModes: []
 
 # -- kube-rbac-proxy sidecar image, used in front of the operator metrics endpoint.
 # @section -- Images

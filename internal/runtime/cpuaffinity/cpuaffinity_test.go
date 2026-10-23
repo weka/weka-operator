@@ -24,10 +24,10 @@ func makeProcStatus(t *testing.T, allowedList string) string {
 	return path
 }
 
-// makeSiblingsFile writes a thread_siblings_list file under sysfsRoot for the given CPU.
-func makeSiblingsFile(t *testing.T, sysfsRoot string, cpu int, siblings string) {
+// makeSiblingsFile writes a thread_siblings_list file under root for the given CPU.
+func makeSiblingsFile(t *testing.T, root string, cpu int, siblings string) {
 	t.Helper()
-	dir := filepath.Join(sysfsRoot, "devices", "system", "cpu", fmt.Sprintf("cpu%d", cpu), "topology")
+	dir := filepath.Join(root, "devices", "system", "cpu", fmt.Sprintf("cpu%d", cpu), "topology")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("mkdir %s: %v", dir, err)
 	}
@@ -115,25 +115,27 @@ func TestDeriveNonDatapathCores(t *testing.T) {
 				procStatusPath = makeProcStatus(t, tt.cpuset)
 			}
 
-			sysfsRoot := t.TempDir()
+			origRoot := sysfsRoot
+			sysfsRoot = t.TempDir()
+			t.Cleanup(func() { sysfsRoot = origRoot })
 			for cpu, sibs := range tt.siblings {
 				makeSiblingsFile(t, sysfsRoot, cpu, sibs)
 			}
 
-			got, err := deriveNonDatapathCores(procStatusPath, tt.fullCores, sysfsRoot)
+			got, err := DeriveNonDatapathCores(procStatusPath, tt.fullCores)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("deriveNonDatapathCores() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("DeriveNonDatapathCores() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr {
 				return
 			}
 
 			if len(got) != len(tt.want) {
-				t.Fatalf("deriveNonDatapathCores() = %v, want %v", got, tt.want)
+				t.Fatalf("DeriveNonDatapathCores() = %v, want %v", got, tt.want)
 			}
 			for i := range tt.want {
 				if got[i] != tt.want[i] {
-					t.Errorf("deriveNonDatapathCores()[%d] = %d, want %d", i, got[i], tt.want[i])
+					t.Errorf("DeriveNonDatapathCores()[%d] = %d, want %d", i, got[i], tt.want[i])
 				}
 			}
 		})
@@ -296,83 +298,6 @@ func TestIntsToCSV(t *testing.T) {
 			got := intsToCSV(tt.input)
 			if got != tt.want {
 				t.Errorf("intsToCSV(%v) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
-// ---- mapsEqual tests ----
-
-func makeIntSet(vals ...int) map[int]struct{} {
-	m := make(map[int]struct{}, len(vals))
-	for _, v := range vals {
-		m[v] = struct{}{}
-	}
-	return m
-}
-
-func TestMapsEqual(t *testing.T) {
-	tests := []struct {
-		name string
-		a    map[int]struct{}
-		b    map[int]struct{}
-		want bool
-	}{
-		{
-			name: "equal maps",
-			a:    makeIntSet(1, 2, 3),
-			b:    makeIntSet(3, 2, 1),
-			want: true,
-		},
-		{
-			name: "different lengths — a larger",
-			a:    makeIntSet(1, 2, 3),
-			b:    makeIntSet(1, 2),
-			want: false,
-		},
-		{
-			name: "different lengths — b larger",
-			a:    makeIntSet(1, 2),
-			b:    makeIntSet(1, 2, 3),
-			want: false,
-		},
-		{
-			name: "disjoint keys",
-			a:    makeIntSet(1, 2),
-			b:    makeIntSet(3, 4),
-			want: false,
-		},
-		{
-			name: "both empty",
-			a:    makeIntSet(),
-			b:    makeIntSet(),
-			want: true,
-		},
-		{
-			name: "nil maps",
-			a:    nil,
-			b:    nil,
-			want: true,
-		},
-		{
-			name: "one nil one empty",
-			a:    nil,
-			b:    makeIntSet(),
-			want: true,
-		},
-		{
-			name: "partial overlap",
-			a:    makeIntSet(1, 2, 3),
-			b:    makeIntSet(1, 2, 4),
-			want: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := mapsEqual(tt.a, tt.b)
-			if got != tt.want {
-				t.Errorf("mapsEqual(%v, %v) = %v, want %v", tt.a, tt.b, got, tt.want)
 			}
 		})
 	}

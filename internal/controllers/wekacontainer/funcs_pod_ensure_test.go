@@ -13,6 +13,7 @@ import (
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
@@ -30,6 +31,9 @@ var _ = BeforeSuite(func() {
 	var err error
 	otelShutdown, err = instrumentation.SetupOTelSDKWithOptions(ctx, "ensure-pod-builder-tests", "", logger)
 	Expect(err).NotTo(HaveOccurred())
+
+	// Helm always sets WEKA_POD_RUNTIME_IMAGE on the manager; pods built without it are rejected.
+	config.Config.WekaPodRuntimeImage = "weka-pod-runtime:test"
 })
 
 var _ = AfterSuite(func() {

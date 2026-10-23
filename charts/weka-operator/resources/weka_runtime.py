@@ -457,11 +457,16 @@ async def sign_drives_by_pci_info(vendor_id: str, device_id: str, options: dict)
     return await sign_device_paths_batch(devices, options)
 
 
+DISK_SCAN_OK = True
+
+
 async def find_disks() -> List[Disk]:
     """
     Find all disk devices and check if they or their partitions are mounted.
     :return: A list of Disk objects.
     """
+    global DISK_SCAN_OK
+    DISK_SCAN_OK = True
     logging.info("Finding disks and checking mount status")
     # Use -J for JSON output, -p for full paths, -o to specify columns
     # TODO: We are dependant on lsblk here on host here. Is it a problem? potentially
@@ -469,12 +474,14 @@ async def find_disks() -> List[Disk]:
     stdout, stderr, ec = await run_command(cmd, capture_stdout=True)
     if ec != 0:
         logging.error(f"Failed to execute lsblk: {stderr.decode()}")
+        DISK_SCAN_OK = False
         return []
 
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError:
         logging.error(f"Failed to parse lsblk JSON output: {stdout.decode()}")
+        DISK_SCAN_OK = False
         return []
 
     disks = []
@@ -1230,7 +1237,7 @@ async def discover_drives():
         err=None,
         drives=drives,
         raw_drives=[asdict(d) for d in raw_disks],
-        kernel_view_complete=is_kernel_view_complete(),
+        kernel_view_complete=DISK_SCAN_OK and is_kernel_view_complete(),
     ))
 
 
@@ -1241,7 +1248,7 @@ async def discover_ssdproxy_drives():
         err=None,
         proxy_drives=drives,
         raw_drives=[asdict(d) for d in raw_disks],
-        kernel_view_complete=is_kernel_view_complete(),
+        kernel_view_complete=DISK_SCAN_OK and is_kernel_view_complete(),
     ))
 
 
@@ -2791,7 +2798,7 @@ async def create_container():
         --core-ids {core_str} --cores {NUM_CORES} {mode_part} \
         {net_str}  --base-port {PORT} \
         {f"{join_secret_flag} {join_secret_cmd}" if join_secret_cmd else ""} \
-        {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} \
+        {f"--join-ips {shlex.quote(JOIN_IPS)}" if JOIN_IPS else ""} \
         {f"--client" if MODE == 'client' else ""} \
         {f"--restricted" if MODE == 'client' and "4.2.7.64" not in IMAGE_NAME else ""} \
         {f"--failure-domain {failure_domain}" if failure_domain else ""} \
