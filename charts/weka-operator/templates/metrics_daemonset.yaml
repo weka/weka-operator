@@ -88,6 +88,11 @@ spec:
         - name: host-run
           hostPath:
             path: /run
+        # OS detection for drive serials (COS uses wwid), read the same way as the pod runtime
+        - name: host-os-release
+          hostPath:
+            path: /etc/os-release
+            type: File
         {{- if .Values.nodeAgent.devicePlugin.enabled }}
         # Kubelet's device-plugins directory: hosts kubelet.sock (registration) and each
         # plugin's own socket. Required for the NUMA region device plugin.
@@ -150,6 +155,9 @@ spec:
               name: dev
             - mountPath: /host/run
               name: host-run
+              readOnly: true
+            - mountPath: /hostside/etc/os-release
+              name: host-os-release
               readOnly: true
             {{- if .Values.nodeAgent.devicePlugin.enabled }}
             - mountPath: /var/lib/kubelet/device-plugins
