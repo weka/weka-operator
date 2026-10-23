@@ -647,6 +647,11 @@ spec:
               leadershipRaftSize:
                 description: size of raft for leadership, defaults to 5, 5/9 are supported
                 type: integer
+              licenseSecret:
+                description: |-
+                  Name of a Secret in the WekaCluster's namespace holding the WEKA license under key "license".
+                  Applied after the cluster forms and re-applied when the Secret changes.
+                type: string
               network:
                 description: weka cluster network configuration
                 properties:

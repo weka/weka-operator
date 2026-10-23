@@ -100,6 +100,16 @@ func GetCredentialSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 	return []lifecycle.Step{
 		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.HasLicenseSecret,
+			},
+			Run: loop.EnsureLicense,
+			Throttling: &throttling.ThrottlingSettings{
+				Interval: config.Consts.WekaOverridesUpdateInterval,
+			},
+			ContinueOnError: true,
+		},
+		&lifecycle.SimpleStep{
 			Run: loop.ConfigureKms,
 			State: &lifecycle.State{
 				Name: condition.CondClusterKMSConfigured,

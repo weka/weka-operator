@@ -112,6 +112,7 @@
 | telemetry | *TelemetryConfig | Telemetry configuration for exporting audit logs and other telemetry data |
 | catalog | *CatalogConfig | Catalog configuration for data catalog service |
 | numa | *WekaNuma | NUMA confinement configuration for all weka containers, overridden per role by roleNuma |
+| licenseSecret | string | Name of a Secret in the WekaCluster's namespace holding the WEKA license under key "license".<br>Applied after the cluster forms and re-applied when the Secret changes. |
 
 ---
 
