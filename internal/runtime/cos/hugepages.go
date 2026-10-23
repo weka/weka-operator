@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/internal/pkg/osinfo"
 	"github.com/weka/weka-operator/internal/runtime/cmdutil"
 	"github.com/weka/weka-operator/internal/runtime/config"
 )
@@ -22,13 +23,14 @@ func ConfigureHugepages(ctx context.Context, cfg *config.Config) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "ConfigureHugepages")
 	defer logger.End()
 
-	if !cfg.COSAllowHugepageConfig {
-		logger.Info("Skipping hugepages configuration (WEKA_COS_ALLOW_HUGEPAGE_CONFIG not set)")
-		// still check and error if hugepages are missing — fall through to build sedCmds
+	nodeInfo, err := osinfo.Load()
+	if err != nil || !nodeInfo.IsCos() {
+		logger.Info("Skipping hugepages configuration (non-COS node)")
+		return nil
 	}
 
 	// Check if hugepages already configured
-	if count, err := currentHugepageCount(); err == nil && count > 0 {
+	if count, countErr := currentHugepageCount(); countErr == nil && count > 0 {
 		logger.Info("Node already has hugepages configured, skipping", "count", count)
 		return nil
 	}

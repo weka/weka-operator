@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 )
 
 const (
@@ -30,9 +31,22 @@ func (n *NodeInfo) IsRhCos() bool  { return n.Os == OsNameRhCos }
 func (n *NodeInfo) IsCos() bool    { return n.Os == OsNameCos }
 func (n *NodeInfo) IsUbuntu() bool { return n.Os == OsNameUbuntu }
 
+var (
+	nodeInfoOnce   sync.Once
+	nodeInfoCached *NodeInfo
+	nodeInfoErr    error
+)
+
 // Load reads /hostside/etc/os-release and returns the detected NodeInfo.
-// This is the host-side path mounted into the pod.
+// Results are cached after the first call; the OS does not change during a pod's lifetime.
 func Load() (*NodeInfo, error) {
+	nodeInfoOnce.Do(func() {
+		nodeInfoCached, nodeInfoErr = load()
+	})
+	return nodeInfoCached, nodeInfoErr
+}
+
+func load() (*NodeInfo, error) {
 	raw, err := parseOsRelease("/hostside/etc/os-release")
 	if err != nil {
 		return nil, fmt.Errorf("reading os-release: %w", err)

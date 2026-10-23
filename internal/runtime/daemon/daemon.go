@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"os"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -49,6 +51,9 @@ func (s *Supervisor) supervise(ctx context.Context, mp *managedProc) {
 	backoff := time.Second
 	for {
 		cmd := mp.factory()
+		// Mirror Python start_process(): send weka-agent/syslog output to pod logs.
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 		if err := cmd.Start(); err != nil {
 			logger.Error(err, "failed to start process")
 			select {
@@ -59,6 +64,8 @@ func (s *Supervisor) supervise(ctx context.Context, mp *managedProc) {
 				continue
 			}
 		}
+		// Mirror Python: logging.info(f"Daemon started with PID {process.pid} for command {command}")
+		logger.Info("process started", "pid", cmd.Process.Pid)
 		backoff = time.Second
 
 		done := make(chan error, 1)
@@ -70,7 +77,12 @@ func (s *Supervisor) supervise(ctx context.Context, mp *managedProc) {
 			<-done
 			return
 		case err := <-done:
-			logger.Warn("process exited unexpectedly", "err", err)
+			exitCode := -1
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
+				exitCode = exitErr.ExitCode()
+			}
+			logger.Warn("process exited unexpectedly", "err", err, "exit_code", exitCode, "backoff", backoff)
 			select {
 			case <-ctx.Done():
 				return
