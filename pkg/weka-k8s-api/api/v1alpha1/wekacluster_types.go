@@ -851,6 +851,7 @@ type SplunkExportConfig struct {
 }
 
 // WekaClusterSpec defines the desired state of WekaCluster
+// +kubebuilder:validation:XValidation:rule="has(self.adminCredentialsSecretRef) == has(oldSelf.adminCredentialsSecretRef) && (!has(self.adminCredentialsSecretRef) || self.adminCredentialsSecretRef == oldSelf.adminCredentialsSecretRef)",message="adminCredentialsSecretRef is immutable"
 type WekaClusterSpec struct {
 	// A template/strategy of how to build a cluster, right now only "dynamic" supported, explicitly specifying config of a cluster
 	// +kubebuilder:default=dynamic
@@ -901,6 +902,9 @@ type WekaClusterSpec struct {
 	Ports ClusterPorts `json:"ports,omitempty"`
 	// reference to the secret containing the weka system credentials used by operator, used in flow of migration
 	OperatorSecretRef string `json:"operatorSecretRef,omitempty"`
+	// reference to a user-provided secret (keys: username, password) used as the weka admin user credentials instead of generating them; immutable
+	// +kubebuilder:validation:XValidation:rule="size(self.name) <= 253 && self.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$')",message="adminCredentialsSecretRef.name must be a valid Secret name (lowercase DNS subdomain)"
+	AdminCredentialsSecretRef *v1.LocalObjectReference `json:"adminCredentialsSecretRef,omitempty"`
 	// endpoint of existing weka cluster, containers created for this k8s-driver cluster will join existing weka cluster, used in flow of migration
 	ExpandEndpoints []string `json:"expandEndpoints,omitempty"`
 	// weka cluster topology configuration
@@ -1165,6 +1169,9 @@ func (c *WekaCluster) GetInitialOperatorUsername() string {
 }
 
 func (c *WekaCluster) GetUserSecretName() string {
+	if c.Spec.AdminCredentialsSecretRef != nil {
+		return c.Spec.AdminCredentialsSecretRef.Name
+	}
 	name := c.Name
 	return "weka-cluster-" + name
 }

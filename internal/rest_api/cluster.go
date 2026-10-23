@@ -120,6 +120,11 @@ func (api *ClusterAPI) createCluster(w rest.ResponseWriter, r *rest.Request) {
 		rest.Error(w, "Failed to decode request body", http.StatusBadRequest)
 		return
 	}
+	// this API is unauthenticated and returns the admin Secret's contents, so a caller could read any Secret it names
+	if clusterSpec.AdminCredentialsSecretRef != nil {
+		rest.Error(w, "adminCredentialsSecretRef is not supported by this API", http.StatusBadRequest)
+		return
+	}
 
 	name := r.PathParam("name")
 	namespace := r.PathParam("namespace")

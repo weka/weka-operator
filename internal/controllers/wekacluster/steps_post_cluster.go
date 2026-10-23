@@ -39,6 +39,10 @@ func GetCredentialSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 					Run: loop.ApplyCredentials,
 				},
 				&lifecycle.SimpleStep{
+					ContinueOnError: true,
+					Run:             loop.SyncAdminCredentials,
+				},
+				&lifecycle.SimpleStep{
 					State: &lifecycle.State{
 						Name: condition.CondAdminUserDeleted,
 					},

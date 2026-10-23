@@ -4499,6 +4499,14 @@
           "optional": true
         },
         {
+          "name": "AdminCredentialsSecretRef",
+          "jsonName": "adminCredentialsSecretRef",
+          "type": "k8s:v1.LocalObjectReference",
+          "description": "reference to a user-provided secret (keys: username, password) used as the weka admin user credentials instead of generating them; immutable",
+          "optional": true,
+          "pointer": true
+        },
+        {
           "name": "ExpandEndpoints",
           "jsonName": "expandEndpoints",
           "type": {
