@@ -30,6 +30,7 @@ const (
 	ActionBuildContainers          = "BuildContainers"
 	ActionEnsureAwsTerminationHook = "EnsureAwsTerminationHook"
 	ActionDeleteCluster            = "DeleteCluster"
+	ActionApplyLicense             = "ApplyLicense"
 )
 
 // ActionValidateClientVersion is used by wekaclient reconciliation.
