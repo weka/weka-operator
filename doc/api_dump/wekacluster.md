@@ -88,6 +88,7 @@
 | additionalMemory | AdditionalMemory | additional memory to allocate for weka containers |
 | ports | ClusterPorts | port allocation for weka containers, if not set, free range will be auto selected. Currently allocated ports can be seen in wekacluster.status.ports |
 | operatorSecretRef | string | reference to the secret containing the weka system credentials used by operator, used in flow of migration |
+| adminCredentialsSecretRef | *v1.LocalObjectReference | reference to a user-provided secret (keys: username, password) used as the weka admin user credentials instead of generating them; immutable |
 | expandEndpoints | []string | endpoint of existing weka cluster, containers created for this k8s-driver cluster will join existing weka cluster, used in flow of migration |
 | dynamicTemplate | *WekaClusterTemplate | weka cluster topology configuration |
 | network | Network | weka cluster network configuration |

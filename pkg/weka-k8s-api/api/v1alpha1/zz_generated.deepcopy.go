@@ -2536,6 +2536,11 @@ func (in *WekaClusterSpec) DeepCopyInto(out *WekaClusterSpec) {
 	}
 	out.AdditionalMemory = in.AdditionalMemory
 	out.Ports = in.Ports
+	if in.AdminCredentialsSecretRef != nil {
+		in, out := &in.AdminCredentialsSecretRef, &out.AdminCredentialsSecretRef
+		*out = new(corev1.LocalObjectReference)
+		**out = **in
+	}
 	if in.ExpandEndpoints != nil {
 		in, out := &in.ExpandEndpoints, &out.ExpandEndpoints
 		*out = make([]string, len(*in))
