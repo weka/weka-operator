@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -264,43 +265,140 @@ func (c *Client) ListVirtualDrives(ctx context.Context, agentPod *v1.Pod, token,
 	return all, nil
 }
 
-// RemoveVirtualDrive removes a single virtual drive via ssd_proxy_remove_virtual_drive.
-// It treats both a JSONRPC error object and a result:false reply as failure.
-func (c *Client) RemoveVirtualDrive(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID, virtualUUID string) error {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "RemoveVirtualDrive", "virtual_uuid", virtualUUID)
+type jsonrpcError struct {
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data"`
+}
+
+// isException reports whether the proxy threw the named weka exception; data.exceptionClass lists
+// the thrown class and its ancestors.
+func (e *jsonrpcError) isException(class string) bool {
+	var data struct {
+		ExceptionClass []string `json:"exceptionClass"`
+	}
+	if json.Unmarshal(e.Data, &data) != nil {
+		return false
+	}
+	return slices.Contains(data.ExceptionClass, class)
+}
+
+// AddVirtualDrive adds a virtual drive via ssd_proxy_add_virtual_drive and returns the VID. idParam is
+// "virtualUuid" (legacy proxy) or "label" (proxy with ssd_proxy_vid_label_add, which derives the VID
+// from the label; re-adding a label whose VID is still active returns that same VID).
+func (c *Client) AddVirtualDrive(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID, idParam, id, physicalUUID, clusterGUID string, sizeGiB int) (string, error) {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "AddVirtualDrive", idParam, id, "physical_uuid", physicalUUID)
 	defer logger.End()
 
-	respBody, status, err := jsonrpc(ctx, agentPod, token, ssdproxyContainerUUID, "ssd_proxy_remove_virtual_drive", map[string]any{
-		"virtualUuid": virtualUUID,
+	respBody, status, err := jsonrpc(ctx, agentPod, token, ssdproxyContainerUUID, "ssd_proxy_add_virtual_drive", map[string]any{
+		idParam:        id,
+		"physicalUuid": physicalUUID,
+		"clusterGuid":  clusterGUID,
+		"sizeGiB":      sizeGiB,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	logger.Info("JSONRPC response received", "status_code", status, "response", string(respBody))
 
 	if status != http.StatusOK {
-		return fmt.Errorf("node agent returned non-OK status: %d, body: %s", status, string(respBody))
+		return "", fmt.Errorf("node agent returned non-OK status: %d, body: %s", status, string(respBody))
+	}
+
+	return parseAddVirtualDriveReply(respBody)
+}
+
+// parseAddVirtualDriveReply extracts the VID from an ssd_proxy_add_virtual_drive reply, whose result
+// is the bare VID string.
+func parseAddVirtualDriveReply(respBody []byte) (string, error) {
+	var jsonrpcResp struct {
+		Result string        `json:"result"`
+		Error  *jsonrpcError `json:"error"`
+	}
+	if err := json.Unmarshal(respBody, &jsonrpcResp); err != nil {
+		return "", fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))
+	}
+	if jsonrpcResp.Error != nil {
+		return "", fmt.Errorf("JSONRPC error [%d]: %s", jsonrpcResp.Error.Code, jsonrpcResp.Error.Message)
+	}
+	if jsonrpcResp.Result == "" {
+		return "", fmt.Errorf("JSONRPC reply has no VID, body: %s", string(respBody))
+	}
+	return jsonrpcResp.Result, nil
+}
+
+// RemoveVirtualDrive removes a single virtual drive via ssd_proxy_remove_virtual_drive, which returns
+// a bool. It treats both a JSONRPC error object and a result:false reply as failure, except a VID the
+// proxy does not hold, which counts as already removed.
+func (c *Client) RemoveVirtualDrive(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID, virtualUUID string) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "RemoveVirtualDrive", "virtual_uuid", virtualUUID)
+	defer logger.End()
+
+	result, err := removeVirtualDrive(ctx, agentPod, token, ssdproxyContainerUUID, "ssd_proxy_remove_virtual_drive", map[string]any{"virtualUuid": virtualUUID})
+	if err != nil {
+		return err
+	}
+	if string(result) == "false" {
+		return fmt.Errorf("JSONRPC call failed: result is false")
+	}
+	return nil
+}
+
+// RemoveVirtualDriveByLabel removes the active VID the proxy derived from label via
+// ssd_proxy_remove_label, for an allocation whose VID was never persisted. Only valid on proxies with
+// ssd_proxy_vid_label_add.
+func (c *Client) RemoveVirtualDriveByLabel(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID, label, physicalUUID string) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "RemoveVirtualDriveByLabel", "label", label, "physical_uuid", physicalUUID)
+	defer logger.End()
+
+	result, err := removeVirtualDrive(ctx, agentPod, token, ssdproxyContainerUUID, "ssd_proxy_remove_label", map[string]any{
+		"physicalUuid": physicalUUID,
+		"label":        label,
+	})
+	if err != nil {
+		return err
+	}
+	var vid string
+	_ = json.Unmarshal(result, &vid) //nolint:errcheck // the VID is only logged
+	logger.Info("Removed virtual drive by label", "virtual_uuid", vid)
+	return nil
+}
+
+// removeVirtualDrive calls a proxy remove method and returns its raw result, nil when the proxy did
+// not hold the drive.
+func removeVirtualDrive(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID, method string, params map[string]any) (json.RawMessage, error) {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	respBody, status, err := jsonrpc(ctx, agentPod, token, ssdproxyContainerUUID, method, params)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Info("JSONRPC response received", "method", method, "status_code", status, "response", string(respBody))
+
+	if status != http.StatusOK {
+		var reply struct {
+			Error *jsonrpcError `json:"error"`
+		}
+		if json.Unmarshal(respBody, &reply) == nil && reply.Error != nil && reply.Error.isException("VirtualDriveNotFoundException") {
+			logger.Info("Virtual drive not found on proxy, treating as already removed")
+			return nil, nil
+		}
+		return nil, fmt.Errorf("node agent returned non-OK status: %d, body: %s", status, string(respBody))
 	}
 
 	var jsonrpcResp struct {
-		Result interface{} `json:"result"`
-		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
+		Result json.RawMessage `json:"result"`
+		Error  *jsonrpcError   `json:"error"`
 	}
 	if err := json.Unmarshal(respBody, &jsonrpcResp); err != nil {
-		return fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))
+		return nil, fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))
 	}
-
 	if jsonrpcResp.Error != nil {
-		return fmt.Errorf("JSONRPC error [%d]: %s", jsonrpcResp.Error.Code, jsonrpcResp.Error.Message)
-	}
-	if resultBool, ok := jsonrpcResp.Result.(bool); ok && !resultBool {
-		return fmt.Errorf("JSONRPC call failed: result is false")
+		return nil, fmt.Errorf("JSONRPC error [%d]: %s", jsonrpcResp.Error.Code, jsonrpcResp.Error.Message)
 	}
 
-	logger.Info("Virtual drive removed successfully via JSONRPC", "result", jsonrpcResp.Result)
-	return nil
+	logger.Info("Virtual drive removed successfully via JSONRPC", "result", string(jsonrpcResp.Result))
+	return jsonrpcResp.Result, nil
 }

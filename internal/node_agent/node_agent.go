@@ -682,6 +682,14 @@ func (a *NodeAgent) jsonrpcHandler(w http.ResponseWriter, r *http.Request) {
 	var result interface{}
 	if err := a.jrpcCall(ctx, container, payload.Method, payload.Params, &result); err != nil {
 		logger.SetError(err, "JSONRPC call failed")
+		// Callers tell weka exceptions apart by error.data.exceptionClass, so the error object goes back whole.
+		var jrpcErr *JSONRPCError
+		if errors.As(err, &jrpcErr) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": jrpcErr}) //nolint:errcheck // error return value intentionally not checked
+			return
+		}
 		http.Error(w, fmt.Sprintf("JSONRPC call failed: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -726,6 +734,10 @@ type JSONRPCError struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
+}
+
+func (e *JSONRPCError) Error() string {
+	return fmt.Sprintf("JSONRPC error %d: %s", e.Code, e.Message)
 }
 
 // NewWekaJSONRPCService creates a new JSONRPC service
@@ -865,10 +877,9 @@ func (s *WekaJSONRPCService) Call(ctx context.Context, container *ContainerInfo,
 
 	// Check if the JSONRPC response contains an error
 	if jrpcResp.Error != nil {
-		err := fmt.Errorf("JSONRPC error %d: %s", jrpcResp.Error.Code, jrpcResp.Error.Message)
-		logger.SetError(err, "JSONRPC call returned error")
+		logger.SetError(jrpcResp.Error, "JSONRPC call returned error")
 		logger.SetValues("jsonrpc.error.code", jrpcResp.Error.Code, "jsonrpc.error.message", jrpcResp.Error.Message)
-		return err
+		return jrpcResp.Error
 	}
 
 	// Decode the result into the provided data structure

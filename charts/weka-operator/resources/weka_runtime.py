@@ -330,6 +330,8 @@ class FeaturesFlags:
     weka_manages_non_ionode_affinity: Union[bool, int] = 12
     # flag 13 is not used by the operator
     wekactl_as_default: Union[bool, int] = 14
+    # flags 15, 16 are not used by the operator
+    ssd_proxy_vid_label_add: Union[bool, int] = 17
 
     def __init__(self, b64_flags: Optional[str]) -> None:
         active: Set[int] = set(parse_feature_bitmap(b64_flags or ""))

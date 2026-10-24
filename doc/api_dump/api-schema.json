@@ -3335,6 +3335,13 @@
           "optional": false
         },
         {
+          "name": "SkippedPendingCount",
+          "jsonName": "skippedPendingCount",
+          "type": "int",
+          "description": "SkippedPendingCount counts unclaimed VIDs left alone because their physical drive has an\nallocation still waiting for the proxy to return its VID; they may be that VID.",
+          "optional": true
+        },
+        {
           "name": "Fingerprint",
           "jsonName": "fingerprint",
           "type": "string",
@@ -3660,8 +3667,15 @@
           "name": "VirtualUUID",
           "jsonName": "virtualUUID",
           "type": "string",
-          "description": "VirtualUUID is the virtual drive identifier",
+          "description": "VirtualUUID is the weka VID used by the proxy and the cluster.\nEmpty until the proxy add returns it when the ssdproxy derives VIDs from labels (flag ssd_proxy_vid_label_add).",
           "optional": false
+        },
+        {
+          "name": "Label",
+          "jsonName": "label",
+          "type": "string",
+          "description": "Label is the operator-chosen id the ssdproxy derives the VID from. Equal to VirtualUUID on proxies\nwithout ssd_proxy_vid_label_add; empty on allocations made before labels existed.",
+          "optional": true
         },
         {
           "name": "PhysicalUUID",

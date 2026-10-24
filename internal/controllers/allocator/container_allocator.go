@@ -42,6 +42,9 @@ type AllocationRequest struct {
 	FailureDomain *string
 	AllocateWeka  bool // Whether to allocate weka port (60 or 100 ports based on feature flags)
 	AllocateAgent bool // Whether to allocate agent port (1 port)
+	// SsdProxyVidLabelAdd is the node ssdproxy's ssd_proxy_vid_label_add flag: when set, new virtual
+	// drives get only a label and their VID is filled in from the proxy add.
+	SsdProxyVidLabelAdd bool
 }
 
 // AllocationResult represents the result of a resource allocation
@@ -272,6 +275,8 @@ type DriveReallocationRequest struct {
 	FailedDrives []string // Drives to remove (serial IDs for regular drives, virtual UUIDs for virtual drives)
 	NumNewDrives int      // Number of replacement drives needed
 	CapacityGiB  int      // Total capacity that should be allocated for the container (mutually exclusive with NumNewDrives)
+	// SsdProxyVidLabelAdd: see AllocationRequest.SsdProxyVidLabelAdd
+	SsdProxyVidLabelAdd bool
 }
 
 // DriveReallocationResult represents the result of drive reallocation
@@ -382,14 +387,15 @@ func (a *ContainerResourceAllocator) reallocateVirtualDrives(ctx context.Context
 
 	// Create allocation request for new virtual drives
 	allocReq := &AllocationRequest{
-		Container:     req.Container,
-		Node:          req.Node,
-		Cluster:       nil, // Not needed for shared drive allocation
-		NumDrives:     req.NumNewDrives,
-		CapacityGiB:   req.CapacityGiB, // Pass capacity for capacity-based reallocation
-		FailureDomain: nil,
-		AllocateWeka:  false,
-		AllocateAgent: false,
+		Container:           req.Container,
+		Node:                req.Node,
+		Cluster:             nil, // Not needed for shared drive allocation
+		NumDrives:           req.NumNewDrives,
+		CapacityGiB:         req.CapacityGiB, // Pass capacity for capacity-based reallocation
+		FailureDomain:       nil,
+		AllocateWeka:        false,
+		AllocateAgent:       false,
+		SsdProxyVidLabelAdd: req.SsdProxyVidLabelAdd,
 	}
 
 	// Allocate new virtual drives using shared drive allocation logic
@@ -448,17 +454,29 @@ func (a *ContainerResourceAllocator) AllocateSharedDrives(ctx context.Context, r
 		return nil, fmt.Errorf("no shared drives found on node %s", req.Node.Name)
 	}
 
+	var virtualDrives []weka.VirtualDrive
 	switch {
 	case req.CapacityGiB > 0:
 		// Allocate based on total capacity divided by drive types (TLC/QLC)
 		// QLC can be disabled by setting driveTypesRatio.qlc=0
-		return a.allocateSharedDrivesByCapacityWithTypes(ctx, req, containers, sharedDrives)
+		virtualDrives, err = a.allocateSharedDrivesByCapacityWithTypes(ctx, req, containers, sharedDrives)
 	case req.NumDrives > 0:
 		// Allocate based on number of drives needed
-		return a.allocateSharedDrivesByDrivesNum(ctx, req, containers, sharedDrives)
+		virtualDrives, err = a.allocateSharedDrivesByDrivesNum(ctx, req, containers, sharedDrives)
 	default:
 		return nil, fmt.Errorf("either NumDrives or CapacityGiB must be specified for shared drive allocation")
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range virtualDrives {
+		virtualDrives[i].Label = string(uuid.NewUUID())
+		if !req.SsdProxyVidLabelAdd {
+			virtualDrives[i].VirtualUUID = virtualDrives[i].Label
+		}
+	}
+	return virtualDrives, nil
 }
 
 // physicalDriveCapacity tracks capacity usage for a physical drive
@@ -896,7 +914,6 @@ func allocateSingleDriveType(ctx context.Context,
 			virtualDrives := make([]weka.VirtualDrive, 0, len(allocPlan))
 			for _, alloc := range allocPlan {
 				virtualDrives = append(virtualDrives, weka.VirtualDrive{
-					VirtualUUID:  generateVirtualUUID(),
 					PhysicalUUID: alloc.physicalUUID,
 					CapacityGiB:  alloc.capacityGiB,
 					Serial:       alloc.serial,
@@ -1010,7 +1027,6 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByDrivesNum(ctx context
 		logger.Debug(msg)
 
 		virtualDrive := weka.VirtualDrive{
-			VirtualUUID:  generateVirtualUUID(),
 			PhysicalUUID: selectedDrive.drive.PhysicalUUID,
 			CapacityGiB:  driveCapacityGiB,
 			Serial:       selectedDrive.drive.Serial,
@@ -1034,9 +1050,4 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByDrivesNum(ctx context
 		"drivesWithCapacity", len(availableDrives))
 
 	return virtualDrives, nil
-}
-
-// generateVirtualUUID generates a random UUID for a virtual drive
-func generateVirtualUUID() string {
-	return string(uuid.NewUUID())
 }

@@ -131,22 +131,29 @@ func (o *StaleVirtualDrivesOperation) resolveTargetProxies(ctx context.Context) 
 
 // buildClaimedSet returns the set of VirtualUUIDs claimed by any WekaContainer in any state,
 // read with the direct (uncached) API reader so a just-written allocation is never missed.
-func (o *StaleVirtualDrivesOperation) buildClaimedSet(ctx context.Context) (map[string]bool, error) {
+// pendingPhysical holds the physical drives of allocations whose VID the proxy has not returned yet:
+// such a VID may already exist on the drive unpersisted, and no VID there can be told apart from it.
+func (o *StaleVirtualDrivesOperation) buildClaimedSet(ctx context.Context) (claimed, pendingPhysical map[string]bool, err error) {
 	containerList := &weka.WekaContainerList{}
 	if err := o.mgr.GetAPIReader().List(ctx, containerList); err != nil {
-		return nil, errors.Wrap(err, "failed to list WekaContainers (uncached)")
+		return nil, nil, errors.Wrap(err, "failed to list WekaContainers (uncached)")
 	}
-	claimed := map[string]bool{}
+	claimed = map[string]bool{}
+	pendingPhysical = map[string]bool{}
 	for i := range containerList.Items {
 		alloc := containerList.Items[i].Status.Allocations
 		if alloc == nil {
 			continue
 		}
-		for _, vid := range alloc.GetVirtualDrivesUuids() {
-			claimed[vid] = true
+		for _, vd := range alloc.VirtualDrives {
+			if vd.VirtualUUID == "" {
+				pendingPhysical[vd.PhysicalUUID] = true
+			} else {
+				claimed[vd.VirtualUUID] = true
+			}
 		}
 	}
-	return claimed, nil
+	return claimed, pendingPhysical, nil
 }
 
 // buildLiveClusterGUIDs returns the set of cluster GUIDs of all existing WekaCluster CRs
@@ -177,7 +184,7 @@ func (o *StaleVirtualDrivesOperation) Scan(ctx context.Context) error {
 		return err
 	}
 
-	claimed, err := o.buildClaimedSet(ctx)
+	claimed, pendingPhysical, err := o.buildClaimedSet(ctx)
 	if err != nil {
 		o.results.Err = err.Error()
 		return err
@@ -220,7 +227,7 @@ func (o *StaleVirtualDrivesOperation) Scan(ctx context.Context) error {
 		}
 	}
 
-	stale := computeStaleVids(scanned, claimed, liveGUIDs, o.payload.OnlyNonExistingClusters)
+	stale, skippedPending := computeStaleVids(scanned, claimed, pendingPhysical, liveGUIDs, o.payload.OnlyNonExistingClusters)
 	for _, info := range stale {
 		logger.Warn("Stale virtual drive detected",
 			"virtual_uuid", info.VirtualUUID,
@@ -240,6 +247,7 @@ func (o *StaleVirtualDrivesOperation) Scan(ctx context.Context) error {
 	o.results.ScannedNodes = len(scannedNodes)
 	o.results.StaleVids = stale
 	o.results.StaleCount = len(stale)
+	o.results.SkippedPendingCount = skippedPending
 	o.results.StaleTiB = float64(totalGB) / 1024.0
 	o.results.Fingerprint = fingerprintStaleVids(stale)
 	o.results.Deleted = nil
@@ -316,7 +324,7 @@ func (o *StaleVirtualDrivesOperation) MaybeDelete(ctx context.Context) error {
 	}
 
 	// Final re-validation: fresh uncached claimed set immediately before removal.
-	claimed, err := o.buildClaimedSet(ctx)
+	claimed, pendingPhysical, err := o.buildClaimedSet(ctx)
 	if err != nil {
 		return errors.Wrap(err, "failed to re-validate claimed set before removal")
 	}
@@ -335,6 +343,10 @@ func (o *StaleVirtualDrivesOperation) MaybeDelete(ctx context.Context) error {
 		l := logger
 		if claimed[s.VirtualUUID] {
 			l.Info("Stale VID became claimed since scan; sparing it", "virtual_uuid", s.VirtualUUID)
+			continue
+		}
+		if pendingPhysical[s.PhysicalUUID] {
+			l.Info("Stale VID's physical drive has an allocation awaiting its VID; sparing it", "virtual_uuid", s.VirtualUUID)
 			continue
 		}
 
@@ -395,14 +407,18 @@ type scannedVID struct {
 	vd   ssdproxy.VirtualDrive
 }
 
-// computeStaleVids is the pure core of the scan: every scanned VID not in the claimed set is
-// stale, categorized dead_cluster (no live WekaCluster owns its GUID) vs live_cluster_unclaimed.
+// computeStaleVids is the pure core of the scan: every scanned VID not in the claimed set, and not on
+// a physical drive in pendingPhysical, is stale, categorized dead_cluster (no live WekaCluster owns its GUID) vs live_cluster_unclaimed.
 // onlyNonExisting keeps only the dead_cluster subset. Output is sorted by (node, virtualUuid).
-func computeStaleVids(scanned []scannedVID, claimed, liveGUIDs map[string]bool, onlyNonExisting bool) []weka.StaleVirtualDriveInfo {
-	var stale []weka.StaleVirtualDriveInfo
+// skippedPending counts the unclaimed VIDs spared for being on a pending physical drive.
+func computeStaleVids(scanned []scannedVID, claimed, pendingPhysical, liveGUIDs map[string]bool, onlyNonExisting bool) (stale []weka.StaleVirtualDriveInfo, skippedPending int) {
 	for _, s := range scanned {
 		if claimed[s.vd.VirtualUUID] {
 			continue // in use by a live container allocation
+		}
+		if pendingPhysical[s.vd.PhysicalUUID] {
+			skippedPending++ // may be the not-yet-persisted VID of an allocation
+			continue
 		}
 		category := weka.StaleVidCategoryLiveClusterUnclaimed
 		if !liveGUIDs[s.vd.ClusterGUID] {
@@ -426,7 +442,7 @@ func computeStaleVids(scanned []scannedVID, claimed, liveGUIDs map[string]bool, 
 		}
 		return stale[i].VirtualUUID < stale[j].VirtualUUID
 	})
-	return stale
+	return stale, skippedPending
 }
 
 // deletionEligible gates removal: only when the stale set is non-empty and its fingerprint
