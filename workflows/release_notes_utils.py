@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import re
@@ -10,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 # Define the model, handle case where client couldn't be initialized
-from util_gemini import gemini_flash
+from util_gemini import gemini_flash, run_sync
 release_notes_generation_model = gemini_flash
 
 # --- Utility Functions ---
@@ -104,7 +103,7 @@ def generate_release_notes(title: str, ctype: str, original_body: str, diff_or_s
 
     try:
         # Run the agent synchronously
-        result = asyncio.run(
+        result = run_sync(
             Runner.run(agent, input_text)
         )
         # result = Runner.run(agent, input_text)
