@@ -17,7 +17,7 @@ import (
 	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
-type recordingExec struct{ cmds []string }
+type recordingExec struct{ cmds, stdins []string }
 
 func (e *recordingExec) Exec(context.Context, []string) (bytes.Buffer, bytes.Buffer, error) {
 	panic("unexpected Exec")
@@ -27,8 +27,13 @@ func (e *recordingExec) ExecNamed(context.Context, string, []string) (bytes.Buff
 	panic("unexpected ExecNamed")
 }
 
-func (e *recordingExec) ExecSensitive(_ context.Context, _ string, cmd []string) (bytes.Buffer, bytes.Buffer, error) {
+func (e *recordingExec) ExecSensitive(context.Context, string, []string) (bytes.Buffer, bytes.Buffer, error) {
+	panic("unexpected ExecSensitive")
+}
+
+func (e *recordingExec) ExecSensitiveWithStdin(_ context.Context, _ string, cmd []string, stdin string) (bytes.Buffer, bytes.Buffer, error) {
 	e.cmds = append(e.cmds, strings.Join(cmd, " "))
+	e.stdins = append(e.stdins, stdin)
 	return bytes.Buffer{}, bytes.Buffer{}, nil
 }
 
@@ -73,8 +78,11 @@ func TestEnsureLicense_ReappliesOnlyWhenSecretVersionChanges(t *testing.T) {
 	if err := loop.EnsureLicense(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(rec.cmds) != 1 || !strings.Contains(rec.cmds[0], "weka cluster license set LIC1") {
-		t.Fatalf("first apply: cmds = %q", rec.cmds)
+	if len(rec.cmds) != 1 || !strings.Contains(rec.cmds[0], "weka cluster license set") || rec.stdins[0] != "LIC1" {
+		t.Fatalf("first apply: cmds = %q, stdins = %q", rec.cmds, rec.stdins)
+	}
+	if strings.Contains(rec.cmds[0], "LIC1") {
+		t.Fatalf("license leaked into argv: %q", rec.cmds[0])
 	}
 
 	if err := loop.EnsureLicense(ctx); err != nil {

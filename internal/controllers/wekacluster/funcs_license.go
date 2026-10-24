@@ -51,7 +51,9 @@ func (r *wekaClusterReconcilerLoop) EnsureLicense(ctx context.Context) error {
 		return r.licenseFailed(ctx, errors.Wrap(err, "failed to get executor"))
 	}
 	// stderr is dropped: weka may echo the license back in its error output.
-	if _, _, err := executor.ExecSensitive(ctx, "ApplyLicense", []string{"weka", "cluster", "license", "set", license}); err != nil {
+	// the license goes over stdin so it stays out of the pods/exec request URI that API server audit logs record
+	script := `IFS= read -r -d '' lic; exec weka cluster license set "$lic"`
+	if _, _, err := executor.ExecSensitiveWithStdin(ctx, "ApplyLicense", []string{"bash", "-c", script}, license); err != nil {
 		return r.licenseFailed(ctx, errors.Wrap(err, "failed to apply license"))
 	}
 

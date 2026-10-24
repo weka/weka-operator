@@ -22,7 +22,8 @@ spec:
 
 - The license is applied after the cluster forms, from an active backend
   container, with `weka cluster license set`. The license is never written to
-  operator logs, traces, events or status.
+  operator logs, traces, events or status. It is passed over exec stdin, so it
+  is not part of the `pods/exec` request that API server audit logs record.
 - The step runs at most once a minute. It re-applies the license whenever the
   Secret's UID or resourceVersion changes, so a renewed license is picked up
   without touching the WekaCluster. Any update to the Secret, including a
