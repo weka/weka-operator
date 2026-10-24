@@ -976,6 +976,9 @@ type WekaClusterSpec struct {
 	Catalog *CatalogConfig `json:"catalog,omitempty"`
 	// NUMA confinement configuration for all weka containers, overridden per role by roleNuma
 	Numa *WekaNuma `json:"numa,omitempty"`
+	// Name of a Secret in the WekaCluster's namespace holding the WEKA license under key "license".
+	// Applied after the cluster forms and re-applied when the Secret changes.
+	LicenseSecret string `json:"licenseSecret,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {
