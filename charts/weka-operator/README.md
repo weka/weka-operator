@@ -226,6 +226,7 @@ helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
 | nodeAgent.persistencePaths | string | `"/opt/k8s-weka"` | Host path used for node-agent persistence. The default suits generic OSes; override with /root/k8s-weka for OpenShift, or /mnt/stateful_partition/k8s-weka for Google Container-Optimized OS. |
 | nodeAgent.resources | object | `{"limits":{"cpu":"1000m","ephemeral-storage":"400Mi","memory":"1024Mi"},"requests":{"cpu":"50m","ephemeral-storage":"100Mi","memory":"64Mi"}}` | Node-agent DaemonSet container resources. On VM nodes using the native containerd snapshotter (e.g. KubeVirt guests without overlayfs support), the entire container image is copied into the writable snapshot and counted as ephemeral storage. On such nodes rootfs usage equals the image size (~300Mi for weka-operator), regardless of any actual writes by the process. Increase `ephemeral-storage` if node-agent pods are evicted on such nodes. |
 | nodeAgent.tolerations | list | `[{"operator":"Exists"}]` | Tolerations of the node-agent DaemonSet. |
+| nodeAgent.updateStrategy | object | `{"rollingUpdate":{"maxSurge":0,"maxUnavailable":"100%"},"type":"RollingUpdate"}` | Update strategy of the node-agent DaemonSet. By default all node-agent pods restart at once. `maxSurge` and `maxUnavailable` cannot both be zero. |
 
 ### Upgrade
 
