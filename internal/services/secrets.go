@@ -1,7 +1,10 @@
 package services
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -88,6 +91,7 @@ type SecretsService interface {
 	EnsureLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error
 	EnsureClientLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, container *wekav1alpha1.WekaContainer) error
 	UpdateOperatorLoginSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error
+	GetAdminCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) (*v1.Secret, error)
 }
 
 func NewSecretsService(k8sClient client.Client, scheme *runtime.Scheme, service exec.ExecService) SecretsService {
@@ -143,7 +147,6 @@ func (r *secretsService) EnsureLoginCredentials(ctx context.Context, cluster *we
 	// Hacking it into initial (admin) username, and we will update later once new user is created
 	// Both admin and user have the same password
 	operatorLogin.StringData["username"] = cluster.GetInitialOperatorUsername()
-	userLogin := NewUserLoginSecret(ctx, cluster)
 
 	if cluster.Spec.OperatorSecretRef != "" {
 		return nil
@@ -156,7 +159,12 @@ func (r *secretsService) EnsureLoginCredentials(ctx context.Context, cluster *we
 		return err
 	}
 
-	if err := kubeService.EnsureSecret(ctx, userLogin, &kubernetes.K8sOwnerRef{
+	if cluster.Spec.AdminCredentialsSecretRef != nil {
+		_, err := r.GetAdminCredentials(ctx, cluster)
+		return err
+	}
+
+	if err := kubeService.EnsureSecret(ctx, NewUserLoginSecret(ctx, cluster), &kubernetes.K8sOwnerRef{
 		Scheme: r.Scheme,
 		Obj:    cluster,
 	}); err != nil {
@@ -164,6 +172,39 @@ func (r *secretsService) EnsureLoginCredentials(ctx context.Context, cluster *we
 	}
 
 	return nil
+}
+
+func (r *secretsService) GetAdminCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) (*v1.Secret, error) {
+	name := cluster.GetUserSecretName()
+	// the client and CSI steps reuse an existing Secret and skip existing users, so sharing one of these
+	// would hand the admin credentials to clients or CSI, and the CSI step would write into the user's Secret
+	if slices.Contains([]string{cluster.GetOperatorSecretName(), cluster.GetClientSecretName(), wekav1alpha1.GetCsiSecretName(cluster.Name)}, name) {
+		return nil, fmt.Errorf("admin credentials secret %s: name is reserved for operator-managed credentials", name)
+	}
+	secret, err := kubernetes.NewKubeService(r.Client).GetSecret(ctx, name, cluster.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("get admin credentials secret %s: %w", name, err)
+	}
+	username := string(secret.Data["username"])
+	if username == "" || len(secret.Data["password"]) == 0 {
+		return nil, fmt.Errorf("admin credentials secret %s must have non-empty username and password", name)
+	}
+	// a NUL cannot be passed to the weka CLI, the password would be cut at it
+	if bytes.IndexByte(secret.Data["password"], 0) >= 0 {
+		return nil, fmt.Errorf("admin credentials secret %s: password must not contain a NUL byte", name)
+	}
+	// "admin" is removed by DeleteAdminUser, the rest are operator-managed users: EnsureUser skips existing users,
+	// so sharing one of their names leaves a password unapplied
+	reserved := []string{
+		cluster.GetInitialOperatorUsername(),
+		cluster.GetOperatorClusterUsername(),
+		cluster.GetClusterClientUsername(),
+		cluster.GetClusterCsiUsername(),
+	}
+	if slices.Contains(reserved, username) {
+		return nil, fmt.Errorf("admin credentials secret %s: username %q is reserved", name, username)
+	}
+	return secret, nil
 }
 
 func (r *secretsService) EnsureClientLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, container *wekav1alpha1.WekaContainer) error {

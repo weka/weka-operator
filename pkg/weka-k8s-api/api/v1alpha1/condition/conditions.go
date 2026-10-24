@@ -5,6 +5,7 @@ const (
 	CondClusterSecretsCreated        = "ClusterSecretsCreated"
 	CondClusterSecretsApplied        = "ClusterSecretsApplied"
 	CondAdminUserDeleted             = "CondAdminUserDeleted"
+	CondAdminCredentialsSynced       = "AdminCredentialsSynced"
 	CondClusterClientSecretsCreated  = "ClusterClientsSecretsCreated"
 	CondClusterClientSecretsApplied  = "ClusterClientsSecretsApplied"
 	CondClusterCsiSecretsCreated     = "ClusterCsiSecretsCreated"

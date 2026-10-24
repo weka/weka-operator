@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -514,6 +515,7 @@ type WekaService interface {
 	GenerateJoinSecret(ctx context.Context) (string, error)
 	GetUsers(ctx context.Context) ([]WekaUserResponse, error)
 	EnsureUser(ctx context.Context, username, password, role string) error
+	SetUserPassword(ctx context.Context, username, password string) error
 	EnsureNoUser(ctx context.Context, username string) error
 	SetWekaHome(ctx context.Context, WekaHomeConfig weka.WekaHomeConfig) error
 	RemoveOverride(ctx context.Context, overrideID string) error
@@ -766,12 +768,31 @@ func (c *CliWekaService) EnsureUser(ctx context.Context, username, password, rol
 		return err
 	}
 
-	cmd := fmt.Sprintf("wekaauthcli user add %s %s %s", username, role, password)
-	_, stderr, err := executor.ExecSensitive(ctx, "AddClusterUser", []string{"bash", "-ce", cmd})
+	_, stderr, err := execWithPassword(ctx, executor, "AddClusterUser", password, "user", "add", username, role)
 	if err != nil {
 		return errors.Wrapf(err, "Failed to add user: %s", stderr.String())
 	}
 	return nil
+}
+
+func (c *CliWekaService) SetUserPassword(ctx context.Context, username, password string) error {
+	executor, err := c.getExecutor(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, stderr, err := execWithPassword(ctx, executor, "SetUserPassword", password, "user", "passwd", "--username", username)
+	if err != nil {
+		return errors.Wrapf(err, "Failed to set user password: %s", stderr.String())
+	}
+	return nil
+}
+
+// execWithPassword runs `wekaauthcli <args...> -- <password>`, reading the password from stdin so it stays out of the exec request
+func execWithPassword(ctx context.Context, executor podexec.Exec, name, password string, args ...string) (stdout, stderr bytes.Buffer, err error) {
+	// read to EOF, not to the first newline, so WEKA gets the Secret's exact bytes
+	script := `IFS= read -r -d '' pw; exec wekaauthcli "$@" -- "$pw"`
+	return executor.ExecSensitiveWithStdin(ctx, name, append([]string{"bash", "-c", script, "wekaauthcli"}, args...), password)
 }
 
 func (c *CliWekaService) GetInterfaceNameByIpAddress(ctx context.Context, ip string) (string, error) {
