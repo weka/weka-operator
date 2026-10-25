@@ -6,6 +6,8 @@ type ConfigurationPayload struct {
 	Csi *CsiSpec `json:"csi,omitempty"`
 	// Drivers configures the drivers build and distribution.
 	Drivers *DriversSpec `json:"drivers,omitempty"`
+	// Scheduling configures scheduling behavior of operator-managed pods.
+	Scheduling *SchedulingSpec `json:"scheduling,omitempty"`
 }
 
 // CsiSpec groups settings of the embedded CSI deployment
@@ -28,4 +30,13 @@ type DriversSpec struct {
 	// ForceBuilderCli makes the drivers-builder init containers take the weka CLI from the builder
 	// image instead of the cluster image. False by default.
 	ForceBuilderCli *bool `json:"forceBuilderCli,omitempty"`
+}
+
+// SchedulingSpec groups settings that control scheduling behavior of operator-managed pods
+type SchedulingSpec struct {
+	// TolerateCordon makes client containers and the node-local pods they depend on (drivers-loader,
+	// drivers-dist, discovery, adhoc-op) tolerate the node.kubernetes.io/unschedulable:NoSchedule
+	// taint, so they keep running and keep being created on a cordoned node. Backends never tolerate
+	// it. False by default.
+	TolerateCordon *bool `json:"tolerateCordon,omitempty"`
 }

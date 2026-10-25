@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
@@ -35,7 +36,7 @@ func TestClientExtraCores_CPUGrowsMemoryStable(t *testing.T) {
 			},
 		}
 		nodeInfo := &discovery.DiscoveryNodeInfo{IsHt: true}
-		return NewPodFactory(container, nodeInfo, &domain.FeatureFlags{})
+		return NewPodFactory(container, nodeInfo, &domain.FeatureFlags{}, services.SchedulingSettings{})
 	}
 
 	hgDetails := GetHugePagesDetails(&weka.WekaContainer{

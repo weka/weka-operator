@@ -51,12 +51,20 @@ type CsiSettings struct {
 	ManageNfsPermissions bool
 }
 
+// SchedulingSettings holds the operator-wide settings for where operator-managed pods may run.
+type SchedulingSettings struct {
+	// TolerateCordon lets clients and the node-local pods they depend on keep running and keep
+	// being created on a cordoned node. Backends never tolerate the cordon regardless.
+	TolerateCordon bool
+}
+
 // ConfigurationSettings is the effective operator-wide configuration: built-in defaults with any
 // configuration WekaPolicy applied over them. Every field is a resolved value, never a pointer, so
 // callers never repeat the nil-means-default decision.
 type ConfigurationSettings struct {
-	Drivers DriversSettings
-	Csi     CsiSettings
+	Drivers    DriversSettings
+	Csi        CsiSettings
+	Scheduling SchedulingSettings
 }
 
 // DefaultConfigurationSettings returns the built-in defaults, which apply when no configuration
@@ -70,6 +78,9 @@ func DefaultConfigurationSettings() ConfigurationSettings {
 			MetricsEnabled:       true,
 			FsGroupPolicy:        storagev1.FileFSGroupPolicy,
 			ManageNfsPermissions: false,
+		},
+		Scheduling: SchedulingSettings{
+			TolerateCordon: false,
 		},
 	}
 }
@@ -97,6 +108,10 @@ func SettingsFromPayload(payload *weka.ConfigurationPayload) ConfigurationSettin
 		if payload.Csi.ManageNfsPermissions != nil {
 			resolved.Csi.ManageNfsPermissions = *payload.Csi.ManageNfsPermissions
 		}
+	}
+
+	if payload.Scheduling != nil && payload.Scheduling.TolerateCordon != nil {
+		resolved.Scheduling.TolerateCordon = *payload.Scheduling.TolerateCordon
 	}
 
 	return resolved

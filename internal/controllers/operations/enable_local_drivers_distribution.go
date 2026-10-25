@@ -28,6 +28,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/drivers"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
@@ -519,7 +520,8 @@ func (o *EnsureDistServiceOperation) DeleteIfNodeIneligible(ctx context.Context,
 		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
 
-	reason := resources.NodeIneligibleReason(node, resources.GetWekaPodTolerations(&wc))
+	scheduling := services.GetSettings(ctx).Scheduling
+	reason := resources.NodeIneligibleReason(node, resources.GetWekaPodTolerations(&wc, scheduling))
 	if reason != "" && resources.NodeIsReady(node) {
 		// A cordon or NoSchedule taint doesn't evict a pod already bound to the node; only reschedule
 		// when no live pod is bound (missing, terminated, or evicted by a NoExecute taint).

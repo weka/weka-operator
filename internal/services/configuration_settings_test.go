@@ -303,3 +303,41 @@ func TestSettingsFromPayloadCsi(t *testing.T) {
 		}
 	})
 }
+
+func TestSettingsFromPayloadScheduling(t *testing.T) {
+	if DefaultConfigurationSettings().Scheduling.TolerateCordon {
+		t.Error("default TolerateCordon = true, want false")
+	}
+
+	tests := []struct {
+		name    string
+		payload *weka.ConfigurationPayload
+		want    bool
+	}{
+		{name: "nil payload", payload: nil, want: false},
+		{name: "no scheduling section", payload: &weka.ConfigurationPayload{}, want: false},
+		{
+			name:    "scheduling section with the field unset",
+			payload: &weka.ConfigurationPayload{Scheduling: &weka.SchedulingSpec{}},
+			want:    false,
+		},
+		{
+			name:    "explicit true",
+			payload: &weka.ConfigurationPayload{Scheduling: &weka.SchedulingSpec{TolerateCordon: boolPtr(true)}},
+			want:    true,
+		},
+		{
+			name:    "explicit false",
+			payload: &weka.ConfigurationPayload{Scheduling: &weka.SchedulingSpec{TolerateCordon: boolPtr(false)}},
+			want:    false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := SettingsFromPayload(tc.payload).Scheduling.TolerateCordon; got != tc.want {
+				t.Errorf("TolerateCordon = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

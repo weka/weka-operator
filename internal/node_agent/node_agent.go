@@ -32,7 +32,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -466,7 +465,7 @@ func (a *NodeAgent) generateMetricsResponse(ctx context.Context) ([]byte, error)
 			)
 
 			for nodeIdStr, cpuLoad := range container.cpuInfo {
-				processId, err := resources.NodeIdToProcessId(nodeIdStr)
+				processId, err := domain.NodeIdToProcessId(nodeIdStr)
 				if err != nil {
 					processLogger.Error(err, "Failed to convert node id to process id", "node_id", nodeIdStr)
 					continue
@@ -1426,7 +1425,7 @@ func processStat(ctx context.Context, stat *WekaStat, container *ContainerInfo) 
 		logger.Info("Failed to parse float", "value", stat.Value)
 	}
 
-	nodeIdInt, err := resources.NodeIdToProcessId(stat.NodeId)
+	nodeIdInt, err := domain.NodeIdToProcessId(stat.NodeId)
 	if err != nil {
 		logger.Info("Failed to parse node id", "nodeId", stat.NodeId)
 	}
@@ -1442,7 +1441,7 @@ func processStat(ctx context.Context, stat *WekaStat, container *ContainerInfo) 
 	var wekaDrive WekaDrive
 	if stat.Params.Disk != "" {
 		for _, disk := range container.containerState.DisksSummary {
-			configDriveIdInt, err := resources.DriveIdToInteger(disk.DiskId)
+			configDriveIdInt, err := domain.DriveIdToInteger(disk.DiskId)
 			if err != nil {
 				logger.Error(err, "Failed to parse disk id", "serialNumber", disk.SerialNumber)
 				continue
@@ -1869,7 +1868,7 @@ func deduceFsName(ctx context.Context, container *ContainerInfo, id string) stri
 		return ""
 	}
 	for _, fs := range container.containerState.FilesystemsSummary {
-		intId, err := resources.FsIdToInteger(fs.FilesystemId)
+		intId, err := domain.FsIdToInteger(fs.FilesystemId)
 		if err != nil {
 			logger.Error(err, "Failed to convert fs id to int", "fs_id", fs.FilesystemId, "fs", fs)
 			continue

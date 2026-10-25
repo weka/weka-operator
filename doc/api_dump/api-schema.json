@@ -582,6 +582,16 @@
           "description": "Drivers configures the drivers build and distribution.",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "Scheduling",
+          "jsonName": "scheduling",
+          "type": {
+            "$ref": "#/definitions/SchedulingSpec"
+          },
+          "description": "Scheduling configures scheduling behavior of operator-managed pods.",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -2960,6 +2970,23 @@
     },
     "SchedulingConfigPayload": {
       "kind": "struct",
+      "usedBy": [
+        "WekaPolicy"
+      ]
+    },
+    "SchedulingSpec": {
+      "kind": "struct",
+      "description": "SchedulingSpec groups settings that control scheduling behavior of operator-managed pods",
+      "fields": [
+        {
+          "name": "TolerateCordon",
+          "jsonName": "tolerateCordon",
+          "type": "bool",
+          "description": "TolerateCordon makes client containers and the node-local pods they depend on (drivers-loader,\ndrivers-dist, discovery, adhoc-op) tolerate the node.kubernetes.io/unschedulable:NoSchedule\ntaint, so they keep running and keep being created on a cordoned node. Backends never tolerate\nit. False by default.",
+          "optional": true,
+          "pointer": true
+        }
+      ],
       "usedBy": [
         "WekaPolicy"
       ]

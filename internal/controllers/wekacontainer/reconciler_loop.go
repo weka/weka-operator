@@ -80,7 +80,9 @@ type containerReconcilerLoop struct {
 	// nil until ReconcileWekaLocalStatus successfully reads `weka local ps --json`
 	localContainer *services.WekaLocalContainer
 	activeMounts   *int
-	ThrottlingMap  throttling.Throttler
+	// resolved by GetNode, so the cordon decision is available to steps and predicates that have no ctx
+	scheduling    services.SchedulingSettings
+	ThrottlingMap throttling.Throttler
 	// NOTE: always use getCluster() to access this field
 	_cluster *weka.WekaCluster
 }

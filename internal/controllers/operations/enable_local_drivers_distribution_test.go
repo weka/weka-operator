@@ -12,6 +12,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/services"
 )
 
 var _ = Describe("sanitizeOsImageForLabel", func() {
@@ -337,6 +341,8 @@ var _ = Describe("DeleteIfNodeIneligible", func() {
 		untoleratedTaint = "medik8s.io/drain" // NoSchedule taint not in the dist container's tolerations
 	)
 
+	const operatorNamespace = "weka-operator-system"
+
 	var (
 		ctx    context.Context
 		scheme *runtime.Scheme
@@ -348,6 +354,12 @@ var _ = Describe("DeleteIfNodeIneligible", func() {
 		Expect(weka.AddToScheme(scheme)).To(Succeed())
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 	})
+
+	// A cordon sets Unschedulable and the matching taint; eligibility is decided by the taint.
+	cordonedSpec := corev1.NodeSpec{
+		Unschedulable: true,
+		Taints:        []corev1.Taint{resources.CordonTaint()},
+	}
 
 	nodeCondition := func(ready bool) corev1.NodeCondition {
 		status := corev1.ConditionTrue
@@ -365,8 +377,36 @@ var _ = Describe("DeleteIfNodeIneligible", func() {
 		}
 	}
 
+	// setTolerateCordon resolves the operator-wide settings from a policy carrying the given value, so
+	// the cordon cases can be driven from both sides of the opt-in.
+	setTolerateCordon := func(ctx context.Context, value bool) {
+		origNamespace := config.Config.OperatorPodNamespace
+		config.Config.OperatorPodNamespace = operatorNamespace
+		DeferCleanup(func() {
+			// Resolve back to the built-in defaults before restoring the namespace: a policy-free client
+			// gives the defaults, but only while the namespace this resolved under is still in effect.
+			Expect(services.RefreshSettings(ctx, fake.NewClientBuilder().WithScheme(scheme).Build())).To(Succeed())
+			config.Config.OperatorPodNamespace = origNamespace
+		})
+
+		policy := &weka.WekaPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "configuration", Namespace: operatorNamespace},
+			Spec: weka.WekaPolicySpec{
+				Payload: weka.PolicyPayload{
+					Configuration: &weka.ConfigurationPayload{
+						Scheduling: &weka.SchedulingSpec{TolerateCordon: &value},
+					},
+				},
+			},
+		}
+		policyClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy).Build()
+		Expect(services.RefreshSettings(ctx, policyClient)).To(Succeed())
+	}
+
 	DescribeTable("deletes the dist container only when the node truly can't host it",
-		func(node *corev1.Node, pod *corev1.Pod, expectDeleted bool) {
+		func(node *corev1.Node, pod *corev1.Pod, tolerateCordon bool, expectDeleted bool) {
+			setTolerateCordon(ctx, tolerateCordon)
+
 			wc := &weka.WekaContainer{
 				ObjectMeta: metav1.ObjectMeta{Name: wcName, Namespace: wcNamespace},
 				Spec:       weka.WekaContainerSpec{Mode: weka.WekaContainerModeDriversDist},
@@ -405,50 +445,78 @@ var _ = Describe("DeleteIfNodeIneligible", func() {
 			},
 			boundPod(corev1.PodRunning),
 			false,
+			false,
 		),
 		Entry("not ready + cordoned, pod running bound -> deleted",
 			&corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
-				Spec:       corev1.NodeSpec{Unschedulable: true},
+				Spec:       cordonedSpec,
 				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(false)}},
 			},
 			boundPod(corev1.PodRunning),
+			false,
 			true,
 		),
 		Entry("ready, cordoned, pod running bound -> kept",
 			&corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
-				Spec:       corev1.NodeSpec{Unschedulable: true},
+				Spec:       cordonedSpec,
 				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
 			},
 			boundPod(corev1.PodRunning),
+			false,
 			false,
 		),
 		Entry("ready, cordoned, pod bound but pending -> kept",
 			&corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
-				Spec:       corev1.NodeSpec{Unschedulable: true},
+				Spec:       cordonedSpec,
 				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
 			},
 			boundPod(corev1.PodPending),
 			false,
+			false,
 		),
-		Entry("ready, cordoned, no pod -> deleted",
+		// Opted in, dist tolerates the cordon, so a cordoned-but-Ready node keeps its dist container even
+		// with no live pod — deleting it leaves the node's drivers-loader with no endpoint to pull from.
+		Entry("ready, cordoned, no pod, opted in -> kept",
 			&corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
-				Spec:       corev1.NodeSpec{Unschedulable: true},
+				Spec:       cordonedSpec,
 				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
 			},
 			nil,
 			true,
+			false,
 		),
-		Entry("ready, cordoned, pod failed bound -> deleted",
+		Entry("ready, cordoned, no pod, not opted in -> deleted",
 			&corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
-				Spec:       corev1.NodeSpec{Unschedulable: true},
+				Spec:       cordonedSpec,
+				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
+			},
+			nil,
+			false,
+			true,
+		),
+		Entry("ready, cordoned, pod failed bound, opted in -> kept",
+			&corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec:       cordonedSpec,
 				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
 			},
 			boundPod(corev1.PodFailed),
+			true,
+			false,
+		),
+		Entry("ready, cordoned, pod failed bound, not opted in -> deleted",
+			&corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec:       cordonedSpec,
+				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
+			},
+			boundPod(corev1.PodFailed),
+			false,
 			true,
 		),
 		Entry("ready, untolerated NoSchedule taint, no pod -> deleted",
@@ -460,11 +528,13 @@ var _ = Describe("DeleteIfNodeIneligible", func() {
 				Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{nodeCondition(true)}},
 			},
 			nil,
+			false,
 			true,
 		),
 		Entry("node missing, no pod -> deleted",
 			nil,
 			nil,
+			false,
 			true,
 		),
 	)

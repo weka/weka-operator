@@ -21,6 +21,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
@@ -460,11 +461,11 @@ func (o *MaintainTraceSession) EnsureWekaNodeRoutingConfigMap(ctx context.Contex
 	}
 
 	for i := range processes {
-		nodeId, nodeErr := resources.NodeIdToInt(processes[i].NodeId)
+		nodeId, nodeErr := domain.NodeIdToProcessId(processes[i].NodeId)
 		if nodeErr != nil {
 			return nodeErr
 		}
-		containerId, containerErr := resources.HostIdToContainerId(processes[i].NodeInfo.HostId)
+		containerId, containerErr := domain.HostIdToContainerId(processes[i].NodeInfo.HostId)
 		if containerErr != nil {
 			return containerErr
 		}

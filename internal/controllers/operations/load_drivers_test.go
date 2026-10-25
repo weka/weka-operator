@@ -740,7 +740,7 @@ var _ = Describe("PodFactory IMAGE_NAME for drivers-loader", func() {
 		}
 
 		nodeInfo := &discovery.DiscoveryNodeInfo{}
-		factory := resources.NewPodFactory(container, nodeInfo, nil)
+		factory := resources.NewPodFactory(container, nodeInfo, nil, services.SchedulingSettings{})
 
 		// Pass cluster image as the pod image (simulating ensurePod behavior)
 		podImage := clusterImage
@@ -789,7 +789,7 @@ var _ = Describe("PodFactory IMAGE_NAME for drivers-loader", func() {
 		}
 
 		nodeInfo := &discovery.DiscoveryNodeInfo{}
-		factory := resources.NewPodFactory(container, nodeInfo, nil)
+		factory := resources.NewPodFactory(container, nodeInfo, nil, services.SchedulingSettings{})
 
 		// Pass builder image as the pod image (simulating ensurePod behavior when images differ)
 		podImage := builderImage

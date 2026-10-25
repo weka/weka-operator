@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
@@ -24,7 +25,7 @@ func makeDriversDistFactory(spec weka.WekaContainerSpec) *PodFactory {
 		ObjectMeta: metav1.ObjectMeta{Name: "drivers-dist"},
 		Spec:       spec,
 	}
-	return NewPodFactory(container, &discovery.DiscoveryNodeInfo{}, &domain.FeatureFlags{})
+	return NewPodFactory(container, &discovery.DiscoveryNodeInfo{}, &domain.FeatureFlags{}, services.SchedulingSettings{})
 }
 
 // TestSetResources_DriversDistAdditionalMemory verifies AdditionalMemory adds on top of the
@@ -312,7 +313,7 @@ func TestSetResources_ClientMemoryLimitFollowsRequest(t *testing.T) {
 			},
 		},
 	}
-	factory := NewPodFactory(container, &discovery.DiscoveryNodeInfo{}, &domain.FeatureFlags{})
+	factory := NewPodFactory(container, &discovery.DiscoveryNodeInfo{}, &domain.FeatureFlags{}, services.SchedulingSettings{})
 	pod := makePod(weka.CpuPolicyDedicated)
 
 	if err := factory.setResources(context.Background(), pod, GetHugePagesDetails(container, factory.featureFlags)); err != nil {
@@ -346,7 +347,7 @@ func TestSetResources_HugepagesOverrideOnOneGiContainer(t *testing.T) {
 			},
 		},
 	}
-	factory := NewPodFactory(container, &discovery.DiscoveryNodeInfo{}, &domain.FeatureFlags{})
+	factory := NewPodFactory(container, &discovery.DiscoveryNodeInfo{}, &domain.FeatureFlags{}, services.SchedulingSettings{})
 	hgDetails := GetHugePagesDetails(container, factory.featureFlags)
 
 	// The 1Gi sizing must be untouched by the 2Mi override.

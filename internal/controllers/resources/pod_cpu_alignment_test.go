@@ -10,6 +10,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
@@ -48,7 +49,7 @@ func makeFactory(numCores int, cpuPolicy weka.CpuPolicy, nodeInfo *discovery.Dis
 			Hugepages:  4000,
 		},
 	}
-	return NewPodFactory(container, nodeInfo, &domain.FeatureFlags{})
+	return NewPodFactory(container, nodeInfo, &domain.FeatureFlags{}, services.SchedulingSettings{})
 }
 
 // minimalHgDetails returns a HugePagesDetails sufficient for setResources to apply

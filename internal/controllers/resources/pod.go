@@ -25,6 +25,7 @@ import (
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -73,6 +74,7 @@ type PodFactory struct {
 	container    *weka.WekaContainer
 	nodeInfo     *discovery.DiscoveryNodeInfo
 	featureFlags *domain.FeatureFlags // nil → old behavior (e.g. ad-hoc container)
+	scheduling   services.SchedulingSettings
 }
 
 type WekaDriveResponse struct {
@@ -86,11 +88,12 @@ type ShutdownInstructions struct {
 
 const globalPersistenceMountPath = "/opt/weka-global-persistence"
 
-func NewPodFactory(container *weka.WekaContainer, nodeInfo *discovery.DiscoveryNodeInfo, ff *domain.FeatureFlags) *PodFactory {
+func NewPodFactory(container *weka.WekaContainer, nodeInfo *discovery.DiscoveryNodeInfo, ff *domain.FeatureFlags, scheduling services.SchedulingSettings) *PodFactory {
 	return &PodFactory{
 		nodeInfo:     nodeInfo,
 		container:    container,
 		featureFlags: ff,
+		scheduling:   scheduling,
 	}
 }
 
@@ -166,7 +169,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		f.container.Spec.TracesConfiguration = weka.GetDefaultTracesConfiguration()
 	}
 
-	tolerations := GetWekaPodTolerations(f.container)
+	tolerations := GetWekaPodTolerations(f.container, f.scheduling)
 	debugSleep := config.Config.DebugSleep
 	if f.container.Spec.GetOverrides().DebugSleepOnTerminate > 0 {
 		debugSleep = f.container.Spec.GetOverrides().DebugSleepOnTerminate
@@ -1043,12 +1046,52 @@ func getUnhealthyTolerations() []corev1.Toleration {
 			Operator: corev1.TolerationOpExists,
 			Effect:   corev1.TaintEffectNoExecute,
 		},
-		{
-			Key:      "node.kubernetes.io/unschedulable",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoExecute,
-		},
 	}
+}
+
+// cordonTolerantModes are the modes that keep running on a cordoned node. A cordon means "no new user
+// workloads", not "no node infrastructure": a node cordoned pending validation cannot pass a storage
+// health check without its client, and the client cannot come up without its drivers and discovery.
+// Backends are deliberately absent — they keep being held off a cordoned node.
+// Opt-in through the configuration policy's scheduling.tolerateCordon; off, none of these tolerate it.
+var cordonTolerantModes = []string{
+	weka.WekaContainerModeClient,
+	weka.WekaContainerModeDriversLoader,
+	weka.WekaContainerModeDriversDist,
+	weka.WekaContainerModeDiscovery,
+	weka.WekaContainerModeAdhocOp,
+	weka.WekaContainerModeAdhocOpWC,
+}
+
+// CordonTaintKey is the taint kubernetes puts on a node when it is cordoned. The effect is always
+// NoSchedule; there is no NoExecute variant, so a NoExecute toleration for this key matches nothing.
+const CordonTaintKey = "node.kubernetes.io/unschedulable"
+
+func CordonTaint() corev1.Taint {
+	return corev1.Taint{Key: CordonTaintKey, Effect: corev1.TaintEffectNoSchedule}
+}
+
+func GetUnschedulableToleration() corev1.Toleration {
+	return corev1.Toleration{
+		Key:      CordonTaintKey,
+		Operator: corev1.TolerationOpExists,
+		Effect:   corev1.TaintEffectNoSchedule,
+	}
+}
+
+// ToleratesCordon reports whether container may be placed on a cordoned node. Every cordon decision in
+// the operator goes through this rather than reading node.Spec.Unschedulable.
+//
+// The TolerateCordon short-circuit is load-bearing, not a shortcut: the NoSchedule expansion that client
+// and aux modes get carries Operator=Exists with no key, which tolerates every NoSchedule taint, the
+// cordon among them. Deciding on the pod's tolerations alone would therefore place clients on cordoned
+// nodes whether or not the policy opted in.
+func ToleratesCordon(container *weka.WekaContainer, scheduling services.SchedulingSettings) bool {
+	if !scheduling.TolerateCordon {
+		return false
+	}
+	tolerations := GetWekaPodTolerations(container, scheduling)
+	return util.CheckTolerations([]corev1.Taint{CordonTaint()}, tolerations, nil)
 }
 
 func getPressureTolerations() []corev1.Toleration {
@@ -1105,7 +1148,7 @@ func wekaBaseTolerations() []corev1.Toleration {
 	return append(tolerations, getPressureTolerations()...)
 }
 
-func GetWekaPodTolerations(container *weka.WekaContainer) []corev1.Toleration {
+func GetWekaPodTolerations(container *weka.WekaContainer, scheduling services.SchedulingSettings) []corev1.Toleration {
 	tolerations := wekaBaseTolerations()
 
 	if !config.Config.SkipClientNoScheduleToleration && container.Spec.Mode == weka.WekaContainerModeClient {
@@ -1120,6 +1163,10 @@ func GetWekaPodTolerations(container *weka.WekaContainer) []corev1.Toleration {
 	}
 	if !config.Config.SkipAuxNoScheduleToleration && slices.Contains(auxModes, container.Spec.Mode) {
 		tolerations = ExpandNoScheduleTolerations(tolerations)
+	}
+
+	if scheduling.TolerateCordon && slices.Contains(cordonTolerantModes, container.Spec.Mode) {
+		tolerations = append(tolerations, GetUnschedulableToleration())
 	}
 
 	// expand with custom tolerations

@@ -916,10 +916,19 @@ func (c *clientReconcilerLoop) setToleratedNodes(ctx context.Context) error {
 		clientTolerations := util.ExpandTolerations([]v1.Toleration{}, c.wekaClient.Spec.Tolerations, c.wekaClient.Spec.RawTolerations)
 		// account for "expanded" NoSchedule tolerations
 		clientTolerations = resources.ConditionalExpandNoScheduleTolerations(clientTolerations, !config.Config.SkipClientNoScheduleToleration)
+		// When enabled the client pod carries this one, so a cordon alone must not rule the node out
+		// here. This set is built from scratch rather than from the pod's tolerations, so it has to be
+		// added back.
+		tolerateCordon := services.GetSettings(ctx).Scheduling.TolerateCordon
+		if tolerateCordon {
+			clientTolerations = append(clientTolerations, resources.GetUnschedulableToleration())
+		}
 
 		for i := range nodes {
 			node := &nodes[i]
-			if node.Spec.Unschedulable {
+			// Checked ahead of the taints: the client's NoSchedule expansion tolerates every
+			// NoSchedule taint, so the cordon would otherwise pass unnoticed.
+			if !tolerateCordon && node.Spec.Unschedulable {
 				continue
 			}
 			// NOTE: we do not account for ignored taints here as we don't want to create new client containers
