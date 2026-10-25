@@ -13,7 +13,6 @@ import (
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
@@ -292,7 +291,7 @@ func (p *NfsInterfaceGroupPort) OwnerContainerId() (int, error) {
 		return *p.Container, nil
 	}
 	if p.HostId != "" {
-		return resources.HostIdToContainerId(p.HostId)
+		return domain.HostIdToContainerId(p.HostId)
 	}
 	return 0, errors.Errorf("interface group port %q has neither a 'container' nor a 'host_id' field", p.Port)
 }
@@ -474,7 +473,7 @@ type Process struct {
 }
 
 func (p Process) GetProcessId() int { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
-	id, err := resources.NodeIdToProcessId(p.NodeId)
+	id, err := domain.NodeIdToProcessId(p.NodeId)
 	if err != nil {
 		return -1
 	}
@@ -1011,7 +1010,7 @@ func (c *CliWekaService) ListSmbwClusterContainers(ctx context.Context) ([]int, 
 
 	containerIds := make([]int, 0, len(clusterInfo.SambaHosts))
 	for _, hostIdStr := range clusterInfo.SambaHosts {
-		id, err := resources.HostIdToContainerId(hostIdStr)
+		id, err := domain.HostIdToContainerId(hostIdStr)
 		if err != nil {
 			return nil, err
 		}
@@ -1288,7 +1287,7 @@ func (c *CliWekaService) ListS3ClusterContainers(ctx context.Context) ([]int, er
 
 	containerIds := make([]int, 0, len(hostIdStrings))
 	for _, hostIdStr := range hostIdStrings {
-		id, err := resources.HostIdToContainerId(hostIdStr)
+		id, err := domain.HostIdToContainerId(hostIdStr)
 		if err != nil {
 			return nil, err
 		}

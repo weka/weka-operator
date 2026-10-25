@@ -279,7 +279,9 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				return r.RecordEventThrottled(v1.EventTypeWarning, "NodeUnschedulable", consts.ActionScheduleContainers, msg, time.Minute)
 			},
 			Predicates: lifecycle.Predicates{
-				func() bool { return NodeIsUnschedulable(r.node) },
+				func() bool {
+					return NodeIsUnschedulable(r.node) && !resources.ToleratesCordon(r.container, r.scheduling)
+				},
 			},
 			ContinueOnError: true,
 		},

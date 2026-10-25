@@ -25,6 +25,7 @@
 - [ObjectReference](#objectreference)
 - [CsiSpec](#csispec)
 - [DriversSpec](#driversspec)
+- [SchedulingSpec](#schedulingspec)
 - [DriveTypeOverrideRule](#drivetypeoverriderule)
 - [DriveExclusionRule](#driveexclusionrule)
 - [PodResources](#podresources)
@@ -183,6 +184,7 @@
 |------------|------|-------------|
 | csi | *CsiSpec | Csi configures the embedded CSI deployment. |
 | drivers | *DriversSpec | Drivers configures the drivers build and distribution. |
+| scheduling | *SchedulingSpec | Scheduling configures scheduling behavior of operator-managed pods. |
 
 ---
 
@@ -263,6 +265,14 @@
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | forceBuilderCli | *bool | ForceBuilderCli makes the drivers-builder init containers take the weka CLI from the builder<br>image instead of the cluster image. False by default. |
+
+---
+
+## SchedulingSpec
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| tolerateCordon | *bool | TolerateCordon makes client containers and the node-local pods they depend on (drivers-loader,<br>drivers-dist, discovery, adhoc-op) tolerate the node.kubernetes.io/unschedulable:NoSchedule<br>taint, so they keep running and keep being created on a cordoned node. Backends never tolerate<br>it. False by default. |
 
 ---
 

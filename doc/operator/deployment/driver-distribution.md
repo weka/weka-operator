@@ -189,6 +189,44 @@ spec:
 
 Both the builder (`weka driver pack`) and the loader (`weka driver download` / `weka driver install`) pass `--kernel-build-id nixos-gcc<major>` (e.g. `--kernel-build-id nixos-gcc15`), so NixOS drivers never collide with another distro's build, or another gcc major's build, at the same upstream kernel version.
 
+## Cordoned nodes
+
+A cordon taints the node `node.kubernetes.io/unschedulable:NoSchedule`. By default that holds every
+mode off the node, same as any other untolerated taint. Client-side modes — `client`, `drivers-loader`,
+`drivers-dist`, `discovery`, and the `adhoc-op` modes — can instead be made to tolerate that taint, so
+they keep running and keep being created on a cordoned node, by enabling `scheduling.tolerateCordon` in
+a configuration `WekaPolicy`:
+
+```yaml
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaPolicy
+metadata:
+  name: configuration
+  namespace: weka-operator-system
+spec:
+  payload:
+    configurationPayload:
+      scheduling:
+        tolerateCordon: true
+```
+
+Backends never tolerate the cordon, regardless of this setting.
+
+This exists because a cordon means "no new user workloads here", not "no node infrastructure". A node
+cordoned pending validation cannot pass a storage health check with no client on it, and if the client
+cannot start because the node is cordoned, nothing ever uncordons it. Without the toleration, a
+cordoned node that reboots loses its drivers-dist container and its drivers-loader pod, and every
+client on it stalls in `WaitForDrivers` until someone uncordons by hand.
+
+With `tolerateCordon` enabled, a cordon on its own does not keep a client off a node. `nodeSelector`
+and any taint the client does not tolerate still do, and `skipClientsTolerationValidation`,
+`skipClientNoScheduleToleration` and `skipAuxNoScheduleToleration` do not control this setting.
+
+One gap remains: `drivers-builder` does not tolerate the cordon even when the setting is enabled. It is
+not pinned to a node — it runs wherever its kernel/architecture `nodeSelector` matches — so it only
+matters when *every* matching node is cordoned and the drivers for that kernel have not been built yet.
+Uncordon one node to let the build through.
+
 ## See also
 
 Distribution produces and serves the driver files. For how the operator then loads those

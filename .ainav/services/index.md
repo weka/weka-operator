@@ -15,7 +15,7 @@ API clients, Kubernetes helpers, node-local services and shared domain types.
 | Node metrics | `internal/node_agent/scrapper.go` | Metrics scraping |
 | NUMA device plugin | `internal/node_agent/deviceplugin/` | Discovery, kubelet plugin server and restart-aware registration; `NODE_AGENT_DEVICE_PLUGIN_ENABLED` |
 | Weka Home reporter | `internal/reporter/` | [Snapshot collection, identity and transport](reporter.md) |
-| Domain types | `internal/pkg/domain/` | `resources.go`, `allocations.go`, `auth.go`, `wekahome.go`, `api_extension.go`, `consts.go`, `hashes.go` |
+| Domain types | `internal/pkg/domain/` | `resources.go`, `allocations.go`, `auth.go`, `wekahome.go`, `api_extension.go`, `consts.go`, `hashes.go`, `weka_ids.go` (`HostId<N>`/`NodeId<N>` → int) |
 | Utilities | `pkg/util/` | Files, hashes, collections, IPs, tolerations, HTTP helpers; `kubernetes.go` event recording |
 | Shared constants | `internal/consts/` | `consts.go`: finalizers, drive annotations, extended resource names; `event_actions.go`: per-controller event action names |
 | Optional cluster API | `internal/rest_api/` | `router.go`, `cluster.go`, `password.go`; enabled with `ENABLE_CLUSTER_API` |

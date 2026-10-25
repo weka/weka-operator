@@ -86,7 +86,7 @@ Each reconcile classifies the nodes from the client cache.
 
 | Node state | New container | Existing own container |
 |---|---|---|
-| Cordoned, `NotReady`, untolerated taint, or missing FD label (FD label mode) | none, reported in `AutoFullDrivesNodeIneligible` | kept, counted, still grows |
+| Cordoned (backends never tolerate the taint; `scheduling.tolerateCordon` affects only clients), `NotReady`, untolerated taint, or missing FD label (FD label mode) | none, reported in `AutoFullDrivesNodeIneligible` | kept, counted, still grows |
 | Drive-role node with no usable signed drives (no annotation, unparsable, or all blocked) | no drive or compute container, reported in `AutoFullDrivesUnsignedDriveNodes` | kept, counted, still grows |
 | Own container of that role is deleting | none, silently skipped | not counted |
 | Lost its selector label | none | kept and counted (Desired and totals); grows only from pins and fleet-wide compute sizing, since the node's annotation is no longer read. Removed instead when `cleanupOnNodeSelectorMismatch` is on |

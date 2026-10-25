@@ -13,6 +13,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
@@ -56,7 +57,7 @@ func createTestPodOnNode(t *testing.T, mode string, nodeInfo *discovery.Discover
 		ObjectMeta: metav1.ObjectMeta{Name: "test-container", UID: "test-uid"},
 		Spec:       spec,
 	}
-	factory := NewPodFactory(container, nodeInfo, &domain.FeatureFlags{})
+	factory := NewPodFactory(container, nodeInfo, &domain.FeatureFlags{}, services.SchedulingSettings{})
 	return factory.Create(context.Background(), nil)
 }
 

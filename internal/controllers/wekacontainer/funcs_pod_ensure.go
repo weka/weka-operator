@@ -47,12 +47,14 @@ func (r *containerReconcilerLoop) refreshPod(ctx context.Context) error {
 func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
-	if NodeIsUnschedulable(r.node) {
+	container := r.container
+
+	// Creating the pod anyway for a mode that does not tolerate the cordon would leave it Pending until
+	// deletePodIfUnschedulable reaps it, then recreate it — a churn loop, not a recovery.
+	if NodeIsUnschedulable(r.node) && !resources.ToleratesCordon(container, r.scheduling) {
 		err := errors.Errorf("node %s is unschedulable, cannot create pod", r.node.Name)
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
 	}
-
-	container := r.container
 
 	nodeInfo := &discovery.DiscoveryNodeInfo{}
 	var err error
@@ -151,7 +153,7 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 	}
 
-	desiredPod, err := resources.NewPodFactory(container, nodeInfo, ff).Create(ctx, &image)
+	desiredPod, err := resources.NewPodFactory(container, nodeInfo, ff, r.scheduling).Create(ctx, &image)
 	if err != nil {
 		return errors.Wrap(err, "Failed to create pod spec")
 	}

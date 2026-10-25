@@ -13,6 +13,7 @@ import (
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
@@ -75,7 +76,7 @@ var _ = Describe("PodFactory for drivers-builder with Instructions", func() {
 		}
 
 		nodeInfo := &discovery.DiscoveryNodeInfo{}
-		factory := resources.NewPodFactory(container, nodeInfo, nil)
+		factory := resources.NewPodFactory(container, nodeInfo, nil, services.SchedulingSettings{})
 
 		podImage := builderImage
 		pod, err := factory.Create(ctx, &podImage)
@@ -127,7 +128,7 @@ var _ = Describe("PodFactory for drivers-builder with Instructions", func() {
 		}
 
 		nodeInfo := &discovery.DiscoveryNodeInfo{}
-		factory := resources.NewPodFactory(container, nodeInfo, nil)
+		factory := resources.NewPodFactory(container, nodeInfo, nil, services.SchedulingSettings{})
 
 		podImage := clusterImage
 		pod, err := factory.Create(ctx, &podImage)

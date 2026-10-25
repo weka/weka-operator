@@ -81,7 +81,7 @@ func (r *containerReconcilerLoop) isTolerated() bool {
 
 	ignoredTaints := config.Config.TolerationsMismatchSettings.GetIgnoredTaints()
 
-	tolerations := resources.GetWekaPodTolerations(r.container)
+	tolerations := resources.GetWekaPodTolerations(r.container, r.scheduling)
 	// account for "expanded" NoSchedule tolerations for client containers
 	if r.container.IsClientContainer() {
 		tolerations = resources.ConditionalExpandNoScheduleTolerations(tolerations, !config.Config.SkipClientNoScheduleToleration)

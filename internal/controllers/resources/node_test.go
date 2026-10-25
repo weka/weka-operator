@@ -59,6 +59,12 @@ func TestNodeIneligibleReason(t *testing.T) {
 	gpuTaint := corev1.Taint{Key: "dedicated", Value: "gpu", Effect: corev1.TaintEffectNoSchedule}
 	gpuToleration := corev1.Toleration{Key: "dedicated", Operator: corev1.TolerationOpEqual, Value: "gpu", Effect: corev1.TaintEffectNoSchedule}
 
+	// A cordon sets Spec.Unschedulable and the matching taint; either one alone counts as cordoned.
+	cordon := func(n *corev1.Node) {
+		n.Spec.Unschedulable = true
+		n.Spec.Taints = []corev1.Taint{CordonTaint()}
+	}
+
 	tests := []struct {
 		name        string
 		mutate      func(n *corev1.Node)
@@ -67,9 +73,37 @@ func TestNodeIneligibleReason(t *testing.T) {
 	}{
 		{name: "all eligible: ready, no taints, not cordoned", mutate: func(n *corev1.Node) {}, want: ""},
 		{
-			name:   "cordoned: flagged regardless of readiness or taints",
+			name:   "cordoned: ineligible for a toleration set that does not cover the cordon taint",
+			mutate: cordon,
+			want:   "cordoned",
+		},
+		{
+			name: "cordoned plus an untolerated taint: the other taint is named, not the cordon",
+			mutate: func(n *corev1.Node) {
+				cordon(n)
+				n.Spec.Taints = append(n.Spec.Taints, gpuTaint)
+			},
+			tolerations: []corev1.Toleration{GetUnschedulableToleration()},
+			want:        "untolerated taint",
+		},
+		{
+			name:        "cordoned: eligible for a toleration set that covers the cordon taint",
+			mutate:      cordon,
+			tolerations: []corev1.Toleration{GetUnschedulableToleration()},
+			want:        "",
+		},
+		{
+			// Unschedulable without the taint: reading taints alone would call this node a valid
+			// placement target, which is how a cordon stops holding backends off.
+			name:   "cordoned by the flag alone: ineligible, same as a cordon carrying its taint",
 			mutate: func(n *corev1.Node) { n.Spec.Unschedulable = true },
 			want:   "cordoned",
+		},
+		{
+			name:        "cordoned by the flag alone: eligible for a caller that tolerates the cordon",
+			mutate:      func(n *corev1.Node) { n.Spec.Unschedulable = true },
+			tolerations: []corev1.Toleration{GetUnschedulableToleration()},
+			want:        "",
 		},
 		{
 			name: "not ready: NodeReady=False",

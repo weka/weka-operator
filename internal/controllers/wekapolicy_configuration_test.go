@@ -151,6 +151,35 @@ func TestReconcileConfigurationRefreshesSettings(t *testing.T) {
 	}
 }
 
+func TestReconcileConfigurationResolvesTolerateCordon(t *testing.T) {
+	previous := config.Config.OperatorPodNamespace
+	config.Config.OperatorPodNamespace = "weka-operator-system"
+	t.Cleanup(func() { config.Config.OperatorPodNamespace = previous })
+
+	policy := newConfigurationPolicy()
+	ctx := context.Background()
+
+	r := configurationReconciler(t, policy)
+	if _, err := r.reconcileConfiguration(ctx, policy); err != nil {
+		t.Fatalf("reconcileConfiguration: %v", err)
+	}
+	if services.GetSettings(ctx).Scheduling.TolerateCordon {
+		t.Error("a policy without a scheduling section resolved TolerateCordon to true")
+	}
+
+	tolerate := true
+	policy.Spec.Payload.Configuration.Scheduling = &weka.SchedulingSpec{TolerateCordon: &tolerate}
+	if err := r.Update(ctx, policy); err != nil {
+		t.Fatalf("update policy: %v", err)
+	}
+	if _, err := r.reconcileConfiguration(ctx, policy); err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+	if !services.GetSettings(ctx).Scheduling.TolerateCordon {
+		t.Error("tolerateCordon: true was not readable through GetSettings")
+	}
+}
+
 func TestReconcileReportsTypeResolutionFailure(t *testing.T) {
 	// configuration alongside a runnable payload: GetType refuses to pick between them
 	policy := newConfigurationPolicy()

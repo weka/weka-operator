@@ -124,7 +124,10 @@ capacity), `TLC(free/phys)`, `QLC(free/phys)`, `CPU(free/alloc)`, `HP2Mi(free/al
 
 `INELIGIBLE` is why the node cannot receive a **new** container — `cordoned`, `not ready`,
 `untolerated taint`, or `-` when it can. Nodes are listed either way: hiding one would defeat the point
-of asking why it is not being used. Two things it does not mean:
+of asking why it is not being used. A cordoned node reads `cordoned`: the planner models drive and
+compute containers only, and backends never tolerate a cordon. It reports nothing about clients or the
+node-local pods they depend on, so `scheduling.tolerateCordon` does not change this column. Two things
+it does not mean:
 
 - **It never bars an existing container.** A container already on the node keeps running, keeps its
   drives and resources charged, and can still grow in place.

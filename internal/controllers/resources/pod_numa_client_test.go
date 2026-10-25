@@ -8,6 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
@@ -30,7 +31,7 @@ func TestSetResources_NumaClientModeRegionZero(t *testing.T) {
 			},
 		},
 	}
-	factory := NewPodFactory(container, &discovery.DiscoveryNodeInfo{}, &domain.FeatureFlags{})
+	factory := NewPodFactory(container, &discovery.DiscoveryNodeInfo{}, &domain.FeatureFlags{}, services.SchedulingSettings{})
 	pod := makePod(weka.CpuPolicyDedicatedHT)
 
 	if err := factory.setResources(context.Background(), pod, minimalHgDetails()); err != nil {

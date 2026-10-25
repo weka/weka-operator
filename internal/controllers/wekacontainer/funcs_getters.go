@@ -235,6 +235,8 @@ func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
 func (r *containerReconcilerLoop) GetNode(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
+	r.scheduling = services.GetSettings(ctx).Scheduling
+
 	nodeName := r.container.GetNodeAffinity()
 	if nodeName == "" {
 		return nil
