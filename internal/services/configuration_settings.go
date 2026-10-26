@@ -8,7 +8,11 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/pkg/util"
@@ -64,6 +68,21 @@ type SchedulingSettings struct {
 	TolerateCordon bool
 }
 
+// NodeAgentSettings holds the operator-wide settings of the node-agent DaemonSet.
+type NodeAgentSettings struct {
+	UpdateStrategy appsv1.DaemonSetUpdateStrategy
+	Resources      corev1.ResourceRequirements
+	Tolerations    []corev1.Toleration
+	NodeSelector   map[string]string
+	Affinity       corev1.Affinity
+	// PersistencePath is the host directory behind the agent's persistent state; the agent mounts its
+	// shared subdirectory.
+	PersistencePath string
+	// KubeletPath locates the kubelet device-plugins directory, mounted only when the device plugin is enabled.
+	KubeletPath         string
+	DevicePluginEnabled bool
+}
+
 // ConfigurationSettings is the effective operator-wide configuration: built-in defaults with any
 // configuration WekaPolicy applied over them. Every field is a resolved value, never a pointer, so
 // callers never repeat the nil-means-default decision.
@@ -72,6 +91,8 @@ type ConfigurationSettings struct {
 	Csi         CsiSettings
 	Scheduling  SchedulingSettings
 	PodRotation PodRotationSettings
+	// NodeAgent is the node-agent DaemonSet configuration.
+	NodeAgent NodeAgentSettings
 }
 
 // DefaultConfigurationSettings returns the built-in defaults, which apply when no configuration
@@ -92,6 +113,48 @@ func DefaultConfigurationSettings() ConfigurationSettings {
 		PodRotation: PodRotationSettings{
 			Enabled: false,
 		},
+		NodeAgent: defaultNodeAgentSettings(),
+	}
+}
+
+func defaultNodeAgentSettings() NodeAgentSettings {
+	maxSurge := intstr.FromInt32(0)
+	maxUnavailable := intstr.FromString("100%")
+	return NodeAgentSettings{
+		UpdateStrategy: appsv1.DaemonSetUpdateStrategy{
+			Type: appsv1.RollingUpdateDaemonSetStrategyType,
+			RollingUpdate: &appsv1.RollingUpdateDaemonSet{
+				MaxSurge:       &maxSurge,
+				MaxUnavailable: &maxUnavailable,
+			},
+		},
+		Resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:              resource.MustParse("1000m"),
+				corev1.ResourceMemory:           resource.MustParse("1024Mi"),
+				corev1.ResourceEphemeralStorage: resource.MustParse("400Mi"),
+			},
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:              resource.MustParse("50m"),
+				corev1.ResourceMemory:           resource.MustParse("64Mi"),
+				corev1.ResourceEphemeralStorage: resource.MustParse("100Mi"),
+			},
+		},
+		Tolerations: []corev1.Toleration{{Operator: corev1.TolerationOpExists}},
+		Affinity: corev1.Affinity{
+			NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+						MatchExpressions: []corev1.NodeSelectorRequirement{
+							{Key: "kubernetes.io/arch", Operator: corev1.NodeSelectorOpIn, Values: []string{"amd64", "arm64"}},
+							{Key: "kubernetes.io/os", Operator: corev1.NodeSelectorOpIn, Values: []string{"linux"}},
+						},
+					}},
+				},
+			},
+		},
+		PersistencePath: "/opt/k8s-weka",
+		KubeletPath:     "/var/lib/kubelet",
 	}
 }
 
@@ -128,7 +191,38 @@ func SettingsFromPayload(payload *weka.ConfigurationPayload) ConfigurationSettin
 		resolved.PodRotation.Enabled = *payload.PodRotation.Enabled
 	}
 
+	if payload.NodeAgent != nil {
+		applyNodeAgent(&resolved.NodeAgent, payload.NodeAgent)
+	}
+
 	return resolved
+}
+
+func applyNodeAgent(resolved *NodeAgentSettings, spec *weka.NodeAgentSpec) {
+	if spec.UpdateStrategy != nil {
+		resolved.UpdateStrategy = *spec.UpdateStrategy
+	}
+	if spec.Resources != nil {
+		resolved.Resources = *spec.Resources
+	}
+	if spec.Tolerations != nil {
+		resolved.Tolerations = spec.Tolerations
+	}
+	if spec.NodeSelector != nil {
+		resolved.NodeSelector = spec.NodeSelector
+	}
+	if spec.Affinity != nil {
+		resolved.Affinity = *spec.Affinity
+	}
+	if spec.PersistencePath != nil {
+		resolved.PersistencePath = *spec.PersistencePath
+	}
+	if spec.KubeletPath != nil {
+		resolved.KubeletPath = *spec.KubeletPath
+	}
+	if spec.DevicePlugin != nil && spec.DevicePlugin.Enabled != nil {
+		resolved.DevicePluginEnabled = *spec.DevicePlugin.Enabled
+	}
 }
 
 // GetSettings returns the effective operator-wide configuration.
@@ -262,7 +356,7 @@ func (s *settingsService) refresh(ctx context.Context, c client.Reader) error {
 	if err != nil {
 		s.markUnresolved(err)
 	} else {
-		s.store(resolved)
+		s.store(&resolved)
 	}
 
 	s.lock.Lock()
@@ -276,11 +370,11 @@ func (s *settingsService) refresh(ctx context.Context, c client.Reader) error {
 	return err
 }
 
-func (s *settingsService) store(resolved ConfigurationSettings) {
+func (s *settingsService) store(resolved *ConfigurationSettings) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	s.resolved = resolved
+	s.resolved = *resolved
 	s.lastErr = nil
 	select {
 	case <-s.ready:

@@ -424,6 +424,16 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		services.RunSettings(ctx, mgr.GetClient())
 	}()
 
+	// Polled rather than watched: policy changes reach the DaemonSet within 30s.
+	// It runs on the leader only when leader election is enabled.
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		node_agent.RunNodeAgentDaemonSetLoop(ctx, mgr.GetClient())
+		return nil
+	})); err != nil {
+		logger.Error(err, "unable to add node-agent daemonset loop")
+		os.Exit(1)
+	}
+
 	logger.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
 		logger.Error(err, "problem running manager")

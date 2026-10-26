@@ -602,6 +602,16 @@
           "description": "PodRotation sets the operator-wide default for replacing pods whose pod-affecting spec changed.",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "NodeAgent",
+          "jsonName": "nodeAgent",
+          "type": {
+            "$ref": "#/definitions/NodeAgentSpec"
+          },
+          "description": "NodeAgent configures the node-agent DaemonSet the operator deploys on every node.",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -2081,6 +2091,103 @@
       ],
       "usedBy": [
         "WekaCluster"
+      ]
+    },
+    "NodeAgentDevicePluginSpec": {
+      "kind": "struct",
+      "description": "NodeAgentDevicePluginSpec groups settings of the NUMA region device plugin",
+      "fields": [
+        {
+          "name": "Enabled",
+          "jsonName": "enabled",
+          "type": "bool",
+          "description": "Enabled advertises each node's NUMA regions as weka.io/numa-region-\u003cN\u003e extended resources through a\nkubelet device plugin. Disabled by default.",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
+      ]
+    },
+    "NodeAgentSpec": {
+      "kind": "struct",
+      "description": "NodeAgentSpec groups settings of the node-agent DaemonSet",
+      "fields": [
+        {
+          "name": "UpdateStrategy",
+          "jsonName": "updateStrategy",
+          "type": "k8s:appsv1.DaemonSetUpdateStrategy",
+          "description": "UpdateStrategy of the DaemonSet. Default is RollingUpdate with maxUnavailable 100% and maxSurge 0,\nwhich restarts all node-agent pods at once.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Resources",
+          "jsonName": "resources",
+          "type": "k8s:corev1.ResourceRequirements",
+          "description": "Resources of the node-agent container. Replaces the defaults as a whole.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "Tolerations",
+          "jsonName": "tolerations",
+          "type": {
+            "type": "array",
+            "items": "k8s:corev1.Toleration"
+          },
+          "description": "Tolerations of the node-agent pods. Default tolerates every taint.",
+          "optional": true
+        },
+        {
+          "name": "NodeSelector",
+          "jsonName": "nodeSelector",
+          "type": {
+            "type": "map",
+            "key": "string",
+            "value": "string"
+          },
+          "description": "NodeSelector of the node-agent pods.",
+          "optional": true
+        },
+        {
+          "name": "Affinity",
+          "jsonName": "affinity",
+          "type": "k8s:corev1.Affinity",
+          "description": "Affinity of the node-agent pods. Default requires a linux node with amd64 or arm64 architecture.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "PersistencePath",
+          "jsonName": "persistencePath",
+          "type": "string",
+          "description": "PersistencePath is the host path used for node-agent persistence. Default is /opt/k8s-weka; use\n/root/k8s-weka on OpenShift and /mnt/stateful_partition/k8s-weka on Google Container-Optimized OS.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "KubeletPath",
+          "jsonName": "kubeletPath",
+          "type": "string",
+          "description": "KubeletPath is the kubelet directory of the nodes, used to locate the kubelet device-plugins\ndirectory. Default is /var/lib/kubelet.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "DevicePlugin",
+          "jsonName": "devicePlugin",
+          "type": {
+            "$ref": "#/definitions/NodeAgentDevicePluginSpec"
+          },
+          "description": "DevicePlugin configures the NUMA region device plugin.",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
       ]
     },
     "NodeName": {

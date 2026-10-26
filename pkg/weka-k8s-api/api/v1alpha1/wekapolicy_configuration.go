@@ -1,5 +1,10 @@
 package v1alpha1
 
+import (
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+)
+
 // ConfigurationPayload defines the parameters for the configuration policy: operator-wide settings
 type ConfigurationPayload struct {
 	// Csi configures the embedded CSI deployment.
@@ -10,6 +15,8 @@ type ConfigurationPayload struct {
 	Scheduling *SchedulingSpec `json:"scheduling,omitempty"`
 	// PodRotation sets the operator-wide default for replacing pods whose pod-affecting spec changed.
 	PodRotation *PodRotationSpec `json:"podRotation,omitempty"`
+	// NodeAgent configures the node-agent DaemonSet the operator deploys on every node.
+	NodeAgent *NodeAgentSpec `json:"nodeAgent,omitempty"`
 }
 
 // PodRotationSpec groups settings of config-change pod rotation
@@ -47,4 +54,35 @@ type SchedulingSpec struct {
 	// taint, so they keep running and keep being created on a cordoned node. Backends never tolerate
 	// it. False by default.
 	TolerateCordon *bool `json:"tolerateCordon,omitempty"`
+}
+
+// NodeAgentSpec groups settings of the node-agent DaemonSet
+// +kubebuilder:validation:XValidation:rule="!has(self.devicePlugin) || !has(self.devicePlugin.enabled) || !self.devicePlugin.enabled || !has(self.updateStrategy) || !has(self.updateStrategy.rollingUpdate) || !has(self.updateStrategy.rollingUpdate.maxSurge) || string(self.updateStrategy.rollingUpdate.maxSurge) in ['0', '0%']",message="updateStrategy.rollingUpdate.maxSurge must be 0 when devicePlugin.enabled is true: two node-agents on one node would fight over the device plugin sockets"
+type NodeAgentSpec struct {
+	// UpdateStrategy of the DaemonSet. Default is RollingUpdate with maxUnavailable 100% and maxSurge 0,
+	// which restarts all node-agent pods at once.
+	UpdateStrategy *appsv1.DaemonSetUpdateStrategy `json:"updateStrategy,omitempty"`
+	// Resources of the node-agent container. Replaces the defaults as a whole.
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+	// Tolerations of the node-agent pods. Default tolerates every taint.
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// NodeSelector of the node-agent pods.
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// Affinity of the node-agent pods. Default requires a linux node with amd64 or arm64 architecture.
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+	// PersistencePath is the host path used for node-agent persistence. Default is /opt/k8s-weka; use
+	// /root/k8s-weka on OpenShift and /mnt/stateful_partition/k8s-weka on Google Container-Optimized OS.
+	PersistencePath *string `json:"persistencePath,omitempty"`
+	// KubeletPath is the kubelet directory of the nodes, used to locate the kubelet device-plugins
+	// directory. Default is /var/lib/kubelet.
+	KubeletPath *string `json:"kubeletPath,omitempty"`
+	// DevicePlugin configures the NUMA region device plugin.
+	DevicePlugin *NodeAgentDevicePluginSpec `json:"devicePlugin,omitempty"`
+}
+
+// NodeAgentDevicePluginSpec groups settings of the NUMA region device plugin
+type NodeAgentDevicePluginSpec struct {
+	// Enabled advertises each node's NUMA regions as weka.io/numa-region-<N> extended resources through a
+	// kubelet device plugin. Disabled by default.
+	Enabled *bool `json:"enabled,omitempty"`
 }

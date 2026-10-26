@@ -27,9 +27,11 @@
 - [DriversSpec](#driversspec)
 - [SchedulingSpec](#schedulingspec)
 - [PodRotationSpec](#podrotationspec)
+- [NodeAgentSpec](#nodeagentspec)
 - [DriveTypeOverrideRule](#drivetypeoverriderule)
 - [DriveExclusionRule](#driveexclusionrule)
 - [PodResources](#podresources)
+- [NodeAgentDevicePluginSpec](#nodeagentdevicepluginspec)
 
 ---
 
@@ -187,6 +189,7 @@
 | drivers | *DriversSpec | Drivers configures the drivers build and distribution. |
 | scheduling | *SchedulingSpec | Scheduling configures scheduling behavior of operator-managed pods. |
 | podRotation | *PodRotationSpec | PodRotation sets the operator-wide default for replacing pods whose pod-affecting spec changed. |
+| nodeAgent | *NodeAgentSpec | NodeAgent configures the node-agent DaemonSet the operator deploys on every node. |
 
 ---
 
@@ -286,6 +289,21 @@
 
 ---
 
+## NodeAgentSpec
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| updateStrategy | *appsv1.DaemonSetUpdateStrategy | UpdateStrategy of the DaemonSet. Default is RollingUpdate with maxUnavailable 100% and maxSurge 0,<br>which restarts all node-agent pods at once. |
+| resources | *corev1.ResourceRequirements | Resources of the node-agent container. Replaces the defaults as a whole. |
+| tolerations | []corev1.Toleration | Tolerations of the node-agent pods. Default tolerates every taint. |
+| nodeSelector | map[string]string | NodeSelector of the node-agent pods. |
+| affinity | *corev1.Affinity | Affinity of the node-agent pods. Default requires a linux node with amd64 or arm64 architecture. |
+| persistencePath | *string | PersistencePath is the host path used for node-agent persistence. Default is /opt/k8s-weka; use<br>/root/k8s-weka on OpenShift and /mnt/stateful_partition/k8s-weka on Google Container-Optimized OS. |
+| kubeletPath | *string | KubeletPath is the kubelet directory of the nodes, used to locate the kubelet device-plugins<br>directory. Default is /var/lib/kubelet. |
+| devicePlugin | *NodeAgentDevicePluginSpec | DevicePlugin configures the NUMA region device plugin. |
+
+---
+
 ## DriveTypeOverrideRule
 
 | JSON Field | Type | Description |
@@ -313,6 +331,14 @@
 | cpu | resource.Quantity |  |
 | memory | resource.Quantity |  |
 | hugepages-2Mi | resource.Quantity | Hugepages2Mi is requested verbatim as the pod's hugepages-2Mi resource. 1Gi pages are<br>not settable through this field. |
+
+---
+
+## NodeAgentDevicePluginSpec
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| enabled | *bool | Enabled advertises each node's NUMA regions as weka.io/numa-region-<N> extended resources through a<br>kubelet device plugin. Disabled by default. |
 
 ---
 
