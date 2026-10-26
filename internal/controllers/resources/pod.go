@@ -1093,19 +1093,31 @@ func GetUnschedulableToleration() corev1.Toleration {
 	}
 }
 
+// tolerationsCoverCordon reports whether tolerations grant placement on a cordoned node. Only a
+// toleration naming CordonTaintKey counts: a keyless Operator=Exists — the NoSchedule expansion client
+// and aux modes carry, or a catch-all a user put in rawTolerations for some unrelated taint — tolerates
+// every NoSchedule taint, the cordon among them. Matching the cordon generically would therefore hand
+// cordon tolerance to callers that never opted in, backends included.
+func tolerationsCoverCordon(tolerations []corev1.Toleration) bool {
+	var keyed []corev1.Toleration
+	for _, t := range tolerations {
+		if t.Key == CordonTaintKey {
+			keyed = append(keyed, t)
+		}
+	}
+	return util.CheckTolerations([]corev1.Taint{CordonTaint()}, keyed, nil)
+}
+
 // ToleratesCordon reports whether container may be placed on a cordoned node. Every cordon decision in
 // the operator goes through this rather than reading node.Spec.Unschedulable.
 //
-// The TolerateCordon short-circuit is load-bearing, not a shortcut: the NoSchedule expansion that client
-// and aux modes get carries Operator=Exists with no key, which tolerates every NoSchedule taint, the
-// cordon among them. Deciding on the pod's tolerations alone would therefore place clients on cordoned
-// nodes whether or not the policy opted in.
+// It answers from the policy and the mode rather than from the pod's tolerations, mirroring the condition
+// under which GetWekaPodTolerations adds the cordon toleration in the first place. Reading the pod's
+// tolerations back would let two things that are not an opt-in decide: the keyless NoSchedule expansion
+// client and aux modes carry, and the user's own tolerations copied onto the container — the latter
+// placing backends on cordoned nodes, which cordonTolerantModes exists to prevent.
 func ToleratesCordon(container *weka.WekaContainer, scheduling services.SchedulingSettings) bool {
-	if !scheduling.TolerateCordon {
-		return false
-	}
-	tolerations := GetWekaPodTolerations(container, scheduling)
-	return util.CheckTolerations([]corev1.Taint{CordonTaint()}, tolerations, nil)
+	return scheduling.TolerateCordon && slices.Contains(cordonTolerantModes, container.Spec.Mode)
 }
 
 func getPressureTolerations() []corev1.Toleration {

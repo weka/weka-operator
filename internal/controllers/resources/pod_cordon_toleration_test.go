@@ -2,9 +2,11 @@ package resources
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services"
@@ -53,8 +55,48 @@ func TestCordonToleration(t *testing.T) {
 					if got := ToleratesCordon(container, scheduling); got != want {
 						t.Errorf("ToleratesCordon(%s, %v) = %v, want %v", tc.mode, tolerateCordon, got, want)
 					}
+
+					// ToleratesCordon answers from the policy and the mode; GetWekaPodTolerations
+					// decides separately whether to put the toleration on the pod. Nothing but this
+					// assertion keeps the two conditions in step, and a drift between them creates a
+					// pod the operator believes may run on a cordoned node but the scheduler rejects.
+					hasToleration := slices.Contains(GetWekaPodTolerations(container, scheduling), GetUnschedulableToleration())
+					if hasToleration != want {
+						t.Errorf("GetWekaPodTolerations(%s, %v) carries cordon toleration = %v, want %v (must agree with ToleratesCordon)",
+							tc.mode, tolerateCordon, hasToleration, want)
+					}
 				})
 			}
+		}
+	}
+}
+
+// TestCordonTolerationIgnoresContainerTolerations pins that the opt-in cannot be granted sideways. A
+// cluster-wide catch-all lands on every container's spec, and a keyless Operator=Exists tolerates the
+// cordon taint like any other NoSchedule taint — so answering from the pod's own tolerations would put
+// backends on cordoned nodes, which cordonTolerantModes exists to prevent. An explicitly keyed cordon
+// toleration is covered too: on a backend the mode decides, not the toleration.
+func TestCordonTolerationIgnoresContainerTolerations(t *testing.T) {
+	tolerations := []struct {
+		name string
+		tol  corev1.Toleration
+	}{
+		{name: "keyless-exists", tol: corev1.Toleration{Operator: corev1.TolerationOpExists}},
+		{name: "keyless-exists-noschedule", tol: corev1.Toleration{Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}},
+		{name: "explicit-cordon-toleration", tol: GetUnschedulableToleration()},
+	}
+
+	for _, mode := range []string{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute} {
+		for _, tt := range tolerations {
+			t.Run(fmt.Sprintf("%s/%s", mode, tt.name), func(t *testing.T) {
+				container := &weka.WekaContainer{Spec: weka.WekaContainerSpec{
+					Mode:        mode,
+					Tolerations: []corev1.Toleration{tt.tol},
+				}}
+				if ToleratesCordon(container, services.SchedulingSettings{TolerateCordon: true}) {
+					t.Errorf("backend mode %s must not tolerate the cordon through its own tolerations", mode)
+				}
+			})
 		}
 	}
 }

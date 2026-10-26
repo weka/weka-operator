@@ -106,6 +106,28 @@ func TestNodeIneligibleReason(t *testing.T) {
 			want:        "",
 		},
 		{
+			// A catch-all a user wrote in rawTolerations for some unrelated taint reaches the backend
+			// toleration set through GetWekaPodTolerationsForCluster. It tolerates the cordon taint like
+			// any other NoSchedule taint, so matching generically would quietly report cordoned nodes as
+			// placement targets to the capacity and daemonset planners.
+			name:        "cordoned: a keyless Exists toleration does not clear the cordon",
+			mutate:      cordon,
+			tolerations: []corev1.Toleration{{Operator: corev1.TolerationOpExists}},
+			want:        "cordoned",
+		},
+		{
+			name:        "cordoned: the keyless NoSchedule expansion does not clear the cordon",
+			mutate:      cordon,
+			tolerations: []corev1.Toleration{{Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}},
+			want:        "cordoned",
+		},
+		{
+			name:        "cordoned by the flag alone: a keyless Exists toleration does not clear it either",
+			mutate:      func(n *corev1.Node) { n.Spec.Unschedulable = true },
+			tolerations: []corev1.Toleration{{Operator: corev1.TolerationOpExists}},
+			want:        "cordoned",
+		},
+		{
 			name: "not ready: NodeReady=False",
 			mutate: func(n *corev1.Node) {
 				n.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionFalse}}
