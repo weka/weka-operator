@@ -356,8 +356,8 @@ deployocp: generate install ## Deploy controller to the K8s cluster specified in
 		--set gkeCompatibility.disableDriverSigning=true \
 		--set deploymentIdentifier="dev-${USER}" \
 		--set gkeCompatibility.gkeServiceAccountSecret=weka-builder \
-		--set nodeAgent.persistencePaths='/root/k8s-weka'
 		--set csi.installationEnabled=true
+	kubectl apply --namespace $(NAMESPACE) -f doc/examples/node-agent/ocp-configuration-policy.yaml
 
 
 .PHONY: undeploy

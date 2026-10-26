@@ -349,48 +349,6 @@ signDrivesImage: quay.io/weka.io/weka-sign-tool:cfbc60804cb627bcd3b7fde8e9c5e82f
 taskmon:
   defaultImage: quay.io/weka.io/taskmon:92b35aa657e9aba4782b4530b81107fff4c19847_x86_64
 
-nodeAgent:
-  # -- Node-agent DaemonSet container resources.
-  # On VM nodes using the native containerd snapshotter (e.g. KubeVirt guests without
-  # overlayfs support), the entire container image is copied into the writable snapshot
-  # and counted as ephemeral storage. On such nodes rootfs usage equals the image size
-  # (~300Mi for weka-operator), regardless of any actual writes by the process.
-  # Increase `ephemeral-storage` if node-agent pods are evicted on such nodes.
-  # @section -- Node agent
-  resources:
-    limits:
-      cpu: 1000m
-      memory: 1024Mi
-      ephemeral-storage: 400Mi
-    requests:
-      cpu: 50m
-      memory: 64Mi
-      ephemeral-storage: 100Mi
-  # -- Tolerations of the node-agent DaemonSet.
-  # @section -- Node agent
-  tolerations:
-    - operator: Exists
-  # -- nodeSelector of the node-agent DaemonSet.
-  # @section -- Node agent
-  nodeSelector: {}
-  # -- Affinity of the node-agent DaemonSet.
-  # @section -- Node agent
-  affinity: {}
-  # -- Host path used for node-agent persistence. The default suits generic OSes; override with
-  # /root/k8s-weka for OpenShift, or /mnt/stateful_partition/k8s-weka for Google Container-Optimized OS.
-  # @section -- Node agent
-  persistencePaths: /opt/k8s-weka
-  # -- Kubelet path, for clusters where Kubernetes is not installed in the default folder. Used to locate the
-  # host's kubelet device-plugins directory for the NUMA region device plugin.
-  # @section -- Node agent
-  kubeletPath: /var/lib/kubelet
-  # -- NUMA region device plugin. When `enabled`, each node's NUMA regions are advertised as
-  # weka.io/numa-region-<N> extended resources via a kubelet device plugin. Requires access to the
-  # host's kubelet device-plugins directory. Off by default.
-  # @section -- Node agent
-  devicePlugin:
-    enabled: false
-
 metrics:
   # -- Cluster-level metrics service. `enabled` toggles it, `pollingRate` is the polling interval and `image` is
   # the image of the metrics service pods. Optionally set `nodeSelector` (commented out by default, for example

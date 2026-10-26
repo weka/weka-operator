@@ -3,13 +3,17 @@ package services
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -132,7 +136,7 @@ func TestResolveConfigurationSettings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("no configuration policy must resolve to defaults, got error: %v", err)
 		}
-		if got != DefaultConfigurationSettings() {
+		if !reflect.DeepEqual(got, DefaultConfigurationSettings()) {
 			t.Errorf("got %+v, want the built-in defaults", got)
 		}
 	})
@@ -354,4 +358,47 @@ func TestSettingsFromPayloadScheduling(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSettingsFromPayloadNodeAgent(t *testing.T) {
+	defaults := DefaultConfigurationSettings().NodeAgent
+
+	t.Run("no section keeps the defaults", func(t *testing.T) {
+		if got := SettingsFromPayload(&weka.ConfigurationPayload{}).NodeAgent; !reflect.DeepEqual(got, defaults) {
+			t.Errorf("NodeAgent = %+v, want defaults %+v", got, defaults)
+		}
+	})
+
+	t.Run("defaults match the previous chart values", func(t *testing.T) {
+		if defaults.PersistencePath != "/opt/k8s-weka" || defaults.KubeletPath != "/var/lib/kubelet" || defaults.DevicePluginEnabled {
+			t.Errorf("unexpected path/device plugin defaults: %+v", defaults)
+		}
+		if got := defaults.UpdateStrategy.RollingUpdate.MaxUnavailable.String(); got != "100%" {
+			t.Errorf("maxUnavailable = %s, want 100%%", got)
+		}
+		if !reflect.DeepEqual(defaults.Tolerations, []corev1.Toleration{{Operator: corev1.TolerationOpExists}}) {
+			t.Errorf("tolerations = %+v", defaults.Tolerations)
+		}
+	})
+
+	t.Run("fields override independently", func(t *testing.T) {
+		maxUnavailable := intstr.FromInt32(1)
+		path := "/root/k8s-weka"
+		got := SettingsFromPayload(&weka.ConfigurationPayload{NodeAgent: &weka.NodeAgentSpec{
+			UpdateStrategy:  &appsv1.DaemonSetUpdateStrategy{Type: appsv1.RollingUpdateDaemonSetStrategyType, RollingUpdate: &appsv1.RollingUpdateDaemonSet{MaxUnavailable: &maxUnavailable}},
+			PersistencePath: &path,
+			NodeSelector:    map[string]string{"role": "backend"},
+			DevicePlugin:    &weka.NodeAgentDevicePluginSpec{Enabled: boolPtr(true)},
+		}}).NodeAgent
+
+		if got.UpdateStrategy.RollingUpdate.MaxUnavailable.IntValue() != 1 {
+			t.Errorf("updateStrategy not applied: %+v", got.UpdateStrategy)
+		}
+		if got.PersistencePath != path || !got.DevicePluginEnabled || got.NodeSelector["role"] != "backend" {
+			t.Errorf("overrides not applied: %+v", got)
+		}
+		if got.KubeletPath != defaults.KubeletPath || !reflect.DeepEqual(got.Resources, defaults.Resources) || !reflect.DeepEqual(got.Affinity, defaults.Affinity) {
+			t.Errorf("untouched fields drifted from the defaults: %+v", got)
+		}
+	})
 }

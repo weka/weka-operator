@@ -308,6 +308,7 @@ var Config struct {
 	OperatorPodNamespace           string
 	RbacNamespaces                 []string
 	OperatorDeploymentName         string
+	NodeAgentDaemonSetName         string
 	OperatorImage                  string
 	BindAddress                    BindAddress
 	EnableLeaderElection           bool
@@ -585,6 +586,7 @@ func ConfigureEnv(ctx context.Context) {
 		Config.BindAddress.Metrics = getEnvOrFail("OPERATOR_METRICS_BIND_ADDRESS")
 		Config.BindAddress.HealthProbe = getEnvOrFail("HEALTH_PROBE_BIND_ADDRESS")
 		Config.MaintenanceSaName = getEnvOrFail("WEKA_OPERATOR_MAINTENANCE_SA_NAME")
+		Config.NodeAgentDaemonSetName = getEnvOrFail("NODE_AGENT_DAEMONSET_NAME")
 		Config.OperatorServiceAccountName = getEnvOrFail("WEKA_OPERATOR_SERVICE_ACCOUNT_NAME")
 		Config.OcpCompatibility.DriverToolkitSecretName = getEnvOrFail("WEKA_OCP_PULL_SECRET")
 	}

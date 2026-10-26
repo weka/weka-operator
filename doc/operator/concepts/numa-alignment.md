@@ -70,13 +70,16 @@ the pod's other aligned resources (exclusive CPUs from the static CPU manager) t
 A confined pod requests one unit of `weka.io/numa-region-<region>`. On allocation the device plugin
 sets `WEKA_NUMA_REGION=<N>` in the container environment.
 
-Enable it in the operator Helm values:
+Enable it in the configuration WekaPolicy (see [node-agent](../deployment/node-agent.md)):
 
 ```yaml
-nodeAgent:
-  devicePlugin:
-    enabled: true
-  kubeletPath: /var/lib/kubelet   # change if kubelet is installed elsewhere
+spec:
+  payload:
+    configurationPayload:
+      nodeAgent:
+        devicePlugin:
+          enabled: true
+        kubeletPath: /var/lib/kubelet   # change if kubelet is installed elsewhere
 ```
 
 The device plugin is off by default. With it off, no node advertises `weka.io/numa-region-<N>` and
@@ -201,5 +204,5 @@ binding, gives Guaranteed integer-CPU pods automatic exclusive cores, and runs a
 ## Cross-references
 
 - `cpu-policy.md`: `cpuPolicy`, `coreIds`, hyperthreading siblings
-- `../deployment/helm-install.md`: `nodeAgent.devicePlugin.enabled`, `nodeAgent.kubeletPath`
+- `../deployment/node-agent.md`: `nodeAgent.devicePlugin.enabled`, `nodeAgent.kubeletPath` in the configuration WekaPolicy
 - `../deployment/cluster-capacity.md`: planner placement rules

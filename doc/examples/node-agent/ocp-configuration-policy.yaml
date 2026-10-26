@@ -1,0 +1,10 @@
+# Configuration WekaPolicy for OpenShift: node-agent persistence lives under /root/k8s-weka
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaPolicy
+metadata:
+  name: weka-configuration
+spec:
+  payload:
+    configurationPayload:
+      nodeAgent:
+        persistencePath: /root/k8s-weka
