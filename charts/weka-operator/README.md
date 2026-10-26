@@ -226,6 +226,12 @@ helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
 | nodeAgent.resources | object | `{"limits":{"cpu":"1000m","ephemeral-storage":"400Mi","memory":"1024Mi"},"requests":{"cpu":"50m","ephemeral-storage":"100Mi","memory":"64Mi"}}` | Node-agent DaemonSet container resources. On VM nodes using the native containerd snapshotter (e.g. KubeVirt guests without overlayfs support), the entire container image is copied into the writable snapshot and counted as ephemeral storage. On such nodes rootfs usage equals the image size (~300Mi for weka-operator), regardless of any actual writes by the process. Increase `ephemeral-storage` if node-agent pods are evicted on such nodes. |
 | nodeAgent.tolerations | list | `[{"operator":"Exists"}]` | Tolerations of the node-agent DaemonSet. |
 
+### RBAC
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| rbac.namespaces | list | `[]` | Namespaces where the operator may change pods, secrets, configmaps, deployments and the other namespaced objects it manages, and where the CSI controller may read secrets. Empty binds these permissions cluster-wide. When set, list every namespace that holds a weka.weka.io resource (WekaCluster, WekaClient, WekaContainer, WekaManualOperation, WekaPolicy) (including the namespace of a WekaClient's target cluster); the release namespace is always added. Weka CRs in other namespaces fail with Forbidden. Pod reads stay cluster-wide. |
+
 ### Upgrade
 
 | Key | Type | Default | Description |

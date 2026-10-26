@@ -53,6 +53,8 @@ type ContainerController struct {
 	ThrottlingMap throttling.Throttler
 }
 
+// namespace=weka-operator-namespaced is not a real namespace: charts/weka-operator/templates/role.yaml turns those
+// rules into weka-operator-namespaced-role, bound per namespace when rbac.namespaces is set.
 // +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/finalizers,verbs=update
@@ -65,32 +67,38 @@ type ContainerController struct {
 // +kubebuilder:rbac:groups=weka.weka.io,resources=driveclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=weka.weka.io,resources=driveclaims/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=weka.weka.io,resources=driveclaims/finalizers,verbs=update
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
-// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=core,resources=pods/exec,verbs=create
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;update;create;watch
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create;watch
+// +kubebuilder:rbac:namespace=weka-operator-namespaced,groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:namespace=weka-operator-namespaced,groups=apps,resources=deployments/finalizers,verbs=update
+// +kubebuilder:rbac:namespace=weka-operator-namespaced,groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:namespace=weka-operator-namespaced,groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:namespace=weka-operator-namespaced,groups=core,resources=pods/exec,verbs=create
+// +kubebuilder:rbac:namespace=weka-operator-namespaced,groups="",resources=secrets,verbs=get;list;update;create;watch
+// +kubebuilder:rbac:namespace=weka-operator-namespaced,groups="",resources=configmaps,verbs=get;list;update;create;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;update;watch;patch
 // +kubebuilder:rbac:groups="",resources=nodes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes/proxy,verbs=get
-// +kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;update;create;delete;watch
+// +kubebuilder:rbac:namespace=weka-operator-namespaced,groups="batch",resources=jobs,verbs=get;list;update;create;delete;watch
 // +kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations/finalizers,verbs=update
 // +kubebuilder:rbac:groups=metrics.k8s.io,resources=pods,verbs=get
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="",resources=events,verbs=list
-// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=endpoints,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:namespace=weka-operator-namespaced,groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:namespace=weka-operator-namespaced,groups="",resources=endpoints,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:namespace=weka-operator-namespaced,groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 //+kubebuilder:rbac:groups=storage.k8s.io,resources=storageclasses,verbs=create;get;list;watch;delete
 //+kubebuilder:rbac:groups=storage.k8s.io,resources=csidrivers,verbs=create;get;list;watch;delete
-//+kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=create;delete;get;list;patch;update;watch
+//+kubebuilder:rbac:namespace=weka-operator-namespaced,groups=coordination.k8s.io,resources=leases,verbs=create;delete;get;list;patch;update;watch
 //+kubebuilder:rbac:groups=resource.k8s.io,resources=deviceclasses,verbs=get;list;watch
-//+kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims,verbs=get;list;watch;create;delete
+//+kubebuilder:rbac:namespace=weka-operator-namespaced,groups=resource.k8s.io,resources=resourceclaims,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=pods;configmaps;services;endpoints,verbs=get;list;watch
+// +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims,verbs=get;list;watch
 
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

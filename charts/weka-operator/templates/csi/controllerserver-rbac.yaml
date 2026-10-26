@@ -52,9 +52,6 @@ metadata:
   name: "csi-wekafs-controller-cr"
 rules:
   - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
     resources: ["persistentvolumes"]
     verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
   - apiGroups: [""]
@@ -105,4 +102,51 @@ rules:
   - apiGroups: ["snapshot.storage.k8s.io"]
     resources: ["volumesnapshots/status"]
     verbs: ["get", "list", "watch", "update", "create", "delete", "patch"]
+
+---
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: "csi-wekafs-controller-secrets"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+{{- if (.Values.rbac).namespaces }}
+{{- range uniq (append (.Values.rbac).namespaces .Release.Namespace) }}
+
+---
+
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: "csi-wekafs-controller-secrets-rb"
+  namespace: {{ . | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: "csi-wekafs-controller-sa"
+    namespace: "{{ $.Release.Namespace }}"
+roleRef:
+  kind: ClusterRole
+  name: "csi-wekafs-controller-secrets"
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+{{- else }}
+
+---
+
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: "csi-wekafs-controller-secrets-crb"
+subjects:
+  - kind: ServiceAccount
+    name: "csi-wekafs-controller-sa"
+    namespace: "{{ .Release.Namespace }}"
+roleRef:
+  kind: ClusterRole
+  name: "csi-wekafs-controller-secrets"
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
 {{- end}}
