@@ -30,12 +30,12 @@ func NodeIsReady(node *v1.Node) bool {
 // single predicate for "can this node receive a new pod": every caller across the operator and CLI that
 // needs this check goes through it, so the classifications can never quietly diverge between call sites.
 //
-// A cordon is answered by the caller's tolerations, so one that tolerates it (see cordonTolerantModes,
-// opt-in through the configuration policy) stays eligible on a cordoned node. It is checked ahead of the
-// node's other taints, and against nodeIsCordoned rather than the taint list, because the NoSchedule
-// expansion some modes carry tolerates every NoSchedule taint — leaving it to the general taint check
-// would let a cordon pass unnoticed. It keeps a reason of its own because "untolerated taint" would send
-// a reader hunting for a custom taint that isn't there.
+// A cordon is answered only by a toleration naming the cordon key (see tolerationsCoverCordon), which is
+// what the opt-in in cordonTolerantModes grants; a keyless catch-all cannot clear it. It is checked ahead
+// of the node's other taints, and against nodeIsCordoned rather than the taint list, so that neither the
+// NoSchedule expansion some modes carry nor a cordon set by the flag alone lets it pass unnoticed. It
+// keeps a reason of its own because "untolerated taint" would send a reader hunting for a custom taint
+// that isn't there.
 func NodeIneligibleReason(node *v1.Node, tolerations []v1.Toleration) string {
 	if node == nil {
 		return "not ready"
@@ -43,7 +43,7 @@ func NodeIneligibleReason(node *v1.Node, tolerations []v1.Toleration) string {
 	if !NodeIsReady(node) {
 		return "not ready"
 	}
-	if nodeIsCordoned(node) && !util.CheckTolerations([]v1.Taint{CordonTaint()}, tolerations, nil) {
+	if nodeIsCordoned(node) && !tolerationsCoverCordon(tolerations) {
 		return "cordoned"
 	}
 	if !util.CheckTolerations(node.Spec.Taints, tolerations, nil) {
