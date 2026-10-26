@@ -54,7 +54,7 @@ type ContainerController struct {
 }
 
 // namespace=weka-operator-namespaced is not a real namespace: charts/weka-operator/templates/role.yaml turns those
-// rules into weka-operator-namespaced-role, bound per namespace when rbac.namespaces is set.
+// rules into <prefix>-namespaced-role, bound per namespace when rbac.namespaces is set.
 // +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/finalizers,verbs=update

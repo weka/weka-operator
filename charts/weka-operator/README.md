@@ -230,7 +230,7 @@ helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| rbac.namespaces | list | `[]` | Namespaces where the operator may change pods, secrets, configmaps, deployments and the other namespaced objects it manages, and where the CSI controller may read secrets. Empty binds these permissions cluster-wide. When set, list every namespace that holds a weka.weka.io resource (WekaCluster, WekaClient, WekaContainer, WekaManualOperation, WekaPolicy) (including the namespace of a WekaClient's target cluster); the release namespace is always added. Weka CRs in other namespaces fail with Forbidden. Pod reads stay cluster-wide. |
+| rbac.namespaces | list | `[]` | Namespaces where the operator may change pods, secrets, configmaps, deployments and the other namespaced objects it manages, and where the CSI controller may read secrets. Empty binds these permissions cluster-wide. When set, list every namespace that holds a weka.weka.io resource (WekaCluster, WekaClient, WekaContainer, WekaManualOperation, WekaPolicy) (including the namespace of a WekaClient's target cluster); the release namespace is always added. Listed namespaces must already exist. Reconciles in other namespaces that write namespaced objects or read secrets fail with Forbidden or "unknown namespace for the cache" errors. Pod reads stay cluster-wide. |
 
 ### Upgrade
 
