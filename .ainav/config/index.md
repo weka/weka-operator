@@ -7,7 +7,7 @@ Use this map for operator settings, deployment templates and CRD definitions.
 | Environment and defaults | `internal/config/env.go` | Operator identity, images, feature flags, timeouts, observability and proxy settings |
 | Helm defaults | `charts/weka-operator/values.yaml` | User-facing configuration |
 | Environment wiring | `charts/weka-operator/templates/manager.yaml` | Operator deployment |
-| RBAC and priorities | `charts/weka-operator/templates/role.yaml`, `priority_classes.yaml` | Permissions and scheduling |
+| RBAC and priorities | markers → `make rbac` → `charts/weka-operator/files/rbac/role.yaml`; `templates/role.yaml`, `role_binding.yaml`, `csi/*-rbac.yaml`, `priority_classes.yaml` | Permissions and scheduling; [rbac.namespaces](../../doc/operator/deployment/helm-install.md#rbac-namespace-scoping) |
 | Runtime scripts | `charts/weka-operator/resources/` | `weka_runtime.py`, `run-weka-cli.sh` |
 | CRD types | `pkg/weka-k8s-api/api/v1alpha1/` | Cluster, container, client, policy and manual-operation specs/status |
 | Admission | [validation.md](validation.md) | Rule registry, shared helpers and severity defaults |

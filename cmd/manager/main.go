@@ -45,6 +45,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -187,6 +188,20 @@ func startAsNodeAgent(ctx context.Context, logger logr.Logger) {
 	}
 }
 
+func secretCacheOptions() cache.Options {
+	if len(config.Config.RbacNamespaces) == 0 {
+		return cache.Options{}
+	}
+	byNamespace := map[string]cache.Config{}
+	for _, ns := range append(config.Config.RbacNamespaces, config.Config.OperatorPodNamespace) {
+		// "" is NamespaceAll: a cluster-wide secret informer is Forbidden in split mode and never syncs.
+		if ns != "" {
+			byNamespace[ns] = cache.Config{}
+		}
+	}
+	return cache.Options{ByObject: map[client.Object]cache.ByObject{&corev1.Secret{}: {Namespaces: byNamespace}}}
+}
+
 func startAsManager(ctx context.Context, logger logr.Logger) {
 	metricsAddr := config.Config.BindAddress.Metrics
 	probeAddr := config.Config.BindAddress.HealthProbe
@@ -248,6 +263,7 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		// 		},
 		// 	},
 		// },
+		Cache: secretCacheOptions(),
 	})
 	if err != nil {
 		logger.Error(err, "unable to start manager")

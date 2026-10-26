@@ -99,6 +99,18 @@
           }
         }
       }
+    },
+    "rbac": {
+      "type": "object",
+      "properties": {
+        "namespaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Namespaces the operator's namespaced role and the CSI controller's secret access are bound in. Empty binds them cluster-wide."
+        }
+      }
     }
   }
 }

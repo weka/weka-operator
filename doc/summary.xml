@@ -19,8 +19,8 @@
         <summary>Lists and explains the machine pre-requisites for running Weka in Kubernetes, specifically focusing on huge pages configuration for different container types.</summary>
     </file>
     <file relpath="operator/deployment/helm-install.md">
-        <tags>helm, install, upgrade, oci, quay.io, weka-operator, namespace, version, values, operator_values.yaml, localDataPvc, globalPVC</tags>
-        <summary>Describes how to install and upgrade the Weka operator using Helm, including the command syntax and notable Helm-level values like `localDataPvc` and `globalPVC`.</summary>
+        <tags>helm, install, upgrade, oci, quay.io, weka-operator, namespace, version, values, operator_values.yaml, localDataPvc, globalPVC, rbac, rbac.namespaces, least privilege, csi secrets</tags>
+        <summary>Describes how to install and upgrade the Weka operator using Helm, including the command syntax, notable Helm-level values like `localDataPvc` and `globalPVC`, and RBAC namespace scoping with `rbac.namespaces` (the manager/namespaced ClusterRole split, which namespaces to list, the Forbidden symptom, and the CSI secret permission changes).</summary>
     </file>
     <file relpath="operator/deployment/cluster-provisioning.md">
         <tags>cluster provision, wekacluster yaml, templates, gracefulDestroyDuration, dynamicTemplate, redundancyLevel, stripeWidth, raft, hotSpare</tags>

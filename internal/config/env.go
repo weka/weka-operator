@@ -306,6 +306,7 @@ var Config struct {
 	OperatorPodUID                 string
 	OperatorPodName                string
 	OperatorPodNamespace           string
+	RbacNamespaces                 []string
 	OperatorDeploymentName         string
 	OperatorImage                  string
 	BindAddress                    BindAddress
@@ -577,6 +578,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.OperatorPodUID = os.Getenv("POD_UID")
 	Config.OperatorPodName = os.Getenv("POD_NAME")
 	Config.OperatorPodNamespace = os.Getenv("POD_NAMESPACE")
+	Config.RbacNamespaces = getStringSlice("WEKA_RBAC_NAMESPACES")
 	Config.OperatorDeploymentName = os.Getenv("OPERATOR_DEPLOYMENT_NAME")
 	Config.OperatorImage = os.Getenv("OPERATOR_IMAGE")
 	if Config.Mode == OperatorModeManager {
