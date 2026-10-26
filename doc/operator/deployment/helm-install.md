@@ -32,7 +32,7 @@ If just asked to "use pvc for cluster", use cluster spec field instead. `globalP
 
 `rbac.namespaces` (default `[]`) limits where the operator may change namespaced objects and where the CSI controller may read secrets.
 
-The operator's permissions are split into two ClusterRoles:
+The operator's permissions are split into two ClusterRoles (names below use the default `prefix`, `weka-operator`):
 - `weka-operator-manager-role` - always bound cluster-wide: cluster-scoped kinds (nodes, namespaces, storage classes, CSI drivers, the validating webhook configuration), all `weka.weka.io` resources, events, and get/list/watch on pods, configmaps, services, endpoints, deployments, daemonsets, jobs, leases, ingresses and resourceclaims. Pod reads stay cluster-wide because the capacity planner charges pods it does not own against node resources.
 - `weka-operator-namespaced-role` - pod, secret, configmap, service, endpoint, deployment, daemonset, job, lease, ingress and resourceclaim writes, `pods/exec`, and all secret access.
 
@@ -46,7 +46,9 @@ rbac:
     - weka
 ```
 
-A Weka CR in a namespace that is not listed fails to reconcile. The operator logs and events show `Forbidden` errors for pod, secret or configmap writes, or `unknown namespace for the cache` for secret reads. Add the namespace to `rbac.namespaces` and run `helm upgrade`.
+Helm does not create the listed namespaces: each must exist before `helm install` or `helm upgrade`, or the release fails with `namespaces "<name>" not found`. To onboard a new namespace, create it, add it to `rbac.namespaces` and run `helm upgrade`.
+
+For a Weka CR in a namespace that is not listed, any reconcile step that writes a namespaced object or reads a secret fails. The operator logs and events show `Forbidden` errors for pod, secret or configmap writes, or `unknown namespace for the cache` for secret reads. Steps that only touch cluster-scoped objects such as nodes still succeed: the list limits the operator's own write access, while who may create Weka CRs in which namespace is governed by users' RBAC on `weka.weka.io` resources. Add the namespace to `rbac.namespaces` and run `helm upgrade`.
 
 CSI secrets follow the same list: `csi-wekafs-controller-secrets` (secret `get`) is bound to `csi-wekafs-controller-sa` with a ClusterRoleBinding when the list is empty, or with a RoleBinding in each namespace above when it is set.
 
