@@ -13,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -109,7 +110,7 @@ func (r *containerReconcilerLoop) numaClaimCPUCount(ctx context.Context) (int, e
 	specForCPU.CpuPolicy = cpuPolicy
 	topo := capacityplanner.NodeCPUTopology{
 		IsHt:          nodeInfo.IsHt,
-		FullPcpusOnly: config.Config.FullPcpusOnly || nodeInfo.NodeFullPcpusOnly,
+		FullPcpusOnly: config.Config.FullPcpusOnly || ptr.Deref(nodeInfo.NodeFullPcpusOnly, false),
 	}
 	return capacityplanner.CPURequestCores(&specForCPU, topo), nil
 }

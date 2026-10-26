@@ -168,8 +168,10 @@ Updating the Secret's contents in place does not propagate to either side
 until the corresponding pod restarts.
 
 Changing the Secret *name* (`spec.wekaHome.cacertSecret` on a WekaCluster or
-WekaClient) is propagated to the owned WekaContainer specs right away, but the
-running pods are not recreated automatically either: delete them and the
+WekaClient) is propagated to the owned WekaContainer specs right away. Backend
+pods are then flagged outdated and, with pod rotation enabled, replaced one at
+a time ([pod-rotation.md](pod-rotation.md)). Client pods, and backend pods
+with rotation off, are not recreated automatically: delete them and the
 replacements mount the new Secret. Pods created after the change use it
 without any action.
 

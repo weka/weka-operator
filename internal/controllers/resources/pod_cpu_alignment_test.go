@@ -7,6 +7,7 @@ import (
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -134,7 +135,7 @@ func TestFullPcpusOnlyCPUAlignment(t *testing.T) {
 
 			nodeInfo := &discovery.DiscoveryNodeInfo{
 				IsHt:              tc.isHt,
-				NodeFullPcpusOnly: tc.nodeFullPcpusOnly,
+				NodeFullPcpusOnly: ptr.To(tc.nodeFullPcpusOnly),
 			}
 			factory := makeFactory(tc.numCores, weka.CpuPolicyDedicatedHT, nodeInfo)
 			pod := makePod(weka.CpuPolicyDedicatedHT)
@@ -179,7 +180,7 @@ func TestFullPcpusOnlyEffective(t *testing.T) {
 					Spec: weka.WekaContainerSpec{Mode: weka.WekaContainerModeCompute},
 				},
 				nodeInfo: &discovery.DiscoveryNodeInfo{
-					NodeFullPcpusOnly: tc.nodeFullPcpusOnly,
+					NodeFullPcpusOnly: ptr.To(tc.nodeFullPcpusOnly),
 				},
 				featureFlags: &domain.FeatureFlags{},
 			}
@@ -189,5 +190,26 @@ func TestFullPcpusOnlyEffective(t *testing.T) {
 				t.Errorf("fullPcpusOnlyEffective() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestFullPcpusOnlyEffectiveUnknownNode(t *testing.T) {
+	savedFullPcpusOnly := config.Config.FullPcpusOnly
+	defer func() { config.Config.FullPcpusOnly = savedFullPcpusOnly }()
+	config.Config.FullPcpusOnly = false
+
+	factory := &PodFactory{nodeInfo: &discovery.DiscoveryNodeInfo{}}
+	if factory.fullPcpusOnlyEffective() {
+		t.Error("fullPcpusOnlyEffective() = true for a node with unknown full-pcpus-only, want false")
+	}
+	if FullPcpusOnlyKnown(factory.nodeInfo) {
+		t.Error("FullPcpusOnlyKnown() = true for a node with unknown full-pcpus-only, want false")
+	}
+	if !FullPcpusOnlyKnown(&discovery.DiscoveryNodeInfo{NodeFullPcpusOnly: ptr.To(false)}) {
+		t.Error("FullPcpusOnlyKnown() = false for a node detected as not full-pcpus-only, want true")
+	}
+	config.Config.FullPcpusOnly = true
+	if !FullPcpusOnlyKnown(factory.nodeInfo) {
+		t.Error("FullPcpusOnlyKnown() = false with the Helm value set, want true")
 	}
 }

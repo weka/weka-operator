@@ -88,7 +88,6 @@
 | status | WekaClientStatusEnum |  |
 | stats | *ClientMetrics |  |
 | printer | ClientPrinterColumns |  |
-| lastAppliedPodConfigHash | string | Pod config version this client has adopted. Mirrors the WekaCluster field: it gates<br>the first-deploy adoption that lets tracking start on pods predating the annotation<br>without rolling them. |
 
 ---
 

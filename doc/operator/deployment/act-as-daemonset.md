@@ -247,12 +247,12 @@ Each reconcile resizes existing containers in place:
 unblocked (a block in progress). New signed nodes get new containers on the next reconcile.
 
 **Example.** On `node-a` the other cluster is deleted, freeing 3 drives. This cluster's drive container goes
-`numDrives 3→6, cores 3→6, hugepages 4992→9984` and emits `AutoFullDrivesResized`. The new drives are
-reserved at once, and added to weka after the pod is recreated.
+`numDrives 3→6, cores 3→6, hugepages 4992→9984`, the cluster emits `AutoFullDrivesResized`, and the container
+is flagged `podOutdated`. The new drives are reserved at once, and added to weka after the pod is recreated.
 
-**The spec changes at once; the pod follows only when it is recreated** (image upgrade,
-`podConfigVersion` bump, manual delete). Its cores, hugepages and `weka.io/drives` request are fixed at
-creation.
+**The spec changes at once; the pod follows only when it is recreated** (image upgrade, manual delete, or
+[pod rotation](../operations/pod-rotation.md) when enabled). Its cores, hugepages and `weka.io/drives` request
+are fixed at creation.
 
 | Change | Until the pod is recreated |
 |---|---|
@@ -262,8 +262,9 @@ creation.
 | No free drive at all (holds none) | The container stays at 1 drive with its pod Pending; the node is listed in `AutoFullDrivesNoFreeDrives`. |
 | Cores or hugepages | Applied on the next recreate. |
 
-Every change, up or down, emits `AutoFullDrivesResized`: a Warning on the container listing each changed
-field as `old→new`, and a Normal event on the cluster.
+Every change, up or down, emits a Normal `AutoFullDrivesResized` on the cluster listing each changed field as
+`old→new`. The container itself is flagged `status.podOutdated` with a Warning `PodOutdated` listing the
+differing pod values (for example `CORES 3→6, …`) until its pod is recreated.
 
 ## Mode flips
 
@@ -296,7 +297,7 @@ All cluster-level events are in `internal/controllers/wekacluster/planner_events
 | Reason | Type | Throttle | Meaning |
 |---|---|---|---|
 | `AutoFullDrivesContainersCreated` | Normal | 1m | Containers were created this pass, by role and node. |
-| `AutoFullDrivesResized` | Normal | 1m | Existing containers were resized (raised or lowered); restart their pods. Also a Warning on each resized `WekaContainer`, unthrottled, e.g. `resized compute container: hugepages 23142→18956`. |
+| `AutoFullDrivesResized` | Normal | 1m | Existing containers were resized (raised or lowered), each with its changed fields, e.g. `hugepages 23142→18956`. Each is flagged `podOutdated`; recreate its pod, or let [pod rotation](../operations/pod-rotation.md) do it when enabled. |
 | `AutoFullDrivesUnusedDrivesOnNode` | Normal | 3m, aggregated | `numDrives` pin below the signed count. |
 | `AutoFullDrivesNodeIneligible` | Normal | 3m, aggregated, keyed by reason | Nodes that get no new containers, with the reason. |
 | `AutoFullDrivesUnsignedDriveNodes` | Warning | 1m, aggregated | Drive-role nodes without usable signed drives. |

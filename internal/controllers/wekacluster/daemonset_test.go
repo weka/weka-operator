@@ -480,8 +480,8 @@ func TestBuildMissingContainersDaemonsetRaisesExistingAndEmitsGrowth(t *testing.
 		t.Errorf("drive = %d drives/%d cores/%d hugepages, want 4/4/>0", got.Spec.NumDrives, got.Spec.NumCores, got.Spec.Hugepages)
 	}
 	evs := drainLoopEvents(t, loop)
-	if len(eventsMatching(evs, "Warning AutoFullDrivesResized")) != 1 || len(eventsMatching(evs, "Normal AutoFullDrivesResized")) != 1 {
-		t.Errorf("want one container and one cluster AutoFullDrivesResized event, got %v", evs)
+	if len(eventsMatching(evs, "Warning AutoFullDrivesResized")) != 0 || len(eventsMatching(evs, "Normal AutoFullDrivesResized")) != 1 {
+		t.Errorf("want one cluster AutoFullDrivesResized event and none on the container, got %v", evs)
 	}
 }
 

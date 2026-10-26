@@ -11,7 +11,7 @@ import (
 // reason giving its severity, throttle window and throttle key. Emission sites name the reason, so reading
 // one takes a single hop. Rows mirror the Events tables in
 // doc/operator/deployment/{act-as-daemonset,cluster-capacity}.md, and a table test keeps the two in step.
-// Per-container events (CapacityGrowthApplied, Unschedulable*Container) are absent: they are unthrottled
+// Per-container events (Unschedulable*Container) are absent: they are unthrottled
 // Recorder.Event calls on the WekaContainer, so they carry no policy to centralise.
 
 const (
@@ -31,10 +31,6 @@ const (
 	reasonAutoFullDrivesNoFreeDrives       = "AutoFullDrivesNoFreeDrives"
 	// reasonAutoFullDrivesHugepagesPinBelowAuto is also posted, throttled, on each affected WekaContainer.
 	reasonAutoFullDrivesHugepagesPinBelowAuto = "AutoFullDrivesHugepagesPinBelowAuto"
-
-	// reasonCapacityGrowthApplied lands on the WekaContainer, not the cluster, and is unthrottled — hence no
-	// plannerEventSpecs row. It is named here only so the growth appliers and their tests share one spelling.
-	reasonCapacityGrowthApplied = "CapacityGrowthApplied"
 )
 
 // plannerAggregateEventInterval throttles the fleet-wide aggregates, whose message names the affected node

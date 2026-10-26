@@ -125,7 +125,6 @@
 | spanId | string |  |
 | lastAppliedImage | string | Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later |
 | lastAppliedSpec | string |  |
-| lastAppliedPodConfigHash | string |  |
 | ports | ClusterPorts |  |
 | stats | *ClusterMetrics |  |
 | printer | ClusterPrinterColumns |  |
@@ -352,6 +351,7 @@
 | upgradeAllAtOnce | bool | unsafe operation, should not be used unless instructed explicitly by weka personnel |
 | upgradePaused | bool | Pause upgrade |
 | upgradePausePreCompute | bool | Prevent from moving into compute phase |
+| podRotation | *bool | Replace pods one at a time when their pod-affecting spec changes. Nil uses the operator-wide default (configuration WekaPolicy podRotation.enabled). |
 | podTerminationDeactivationTimeout | *metav1.Duration | Timeout duration for deactivating pods that are terminating longer than this duration.<br>When nil (default), the default timeout of 5 minutes is used.<br>When set to 0, deactivation of terminating pods is disabled.<br>Otherwise, the specified duration is used. |
 | paused | *bool | Pause the cluster - all containers will be stopped forcefully.<br>nil (not set): no propagation, allows direct container-level state manipulation.<br>true: pause all containers.<br>false: actively unpause containers that are in paused state. |
 | skipDefaultFilesystemCreation | *bool | SkipDefaultFilesystemCreation disables creation of the `default` filesystem.<br>The `default` filesystem group and `.config_fs` are still created. |

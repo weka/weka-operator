@@ -402,9 +402,8 @@ var Config struct {
 	HugepagesUpdate        HugepagesUpdateConfig
 	ComputeMaxHugepagesMiB int
 
-	PodConfigVersion                     string
-	EnablePodConfigCodeVersionRotation   bool
-	AllowRotateNonAnnotatedPodConfigHash bool
+	PodConfigVersion                   string
+	EnablePodConfigCodeVersionRotation bool
 
 	Webhook           WebhookConfig
 	AdmissionControl  AdmissionControlConfig
@@ -446,6 +445,8 @@ var Consts struct {
 	NewContainersLimit int
 	// Interval for periodic drives check on weka container
 	PeriodicDrivesCheckInterval time.Duration
+	// Interval between pod compares (outdated-pod check and clear) per weka container
+	PodOutdatedCheckInterval time.Duration
 	// Interval for checking drivers on distribution wekacontainer
 	CheckDriversInterval time.Duration
 	// Min compute containers to be UP before forming a weka cluster
@@ -491,6 +492,7 @@ func init() {
 	Consts.JoinIpsCacheTTL = 1 * time.Minute
 	Consts.NewContainersLimit = 1000 // virtually no limit for now
 	Consts.PeriodicDrivesCheckInterval = 1 * time.Minute
+	Consts.PodOutdatedCheckInterval = 3 * time.Minute
 	Consts.CheckDriversInterval = 7 * time.Minute
 	loadFormClusterMinContainers()
 	Consts.FormClusterMaxComputeContainers = 10
@@ -673,7 +675,6 @@ func ConfigureEnv(ctx context.Context) {
 	Config.AllowMultipleProtocolsPerNode = getBoolEnvOrDefault("ALLOW_MULTIPLE_PROTOCOLS_PER_NODE", false)
 	Config.PodConfigVersion = env.GetString("POD_CONFIG_VERSION", "1")
 	Config.EnablePodConfigCodeVersionRotation = getBoolEnvOrDefault("ENABLE_POD_CONFIG_CODE_VERSION_ROTATION", false)
-	Config.AllowRotateNonAnnotatedPodConfigHash = getBoolEnvOrDefault("ALLOW_ROTATE_NON_ANNOTATED_POD_CONFIG_HASH", false)
 	Config.ManagementProxyHostNetwork = getBoolEnvOrDefault("MANAGEMENT_PROXY_HOST_NETWORK", false)
 	Config.ManagementProxyIngressBaseDomain = env.GetString("MANAGEMENT_PROXY_INGRESS_BASE_DOMAIN", "")
 	Config.ManagementProxyIngressClass = env.GetString("MANAGEMENT_PROXY_INGRESS_CLASS", "")

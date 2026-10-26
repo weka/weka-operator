@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
@@ -87,6 +88,8 @@ type ShutdownInstructions struct {
 }
 
 const globalPersistenceMountPath = "/opt/weka-global-persistence"
+
+func additionalSecretVolumeName(key string) string { return key + "-secret" }
 
 func NewPodFactory(container *weka.WekaContainer, nodeInfo *discovery.DiscoveryNodeInfo, ff *domain.FeatureFlags, scheduling services.SchedulingSettings) *PodFactory {
 	return &PodFactory{
@@ -164,6 +167,11 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		hostNetwork = true
 		dnsPolicy = corev1.DNSPolicy(config.Config.DNSPolicy.HostNetwork)
 	}
+	// Defaults the API server would fill in (dnsPolicy, serviceAccountName, hostPath type, secret mode) are written
+	// explicitly so the stored pod and the factory output compare equal.
+	if dnsPolicy == "" {
+		dnsPolicy = corev1.DNSClusterFirst
+	}
 
 	if f.container.Spec.TracesConfiguration == nil {
 		f.container.Spec.TracesConfiguration = weka.GetDefaultTracesConfiguration()
@@ -188,6 +196,9 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	wekaPort := strconv.Itoa(f.container.GetPort())
 
 	serviceAccountName := f.container.Spec.ServiceAccountName
+	if serviceAccountName == "" {
+		serviceAccountName = "default"
+	}
 	var priorityClassName string
 	if f.container.GetNodeAffinity() != "" {
 		priorityClassName = config.Config.PriorityClasses.Targeted
@@ -481,6 +492,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						VolumeSource: corev1.VolumeSource{
 							HostPath: &corev1.HostPathVolumeSource{
 								Path: "/dev",
+								Type: ptr.To(corev1.HostPathUnset),
 							},
 						},
 					},
@@ -489,6 +501,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						VolumeSource: corev1.VolumeSource{
 							HostPath: &corev1.HostPathVolumeSource{
 								Path: "/run",
+								Type: ptr.To(corev1.HostPathUnset),
 							},
 						},
 					},
@@ -497,6 +510,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						VolumeSource: corev1.VolumeSource{
 							HostPath: &corev1.HostPathVolumeSource{
 								Path: "/sys",
+								Type: ptr.To(corev1.HostPathUnset),
 							},
 						},
 					},
@@ -783,9 +797,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 	}
 
-	if serviceAccountName != "" {
-		pod.Spec.ServiceAccountName = serviceAccountName
-	}
+	pod.Spec.ServiceAccountName = serviceAccountName
 
 	if f.container.Spec.NodeInfoConfigMap != "" {
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
@@ -810,7 +822,8 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			Name: "weka-credentials",
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName: f.container.Spec.WekaSecretRef.SecretKeyRef.Key,
+					SecretName:  f.container.Spec.WekaSecretRef.SecretKeyRef.Key,
+					DefaultMode: ptr.To(corev1.SecretVolumeSourceDefaultMode),
 				},
 			},
 		})
@@ -821,12 +834,13 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	for name, secret := range f.container.Spec.AdditionalSecrets {
-		volumeName := fmt.Sprintf("%s-secret", name)
+		volumeName := additionalSecretVolumeName(name)
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName: secret,
+					SecretName:  secret,
+					DefaultMode: ptr.To(corev1.SecretVolumeSourceDefaultMode),
 				},
 			},
 		})
@@ -877,7 +891,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	// Add OTEL packages installation init container only if explicitly configured
 	if config.Config.Otel.PythonPackagesInstallerImage != "" {
 		otelInitContainer := corev1.Container{
-			Name:            "otel-packages-installer",
+			Name:            otelInstallerContainerName,
 			Image:           config.Config.Otel.PythonPackagesInstallerImage,
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			Command: []string{
@@ -1333,7 +1347,12 @@ func GetHugePagesDetails(container *weka.WekaContainer, ff *domain.FeatureFlags)
 // auto-detected on this node's kubelet. The Helm value is read fresh on every
 // call so flipping it takes effect without re-running node discovery.
 func (f *PodFactory) fullPcpusOnlyEffective() bool {
-	return config.Config.FullPcpusOnly || f.nodeInfo.NodeFullPcpusOnly
+	return config.Config.FullPcpusOnly || ptr.Deref(f.nodeInfo.NodeFullPcpusOnly, false)
+}
+
+// FullPcpusOnlyKnown reports whether fullPcpusOnlyEffective is decided: forced by the Helm value or detected on the node.
+func FullPcpusOnlyKnown(nodeInfo *discovery.DiscoveryNodeInfo) bool {
+	return config.Config.FullPcpusOnly || nodeInfo.NodeFullPcpusOnly != nil
 }
 
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetails HugePagesDetails) error {

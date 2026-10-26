@@ -97,6 +97,20 @@ func TestSettingsFromPayload(t *testing.T) {
 	}
 }
 
+func TestSettingsFromPayload_PodRotation(t *testing.T) {
+	if SettingsFromPayload(nil).PodRotation.Enabled {
+		t.Fatal("default must be false")
+	}
+	on := true
+	got := SettingsFromPayload(&weka.ConfigurationPayload{PodRotation: &weka.PodRotationSpec{Enabled: &on}})
+	if !got.PodRotation.Enabled {
+		t.Fatal("payload enabled not applied")
+	}
+	if SettingsFromPayload(&weka.ConfigurationPayload{PodRotation: &weka.PodRotationSpec{}}).PodRotation.Enabled {
+		t.Fatal("nil field must keep the default")
+	}
+}
+
 // Resolution has exactly three outcomes: a single valid policy applies, no policy at all means the
 // built-in defaults, and anything else means no usable configuration.
 func TestResolveConfigurationSettings(t *testing.T) {
