@@ -288,6 +288,10 @@ debugcontroller: ## Run a controller from your host.
 	--accept-multiclient \
 	./cmd/manager/main.go
 
+.PHONY: deploy-debug
+deploy-debug: ## Run the in-cluster manager under Delve (restore: ./script/deploy-debug.sh restore).
+	./script/deploy-debug.sh
+
 #.PHONY: docker-build
 #docker-build: ## Build docker image with the manager.
 #	docker buildx build --push --platform linux/x86_64 -t ${IMG} .
