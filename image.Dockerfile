@@ -44,7 +44,7 @@ RUN --mount=type=secret,id=gitconfig,target=/root/.gitconfig,required=false \
     --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build,id=gobuild-$TARGETARCH \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags "-s -w" -trimpath -o /dist/weka-capacity ./cmd/weka-capacity
 
-FROM registry.access.redhat.com/ubi9/ubi:9.8@sha256:16e9e43d99e181463513cc84a514859b1abb9460f1c4d9e208da4b4e51cd5cc3 as final
+FROM registry.access.redhat.com/ubi9/ubi:9.8@sha256:48393e4261b2544f652c915b3e052256ddf66ee95cd04dc0362191f302c4e94a as final
 COPY --from=builder /dist/weka-operator /weka-operator
 COPY --from=builder /dist/weka-capacity /weka-capacity
 ENTRYPOINT ["/weka-operator"]
