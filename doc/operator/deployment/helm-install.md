@@ -38,6 +38,20 @@ The operator's permissions are split into two ClusterRoles (names below use the 
 
 With the list empty, `weka-operator-namespaced-role` is bound with a ClusterRoleBinding, so the effective permissions are the same as before the split. With the list set, it is bound with one RoleBinding per listed namespace plus the release namespace, and the operator's secret cache watches only those namespaces.
 
+```
+weka-operator-manager-role (ClusterRole) ── ClusterRoleBinding ──► operator SA, everywhere
+  nodes, namespaces, weka CRs, events, reads, ...
+
+weka-operator-namespaced-role (ClusterRole)
+  pods, pods/exec, secrets, configmaps, deployments, jobs, ...
+    rbac.namespaces: []       ── ClusterRoleBinding ─────────► operator SA, all namespaces
+    rbac.namespaces: [a, b]   ── RoleBinding in a ───────────► operator SA, only in a
+                              ── RoleBinding in b ───────────► operator SA, only in b
+                              ── RoleBinding in release ns ──► operator SA, only there
+```
+
+The binding sets the scope, not the role: a RoleBinding that references a ClusterRole grants its rules only inside the RoleBinding's namespace. The namespaced rules are a ClusterRole so that one definition is reused by every RoleBinding instead of copying a Role into each namespace; `rbac.namespaces` changes only the bindings, never the rules. Cluster-scoped kinds such as nodes stay in `weka-operator-manager-role`, because through a RoleBinding they would match nothing.
+
 The list must contain every namespace that holds a weka.weka.io resource (WekaCluster, WekaClient, WekaContainer, WekaManualOperation, WekaPolicy), including the namespace of a WekaClient's target cluster. Namespaces that only hold applications and PVCs do not need to be listed: the CSI secret `weka-csi-<cluster>` lives in the WekaCluster or WekaClient namespace.
 
 ```yaml
