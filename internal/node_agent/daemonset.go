@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -77,6 +78,13 @@ func NewNodeAgentDaemonSet(settings *services.NodeAgentSettings, operatorDeploym
 
 	privileged := true
 	runAsNonRoot := false
+	securityContext := resources.GetSecurityProfile()
+	if securityContext == nil {
+		securityContext = &corev1.PodSecurityContext{}
+	}
+	if securityContext.RunAsNonRoot == nil {
+		securityContext.RunAsNonRoot = &runAsNonRoot
+	}
 	gracePeriod := int64(10)
 	affinity := settings.Affinity
 
@@ -109,7 +117,7 @@ func NewNodeAgentDaemonSet(settings *services.NodeAgentSettings, operatorDeploym
 					},
 				},
 				Spec: corev1.PodSpec{
-					SecurityContext:               &corev1.PodSecurityContext{RunAsNonRoot: &runAsNonRoot},
+					SecurityContext:               securityContext,
 					ImagePullSecrets:              operatorDeployment.Spec.Template.Spec.ImagePullSecrets,
 					NodeSelector:                  settings.NodeSelector,
 					Affinity:                      &affinity,
