@@ -77,6 +77,19 @@ func TestNewNodeAgentDaemonSetDefaults(t *testing.T) {
 	}
 }
 
+func TestNewNodeAgentDaemonSetPodSecurityContext(t *testing.T) {
+	useDaemonSetConfig(t)
+	t.Setenv("WEKA_POD_SECURITY_CONTEXT", `{"appArmorProfile":{"type":"Unconfined"}}`)
+	sc := NewNodeAgentDaemonSet(defaultSettings(), testOperatorDeployment()).Spec.Template.Spec.SecurityContext
+
+	if sc.AppArmorProfile == nil || sc.AppArmorProfile.Type != corev1.AppArmorProfileTypeUnconfined {
+		t.Errorf("appArmorProfile = %+v, want Unconfined", sc.AppArmorProfile)
+	}
+	if sc.RunAsNonRoot == nil || *sc.RunAsNonRoot {
+		t.Errorf("runAsNonRoot = %v, want false", sc.RunAsNonRoot)
+	}
+}
+
 func TestNewNodeAgentDaemonSetDevicePlugin(t *testing.T) {
 	useDaemonSetConfig(t)
 	settings := defaultSettings()
