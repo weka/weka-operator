@@ -126,6 +126,27 @@ you want the simpler guarantee.
 kubectl get wekamanualoperation block-vid -n weka-operator-system -o jsonpath='{.status.status} {.status.result}'
 ```
 
+## Unsticking drive container deletion when a drive is gone
+
+Deleting a drive container force-resigns every serial it was allocated. If one of them no longer
+exists on the host as a block device (a failed NVMe whose controller still enumerates but exposes
+no namespace, or a pulled disk), the resign fails without signing any drive, and deletion waits.
+The drive container then shows a `ResignDrivesFailed` Warning event, and its
+`ContainerDrivesResigned` condition message names the missing serials:
+
+```
+resign drives operation failed: drives not found on node node1: ['23164A21ECD1']; ...
+```
+
+Block those serials by `serialIDs`. Blocked serials are left out of the resign, so the next
+attempt resigns the remaining drives and deletion continues; if every drive of the container is
+blocked, the resign is skipped. Unblock the serial once the disk is replaced.
+`overrides.skipDrivesForceResign` is not a substitute: it skips the resign of every drive in the
+container.
+
+This applies to the deletion flow only. A `force-resign-drives` WekaManualOperation resigns the
+serials it was given, blocked or not; re-run it without the missing ones.
+
 ## Blocked lists are never cleaned automatically
 
 A blocked identifier stays in its node annotation forever unless explicitly unblocked — the
