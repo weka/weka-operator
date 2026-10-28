@@ -1051,6 +1051,9 @@ func (c *clientReconcilerLoop) handleImagePrePull(ctx context.Context) error {
 	)
 
 	tolerations := util.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+	if services.GetSettings(ctx).Scheduling.TolerateCordon {
+		tolerations = append(tolerations, resources.GetUnschedulableToleration())
+	}
 
 	payload := &operations.PrePullImagePayload{
 		TargetImage:     wekaClient.Spec.Image,
