@@ -657,6 +657,11 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 			}
 		}
 	}
+	// the runtime writes no result for an empty serial list, so the operation would wait forever
+	if len(serials) == 0 {
+		logger.Info("All allocated drives are blocked, nothing to resign", "container_name", deactivatedContainer.Name)
+		return nil
+	}
 
 	payload := weka.ForceResignDrivesPayload{
 		NodeName:      deactivatedContainer.GetNodeAffinity(),
@@ -676,5 +681,10 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 	)
 
 	err := operations.ExecuteOperation(ctx, op)
+	var waitErr *lifecycle.WaitError
+	if err != nil && !errors.As(err, &waitErr) {
+		msg := err.Error() + "; if a drive is gone, block it with a block-drives WekaManualOperation to resign the rest"
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ResignDrivesFailed", consts.ActionDrainContainer, msg, time.Minute) //nolint:errcheck // event recording is best-effort
+	}
 	return err
 }

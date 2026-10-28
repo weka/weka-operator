@@ -1142,11 +1142,15 @@ async def sign_drives(instruction: dict):
 async def resolve_device_paths_by_serials(serials: List[str]) -> List[str]:
     """Resolve serials to block device paths, raising on any serial that doesn't resolve."""
     device_paths = []
+    missing = []
     for serial in serials:
         device_path = await get_block_device_path_by_serial(serial)
-        if not device_path:
-            raise ValueError(f"Could not resolve device path for serial: {serial}")
-        device_paths.append(device_path)
+        if device_path:
+            device_paths.append(device_path)
+        else:
+            missing.append(serial)
+    if missing:
+        raise ValueError(f"drives not found on node {NODE_NAME}: {missing}")
     return device_paths
 
 
@@ -1162,10 +1166,11 @@ async def force_resign_drives_by_paths(devices_paths: List[str]):
 
 async def force_resign_drives_by_serials(serials: List[str]):
     logging.info("Force resigning drives by serials: %s", serials)
-    device_paths = []
-    for serial in serials:
-        device_path = await get_block_device_path_by_serial(serial)
-        device_paths.append(device_path)
+    try:
+        device_paths = await resolve_device_paths_by_serials(serials)
+    except ValueError as e:
+        write_results(dict(err=str(e), drives=[]))
+        return
 
     await force_resign_drives_by_paths(device_paths)
 
