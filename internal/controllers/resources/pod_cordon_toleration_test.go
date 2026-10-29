@@ -65,6 +65,14 @@ func TestCordonToleration(t *testing.T) {
 						t.Errorf("GetWekaPodTolerations(%s, %v) carries cordon toleration = %v, want %v (must agree with ToleratesCordon)",
 							tc.mode, tolerateCordon, hasToleration, want)
 					}
+
+					// tolerationsCoverCordon is what NodeIneligibleReason asks, so this is the
+					// assertion that keeps the planners and pod creation from reaching opposite
+					// conclusions about the same node.
+					if covers := tolerationsCoverCordon(GetWekaPodTolerations(container, scheduling)); covers != want {
+						t.Errorf("tolerationsCoverCordon(GetWekaPodTolerations(%s, %v)) = %v, want %v (must agree with ToleratesCordon)",
+							tc.mode, tolerateCordon, covers, want)
+					}
 				})
 			}
 		}
@@ -98,6 +106,108 @@ func TestCordonTolerationIgnoresContainerTolerations(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestCordonDecisionsAgree is the regression guard for the two cordon answers drifting apart. The
+// planners ask tolerationsCoverCordon (through NodeIneligibleReason) while pod creation asks
+// ToleratesCordon; when they disagree the planner picks a node ensurePod then refuses, and the container
+// retries against that placement for as long as the node stays cordoned. A cordon toleration written
+// into a spec by hand is the case that splits them, so it is crossed into every cell here.
+func TestCordonDecisionsAgree(t *testing.T) {
+	modes := []string{
+		weka.WekaContainerModeClient,
+		weka.WekaContainerModeDriversLoader,
+		weka.WekaContainerModeDriversDist,
+		weka.WekaContainerModeDiscovery,
+		weka.WekaContainerModeAdhocOp,
+		weka.WekaContainerModeAdhocOpWC,
+		weka.WekaContainerModeDrive,
+		weka.WekaContainerModeCompute,
+	}
+	userTolerations := []struct {
+		name string
+		tols []corev1.Toleration
+	}{
+		{name: "no-user-tolerations"},
+		{name: "user-cordon-toleration", tols: []corev1.Toleration{GetUnschedulableToleration()}},
+		{name: "user-keyless-catch-all", tols: []corev1.Toleration{{Operator: corev1.TolerationOpExists}}},
+		{name: "user-unrelated-toleration", tols: []corev1.Toleration{{Key: "dedicated", Operator: corev1.TolerationOpExists}}},
+	}
+
+	for _, tolerateCordon := range []bool{false, true} {
+		for _, mode := range modes {
+			for _, ut := range userTolerations {
+				t.Run(fmt.Sprintf("%s/tolerateCordon=%v/%s", mode, tolerateCordon, ut.name), func(t *testing.T) {
+					container := &weka.WekaContainer{Spec: weka.WekaContainerSpec{Mode: mode, Tolerations: ut.tols}}
+					scheduling := services.SchedulingSettings{TolerateCordon: tolerateCordon}
+
+					tolerates := ToleratesCordon(container, scheduling)
+					covers := tolerationsCoverCordon(GetWekaPodTolerations(container, scheduling))
+					if tolerates != covers {
+						t.Errorf("ToleratesCordon = %v but tolerationsCoverCordon(GetWekaPodTolerations) = %v", tolerates, covers)
+					}
+
+					node := readyNode("n1")
+					node.Spec.Unschedulable = true
+					reason := NodeIneligibleReason(node, GetWekaPodTolerations(container, scheduling))
+					wantEligible := tolerates
+					if gotEligible := reason == ""; gotEligible != wantEligible {
+						t.Errorf("NodeIneligibleReason on cordoned node = %q (eligible=%v), want eligible=%v",
+							reason, gotEligible, wantEligible)
+					}
+				})
+			}
+		}
+	}
+}
+
+// TestClusterTolerationsNeverCoverCordon pins the planner side of the same agreement. The capacity and
+// daemonset planners read GetWekaPodTolerationsForCluster, which is faithful for drive and compute only —
+// modes that never tolerate a cordon — so a cordon key reaching it from the cluster spec would have them
+// plan backends onto nodes pod creation rejects. Both user routes are covered: ExpandTolerations turns
+// each string in Spec.Tolerations into a NoSchedule *and* a NoExecute toleration, and RawTolerations is
+// copied through verbatim.
+func TestClusterTolerationsNeverCoverCordon(t *testing.T) {
+	clusters := []struct {
+		name    string
+		cluster *weka.WekaCluster
+	}{
+		{
+			name:    "via-tolerations-string-list",
+			cluster: &weka.WekaCluster{Spec: weka.WekaClusterSpec{Tolerations: []string{CordonTaintKey}}},
+		},
+		{
+			name:    "via-raw-tolerations",
+			cluster: &weka.WekaCluster{Spec: weka.WekaClusterSpec{RawTolerations: []corev1.Toleration{GetUnschedulableToleration()}}},
+		},
+		{
+			name: "via-both",
+			cluster: &weka.WekaCluster{Spec: weka.WekaClusterSpec{
+				Tolerations:    []string{CordonTaintKey},
+				RawTolerations: []corev1.Toleration{GetUnschedulableToleration()},
+			}},
+		},
+	}
+
+	for _, tc := range clusters {
+		t.Run(tc.name, func(t *testing.T) {
+			tolerations := GetWekaPodTolerationsForCluster(tc.cluster)
+			for _, tol := range tolerations {
+				if tol.Key == CordonTaintKey {
+					t.Errorf("cluster tolerations must not carry the cordon key, found %+v", tol)
+				}
+			}
+			if tolerationsCoverCordon(tolerations) {
+				t.Error("GetWekaPodTolerationsForCluster must never cover a cordon: drive and compute are not cordon-tolerant")
+			}
+
+			node := readyNode("n1")
+			node.Spec.Unschedulable = true
+			if reason := NodeIneligibleReason(node, tolerations); reason != "cordoned" {
+				t.Errorf("NodeIneligibleReason on cordoned node = %q, want %q", reason, "cordoned")
+			}
+		})
 	}
 }
 

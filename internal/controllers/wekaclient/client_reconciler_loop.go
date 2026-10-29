@@ -1050,7 +1050,11 @@ func (c *clientReconcilerLoop) handleImagePrePull(ctx context.Context) error {
 		"targetImage", wekaClient.Spec.Image,
 	)
 
-	tolerations := util.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+	// This list is both the node filter (GetTargetNodes) and the pre-pull pod's own tolerations, so a
+	// cordon toleration left in it from the client spec would pull cordoned nodes in with the policy off.
+	tolerations := resources.WithoutCordonTolerations(
+		util.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations),
+	)
 	if services.GetSettings(ctx).Scheduling.TolerateCordon {
 		tolerations = append(tolerations, resources.GetUnschedulableToleration())
 	}

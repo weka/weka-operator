@@ -199,7 +199,9 @@ func (r *containerReconcilerLoop) updatePodTolerationsOnChange(ctx context.Conte
 	var logger *instrumentation.SpanLogger
 
 	pod := r.pod
-	containerTolerations := r.container.Spec.Tolerations
+	// Unfiltered, a cordon toleration in the spec lands back on the pod that GetWekaPodTolerations
+	// stripped it from, and a pod still Pending becomes schedulable onto a cordoned node.
+	containerTolerations := resources.WithoutCordonTolerations(r.container.Spec.Tolerations)
 
 	var newTolerations []v1.Toleration
 	var updatedTolerations []v1.Toleration
