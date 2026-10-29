@@ -192,10 +192,10 @@ Both the builder (`weka driver pack`) and the loader (`weka driver download` / `
 ## Cordoned nodes
 
 A cordon taints the node `node.kubernetes.io/unschedulable:NoSchedule`. By default that holds every
-mode off the node, same as any other untolerated taint. Client-side modes — `client`, `drivers-loader`,
-`drivers-dist`, `discovery`, and the `adhoc-op` modes — can instead be made to tolerate that taint, so
-they keep running and keep being created on a cordoned node, by enabling `scheduling.tolerateCordon` in
-a configuration `WekaPolicy`:
+mode off the node, same as any other untolerated taint. The client path — `client`, `drivers-loader`,
+`drivers-dist`, `discovery`, the `adhoc-op` modes, and `drivers-builder` — can instead be made to
+tolerate that taint, so they keep running and keep being created on a cordoned node, by enabling
+`scheduling.tolerateCordon` in a configuration `WekaPolicy`:
 
 ```yaml
 apiVersion: weka.weka.io/v1alpha1
@@ -222,10 +222,10 @@ With `tolerateCordon` enabled, a cordon on its own does not keep a client off a 
 and any taint the client does not tolerate still do, and `skipClientsTolerationValidation`,
 `skipClientNoScheduleToleration` and `skipAuxNoScheduleToleration` do not control this setting.
 
-One gap remains: `drivers-builder` does not tolerate the cordon even when the setting is enabled. It is
-not pinned to a node — it runs wherever its kernel/architecture `nodeSelector` matches — so it only
-matters when *every* matching node is cordoned and the drivers for that kernel have not been built yet.
-Uncordon one node to let the build through.
+`drivers-builder` is covered too, for a different reason than the rest. It is not pinned to a node — it
+runs wherever its kernel/architecture `nodeSelector` matches — so without the toleration a node pool
+brought up entirely cordoned on a kernel nobody has built for yet has no host to build on, and every
+client on it stalls in `WaitForDrivers` until someone uncordons a node by hand.
 
 ## See also
 

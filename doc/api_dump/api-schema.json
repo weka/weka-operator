@@ -3116,7 +3116,7 @@
           "name": "TolerateCordon",
           "jsonName": "tolerateCordon",
           "type": "bool",
-          "description": "TolerateCordon makes client containers and the node-local pods they depend on (drivers-loader,\ndrivers-dist, discovery, adhoc-op) tolerate the node.kubernetes.io/unschedulable:NoSchedule\ntaint, so they keep running and keep being created on a cordoned node. Backends never tolerate\nit. False by default.",
+          "description": "TolerateCordon makes client containers, the node-local pods they depend on (drivers-loader,\ndrivers-dist, discovery, adhoc-op) and drivers-builder tolerate the\nnode.kubernetes.io/unschedulable:NoSchedule taint, so they keep running and keep being created\non a cordoned node. Backends never tolerate it. False by default.",
           "optional": true,
           "pointer": true
         }

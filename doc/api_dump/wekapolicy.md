@@ -277,7 +277,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| tolerateCordon | *bool | TolerateCordon makes client containers and the node-local pods they depend on (drivers-loader,<br>drivers-dist, discovery, adhoc-op) tolerate the node.kubernetes.io/unschedulable:NoSchedule<br>taint, so they keep running and keep being created on a cordoned node. Backends never tolerate<br>it. False by default. |
+| tolerateCordon | *bool | TolerateCordon makes client containers, the node-local pods they depend on (drivers-loader,<br>drivers-dist, discovery, adhoc-op) and drivers-builder tolerate the<br>node.kubernetes.io/unschedulable:NoSchedule taint, so they keep running and keep being created<br>on a cordoned node. Backends never tolerate it. False by default. |
 
 ---
 
