@@ -1066,12 +1066,16 @@ func getUnhealthyTolerations() []corev1.Toleration {
 // cordonTolerantModes are the modes that keep running on a cordoned node. A cordon means "no new user
 // workloads", not "no node infrastructure": a node cordoned pending validation cannot pass a storage
 // health check without its client, and the client cannot come up without its drivers and discovery.
+// drivers-builder is here for a different reason: it is not node-local, it runs wherever its
+// kernel/architecture nodeSelector matches, so once every node carrying a kernel is cordoned there is
+// no host left to build that kernel's drivers on and every client on those nodes waits forever.
 // Backends are deliberately absent — they keep being held off a cordoned node.
 // Opt-in through the configuration policy's scheduling.tolerateCordon; off, none of these tolerate it.
 var cordonTolerantModes = []string{
 	weka.WekaContainerModeClient,
 	weka.WekaContainerModeDriversLoader,
 	weka.WekaContainerModeDriversDist,
+	weka.WekaContainerModeDriversBuilder,
 	weka.WekaContainerModeDiscovery,
 	weka.WekaContainerModeAdhocOp,
 	weka.WekaContainerModeAdhocOpWC,

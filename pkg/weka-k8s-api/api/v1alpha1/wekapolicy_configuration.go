@@ -49,10 +49,10 @@ type DriversSpec struct {
 
 // SchedulingSpec groups settings that control scheduling behavior of operator-managed pods
 type SchedulingSpec struct {
-	// TolerateCordon makes client containers and the node-local pods they depend on (drivers-loader,
-	// drivers-dist, discovery, adhoc-op) tolerate the node.kubernetes.io/unschedulable:NoSchedule
-	// taint, so they keep running and keep being created on a cordoned node. Backends never tolerate
-	// it. False by default.
+	// TolerateCordon makes client containers, the node-local pods they depend on (drivers-loader,
+	// drivers-dist, discovery, adhoc-op) and drivers-builder tolerate the
+	// node.kubernetes.io/unschedulable:NoSchedule taint, so they keep running and keep being created
+	// on a cordoned node. Backends never tolerate it. False by default.
 	TolerateCordon *bool `json:"tolerateCordon,omitempty"`
 }
 
