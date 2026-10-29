@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
@@ -86,8 +87,12 @@ func (r *wekaClusterReconcilerLoop) handleImagePrePullForRole(ctx context.Contex
 	)
 
 	nodeSelector := cluster.GetNodeSelectorForRole(role)
-	// Get tolerations - use ExpandTolerations from k8sutil
-	tolerations := util.ExpandTolerations([]corev1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations)
+	// This list is both the node filter (GetTargetNodes) and the pre-pull pod's own tolerations. Backend
+	// roles never tolerate a cordon, so a cordon toleration reaching it from the cluster spec would pre-pull
+	// onto nodes no backend pod may then be created on.
+	tolerations := resources.WithoutCordonTolerations(
+		util.ExpandTolerations([]corev1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations),
+	)
 
 	payload := &operations.PrePullImagePayload{
 		TargetImage:     cluster.Spec.Image,

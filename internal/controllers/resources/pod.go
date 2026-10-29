@@ -1108,6 +1108,17 @@ func tolerationsCoverCordon(tolerations []corev1.Toleration) bool {
 	return util.CheckTolerations([]corev1.Taint{CordonTaint()}, keyed, nil)
 }
 
+// WithoutCordonTolerations drops every toleration naming CordonTaintKey. Cordon tolerance is granted by
+// the policy alone (see ToleratesCordon), so user-supplied tolerations are filtered through this before
+// reaching a pod: a cordon toleration someone writes into a spec would otherwise read back as an opt-in
+// to NodeIneligibleReason while ToleratesCordon still refuses the pod, leaving a container planned onto
+// a node it can never run on. Callers assembling a toleration list by hand must filter it the same way.
+func WithoutCordonTolerations(tolerations []corev1.Toleration) []corev1.Toleration {
+	return slices.DeleteFunc(slices.Clone(tolerations), func(t corev1.Toleration) bool {
+		return t.Key == CordonTaintKey
+	})
+}
+
 // ToleratesCordon reports whether container may be placed on a cordoned node. Every cordon decision in
 // the operator goes through this rather than reading node.Spec.Unschedulable.
 //
@@ -1191,12 +1202,12 @@ func GetWekaPodTolerations(container *weka.WekaContainer, scheduling services.Sc
 		tolerations = ExpandNoScheduleTolerations(tolerations)
 	}
 
-	if scheduling.TolerateCordon && slices.Contains(cordonTolerantModes, container.Spec.Mode) {
+	if ToleratesCordon(container, scheduling) {
 		tolerations = append(tolerations, GetUnschedulableToleration())
 	}
 
 	// expand with custom tolerations
-	tolerations = append(tolerations, container.Spec.Tolerations...)
+	tolerations = append(tolerations, WithoutCordonTolerations(container.Spec.Tolerations)...)
 	return tolerations
 }
 
@@ -1212,8 +1223,13 @@ func WekaPodBaseTolerations() []corev1.Toleration { return wekaBaseTolerations()
 // compute containers never have that mode, so their tolerations reduce to exactly this — the base set plus
 // the cluster's tolerations/rawTolerations, the same inputs NewWekaContainerForWekaCluster
 // (internal/controllers/factory/container_factory.go) copies onto a new container's Spec.Tolerations.
+//
+// Drive and compute are absent from cordonTolerantModes, so the result must never cover a cordon — hence
+// the filter, which matches what GetWekaPodTolerations does to the same user input.
 func GetWekaPodTolerationsForCluster(cluster *weka.WekaCluster) []corev1.Toleration {
-	return k8sapiutil.ExpandTolerations(wekaBaseTolerations(), cluster.Spec.Tolerations, cluster.Spec.RawTolerations)
+	return WithoutCordonTolerations(
+		k8sapiutil.ExpandTolerations(wekaBaseTolerations(), cluster.Spec.Tolerations, cluster.Spec.RawTolerations),
+	)
 }
 
 // getSsdUidForAdhocOp returns the ssdproxy container UUID for a sign-drives adhoc op with
