@@ -207,7 +207,7 @@ helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | manager.tolerations | list | `[]` | Tolerations of the operator pod. When empty, the top-level `tolerations` are used. |
-| skipAuxNoScheduleToleration | bool | `false` | Aux pods (drivers, adhoc ops, telemetry) omit auto-generated NoSchedule tolerations. |
+| skipAuxNoScheduleToleration | bool | `false` | Aux pods (drivers, adhoc ops, telemetry) omit auto-generated NoSchedule tolerations (node discovery always tolerates every taint). |
 | skipClientNoScheduleToleration | bool | `false` | Client pods omit auto-generated NoSchedule tolerations. |
 | skipClientsTolerationValidation | bool | `true` | Skip taint/toleration validation for client containers, assuming all nodes tolerate all clients. |
 | skipUnhealthyToleration | bool | `false` | Pods omit standard "unhealthy node" tolerations (unschedulable, not-ready, unreachable). |

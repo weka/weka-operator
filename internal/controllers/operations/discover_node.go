@@ -55,9 +55,11 @@ func NewDiscoverNodeOperation(mgr ctrl.Manager, restClient rest.Interface, node 
 		image:          ownerDetails.Image,
 		pullSecret:     ownerDetails.ImagePullSecret,
 		serviceAccount: ownerDetails.ServiceAccountName,
-		tolerations:    ownerDetails.Tolerations,
-		result:         nil,
-		ownerRef:       ownerRef,
+		// discovery only reads node info and is a per-node singleton shared by owners with different
+		// toleration lists; inheriting one owner's list leaves it Pending on a node another owner needs
+		tolerations: []corev1.Toleration{{Operator: corev1.TolerationOpExists}},
+		result:      nil,
+		ownerRef:    ownerRef,
 	}
 }
 
