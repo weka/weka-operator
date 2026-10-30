@@ -25,6 +25,9 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
+// StatsStaleAfter is how old container stats may be before the node stops being CSI-accessible.
+const StatsStaleAfter = 5 * time.Minute
+
 type DeployCsiOperation struct {
 	client        client.Client
 	results       DeployCsiResult
@@ -450,7 +453,7 @@ func (s *CsiTopologyLabelsService) nodeIsCsiAccessible() bool {
 	processes := container.Status.Stats.Processes
 	allProcessesActive := processes.Active > 0 && processes.Active == processes.Desired
 
-	return allProcessesActive && time.Since(container.Status.Stats.LastUpdate.Time) < 5*time.Minute
+	return allProcessesActive && time.Since(container.Status.Stats.LastUpdate.Time) < StatsStaleAfter
 }
 
 // isDaemonSetRolledOut reports whether every desired pod of the DaemonSet has
