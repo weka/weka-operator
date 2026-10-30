@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
@@ -10,10 +11,15 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/weka/go-steps-engine/lifecycle"
+
+	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/services"
 )
 
 func newDiscoverNodeTestScheme(t *testing.T) *runtime.Scheme {
@@ -213,5 +219,50 @@ func TestEnsureContainers_CreatesWhenMissing(t *testing.T) {
 	}
 	if op.container.Spec.ServiceAccountName != op.serviceAccount {
 		t.Errorf("created with serviceAccount %q, want %q", op.container.Spec.ServiceAccountName, op.serviceAccount)
+	}
+}
+
+type discoverNodeTestManager struct {
+	ctrl.Manager
+	client client.Client
+	scheme *runtime.Scheme
+}
+
+func (m *discoverNodeTestManager) GetClient() client.Client   { return m.client }
+func (m *discoverNodeTestManager) GetScheme() *runtime.Scheme { return m.scheme }
+func (m *discoverNodeTestManager) GetConfig() *rest.Config    { return &rest.Config{} }
+
+func TestNewDiscoverNodeOperation_ToleratesEveryTaint(t *testing.T) {
+	scheme := newDiscoverNodeTestScheme(t)
+	mgr := &discoverNodeTestManager{client: fake.NewClientBuilder().WithScheme(scheme).Build(), scheme: scheme}
+	owner := &weka.WekaClient{ObjectMeta: metav1.ObjectMeta{Name: "builder", Namespace: "default"}}
+	details := &weka.WekaOwnerDetails{
+		Image:       "quay.io/weka.io/weka-in-container:4.5.0",
+		Tolerations: []corev1.Toleration{{Key: "gpu", Operator: corev1.TolerationOpExists}},
+	}
+
+	op := NewDiscoverNodeOperation(mgr, nil, "test-node", owner, details)
+	want := []corev1.Toleration{{Operator: corev1.TolerationOpExists}}
+	if !reflect.DeepEqual(op.tolerations, want) {
+		t.Fatalf("discovery tolerations = %v, want %v", op.tolerations, want)
+	}
+
+	ready := []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
+	tainted := &corev1.Node{
+		Spec:   corev1.NodeSpec{Taints: []corev1.Taint{{Key: "example.com/hold", Value: "true", Effect: corev1.TaintEffectNoExecute}}},
+		Status: corev1.NodeStatus{Conditions: ready},
+	}
+	cordoned := &corev1.Node{
+		Spec:   corev1.NodeSpec{Unschedulable: true, Taints: []corev1.Taint{resources.CordonTaint()}},
+		Status: corev1.NodeStatus{Conditions: ready},
+	}
+	container := &weka.WekaContainer{Spec: weka.WekaContainerSpec{Mode: weka.WekaContainerModeDiscovery, Tolerations: op.tolerations}}
+
+	podTolerations := resources.GetWekaPodTolerations(container, services.SchedulingSettings{})
+	if reason := resources.NodeIneligibleReason(tainted, podTolerations); reason != "" {
+		t.Errorf("custom NoExecute taint not tolerated: %q", reason)
+	}
+	if reason := resources.NodeIneligibleReason(cordoned, podTolerations); reason != "cordoned" {
+		t.Errorf("keyless Exists must not cover cordon, got %q", reason)
 	}
 }

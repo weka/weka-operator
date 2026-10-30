@@ -189,6 +189,14 @@ spec:
 
 Both the builder (`weka driver pack`) and the loader (`weka driver download` / `weka driver install`) pass `--kernel-build-id nixos-gcc<major>` (e.g. `--kernel-build-id nixos-gcc15`), so NixOS drivers never collide with another distro's build, or another gcc major's build, at the same upstream kernel version.
 
+## Tolerations
+
+The policy's `tolerations` apply to its drivers-builder and drivers-dist containers. The node discovery
+container (`weka-dsc-<node>`) does not use them: it tolerates every taint regardless of
+`skipAuxNoScheduleToleration`, and is not evicted from a NotReady node even with
+`skipUnhealthyToleration`. Cordon is governed only by `scheduling.tolerateCordon` (see
+[Cordoned nodes](#cordoned-nodes)).
+
 ## Cordoned nodes
 
 A cordon taints the node `node.kubernetes.io/unschedulable:NoSchedule`. By default that holds every

@@ -306,7 +306,7 @@ skipUnhealthyToleration: false
 # -- Client pods omit auto-generated NoSchedule tolerations.
 # @section -- Tolerations
 skipClientNoScheduleToleration: false
-# -- Aux pods (drivers, adhoc ops, telemetry) omit auto-generated NoSchedule tolerations.
+# -- Aux pods (drivers, adhoc ops, telemetry) omit auto-generated NoSchedule tolerations (node discovery always tolerates every taint).
 # @section -- Tolerations
 skipAuxNoScheduleToleration: false
 # -- Disable all operator management of the AWS ASG termination lifecycle hook (detection and
