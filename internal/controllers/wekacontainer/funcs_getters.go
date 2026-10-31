@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1/condition"
@@ -428,31 +430,26 @@ func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context, nodeName weka
 	return discoverNodeOp.GetResult(), nil
 }
 
-func (r *containerReconcilerLoop) pickMatchingNode(ctx context.Context) (*v1.Node, error) {
+// pickMatchingNode also returns the matching nodes the pod must be kept off: policies often tolerate every
+// taint (`operator: Exists`), not-ready/unreachable included, so without an explicit NotIn the pod could
+// bind to a NotReady node.
+func (r *containerReconcilerLoop) pickMatchingNode(ctx context.Context) (*v1.Node, []string, error) {
 	// HACK: Since we don't really know the node affinity, we will try to discover it by labels
 	// Assuming, that supplied labels represent unique type of machines
 	// this puts a requirement on user to separate machines by labels, which is common approach
 	nodes, err := r.KubeService.GetNodes(ctx, r.container.Spec.NodeSelector)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(nodes) == 0 {
-		return nil, errors.New("no matching nodes found")
+		return nil, nil, errors.New("no matching nodes found")
 	}
-
-	// if container has affinity, try to find node that satisfies it
-	if r.container.Spec.Affinity != nil {
-		for i := range nodes {
-			if kubernetes.NodeSatisfiesAffinity(&nodes[i], r.container.Spec.Affinity) {
-				return &nodes[i], nil
-			}
-		}
-	} else {
-		// if no affinity, return first node from the list
-		return &nodes[0], nil
+	eligible, ineligible := resources.SplitMatchingNodes(nodes, r.container, r.scheduling)
+	if len(eligible) == 0 {
+		err = errors.Errorf("none of the %d nodes matching the nodeSelector and affinity is ready, schedulable and tolerated", len(ineligible))
+		return nil, nil, lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
 	}
-
-	return nil, errors.New("no matching nodes found")
+	return &eligible[0], ineligible, nil
 }
 
 func (r *containerReconcilerLoop) getFrontendPodsOnNode(ctx context.Context, nodeName string) ([]v1.Pod, error) {

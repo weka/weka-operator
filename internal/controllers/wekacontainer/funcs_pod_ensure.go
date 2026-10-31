@@ -56,6 +56,7 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	nodeInfo := &discovery.DiscoveryNodeInfo{}
 	var err error
 	var nodeAffinity weka.NodeName
+	var avoidNodes []string
 
 	if !container.IsDiscoveryContainer() {
 		// nodeName can be already set in the spec
@@ -63,7 +64,7 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 
 		if nodeAffinity == "" {
 			var node *v1.Node
-			node, err = r.pickMatchingNode(ctx)
+			node, avoidNodes, err = r.pickMatchingNode(ctx)
 			if err != nil {
 				return err
 			}
@@ -104,6 +105,7 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	excludeNodes(desiredPod, avoidNodes)
 
 	// Annotate with discovery snapshot so we can detect node-info mismatch on reconcile.
 	if !container.IsDiscoveryContainer() {
@@ -262,4 +264,19 @@ func (r *containerReconcilerLoop) handleImageMismatch(ctx context.Context) error
 		return r.handleImageUpdate(ctx)
 	}
 	return nil
+}
+
+// excludeNodes adds the exclusions to every term: required node-selector terms are ORed. Node names are
+// matched by metadata.name (the hostname label can differ), and a field requirement takes a single value.
+func excludeNodes(pod *v1.Pod, nodeNames []string) {
+	terms := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	for i := range terms {
+		for _, name := range nodeNames {
+			terms[i].MatchFields = append(terms[i].MatchFields, v1.NodeSelectorRequirement{
+				Key:      "metadata.name",
+				Operator: v1.NodeSelectorOpNotIn,
+				Values:   []string{name},
+			})
+		}
+	}
 }

@@ -54,8 +54,8 @@
         <summary>Guide for provisioning Weka clusters in Oracle Cloud Infrastructure (OCI) using Oracle Kubernetes Engine (OKE). Covers OKE setup requirements, node pool configuration, VNIC configuration, secrets management, and port configuration.</summary>
     </file>
     <file relpath="operator/deployment/driver-distribution.md">
-        <tags>driver distribution, drivers-dist, drivers-builder, wekacontainer, service, helm install, quay.io, imagePullSecret, mode, numCores, port, uploadResultsTo, preRunScript, nodeAffinity, nodeSelector</tags>
-        <summary>Explains the driver distribution service and driver builder components, including example YAML for setting them up as WekaContainers and associated Service. Notes on matching versions and scheduling considerations are included.</summary>
+        <tags>driver distribution, drivers-dist, drivers-builder, wekacontainer, service, helm install, quay.io, imagePullSecret, mode, numCores, port, uploadResultsTo, preRunScript, nodeAffinity, nodeSelector, placement, NotReady, NoEligibleNode, DriversBuilderReplaced</tags>
+        <summary>Explains the driver distribution service and driver builder components, including example YAML for setting them up as WekaContainers and associated Service. Notes on matching versions and scheduling considerations are included, plus how the operator places and moves policy builder and dist containers off ineligible nodes.</summary>
     </file>
     <file relpath="operator/deployment/embedded-csi.md">
         <tags>embedded CSI, CSI deployment, CSI driver, StorageClass, CSI controller, CSI node server, targetCluster, csiConfig, lifecycle management, migration</tags>

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -22,10 +24,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apiserver/pkg/storage/names"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/drivers"
 	"github.com/weka/weka-operator/internal/services"
@@ -99,12 +103,15 @@ type EnsureDistServiceOperation struct {
 	failureCallback  lifecycle.StepFunc
 	mgr              ctrl.Manager
 	kubeService      kubernetes.KubeService
+	recorder         events.EventRecorder
+	throttler        throttling.Throttler
 
 	// Internal state
 	distContainerName   string                    // Name of the drivers-dist container
 	discoveredNodesAttr map[string]nodeAttributes // nodeName -> attributes
 	discoveredImages    map[string]bool           // imageName -> true
 	targetKernelArchs   map[string]nodeAttributes // unique kernel/arch pairs, key is na.StringKey()
+	builderNames        map[string]string         // builderKey -> name resolved in this pass
 	mutex               sync.Mutex
 }
 
@@ -116,6 +123,8 @@ func NewEnsureDistServiceOperation(
 	ownerStatus string,
 	successCallback lifecycle.StepFunc,
 	failureCallback lifecycle.StepFunc,
+	recorder events.EventRecorder,
+	throttler throttling.Throttler,
 ) *EnsureDistServiceOperation {
 	return &EnsureDistServiceOperation{
 		client:              mgr.GetClient(),
@@ -128,9 +137,12 @@ func NewEnsureDistServiceOperation(
 		successCallback:     successCallback,
 		failureCallback:     failureCallback,
 		kubeService:         kubernetes.NewKubeService(mgr.GetClient()),
+		recorder:            recorder,
+		throttler:           throttler,
 		discoveredNodesAttr: make(map[string]nodeAttributes),
 		discoveredImages:    make(map[string]bool),
 		targetKernelArchs:   make(map[string]nodeAttributes),
+		builderNames:        make(map[string]string),
 	}
 }
 
@@ -483,69 +495,106 @@ func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) er
 		return err
 	}
 	logger.Info("Drivers distribution (dist) container ensured")
+	o.warnIfNoEligibleNode(ctx, wc, "drivers-dist")
 	return nil
 }
 
 func (o *EnsureDistServiceOperation) DeleteIfNodeIneligible(ctx context.Context, container *weka.WekaContainer) error {
+	nodeName, reason, err := deleteIfNodeIneligible(ctx, o.client, container.Namespace, container.Name)
+	if err != nil || reason == "" {
+		return err
+	}
+	return lifecycle.NewWaitErrorWithDuration(
+		fmt.Errorf("node %s is %s, deleted dist container %s", nodeName, reason, container.Name),
+		time.Second*10,
+	)
+}
+
+// deleteIfNodeIneligible deletes the drivers container pinned to a node that can no longer host it and
+// returns that node and why; reason is "" when the container is kept. A Completed builder has no pod
+// left to move and is never deleted.
+func deleteIfNodeIneligible(ctx context.Context, c client.Client, namespace, name string) (nodeName weka.NodeName, reason string, err error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "HandleNodeIneligible")
 	defer logger.End()
 
 	var wc weka.WekaContainer
-	err := o.client.Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: container.Name}, &wc)
-	if err != nil && apierrors.IsNotFound(err) {
-		return nil // Container does not exist, nothing to delete
+	err = c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &wc)
+	if apierrors.IsNotFound(err) {
+		return "", "", nil
 	}
 	if err != nil {
-		return fmt.Errorf("failed to get WekaContainer %s: %w", container.Name, err)
+		return "", "", fmt.Errorf("failed to get WekaContainer %s: %w", name, err)
+	}
+	if wc.Spec.Mode == weka.WekaContainerModeDriversBuilder && wc.Status.Status == weka.Completed {
+		return "", "", nil
 	}
 
-	// check dist container's node state and delete container if node is not ready
-	nodeName := wc.GetNodeAffinity()
+	nodeName = wc.GetNodeAffinity()
 	if nodeName == "" {
-		logger.Info("Dist container has no node affinity set, skipping node readiness check", "container", wc.Name)
-		return nil
+		logger.Info("Container has no node affinity set, skipping node readiness check", "container", wc.Name)
+		return "", "", nil
 	}
 
 	node := &corev1.Node{}
-	if err := o.client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Info("Node not found, deleting dist container", "container", wc.Name, "node", nodeName)
-			deleteErr := o.client.Delete(ctx, &wc)
-
-			return lifecycle.NewWaitErrorWithDuration(
-				fmt.Errorf("node %s not found, deleting dist container %s, err: %w", nodeName, wc.Name, deleteErr),
-				time.Second*10,
-			)
+	if err := c.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return "", "", fmt.Errorf("failed to get node %s: %w", nodeName, err)
 		}
-		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
-	}
-
-	scheduling := services.GetSettings(ctx).Scheduling
-	reason := resources.NodeIneligibleReason(node, resources.GetWekaPodTolerations(&wc, scheduling))
-	if reason != "" && resources.NodeIsReady(node) {
-		// A cordon or NoSchedule taint doesn't evict a pod already bound to the node; only reschedule
-		// when no live pod is bound (missing, terminated, or evicted by a NoExecute taint).
-		pod := &corev1.Pod{}
-		err := o.client.Get(ctx, client.ObjectKey{Namespace: wc.Namespace, Name: wc.Name}, pod)
-		if err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("failed to get dist pod %s: %w", wc.Name, err)
-		}
-		if err == nil && pod.Spec.NodeName != "" && pod.DeletionTimestamp == nil &&
-			pod.Status.Phase != corev1.PodFailed && pod.Status.Phase != corev1.PodSucceeded {
-			reason = ""
+		reason = "not found"
+	} else {
+		scheduling := services.GetSettings(ctx).Scheduling
+		reason = resources.NodeIneligibleReason(node, resources.GetWekaPodTolerations(&wc, scheduling))
+		if reason != "" && resources.NodeIsReady(node) {
+			// A cordon or NoSchedule taint doesn't evict a pod already bound to the node; only reschedule
+			// when no live pod is bound (missing, terminated, or evicted by a NoExecute taint).
+			pod := &corev1.Pod{}
+			err := c.Get(ctx, client.ObjectKey{Namespace: wc.Namespace, Name: wc.Name}, pod)
+			if err != nil && !apierrors.IsNotFound(err) {
+				return "", "", fmt.Errorf("failed to get pod %s: %w", wc.Name, err)
+			}
+			if err == nil && pod.Spec.NodeName != "" && pod.DeletionTimestamp == nil &&
+				pod.Status.Phase != corev1.PodFailed && pod.Status.Phase != corev1.PodSucceeded {
+				reason = ""
+			}
 		}
 	}
-	if reason != "" {
-		logger.Info("Node is ineligible, deleting dist container", "container", wc.Name, "node", nodeName, "reason", reason)
-		deleteErr := o.client.Delete(ctx, &wc)
-
-		return lifecycle.NewWaitErrorWithDuration(
-			fmt.Errorf("node %s is %s, deleting dist container %s, err: %w", nodeName, reason, wc.Name, deleteErr),
-			time.Second*10,
-		)
+	if reason == "" {
+		return "", "", nil
 	}
 
-	return nil
+	logger.Info("Node is ineligible, deleting container", "container", wc.Name, "node", nodeName, "reason", reason)
+	if err := c.Delete(ctx, &wc); err != nil && !apierrors.IsNotFound(err) {
+		return "", "", fmt.Errorf("node %s is %s, failed to delete container %s: %w", nodeName, reason, wc.Name, err)
+	}
+	return nodeName, reason, nil
+}
+
+// warnIfNoEligibleNode reports on the policy a drivers container that has no node to be placed on.
+func (o *EnsureDistServiceOperation) warnIfNoEligibleNode(ctx context.Context, wc *weka.WekaContainer, target string) {
+	if wc.Status.Status == weka.Completed || wc.GetNodeAffinity() != "" {
+		return
+	}
+	var nodes corev1.NodeList
+	if err := o.client.List(ctx, &nodes, client.MatchingLabels(wc.Spec.NodeSelector)); err != nil {
+		instrumentation.CurrentSpanLogger(ctx).Error(err, "Failed to list nodes to check placement", "container", wc.Name)
+		return
+	}
+	eligible, ineligible := resources.SplitMatchingNodes(nodes.Items, wc, services.GetSettings(ctx).Scheduling)
+	if len(eligible) == 0 {
+		o.recordEventThrottled("NoEligibleNode", wc.Name, fmt.Sprintf(
+			"%s: none of the %d nodes matching its nodeSelector and affinity is ready, schedulable and tolerated (%s)",
+			wc.Name, len(ineligible), target))
+	}
+}
+
+func (o *EnsureDistServiceOperation) recordEventThrottled(reason, containerName, message string) {
+	if !o.throttler.ShouldRun(reason+"/"+containerName, &throttling.ThrottlingSettings{
+		Interval:                    5 * time.Minute,
+		DisableRandomPreSetInterval: true,
+	}) {
+		return
+	}
+	util.RecordEvent(o.recorder, o.policy, corev1.EventTypeWarning, reason, consts.ActionScheduleContainers, message)
 }
 
 func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context) error {
@@ -569,8 +618,23 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 
 	for image := range o.discoveredImages {
 		for _, ka := range o.targetKernelArchs {
-			builderName := o.getBuilderContainerName(ctx, image, ka.kernelVersion, ka.architecture, ka.osImage)
 			namespace := o.policy.GetNamespace()
+			builderName, err := o.getBuilderContainerName(ctx, image, ka)
+			if err != nil {
+				logger.Error(err, "Failed to resolve builder container name", "image", image, "kernel", ka.kernelVersion)
+				continue
+			}
+			nodeName, reason, err := deleteIfNodeIneligible(ctx, o.client, namespace, builderName)
+			if err != nil {
+				logger.Error(err, "Failed to check builder container node", "builder", builderName)
+				continue
+			}
+			if reason != "" {
+				// replaced under a new name on the next pass, see getBuilderContainerName
+				o.recordEventThrottled("DriversBuilderReplaced", builderName, fmt.Sprintf(
+					"%s: node %s is %s, replacing the builder", builderName, nodeName, reason))
+				continue
+			}
 
 			wc := &weka.WekaContainer{
 				ObjectMeta: metav1.ObjectMeta{
@@ -664,9 +728,11 @@ fi
 			if err != nil {
 				logger.Error(err, "Failed to create or update builder container", "builder", builderName)
 				// Continue with other builders
-			} else {
-				logger.Info("Ensured builder container", "builder", builderName)
+				continue
 			}
+			logger.Info("Ensured builder container", "builder", builderName)
+			target := fmt.Sprintf("kernel %s, arch %s, os %s", ka.kernelVersion, ka.architecture, ka.osImage)
+			o.warnIfNoEligibleNode(ctx, wc, target)
 		}
 	}
 	return nil
@@ -712,7 +778,11 @@ func (o *EnsureDistServiceOperation) PollBuilderContainersStatus(ctx context.Con
 	activeBuilders := make(map[string]bool)
 	for image := range o.discoveredImages {
 		for _, ka := range o.targetKernelArchs {
-			activeBuilders[o.getBuilderContainerName(ctx, image, ka.kernelVersion, ka.architecture, ka.osImage)] = true
+			name, err := o.getBuilderContainerName(ctx, image, ka)
+			if err != nil {
+				return err
+			}
+			activeBuilders[name] = true
 		}
 	}
 
@@ -768,7 +838,11 @@ func (o *EnsureDistServiceOperation) CleanupOldBuilderContainers(ctx context.Con
 	currentBuilders := make(map[string]bool)
 	for image := range o.discoveredImages {
 		for _, ka := range o.targetKernelArchs {
-			currentBuilders[o.getBuilderContainerName(ctx, image, ka.kernelVersion, ka.architecture, ka.osImage)] = true
+			name, err := o.getBuilderContainerName(ctx, image, ka)
+			if err != nil {
+				return err
+			}
+			currentBuilders[name] = true
 		}
 	}
 
@@ -817,12 +891,19 @@ func (o *EnsureDistServiceOperation) getDistContainerLabels() map[string]string 
 
 func (o *EnsureDistServiceOperation) getBuilderContainerLabels(image, kernel, arch, osImage string) map[string]string {
 	labelMap := o.getCommonLabels()
-	labelMap["weka.io/mode"] = weka.WekaContainerModeDriversBuilder
-	labelMap["weka.io/target-image-hash"] = hashFNV(image) // To avoid overly long label values
-	labelMap["weka.io/target-kernel"] = strings.ReplaceAll(kernel, ".", "-")
-	labelMap["weka.io/target-arch"] = arch
-	labelMap["weka.io/target-os"] = sanitizeOsImageForLabel(osImage)
+	maps.Copy(labelMap, o.getBuilderTargetLabels(image, kernel, arch, osImage))
 	return labelMap
+}
+
+func (o *EnsureDistServiceOperation) getBuilderTargetLabels(image, kernel, arch, osImage string) map[string]string {
+	return map[string]string{
+		PolicyNameLabelKey:          o.policy.GetName(),
+		"weka.io/mode":              weka.WekaContainerModeDriversBuilder,
+		"weka.io/target-image-hash": hashFNV(image), // To avoid overly long label values
+		"weka.io/target-kernel":     strings.ReplaceAll(kernel, ".", "-"),
+		"weka.io/target-arch":       arch,
+		"weka.io/target-os":         sanitizeOsImageForLabel(osImage),
+	}
 }
 
 func (o *EnsureDistServiceOperation) getOldBuilderContainerName(image, kernel, arch string) string {
@@ -856,30 +937,48 @@ func (o *EnsureDistServiceOperation) getOldBuilderContainerName(image, kernel, a
 	return name
 }
 
-func (o *EnsureDistServiceOperation) getBuilderContainerName(ctx context.Context, image, kernel, arch,
-	osImage string) string {
-	oldBuilderName := o.getOldBuilderContainerName(image, kernel, arch)
+// getBuilderContainerName returns the builder for this target, memoized for the pass so the poll step
+// counts the builders this pass ensured. A builder moved off its node stays Deleting until that node
+// returns (its pod cannot terminate before), so its replacement takes a generated name, as dist does.
+func (o *EnsureDistServiceOperation) getBuilderContainerName(ctx context.Context, image string, ka nodeAttributes) (string, error) {
+	key := strings.Join([]string{image, ka.kernelVersion, ka.architecture, ka.osImage}, "|")
+	if name, ok := o.builderNames[key]; ok {
+		return name, nil
+	}
 	namespace := o.policy.GetNamespace()
 
-	wc := &weka.WekaContainer{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      oldBuilderName,
-			Namespace: namespace,
-		},
+	oldBuilderName := o.getOldBuilderContainerName(image, ka.kernelVersion, ka.architecture)
+	var old weka.WekaContainer
+	err := o.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: oldBuilderName}, &old)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return "", fmt.Errorf("failed to get builder container %s: %w", oldBuilderName, err)
+	}
+	if err == nil && old.DeletionTimestamp == nil {
+		o.builderNames[key] = oldBuilderName
+		return oldBuilderName, nil
 	}
 
-	err := o.client.Get(
-		ctx,
-		client.ObjectKey{
-			Namespace: namespace,
-			Name:      oldBuilderName,
-		},
-		wc,
-	)
-
-	if err == nil {
-		return oldBuilderName
+	var builders weka.WekaContainerList
+	err = o.client.List(ctx, &builders, client.InNamespace(namespace),
+		client.MatchingLabels(o.getBuilderTargetLabels(image, ka.kernelVersion, ka.architecture, ka.osImage)))
+	if err != nil {
+		return "", fmt.Errorf("failed to list builder containers: %w", err)
 	}
+	all := make([]*weka.WekaContainer, len(builders.Items))
+	for i := range builders.Items {
+		all[i] = &builders.Items[i]
+	}
+	var name string
+	if live := discovery.SelectNonDeletedWekaContainers(all); len(live) > 0 {
+		name = live[0].Name
+	} else {
+		name = names.SimpleNameGenerator.GenerateName(o.getNewBuilderContainerName(image, ka.kernelVersion, ka.architecture, ka.osImage) + "-")
+	}
+	o.builderNames[key] = name
+	return name, nil
+}
+
+func (o *EnsureDistServiceOperation) getNewBuilderContainerName(image, kernel, arch, osImage string) string {
 	// Name must be DNS-1123 compliant
 	imgArchHash := hashFNV(image + arch)
 	normalizedOs := drivers.NormalizeOSImageName(osImage)
