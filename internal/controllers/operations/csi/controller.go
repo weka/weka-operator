@@ -288,7 +288,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 		provisionerArgs = append(provisionerArgs, httpEndpointArg(ProvisionerMetricsPort))
 		resizerArgs = append(resizerArgs, httpEndpointArg(ResizerMetricsPort))
 		snapshotterArgs = append(snapshotterArgs, httpEndpointArg(SnapshotterMetricsPort))
-		attacherPorts = []corev1.ContainerPort{metricsContainerPort(AttacherMetricsPort, "pr-metrics")}
+		attacherPorts = []corev1.ContainerPort{metricsContainerPort(AttacherMetricsPort, "at-metrics")}
 		provisionerPorts = []corev1.ContainerPort{metricsContainerPort(ProvisionerMetricsPort, "pr-metrics")}
 		resizerPorts = []corev1.ContainerPort{metricsContainerPort(ResizerMetricsPort, "rs-metrics")}
 		snapshotterPorts = []corev1.ContainerPort{metricsContainerPort(SnapshotterMetricsPort, "sn-metrics")}
