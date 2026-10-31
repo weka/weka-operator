@@ -1830,48 +1830,58 @@ func (f *PodFactory) initAffinities(ctx context.Context, affinity *corev1.Affini
 		Values:   []string{"linux"},
 	}
 
-	if result.NodeAffinity == nil {
-		result.NodeAffinity = &corev1.NodeAffinity{
-			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-				NodeSelectorTerms: []corev1.NodeSelectorTerm{
-					{
-						MatchExpressions: []corev1.NodeSelectorRequirement{
-							osRequired,
-						},
-					},
-				},
-			},
-		}
-	} else {
-		matchExpression := result.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions
-		matchExpression = append(matchExpression, osRequired)
-		result.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions = matchExpression
-	}
+	requireOnEveryTerm(result, osRequired)
 
 	return result
 }
 
+// requireOnEveryTerm ANDs reqs into every required node-selector term: the terms are ORed, so a requirement
+// added to one term only would let the other terms admit nodes that do not meet it. An empty term matches no
+// node and is left empty, so it does not become a match-all branch; a term is created only when the
+// required affinity is absent.
+func requireOnEveryTerm(affinity *corev1.Affinity, reqs ...corev1.NodeSelectorRequirement) {
+	if affinity.NodeAffinity == nil {
+		affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	na := affinity.NodeAffinity
+	if na.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+		na.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{}}}
+		terms := na.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+		terms[0].MatchExpressions = append(terms[0].MatchExpressions, reqs...)
+		return
+	}
+	terms := na.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	for i := range terms {
+		if IsEmptyNodeSelectorTerm(terms[i]) {
+			continue
+		}
+		terms[i].MatchExpressions = append(terms[i].MatchExpressions, reqs...)
+	}
+}
+
+// IsEmptyNodeSelectorTerm reports a term with no requirements, which Kubernetes treats as matching no node.
+func IsEmptyNodeSelectorTerm(term corev1.NodeSelectorTerm) bool {
+	return len(term.MatchExpressions) == 0 && len(term.MatchFields) == 0
+}
+
 func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 	//TODO: Set high priority class for node-bound containers
-	matchExpression := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions
+	var required []corev1.NodeSelectorRequirement
 	if f.container.GetNodeAffinity() != "" {
-		matchExpression = append(matchExpression, corev1.NodeSelectorRequirement{
+		required = append(required, corev1.NodeSelectorRequirement{
 			Key:      "kubernetes.io/hostname",
 			Operator: corev1.NodeSelectorOpIn,
 			Values:   []string{string(f.container.GetNodeAffinity())},
 		})
 	}
-	if len(f.container.Spec.NodeSelector) != 0 {
-		for k, v := range f.container.Spec.NodeSelector {
-			matchExpression = append(matchExpression, corev1.NodeSelectorRequirement{
-				Key:      k,
-				Operator: corev1.NodeSelectorOpIn,
-				Values:   []string{v},
-			})
-		}
+	for k, v := range f.container.Spec.NodeSelector {
+		required = append(required, corev1.NodeSelectorRequirement{
+			Key:      k,
+			Operator: corev1.NodeSelectorOpIn,
+			Values:   []string{v},
+		})
 	}
-
-	pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions = matchExpression
+	requireOnEveryTerm(pod.Spec.Affinity, required...)
 
 	clusterId := f.container.GetParentClusterId()
 	if (f.container.IsAllocatable() || f.container.IsClientContainer()) && !f.container.Spec.NoAffinityConstraints {
