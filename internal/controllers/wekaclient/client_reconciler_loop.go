@@ -1698,6 +1698,14 @@ func (c *clientReconcilerLoop) DeployCsiNodeDaemonSetForClient(ctx context.Conte
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "DeployCsiNodeDaemonSetForClient")
 	defer logger.End()
 
+	existing, err := c.getExistingCsiNodeDaemonSet(ctx)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		return nil
+	}
+
 	daemonSetSpec, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient, c.wekaClient.Name, c.wekaClient.Namespace, c.nodes, services.GetSettings(ctx).Csi)
 	if err != nil {
 		return err
