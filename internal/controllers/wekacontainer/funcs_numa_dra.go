@@ -86,7 +86,7 @@ func (r *containerReconcilerLoop) numaClaimCPUCount(ctx context.Context) (int, e
 	} else if aff := container.GetNodeAffinity(); aff != "" {
 		nodeAffinity = aff
 	} else {
-		node, err := r.pickMatchingNode(ctx)
+		node, _, err := r.pickMatchingNode(ctx)
 		if err != nil {
 			return 0, err
 		}

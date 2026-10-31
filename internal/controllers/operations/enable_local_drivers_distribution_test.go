@@ -2,14 +2,17 @@ package operations
 
 import (
 	"context"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/weka/go-steps-engine/throttling"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -141,6 +144,7 @@ var _ = Describe("EnsureBuilderContainers", func() {
 				ServiceAccountName: serviceAccountName,
 			},
 			discoveredImages: map[string]bool{image1: true, image2: true},
+			builderNames:     map[string]string{},
 			targetKernelArchs: map[string]nodeAttributes{
 				"key1": {
 					kernelVersion: kernel,
@@ -154,41 +158,30 @@ var _ = Describe("EnsureBuilderContainers", func() {
 		err := op.EnsureBuilderContainers(ctx)
 		Expect(err).NotTo(HaveOccurred())
 
-		// Compute expected new-format names
-		// Format: {policyName}-builder-{hashFNV(image+arch)}-{normalizedOs}-{kernelNorm}
-		kernelNorm := "5-15-0-100-generic"
-		normalizedOs := "ubuntu-22-04" // NormalizeOSImageName("Ubuntu 22.04.5 LTS")
-		expectedName1 := "test-policy-builder-" + hashFNV(image1+arch) + "-" + normalizedOs + "-" + kernelNorm
-		expectedName2 := "test-policy-builder-" + hashFNV(image2+arch) + "-" + normalizedOs + "-" + kernelNorm
+		// Format: {policyName}-builder-{hashFNV(image+arch)}-{normalizedOs}-{kernelNorm}-{random}
+		suffix := "-ubuntu-22-04-5-15-0-1" // GenerateName keeps the first 58 characters of the base
+		prefix1 := "test-policy-builder-" + hashFNV(image1+arch) + suffix
+		prefix2 := "test-policy-builder-" + hashFNV(image2+arch) + suffix
 
-		// Verify both builders were created
 		var allContainers weka.WekaContainerList
 		err = fakeClient.List(ctx, &allContainers, &client.ListOptions{Namespace: namespace})
 		Expect(err).NotTo(HaveOccurred())
 
-		builderNames := []string{}
+		imageByPrefix := map[string]string{prefix1: image1, prefix2: image2}
+		found := map[string]bool{}
 		for _, wc := range allContainers.Items {
-			if wc.Spec.Mode == weka.WekaContainerModeDriversBuilder {
-				builderNames = append(builderNames, wc.Name)
+			if wc.Spec.Mode != weka.WekaContainerModeDriversBuilder {
+				continue
+			}
+			Expect(wc.Spec.ServiceAccountName).To(Equal(serviceAccountName))
+			for prefix, image := range imageByPrefix {
+				if strings.HasPrefix(wc.Name, prefix) {
+					Expect(wc.Spec.Image).To(Equal(image))
+					found[prefix] = true
+				}
 			}
 		}
-
-		Expect(builderNames).To(HaveLen(2), "Exactly two builder containers should be created")
-		Expect(builderNames).To(ContainElement(expectedName1))
-		Expect(builderNames).To(ContainElement(expectedName2))
-
-		// Verify each builder has the correct image and service account in its spec
-		for _, wc := range allContainers.Items {
-			if wc.Spec.Mode == weka.WekaContainerModeDriversBuilder {
-				Expect(wc.Spec.ServiceAccountName).To(Equal(serviceAccountName))
-			}
-			if wc.Name == expectedName1 {
-				Expect(wc.Spec.Image).To(Equal(image1))
-			}
-			if wc.Name == expectedName2 {
-				Expect(wc.Spec.Image).To(Equal(image2))
-			}
-		}
+		Expect(found).To(HaveLen(2), "one builder per ensureImage, named by its target")
 	})
 
 	It("should reuse an existing old-name builder container instead of creating a new one", func() {
@@ -240,6 +233,7 @@ var _ = Describe("EnsureBuilderContainers", func() {
 				Image: image,
 			},
 			discoveredImages: map[string]bool{image: true},
+			builderNames:     map[string]string{},
 			targetKernelArchs: map[string]nodeAttributes{
 				"key1": {
 					kernelVersion: kernel,
@@ -538,4 +532,118 @@ var _ = Describe("DeleteIfNodeIneligible", func() {
 			true,
 		),
 	)
+})
+
+var _ = Describe("EnsureBuilderContainers on an ineligible node", func() {
+	const (
+		namespace = "default"
+		image     = "quay.io/weka.io/weka-in-container:4.5.0.100"
+		kernel    = "5.15.0-100-generic"
+		arch      = "amd64"
+		osImage   = "Ubuntu 22.04.5 LTS"
+	)
+
+	var (
+		ctx    context.Context
+		scheme *runtime.Scheme
+		policy *weka.WekaPolicy
+		ka     nodeAttributes
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme = runtime.NewScheme()
+		Expect(weka.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		policy = &weka.WekaPolicy{ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: namespace, UID: "test-policy-uid"}}
+		ka = nodeAttributes{kernelVersion: kernel, architecture: arch, osImage: osImage}
+		origNamespace := config.Config.OperatorPodNamespace
+		config.Config.OperatorPodNamespace = "weka-operator-system"
+		DeferCleanup(func() { config.Config.OperatorPodNamespace = origNamespace })
+		Expect(services.RefreshSettings(ctx, fake.NewClientBuilder().WithScheme(scheme).Build())).To(Succeed())
+	})
+
+	newOp := func(c client.Client, recorder events.EventRecorder) *EnsureDistServiceOperation {
+		return &EnsureDistServiceOperation{
+			client:            c,
+			scheme:            scheme,
+			policy:            policy,
+			payload:           &weka.DriverDistPayload{},
+			containerDetails:  weka.WekaOwnerDetails{Image: image},
+			recorder:          recorder,
+			throttler:         throttling.NewSyncMapThrottler(),
+			discoveredImages:  map[string]bool{image: true},
+			targetKernelArchs: map[string]nodeAttributes{"key1": ka},
+			builderNames:      map[string]string{},
+		}
+	}
+
+	// The builder is pinned to a NotReady node and holds a finalizer, as a live one does while its
+	// pod stays Terminating on that node.
+	setup := func(status weka.ContainerStatus) (client.Client, string) {
+		op := newOp(nil, nil)
+		baseName := op.getNewBuilderContainerName(image, kernel, arch, osImage)
+		builder := &weka.WekaContainer{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       baseName,
+				Namespace:  namespace,
+				Labels:     op.getBuilderContainerLabels(image, kernel, arch, osImage),
+				Finalizers: []string{"weka.weka.io/finalizer"},
+			},
+			Spec:   weka.WekaContainerSpec{Mode: weka.WekaContainerModeDriversBuilder, Image: image},
+			Status: weka.WekaContainerStatus{Status: status, NodeAffinity: "node-x"},
+		}
+		node := &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "node-x"},
+			Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionFalse}}},
+		}
+		return fake.NewClientBuilder().WithScheme(scheme).WithObjects(builder, node).Build(), baseName
+	}
+
+	listBuilders := func(c client.Client) []weka.WekaContainer {
+		var list weka.WekaContainerList
+		Expect(c.List(ctx, &list, client.InNamespace(namespace),
+			client.MatchingLabels{"weka.io/mode": weka.WekaContainerModeDriversBuilder})).To(Succeed())
+		return list.Items
+	}
+
+	It("deletes a non-Completed builder and replaces it under a new name", func() {
+		c, baseName := setup(weka.Building)
+		recorder := events.NewFakeRecorder(10)
+
+		Expect(newOp(c, recorder).EnsureBuilderContainers(ctx)).To(Succeed())
+		builders := listBuilders(c)
+		Expect(builders).To(HaveLen(1))
+		Expect(builders[0].DeletionTimestamp).NotTo(BeNil())
+		Expect(<-recorder.Events).To(ContainSubstring("Warning DriversBuilderReplaced"))
+
+		Expect(newOp(c, recorder).EnsureBuilderContainers(ctx)).To(Succeed())
+		builders = listBuilders(c)
+		Expect(builders).To(HaveLen(2))
+		var replacement string
+		for _, b := range builders {
+			if b.Name != baseName {
+				replacement = b.Name
+			}
+		}
+		Expect(replacement).To(HavePrefix(baseName[:min(len(baseName), 58)]))
+		Expect(<-recorder.Events).To(ContainSubstring("Warning NoEligibleNode"))
+
+		// a later pass keeps the replacement instead of generating another
+		Expect(newOp(c, recorder).EnsureBuilderContainers(ctx)).To(Succeed())
+		Expect(listBuilders(c)).To(HaveLen(2))
+		name, err := newOp(c, recorder).getBuilderContainerName(ctx, image, ka)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(name).To(Equal(replacement))
+	})
+
+	It("leaves a Completed builder on its node", func() {
+		c, baseName := setup(weka.Completed)
+
+		Expect(newOp(c, events.NewFakeRecorder(10)).EnsureBuilderContainers(ctx)).To(Succeed())
+		builders := listBuilders(c)
+		Expect(builders).To(HaveLen(1))
+		Expect(builders[0].Name).To(Equal(baseName))
+		Expect(builders[0].DeletionTimestamp).To(BeNil())
+	})
 })

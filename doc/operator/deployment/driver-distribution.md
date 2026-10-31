@@ -189,6 +189,34 @@ spec:
 
 Both the builder (`weka driver pack`) and the loader (`weka driver download` / `weka driver install`) pass `--kernel-build-id nixos-gcc<major>` (e.g. `--kernel-build-id nixos-gcc15`), so NixOS drivers never collide with another distro's build, or another gcc major's build, at the same upstream kernel version.
 
+## Placement
+
+For every drivers-builder and drivers-dist container without a node pinned (and any other WekaContainer
+created by hand with only a `nodeSelector`), the operator splits the nodes that match its `nodeSelector` and affinity into eligible (Ready,
+no taint the pod does not tolerate, and not cordoned unless
+[`scheduling.tolerateCordon`](#cordoned-nodes) is set) and ineligible. Node discovery runs on one
+eligible node, and the pod is created with a required `metadata.name NotIn` field requirement for each
+ineligible node (none when every matching node is eligible); the scheduler picks the node, and the
+container is pinned to it (`status.nodeAffinity`) once the pod is bound. While no matching node is
+eligible there is no pod and no discovery container; for policy containers the policy also gets a
+`NoEligibleNode` warning event (at most every 5 minutes per container).
+
+With the default (empty) policy tolerations the scheduler already keeps the pod off NotReady,
+cordoned and untolerated-taint nodes, so the exclusion changes nothing. Policies that tolerate
+every taint (`[{operator: Exists}]`, so lifecycle or remediation taints from other controllers do not
+block builds) also tolerate the not-ready/unreachable taints: without the exclusion the scheduler could
+bind a new builder or dist pod to a NotReady node, and each such pick would be moved and leave a
+deleted container waiting for that node.
+
+On each run, a policy moves its pinned containers when the node is gone or NotReady, or when it is
+cordoned (without `tolerateCordon`) or carries an untolerated taint and no live pod is bound there:
+
+| Container | On a move |
+|---|---|
+| drivers-dist | deleted, recreated under a new generated name |
+| drivers-builder, not Completed | deleted, `DriversBuilderReplaced` warning event on the policy; the next run recreates it under a new generated name (the old object stays until its node returns and its pod finishes terminating) |
+| drivers-builder, Completed | never moved by the policy: its pod is already gone (if its Node object is deleted, the container is removed and rebuilt) |
+
 ## Tolerations
 
 The policy's `tolerations` apply to its drivers-builder and drivers-dist containers. The node discovery
@@ -230,8 +258,8 @@ With `tolerateCordon` enabled, a cordon on its own does not keep a client off a 
 and any taint the client does not tolerate still do, and `skipClientsTolerationValidation`,
 `skipClientNoScheduleToleration` and `skipAuxNoScheduleToleration` do not control this setting.
 
-`drivers-builder` is covered too, for a different reason than the rest. It is not pinned to a node — it
-runs wherever its kernel/architecture `nodeSelector` matches — so without the toleration a node pool
+`drivers-builder` is covered too, for a different reason than the rest. It is not tied to one node — it
+is placed on any node its kernel/architecture `nodeSelector` matches — so without the toleration a node pool
 brought up entirely cordoned on a kernel nobody has built for yet has no host to build on, and every
 client on it stalls in `WaitForDrivers` until someone uncordons a node by hand.
 

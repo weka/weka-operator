@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,15 +36,18 @@ type WekaPolicyReconciler struct {
 	Mgr        ctrl.Manager
 	RestClient rest.Interface
 	Recorder   events.EventRecorder
+	// outlives the per-reconcile operations, so their events are throttled across reconciles
+	ThrottlingMap throttling.Throttler
 }
 
 func NewWekaPolicyController(mgr ctrl.Manager, restClient rest.Interface) *WekaPolicyReconciler {
 	return &WekaPolicyReconciler{
-		Mgr:        mgr,
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		RestClient: restClient,
-		Recorder:   util.WrapEventRecorder(mgr.GetEventRecorder("wekaPolicy-controller"), mgr.GetScheme()),
+		Mgr:           mgr,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		RestClient:    restClient,
+		Recorder:      util.WrapEventRecorder(mgr.GetEventRecorder("wekaPolicy-controller"), mgr.GetScheme()),
+		ThrottlingMap: throttling.NewSyncMapThrottler(),
 	}
 }
 
@@ -207,6 +211,8 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			wekaPolicy.Status.Status,
 			onSuccess,
 			onFailure,
+			r.Recorder,
+			r.ThrottlingMap.WithPartition("wekapolicy/"+string(wekaPolicy.GetUID())),
 		)
 		loop.Op = enableLocalDriversDistOp
 	case weka.WekaPolicyTypeRemoteTracesSession:
