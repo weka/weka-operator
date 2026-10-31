@@ -3,8 +3,11 @@ package resources
 import (
 	"slices"
 
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/weka/weka-operator/internal/services"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -57,4 +60,20 @@ func NodeIneligibleReason(node *v1.Node, tolerations []v1.Toleration) string {
 func nodeIsCordoned(node *v1.Node) bool {
 	return node.Spec.Unschedulable ||
 		slices.ContainsFunc(node.Spec.Taints, func(t v1.Taint) bool { return t.Key == CordonTaintKey })
+}
+
+// SplitMatchingNodes keeps the nodes (already listed by the container's nodeSelector) that satisfy its
+// Spec.Affinity and splits them by NodeIneligibleReason under its pod tolerations.
+func SplitMatchingNodes(nodes []v1.Node, container *weka.WekaContainer, scheduling services.SchedulingSettings) (eligible []v1.Node, ineligible []string) {
+	tolerations := GetWekaPodTolerations(container, scheduling)
+	for i := range nodes {
+		switch {
+		case container.Spec.Affinity != nil && !kubernetes.NodeSatisfiesAffinity(&nodes[i], container.Spec.Affinity):
+		case NodeIneligibleReason(&nodes[i], tolerations) == "":
+			eligible = append(eligible, nodes[i])
+		default:
+			ineligible = append(ineligible, nodes[i].Name)
+		}
+	}
+	return eligible, ineligible
 }
