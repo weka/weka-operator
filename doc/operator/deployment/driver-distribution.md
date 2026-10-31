@@ -215,7 +215,7 @@ cordoned (without `tolerateCordon`) or carries an untolerated taint and no live 
 |---|---|
 | drivers-dist | deleted, recreated under a new generated name |
 | drivers-builder, not Completed | deleted, `DriversBuilderReplaced` warning event on the policy; the next run recreates it under a new generated name (the old object stays until its node returns and its pod finishes terminating) |
-| drivers-builder, Completed | never moved: its pod is already gone |
+| drivers-builder, Completed | never moved by the policy: its pod is already gone (if its Node object is deleted, the container is removed and rebuilt) |
 
 ## Tolerations
 
