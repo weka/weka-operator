@@ -340,3 +340,57 @@ func TestGenerateEnvoyConfig_EDSIsWellFormedDiscoveryResponse(t *testing.T) {
 		}
 	}
 }
+
+type envoySocketAddress struct {
+	Address    string `yaml:"address"`
+	IPv4Compat bool   `yaml:"ipv4_compat"`
+}
+
+type envoyBindAddresses struct {
+	StaticResources struct {
+		Listeners []struct {
+			Address struct {
+				SocketAddress envoySocketAddress `yaml:"socket_address"`
+			} `yaml:"address"`
+		} `yaml:"listeners"`
+	} `yaml:"static_resources"`
+	Admin struct {
+		Address struct {
+			SocketAddress envoySocketAddress `yaml:"socket_address"`
+		} `yaml:"address"`
+	} `yaml:"admin"`
+}
+
+func TestGenerateEnvoyConfig_IPv6PrimaryBinds(t *testing.T) {
+	loop := managementProxyLoop(14000, 15000)
+	containers := []*weka.WekaContainer{proxyContainerWithIP("c1", "fd00::1")}
+	wildcard := defaultProxySettings()
+	wildcard.AdminBindAddress = "0.0.0.0"
+	wildcard.adminIsWildcard = true
+
+	for _, tc := range []struct {
+		name     string
+		settings managementProxySettings
+		listener envoySocketAddress
+		admin    envoySocketAddress
+	}{
+		{"ipv4", wildcard, envoySocketAddress{"0.0.0.0", false}, envoySocketAddress{"0.0.0.0", false}},
+		{"ipv6", wildcard.forIPv6PrimaryCluster(), envoySocketAddress{"::", true}, envoySocketAddress{"::", true}},
+		{"ipv6 loopback admin kept", defaultProxySettings().forIPv6PrimaryCluster(), envoySocketAddress{"::", true}, envoySocketAddress{"127.0.0.1", false}},
+	} {
+		bootstrap, _, err := loop.generateEnvoyConfig(containers, tc.settings)
+		if err != nil {
+			t.Fatalf("%s: generateEnvoyConfig returned error: %v", tc.name, err)
+		}
+		var parsed envoyBindAddresses
+		if err := yaml.Unmarshal([]byte(bootstrap), &parsed); err != nil {
+			t.Fatalf("%s: bootstrap is not valid YAML: %v", tc.name, err)
+		}
+		if got := parsed.StaticResources.Listeners[0].Address.SocketAddress; got != tc.listener {
+			t.Errorf("%s: listener = %+v, want %+v", tc.name, got, tc.listener)
+		}
+		if got := parsed.Admin.Address.SocketAddress; got != tc.admin {
+			t.Errorf("%s: admin = %+v, want %+v", tc.name, got, tc.admin)
+		}
+	}
+}

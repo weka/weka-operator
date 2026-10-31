@@ -14,6 +14,7 @@ import (
 	k8sTypes "k8s.io/apimachinery/pkg/types"
 
 	"github.com/weka/weka-operator/internal/consts"
+	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -81,7 +82,7 @@ func (r *containerReconcilerLoop) fetchActiveMounts(ctx context.Context) (*int, 
 	}
 
 	// Build URL with container_name and container_uuid query parameters
-	url := fmt.Sprintf("http://%s:8090/getActiveMounts", agentPod.Status.PodIP)
+	url := node_agent.URL(agentPod.Status.PodIP, "/getActiveMounts")
 	if r.container.Spec.WekaContainerName != "" {
 		// container_uuid is the UID of the WekaContainer CR
 		containerUuid := string(r.container.GetUID())

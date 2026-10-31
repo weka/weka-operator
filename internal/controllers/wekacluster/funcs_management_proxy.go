@@ -69,6 +69,23 @@ type managementProxySettings struct {
 	// socket_address, or Envoy sets IPV6_V6ONLY and kubelet's IPv4 probe crash-loops the container.
 	adminIsWildcard     bool
 	adminIsIPv6Wildcard bool
+
+	// listenIPv6 is set from the proxy Service's primary family; see forIPv6PrimaryCluster.
+	listenIPv6 bool
+}
+
+// forIPv6PrimaryCluster binds the listener to "::" with ipv4_compat, and widens an IPv4 wildcard
+// admin bind the same way. On an IPv6-primary cluster the Service and kubelet's probes reach the
+// pod on an IPv6 address, which 0.0.0.0 never answers. The Service family is the signal because
+// an IPv6 primary family guarantees the node has IPv6; "::" fails to bind where IPv6 is disabled,
+// which under hostNetwork means the proxy never starts.
+func (s managementProxySettings) forIPv6PrimaryCluster() managementProxySettings {
+	s.listenIPv6 = true
+	if s.adminIsWildcard && !s.adminIsIPv6Wildcard {
+		s.AdminBindAddress = "::"
+		s.adminIsIPv6Wildcard = true
+	}
+	return s
 }
 
 func managementProxySettingsFromConfig() managementProxySettings {
@@ -122,6 +139,16 @@ func (r *wekaClusterReconcilerLoop) EnsureManagementProxy(ctx context.Context) e
 		return err
 	}
 
+	// Ensured before rendering: the address family the API server assigned it decides the bind addresses.
+	svc, err := r.ensureManagementProxyService(ctx, proxyName, namespace)
+	if err != nil {
+		logger.Error(err, "Failed to create or update management proxy Service")
+		return err
+	}
+	if len(svc.Spec.IPFamilies) > 0 && svc.Spec.IPFamilies[0] == corev1.IPv6Protocol {
+		settings = settings.forIPv6PrimaryCluster()
+	}
+
 	// Rendered once so the ConfigMap and the Deployment's hash can't disagree. Rendered
 	// unconditionally: a settings-only change leaves the backend container set untouched, so
 	// pre-checking that set would never write it out. bootstrapConfig carries no endpoint IPs, so its
@@ -142,13 +169,6 @@ func (r *wekaClusterReconcilerLoop) EnsureManagementProxy(ctx context.Context) e
 	err = r.ensureManagementProxyDeployment(ctx, proxyName, configMapName, namespace, bootstrapConfig, settings)
 	if err != nil {
 		logger.Error(err, "Failed to create or update management proxy Deployment")
-		return err
-	}
-
-	// Ensure the Service
-	err = r.ensureManagementProxyService(ctx, proxyName, namespace)
-	if err != nil {
-		logger.Error(err, "Failed to create or update management proxy Service")
 		return err
 	}
 
@@ -235,6 +255,7 @@ type envoyBootstrapTemplateData struct {
 	NodeCluster string
 
 	ProxyPort             int
+	ListenIPv6            bool
 	HealthyPanicThreshold int32
 	AdminAddress          string
 	AdminPort             int
@@ -272,10 +293,12 @@ static_resources:
   - name: listener_0
     address:
       socket_address:
-        # IPv4-only, not configurable: "::" would fail to bind on a node with IPv6 disabled, which
-        # under hostNetwork means the proxy never starts.
-        address: 0.0.0.0
+        # "::" only on an IPv6-primary cluster; see forIPv6PrimaryCluster.
+        address: "{{ if .ListenIPv6 }}::{{ else }}0.0.0.0{{ end }}"
         port_value: {{ .ProxyPort }}
+{{- if .ListenIPv6 }}
+        ipv4_compat: true
+{{- end }}
     filter_chains:
     - filters:
       - name: envoy.filters.network.tcp_proxy
@@ -390,6 +413,7 @@ func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka
 		NodeID:                r.getManagementProxyName(),
 		NodeCluster:           ManagementProxyName,
 		ProxyPort:             managementProxyPort,
+		ListenIPv6:            settings.listenIPv6,
 		HealthyPanicThreshold: settings.HealthyPanicThreshold,
 		AdminAddress:          settings.AdminBindAddress,
 		AdminPort:             managementProxyAdminPort,
@@ -648,7 +672,7 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 }
 
 // ensureManagementProxyService creates or updates the Service for the Envoy proxy
-func (r *wekaClusterReconcilerLoop) ensureManagementProxyService(ctx context.Context, serviceName, namespace string) error {
+func (r *wekaClusterReconcilerLoop) ensureManagementProxyService(ctx context.Context, serviceName, namespace string) (*corev1.Service, error) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceName,
@@ -684,7 +708,7 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyService(ctx context.Con
 		return controllerutil.SetControllerReference(r.cluster, svc, r.Manager.GetScheme())
 	})
 
-	return err
+	return svc, err
 }
 
 // getManagementProxyName returns the name of the management proxy deployment
