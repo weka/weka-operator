@@ -527,14 +527,14 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 9809,
-									Name:          "healthz",
+									Name:          "registrar-hz",
 								},
 							},
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
 										Path: "/healthz",
-										Port: intstr.FromString("healthz"),
+										Port: intstr.FromString("registrar-hz"),
 									},
 								},
 								InitialDelaySeconds: 5,
