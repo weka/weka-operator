@@ -42,6 +42,9 @@ A subnet always pins the family, so `spec.ipv6` is only needed for a dual-stack 
 name. IPv6 addresses must be ULA or GUA — Weka does not use link-local addresses, so an interface that
 holds only an `fe80::` address is treated as having no IPv6 address.
 
+This selects the WEKA data-path family only. For IPv6 Kubernetes clusters and the combinations
+supported, see [IPv6](ipv6.md).
+
 ```yaml
 spec:
   network:

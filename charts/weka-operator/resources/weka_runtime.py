@@ -4823,8 +4823,20 @@ async def main():
             def log_message(self, format, *args):
                 logging.info(f"HTTP: {format % args}")
 
+        # The operator downloads from the builder's pod IP, which is IPv6 on an IPv6-primary cluster;
+        # policy-created builders never set IS_IPV6, so bind dual-stack whenever the host can.
+        dual_stack = socket.has_dualstack_ipv6()
+
+        class Server(socketserver.TCPServer):
+            address_family = socket.AF_INET6 if dual_stack else socket.AF_INET
+
+            def server_bind(self):
+                if dual_stack:
+                    self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+                super().server_bind()
+
         def run_http_server():
-            with socketserver.TCPServer(("", serve_port), Handler) as httpd:
+            with Server(("::" if dual_stack else "", serve_port), Handler) as httpd:
                 logging.info(f"Serving drivers from {serve_dir} on port {serve_port}")
                 httpd.serve_forever()
 
