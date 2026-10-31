@@ -2,6 +2,8 @@ package operations
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"testing"
 
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
@@ -12,6 +14,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/weka/weka-operator/internal/services"
 )
 
 type traceSessionTestManager struct {
@@ -80,5 +84,97 @@ func TestTraceSessionDeploymentPropagatesServiceAccount(t *testing.T) {
 	}
 	if got := deployment.Spec.Template.Spec.ServiceAccountName; got != serviceAccountName {
 		t.Errorf("ServiceAccountName = %q, want %q", got, serviceAccountName)
+	}
+}
+
+// fakeTraceWekaService embeds the interface so only the two calls the routing makes need bodies.
+type fakeTraceWekaService struct {
+	services.WekaService
+	processes          string
+	containers         string
+	listContainerCalls int
+}
+
+func (f *fakeTraceWekaService) ListProcesses(_ context.Context, _ services.ProcessListOptions) ([]services.Process, error) {
+	var out []services.Process
+	return out, json.Unmarshal([]byte(f.processes), &out)
+}
+
+func (f *fakeTraceWekaService) ListClusterContainers(_ context.Context) ([]services.WekaClusterContainer, error) {
+	f.listContainerCalls++
+	var out []services.WekaClusterContainer
+	return out, json.Unmarshal([]byte(f.containers), &out)
+}
+
+func TestBuildTraceRouting(t *testing.T) {
+	tests := []struct {
+		name               string
+		processes          string
+		containers         string
+		want               TraceServerDiscovery
+		wantContainerCalls int
+	}{
+		{
+			name: "6.x endpoints come from one container list, clients included, no-ip container skipped",
+			processes: `[
+				{"process": 0, "container": 0, "container_name": "drivex0", "slot": 0},
+				{"process": 1, "container": 0, "container_name": "drivex0", "slot": 1},
+				{"process": 2, "container": 1, "container_name": "client", "slot": 1},
+				{"process": 3, "container": 2, "container_name": "gone", "slot": 0}
+			]`,
+			containers: `[
+				{"id": 0, "name": "drivex0", "ips": ["10.0.0.1"], "port": 15000},
+				{"id": 1, "name": "client", "ips": ["10.0.0.2"], "port": 14000},
+				{"id": 2, "name": "gone", "ips": [], "port": 15100}
+			]`,
+			want: TraceServerDiscovery{
+				Nodes: map[int]NodeInfo{
+					0: {Slot: 0, ContainerID: 0},
+					1: {Slot: 1, ContainerID: 0},
+					2: {Slot: 1, ContainerID: 1},
+					3: {Slot: 0, ContainerID: 2},
+				},
+				Containers: map[int]ContainerInfo{
+					0: {Name: "drivex0", TraceServerEndpoint: "10.0.0.1:15050"},
+					1: {Name: "client", TraceServerEndpoint: "10.0.0.2:14050"},
+				},
+			},
+			wantContainerCalls: 1,
+		},
+		{
+			name: "5.x reads ids, slot and endpoint from the process list only",
+			processes: `[
+				{"node_id": "NodeId<0>", "host_id": "HostId<0>", "container_name": "drivex0", "slot": 0, "mgmt_ips": ["10.0.0.1"], "mgmt_port": 15000,
+				 "nodeInfo": {"host_id": "HostId<0>", "container_name": "drivex0", "mgmt_ips": ["10.0.0.1"], "mgmt_port": 15000}},
+				{"node_id": "NodeId<1>", "host_id": "HostId<0>", "container_name": "drivex0", "slot": 1, "mgmt_ips": ["10.0.0.1"], "mgmt_port": 15000,
+				 "nodeInfo": {"host_id": "HostId<0>", "container_name": "drivex0", "mgmt_ips": ["10.0.0.1"], "mgmt_port": 15000}}
+			]`,
+			want: TraceServerDiscovery{
+				Nodes: map[int]NodeInfo{
+					0: {Slot: 0, ContainerID: 0},
+					1: {Slot: 1, ContainerID: 0},
+				},
+				Containers: map[int]ContainerInfo{
+					0: {Name: "drivex0", TraceServerEndpoint: "10.0.0.1:15050"},
+				},
+			},
+			wantContainerCalls: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeTraceWekaService{processes: tt.processes, containers: tt.containers}
+			got, err := buildTraceRouting(context.Background(), svc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(*got, tt.want) {
+				t.Errorf("routing = %+v, want %+v", *got, tt.want)
+			}
+			if svc.listContainerCalls != tt.wantContainerCalls {
+				t.Errorf("ListClusterContainers called %d times, want %d", svc.listContainerCalls, tt.wantContainerCalls)
+			}
+		})
 	}
 }

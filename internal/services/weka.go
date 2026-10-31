@@ -438,13 +438,17 @@ type WekaLocalContainer struct {
 }
 
 type WekaClusterContainer struct {
-	HostId        string `json:"host_id"`
-	HostIp        string `json:"host_ip"`
-	Hostname      string `json:"hostname"`
-	ContainerName string `json:"container_name"`
-	Uid           string `json:"uid"`
-	State         string `json:"state"`
-	Status        string `json:"status"`
+	// Id, Ips and Port are only reported by 6.x, which dropped host_id; Id is a pointer because 0 is a valid id.
+	Id            *int     `json:"id"`
+	Ips           []string `json:"ips"`
+	Port          int      `json:"port"`
+	HostId        string   `json:"host_id"`
+	HostIp        string   `json:"host_ip"`
+	Hostname      string   `json:"hostname"`
+	ContainerName string   `json:"container_name"` // empty on 6.x, which reports it as `name`
+	Uid           string   `json:"uid"`
+	State         string   `json:"state"`
+	Status        string   `json:"status"`
 	// SwReleaseString carries a build suffix ("1.2.3.4-custom-build") on feature/custom builds;
 	// otherwise it equals SwVersion ("1.2.3.4").
 	SwVersion       string `json:"sw_version"`
@@ -460,25 +464,80 @@ func (c *WekaClusterContainer) ReportedVersion() string {
 	return c.SwVersion
 }
 
+// Process mirrors one entry of `weka cluster process --json`. Both CLI generations are accepted:
+//
+//	6.x:   "process": 3, "container": 0; management IP and port only in `weka cluster container --json`
+//	older: "node_id": "NodeId<3>", "host_id": "HostId<0>", "mgmt_ips", "mgmt_port"
+//
+// Both carry "container_name" and "slot" at the top level. Older releases also nest the container
+// fields under "nodeInfo" (camelCase), without "slot"; that copy is only a fallback.
+// Process and Container are pointers because 0 is a valid id.
 type Process struct {
-	Status   string   `json:"status"`
-	NodeId   string   `json:"node_id"`
-	Roles    []string `json:"roles"`
-	NodeInfo struct {
+	Status         string   `json:"status"`
+	Roles          []string `json:"roles"`
+	Process        *int     `json:"process"`
+	Container      *int     `json:"container"`
+	NodeId         string   `json:"node_id"`
+	HostId         string   `json:"host_id"`
+	ContainerName  string   `json:"container_name"`
+	Slot           int      `json:"slot"`
+	ManagementIps  []string `json:"mgmt_ips"`
+	ManagementPort int      `json:"mgmt_port"`
+	NodeInfo       *struct {
 		HostId         string   `json:"host_id"`
 		ContainerName  string   `json:"container_name"`
-		Slot           int      `json:"slot"`
 		ManagementIps  []string `json:"mgmt_ips"`
 		ManagementPort int      `json:"mgmt_port"`
-	}
+	} `json:"nodeInfo"`
 }
 
 func (p Process) GetProcessId() int { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
-	id, err := domain.NodeIdToProcessId(p.NodeId)
+	id, err := p.ProcessId()
 	if err != nil {
 		return -1
 	}
 	return id
+}
+
+// ProcessId errors rather than defaulting, so an unrecognized schema is not read as process 0.
+func (p *Process) ProcessId() (int, error) {
+	if p.Process != nil {
+		return *p.Process, nil
+	}
+	if p.NodeId != "" {
+		return domain.NodeIdToProcessId(p.NodeId)
+	}
+	return 0, errors.New("process has neither a 'process' nor a 'node_id' field")
+}
+
+func (p *Process) ContainerId() (int, error) {
+	switch {
+	case p.Container != nil:
+		return *p.Container, nil
+	case p.HostId != "":
+		return domain.HostIdToContainerId(p.HostId)
+	case p.NodeInfo != nil && p.NodeInfo.HostId != "":
+		return domain.HostIdToContainerId(p.NodeInfo.HostId)
+	}
+	return 0, errors.New("process has neither a 'container' nor a 'host_id' field")
+}
+
+func (p *Process) GetContainerName() string {
+	if p.ContainerName == "" && p.NodeInfo != nil {
+		return p.NodeInfo.ContainerName
+	}
+	return p.ContainerName
+}
+
+// ManagementEndpoint is empty on 6.x, which reports it per container only.
+func (p *Process) ManagementEndpoint() (ip string, port int) {
+	if len(p.ManagementIps) > 0 {
+		return p.ManagementIps[0], p.ManagementPort
+	}
+	if p.NodeInfo != nil && len(p.NodeInfo.ManagementIps) > 0 {
+		return p.NodeInfo.ManagementIps[0], p.NodeInfo.ManagementPort
+	}
+	return "", 0
 }
 
 type DriveListOptions struct {
@@ -531,6 +590,7 @@ type WekaService interface {
 	ListProcesses(ctx context.Context, listOptions ProcessListOptions) ([]Process, error)
 	ListLocalContainers(ctx context.Context) ([]WekaLocalContainer, error)
 	GetWekaContainer(ctx context.Context, containerId int) (*WekaClusterContainer, error)
+	ListClusterContainers(ctx context.Context) ([]WekaClusterContainer, error)
 	GetCapacity(ctx context.Context) (WekaCapacityInfo, error)
 	ConfigureDataServicesGlobalConfig(ctx context.Context) error
 	ListOverridesByKey(ctx context.Context, key string) ([]WekaOverride, error)
@@ -1903,6 +1963,12 @@ func (c *CliWekaService) GetS3Cluster(ctx context.Context, featureFlags *domain.
 		return nil, err
 	}
 	return &s3Cluster, nil
+}
+
+func (c *CliWekaService) ListClusterContainers(ctx context.Context) ([]WekaClusterContainer, error) {
+	var containers []WekaClusterContainer
+	err := c.RunJsonCmd(ctx, []string{"wekaauthcli", "cluster", "container", "--json"}, "ListClusterContainers", &containers)
+	return containers, err
 }
 
 func (c *CliWekaService) GetWekaContainer(ctx context.Context, containerId int) (*WekaClusterContainer, error) {
