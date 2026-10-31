@@ -21,7 +21,6 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
@@ -441,6 +440,78 @@ type NodeInfo struct {
 //		services.NewWekaService()
 //		// fetch container info from config map
 //	}
+func listClusterContainersById(ctx context.Context, wekaService services.WekaService) (map[int]services.WekaClusterContainer, error) {
+	containers, err := wekaService.ListClusterContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byId := make(map[int]services.WekaClusterContainer, len(containers))
+	for _, container := range containers {
+		if container.Id != nil {
+			byId[*container.Id] = container
+		}
+	}
+	return byId, nil
+}
+
+// buildTraceRouting maps every weka process to its container and slot, and every container to its trace server.
+func buildTraceRouting(ctx context.Context, wekaService services.WekaService) (*TraceServerDiscovery, error) {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	processes, err := wekaService.ListProcesses(ctx, services.ProcessListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	data := &TraceServerDiscovery{
+		Nodes:      make(map[int]NodeInfo),
+		Containers: make(map[int]ContainerInfo),
+	}
+
+	var containersById map[int]services.WekaClusterContainer
+
+	for i := range processes {
+		process := &processes[i]
+		nodeId, nodeErr := process.ProcessId()
+		if nodeErr != nil {
+			return nil, nodeErr
+		}
+		containerId, containerErr := process.ContainerId()
+		if containerErr != nil {
+			return nil, containerErr
+		}
+		data.Nodes[nodeId] = NodeInfo{
+			Slot:        process.Slot,
+			ContainerID: containerId,
+		}
+		if _, ok := data.Containers[containerId]; ok {
+			continue
+		}
+		managementIp, managementPort := process.ManagementEndpoint()
+		if managementIp == "" {
+			// 6.x reports the management endpoint per container only; `cluster container` covers clients too.
+			if containersById == nil {
+				containersById, err = listClusterContainersById(ctx, wekaService)
+				if err != nil {
+					return nil, err
+				}
+			}
+			container, ok := containersById[containerId]
+			if !ok || len(container.Ips) == 0 {
+				logger.Debug("skipping container with no management ip", "containerId", containerId)
+				continue
+			}
+			managementIp, managementPort = container.Ips[0], container.Port
+		}
+		data.Containers[containerId] = ContainerInfo{
+			Name:                process.GetContainerName(),
+			TraceServerEndpoint: managementIp + ":" + strconv.Itoa(managementPort+50),
+		}
+	}
+
+	return data, nil
+}
+
 func (o *MaintainTraceSession) EnsureWekaNodeRoutingConfigMap(ctx context.Context) error {
 	// this config map serves as simplified discovery mechanism, this one contains map of weka node id to weka container id
 	// in addition to that it contains map of container id to container name + base port + trace server port
@@ -450,35 +521,9 @@ func (o *MaintainTraceSession) EnsureWekaNodeRoutingConfigMap(ctx context.Contex
 		return err
 	}
 
-	processes, err := wekaService.ListProcesses(ctx, services.ProcessListOptions{})
+	data, err := buildTraceRouting(ctx, wekaService)
 	if err != nil {
 		return err
-	}
-
-	data := &TraceServerDiscovery{
-		Nodes:      make(map[int]NodeInfo),
-		Containers: make(map[int]ContainerInfo),
-	}
-
-	for i := range processes {
-		nodeId, nodeErr := domain.NodeIdToProcessId(processes[i].NodeId)
-		if nodeErr != nil {
-			return nodeErr
-		}
-		containerId, containerErr := domain.HostIdToContainerId(processes[i].NodeInfo.HostId)
-		if containerErr != nil {
-			return containerErr
-		}
-		data.Nodes[nodeId] = NodeInfo{
-			Slot:        processes[i].NodeInfo.Slot,
-			ContainerID: containerId,
-		}
-		if _, ok := data.Containers[containerId]; !ok {
-			data.Containers[containerId] = ContainerInfo{
-				Name:                processes[i].NodeInfo.ContainerName,
-				TraceServerEndpoint: processes[i].NodeInfo.ManagementIps[0] + ":" + strconv.Itoa(processes[i].NodeInfo.ManagementPort+50),
-			}
-		}
 	}
 
 	jsonBytes, err := json.Marshal(data)
