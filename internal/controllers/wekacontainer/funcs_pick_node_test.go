@@ -52,6 +52,16 @@ func TestPickMatchingNodeEligibility(t *testing.T) {
 		}}},
 	}}}
 
+	zoneAOrEmpty := &v1.Affinity{NodeAffinity: &v1.NodeAffinity{RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{
+		NodeSelectorTerms: []v1.NodeSelectorTerm{zoneA.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0], {}},
+	}}}
+
+	onlyNodeB := &v1.Affinity{NodeAffinity: &v1.NodeAffinity{RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{
+		NodeSelectorTerms: []v1.NodeSelectorTerm{{MatchFields: []v1.NodeSelectorRequirement{
+			{Key: "metadata.name", Operator: v1.NodeSelectorOpIn, Values: []string{"b"}},
+		}}},
+	}}}
+
 	tests := []struct {
 		name           string
 		mode           string
@@ -72,6 +82,10 @@ func TestPickMatchingNodeEligibility(t *testing.T) {
 			[]*v1.Node{node("a", true, gpuTaint), node("b", true, nil)}, "b", []string{"a"}},
 		{"nodes outside the affinity are neither picked nor avoided", weka.WekaContainerModeDriversBuilder, nil, false, zoneA,
 			[]*v1.Node{node("a", true, otherZone), node("b", false, nil), node("c", true, nil)}, "c", []string{"b"}},
+		{"an empty affinity term admits no node", weka.WekaContainerModeDriversBuilder, tolerateAll, false, zoneAOrEmpty,
+			[]*v1.Node{node("a", true, otherZone), node("b", false, nil)}, "", nil},
+		{"a field affinity limits the candidates", weka.WekaContainerModeDriversBuilder, tolerateAll, false, onlyNodeB,
+			[]*v1.Node{node("a", true, nil), node("b", false, nil)}, "", nil},
 		{"no eligible node", weka.WekaContainerModeDriversBuilder, tolerateAll, false, nil,
 			[]*v1.Node{node("a", false, nil), node("b", true, cordon)}, "", nil},
 		{"other modes avoid ineligible nodes too", weka.WekaContainerModeClient, nil, false, nil,
@@ -117,7 +131,7 @@ func TestExcludeNodesExcludesByNameInEveryTerm(t *testing.T) {
 		}}
 	}
 	pod := &v1.Pod{Spec: v1.PodSpec{Affinity: &v1.Affinity{NodeAffinity: &v1.NodeAffinity{
-		RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{NodeSelectorTerms: []v1.NodeSelectorTerm{term(), term()}},
+		RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{NodeSelectorTerms: []v1.NodeSelectorTerm{term(), term(), {}}},
 	}}}}
 
 	excludeNodes(pod, []string{"a", "b"})
@@ -126,7 +140,11 @@ func TestExcludeNodesExcludesByNameInEveryTerm(t *testing.T) {
 		{Key: "metadata.name", Operator: v1.NodeSelectorOpNotIn, Values: []string{"a"}},
 		{Key: "metadata.name", Operator: v1.NodeSelectorOpNotIn, Values: []string{"b"}},
 	}
-	for i, term := range pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms {
+	terms := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	if len(terms[2].MatchFields) != 0 {
+		t.Fatalf("empty term = %v; want it left empty (matches no node)", terms[2])
+	}
+	for i, term := range terms[:2] {
 		if len(term.MatchExpressions) != 1 || !reflect.DeepEqual(term.MatchFields, want) {
 			t.Fatalf("term %d = %v / %v; want the os requirement kept and fields %v", i, term.MatchExpressions, term.MatchFields, want)
 		}

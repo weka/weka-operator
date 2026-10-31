@@ -271,6 +271,9 @@ func (r *containerReconcilerLoop) handleImageMismatch(ctx context.Context) error
 func excludeNodes(pod *v1.Pod, nodeNames []string) {
 	terms := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
 	for i := range terms {
+		if resources.IsEmptyNodeSelectorTerm(terms[i]) {
+			continue
+		}
 		for _, name := range nodeNames {
 			terms[i].MatchFields = append(terms[i].MatchFields, v1.NodeSelectorRequirement{
 				Key:      "metadata.name",
