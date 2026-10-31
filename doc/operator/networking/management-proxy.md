@@ -43,6 +43,19 @@ no per-WekaCluster override — but only the ones that reach the bootstrap or po
 (`healthyPanicThreshold`, `adminBindAddress`, `hostNetwork`) re-roll every managed cluster's proxy
 pods. `replicas` only scales each Deployment; `INGRESS_*` only updates each Ingress.
 
+## Address family
+
+The listener binds `0.0.0.0` unless the proxy's Service was assigned an IPv6 primary family
+(`Spec.IPFamilies[0]`, set by the API server from the cluster's primary family). Then the listener
+binds `::` with `ipv4_compat`, and a wildcard `adminBindAddress` of `0.0.0.0` is widened to `::` the
+same way (`forIPv6PrimaryCluster`). The Service is therefore ensured before the config is rendered.
+`::` is never used on an IPv4-primary cluster: it fails to bind where IPv6 is disabled, which under
+`hostNetwork` means the proxy never starts. An IPv6 primary family guarantees the node has IPv6.
+The Service family follows the first service CIDR, while kubelet probes the pod's primary IP, which
+follows the first pod CIDR. A dual-stack cluster that lists IPv4 first for services and IPv6 first
+for pods leaves the proxy on `0.0.0.0` with failing probes: list the same family first in both.
+Clients connect in plain HTTP; Envoy originates the TLS to the backends.
+
 ## Labels & update strategy
 
 Selector labels are frozen separately from pod labels (`Spec.Selector` is immutable). Under

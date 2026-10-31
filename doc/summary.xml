@@ -75,6 +75,10 @@
         <tags>management proxy, Envoy, EDS, endpoint selection, hostNetwork, readiness, health checks</tags>
         <summary>Management proxy configuration and endpoint reload behavior, rollout strategy, host-port placement constraints, health-check thresholds and admin probe troubleshooting.</summary>
     </file>
+    <file relpath="operator/networking/ipv6.md">
+        <tags>ipv6, dual-stack, IPv6-only, IPv6-primary, address family, Kubernetes family, data path, ULA, GUA, drivers builder, management proxy</tags>
+        <summary>IPv6 support: Kubernetes address family vs WEKA data-path family and the supported combinations, node requirements, and what the operator does differently on IPv6-primary or IPv6-only Kubernetes clusters.</summary>
+    </file>
     <file relpath="operator/networking/network-configuration.md">
         <tags>network, deviceSubnets, ethDevice, ethDevices, udpMode, ipv6, address family, physical environment, cloud</tags>
         <summary>Networking configuration options for Weka clusters, detailing physical environment requirements, device selection methods, subnet configuration, UDP mode settings, IPv4/IPv6 address family selection, and best practices for different deployment environments.</summary>

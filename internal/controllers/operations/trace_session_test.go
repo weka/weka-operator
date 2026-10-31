@@ -124,7 +124,7 @@ func TestBuildTraceRouting(t *testing.T) {
 			]`,
 			containers: `[
 				{"id": 0, "name": "drivex0", "ips": ["10.0.0.1"], "port": 15000},
-				{"id": 1, "name": "client", "ips": ["10.0.0.2"], "port": 14000},
+				{"id": 1, "name": "client", "ips": ["fd00::2"], "port": 14000},
 				{"id": 2, "name": "gone", "ips": [], "port": 15100}
 			]`,
 			want: TraceServerDiscovery{
@@ -136,7 +136,7 @@ func TestBuildTraceRouting(t *testing.T) {
 				},
 				Containers: map[int]ContainerInfo{
 					0: {Name: "drivex0", TraceServerEndpoint: "10.0.0.1:15050"},
-					1: {Name: "client", TraceServerEndpoint: "10.0.0.2:14050"},
+					1: {Name: "client", TraceServerEndpoint: "[fd00::2]:14050"},
 				},
 			},
 			wantContainerCalls: 1,

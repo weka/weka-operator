@@ -614,7 +614,8 @@ portAllocation:
 # unhealthy ones; default 50, Envoy's own default; 0 always honours health checks, so a fully failed backend set returns 503);
 # `adminBindAddress` (address the Envoy admin endpoint binds to; must be bindable by the pod: 0.0.0.0, ::, 127.0.0.1 or
 # ::1, other values crash-loop every replica; defaults to 0.0.0.0, or 127.0.0.1 under hostNetwork, since the admin API is
-# unauthenticated and includes /quitquitquit; a loopback address with hostNetwork false makes kubelet probes degrade to
+# unauthenticated and includes /quitquitquit; 0.0.0.0 is widened to :: on an IPv6-primary cluster;
+# a loopback address with hostNetwork false makes kubelet probes degrade to
 # TCP, which cannot detect a wedged Envoy).
 # @section -- Networking & ports
 managementProxy:
