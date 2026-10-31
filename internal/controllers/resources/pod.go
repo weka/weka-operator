@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strconv"
@@ -1979,41 +1980,24 @@ func LabelsForWekaPod(container *weka.WekaContainer) map[string]string {
 }
 
 func AnnotationsForWekaPod(containerAnnotations, podAnnotations map[string]string) map[string]string {
-	// initialize a map to keep track of applied annotations
-	appliedAnnotations := make(map[string]struct{}) // to avoid duplicates
-	if podAnnotations != nil {
-		if appliedAnnotationsStr, exists := podAnnotations[appliedAnnotationsKey]; exists {
-			for key := range strings.SplitSeq(appliedAnnotationsStr, ",") {
-				if key != "" && !strings.HasPrefix(key, kubectlAnnotationPrefix) {
-					appliedAnnotations[key] = struct{}{}
-				}
-			}
-		}
+	// keys the operator previously applied to the pod; dropped from the pod unless still on the container
+	previouslyApplied := make(map[string]struct{})
+	for key := range strings.SplitSeq(podAnnotations[appliedAnnotationsKey], ",") {
+		previouslyApplied[key] = struct{}{}
 	}
 
-	// create a new map for the final annotations
 	finalAnnotations := make(map[string]string)
-	// add existing pod annotations excluding ones that are added by weka-operator
 	for k, v := range FilterKubectlAnnotations(podAnnotations) {
-		if _, exists := appliedAnnotations[k]; !exists {
+		if _, applied := previouslyApplied[k]; !applied && k != appliedAnnotationsKey {
 			finalAnnotations[k] = v
 		}
 	}
-	// add all wekacontainer's annotations
-	for k, v := range FilterKubectlAnnotations(containerAnnotations) {
-		finalAnnotations[k] = v
-		appliedAnnotations[k] = struct{}{} // mark this annotation as applied
-	}
 
-	// update the applied annotations key (if any)
-	if len(appliedAnnotations) == 0 {
-		return finalAnnotations
+	containerAnnotations = FilterKubectlAnnotations(containerAnnotations)
+	maps.Copy(finalAnnotations, containerAnnotations)
+	if len(containerAnnotations) > 0 {
+		finalAnnotations[appliedAnnotationsKey] = strings.Join(slices.Sorted(maps.Keys(containerAnnotations)), ",")
 	}
-	appliedAnnotationsList := make([]string, 0, len(appliedAnnotations))
-	for k := range appliedAnnotations {
-		appliedAnnotationsList = append(appliedAnnotationsList, k)
-	}
-	finalAnnotations[appliedAnnotationsKey] = strings.Join(appliedAnnotationsList, ",")
 
 	return finalAnnotations
 }

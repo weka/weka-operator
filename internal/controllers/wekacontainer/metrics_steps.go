@@ -22,6 +22,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
+	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -91,6 +93,22 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 }
 
 func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
+	// a new container's first poll fails until RegisterContainerOnMetrics runs; it has no label to lose yet
+	stats := r.container.Status.Stats
+	if stats == nil || stats.LastUpdate.IsZero() {
+		return r.setStatusMetrics(ctx)
+	}
+	lastUpdate := stats.LastUpdate.Time
+
+	err := r.setStatusMetrics(ctx)
+	// failures are expected for a few minutes after an upgrade restarts the operator and node-agents
+	if err != nil && time.Since(lastUpdate) > operations.StatsStaleAfter {
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "StatusMetricsFailed", consts.ActionMonitorContainerHealth, err.Error(), 5*time.Minute) //nolint:errcheck // best-effort event
+	}
+	return err
+}
+
+func (r *containerReconcilerLoop) setStatusMetrics(ctx context.Context) error {
 	// TODO: Should we be do this locally? it actually will be better to find failures from different container
 	// but, if we dont keep locality - performance wise too easy to make mistake and funnel everything through just one
 	// tldr: we need a proper service gateway for weka api, that will both healthcheck and distribute
@@ -186,7 +204,7 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 		if ret != nil {
 			logger.SetError(ret, "Error patching container status")
 		}
-		return nil
+		return ret
 	}
 
 	return TracedPatch()
