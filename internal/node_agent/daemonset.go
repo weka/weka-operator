@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"time"
 
 	"github.com/pkg/errors"
@@ -29,6 +31,11 @@ const (
 	nodeAgentContainerName  = "node-agent"
 	nodeAgentPort           = 8090
 )
+
+// URL is the node-agent endpoint for path on the agent pod with the given IP.
+func URL(podIP, path string) string {
+	return "http://" + net.JoinHostPort(podIP, strconv.Itoa(nodeAgentPort)) + path
+}
 
 // NewNodeAgentDaemonSet builds the node-agent DaemonSet for the given settings, owned by the operator
 // deployment.

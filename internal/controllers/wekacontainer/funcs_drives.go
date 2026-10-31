@@ -25,6 +25,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/controllers/utils"
+	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/ssdproxy"
@@ -977,7 +978,7 @@ func (r *containerReconcilerLoop) getKernelDrivesFromNodeAgent(ctx context.Conte
 	}
 
 	// Call /findDrives endpoint
-	url := fmt.Sprintf("http://%s:8090/findDrives", agentPod.Status.PodIP)
+	url := node_agent.URL(agentPod.Status.PodIP, "/findDrives")
 
 	timeout := time.Second * 30
 	ctx, cancel := context.WithTimeout(ctx, timeout)
