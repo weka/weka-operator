@@ -23,7 +23,7 @@ protocols and management access. Source: `internal/controllers/wekacluster/`.
 ## Focused routes
 
 - [Capacity planning](wekacluster-drive-planning.md): shared apply path, inventory, pure planners and device allocation.
-- Sizing modes and constraints: [cluster capacity](../../doc/operator/deployment/cluster-capacity.md), [daemonset mode](../../doc/operator/deployment/act-as-daemonset.md). [Validation](../config/validation.md) owns admission rules.
+- Sizing modes and constraints: [cluster capacity](../../doc/operator/deployment/cluster-capacity.md), [daemonset mode](../../doc/operator/deployment/act-as-daemonset.md), [explicit-count scale-up](../../doc/operator/operations/scale-up.md). [Validation](../config/validation.md) owns admission rules.
 - [Management proxy](management-proxy.md): bootstrap versus endpoint updates, probes and host networking.
 
 - [Pod rotation](../../doc/operator/operations/pod-rotation.md): `spec.rotatePod` approvals; the container side is in [wekacontainer](wekacontainer.md).
