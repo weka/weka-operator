@@ -26,7 +26,7 @@ This file identifies topics that are not adequately covered in the current docum
 
 ### 6. Scaling Guide
 **Proposed File:** `core/operations/scaling.md`
-**Description:** Procedures and best practices for scaling Weka clusters horizontally and vertically, including capacity planning, migration strategies, and performance considerations during scaling operations.
+**Description:** Procedures and best practices for scaling Weka clusters horizontally and vertically, including capacity planning, migration strategies, and performance considerations during scaling operations. Raising drives and cores on clusters with explicit container counts is covered in `operator/operations/scale-up.md`; adding containers is not covered yet.
 
 ### 7. Custom Resource Management
 **Proposed File:** `core/concepts/custom-resources.md`
