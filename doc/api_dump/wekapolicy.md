@@ -28,6 +28,7 @@
 - [SchedulingSpec](#schedulingspec)
 - [PodRotationSpec](#podrotationspec)
 - [NodeAgentSpec](#nodeagentspec)
+- [LeaderElectionSpec](#leaderelectionspec)
 - [DriveTypeOverrideRule](#drivetypeoverriderule)
 - [DriveExclusionRule](#driveexclusionrule)
 - [PodResources](#podresources)
@@ -190,6 +191,7 @@
 | scheduling | *SchedulingSpec | Scheduling configures scheduling behavior of operator-managed pods. |
 | podRotation | *PodRotationSpec | PodRotation sets the operator-wide default for replacing pods whose pod-affecting spec changed. |
 | nodeAgent | *NodeAgentSpec | NodeAgent configures the node-agent DaemonSet the operator deploys on every node. |
+| leaderElection | *LeaderElectionSpec | LeaderElection configures the leader-election lease timings of the operator manager. |
 
 ---
 
@@ -301,6 +303,16 @@
 | persistencePath | *string | PersistencePath is the host path used for node-agent persistence. Default is /opt/k8s-weka; use<br>/root/k8s-weka on OpenShift and /mnt/stateful_partition/k8s-weka on Google Container-Optimized OS. |
 | kubeletPath | *string | KubeletPath is the kubelet directory of the nodes, used to locate the kubelet device-plugins<br>directory. Default is /var/lib/kubelet. |
 | devicePlugin | *NodeAgentDevicePluginSpec | DevicePlugin configures the NUMA region device plugin. |
+
+---
+
+## LeaderElectionSpec
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| leaseDuration | *metav1.Duration | LeaseDuration is how long non-leaders wait before trying to take over the lease. Default is 15s. |
+| renewDeadline | *metav1.Duration | RenewDeadline is how long the leader keeps retrying to renew the lease before giving up leadership<br>and exiting. Default is 10s. |
+| retryPeriod | *metav1.Duration | RetryPeriod is how long clients wait between lease acquire and renew attempts. Default is 2s. |
 
 ---
 

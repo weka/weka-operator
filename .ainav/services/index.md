@@ -8,6 +8,7 @@ API clients, Kubernetes helpers, node-local services and shared domain types.
 | Weka helpers | `internal/services/weka_cluster.go`, `weka_container.go`, `cluster_join_ips.go`, `secrets.go` | Cluster and container operations, join addresses, credentials |
 | Node-agent DaemonSet | `internal/node_agent/daemonset.go` | Create/update loop of the operator-managed node-agent DaemonSet; `URL()` builds node-agent request URLs |
 | Operator configuration | `internal/services/configuration_policy_cache.go` | `ConfigurationCache`: operator-wide settings from the configuration WekaPolicy, 30s TTL |
+| Leader-election timings | `LeaderElectionSettings` in `internal/services/configuration_settings.go`, read in `cmd/manager/main.go` | [leader-election.md](../../doc/operator/deployment/leader-election.md) |
 | Kubernetes | `internal/services/kubernetes/` | `kubernetes.go`, `affinities.go`, `metricsservice.go` |
 | Pod execution | `internal/services/exec/` | Exec into pods |
 | Discovery | `internal/services/discovery/` | Service discovery and container operational checks |

@@ -61,6 +61,10 @@
         <tags>embedded CSI, CSI deployment, CSI driver, StorageClass, CSI controller, CSI node server, targetCluster, csiConfig, lifecycle management, migration</tags>
         <summary>Comprehensive guide for the operator-embedded CSI deployment capabilities, covering CSI driver naming conventions, StorageClass creation, controller and node server deployment, configuration options, update flows, and migration from separate CSI to embedded CSI.</summary>
     </file>
+    <file relpath="operator/deployment/leader-election.md">
+        <tags>leader election, leaderElection, leaseDuration, renewDeadline, retryPeriod, WekaPolicy, configurationPayload, leader election lost, manager restart</tags>
+        <summary>Documents the operator manager's leader-election lease timings in the configuration WekaPolicy (leaseDuration, renewDeadline, retryPeriod), their defaults and ordering constraint, when to raise them (manager restarts with leader election lost on a large cluster), and that a change applies only after the operator pod restarts.</summary>
+    </file>
     <file relpath="operator/deployment/node-agent.md">
         <tags>node-agent, DaemonSet, WekaPolicy, configurationPayload, nodeAgent, updateStrategy, tolerations, persistencePath, kubeletPath, devicePlugin, helm migration</tags>
         <summary>Documents the operator-managed node-agent DaemonSet and its settings in the configuration WekaPolicy (updateStrategy, resources, tolerations, nodeSelector, affinity, persistencePath, kubeletPath, devicePlugin), defaults, the migration table from the removed Helm nodeAgent values, and behavior across Helm upgrade and rollback, image mismatch during slow rollouts and unresolvable configuration.</summary>

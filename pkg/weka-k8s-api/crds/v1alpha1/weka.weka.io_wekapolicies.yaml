@@ -143,6 +143,27 @@ spec:
                               image instead of the cluster image. False by default.
                             type: boolean
                         type: object
+                      leaderElection:
+                        description: LeaderElection configures the leader-election
+                          lease timings of the operator manager.
+                        properties:
+                          leaseDuration:
+                            description: LeaseDuration is how long non-leaders wait
+                              before trying to take over the lease. Default is 15s.
+                            pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                            type: string
+                          renewDeadline:
+                            description: |-
+                              RenewDeadline is how long the leader keeps retrying to renew the lease before giving up leadership
+                              and exiting. Default is 10s.
+                            pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                            type: string
+                          retryPeriod:
+                            description: RetryPeriod is how long clients wait between
+                              lease acquire and renew attempts. Default is 2s.
+                            pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                            type: string
+                        type: object
                       nodeAgent:
                         description: NodeAgent configures the node-agent DaemonSet
                           the operator deploys on every node.

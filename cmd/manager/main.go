@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -43,6 +44,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -202,6 +204,39 @@ func secretCacheOptions() cache.Options {
 	return cache.Options{ByObject: map[client.Object]cache.ByObject{&corev1.Secret{}: {Namespaces: byNamespace}}}
 }
 
+// startupLeaderElectionSettings reads the lease timings from the configuration WekaPolicy before the
+// manager exists. client-go refuses inconsistent timings at mgr.Start, so an unreadable or inconsistent policy
+// falls back to the defaults instead of crash-looping the operator.
+func startupLeaderElectionSettings(ctx context.Context, logger logr.Logger, restConfig *rest.Config) services.LeaderElectionSettings {
+	// runs before the manager serves /healthz, so on a slow API server it eats into the liveness-probe budget
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// the REST mapper's discovery requests don't take ctx, so bound each request as well
+	cfg := rest.CopyConfig(restConfig)
+	cfg.Timeout = 10 * time.Second
+
+	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err == nil {
+		var resolved services.ConfigurationSettings
+		if resolved, err = services.ResolveConfigurationSettings(ctx, c); err == nil {
+			le := resolved.LeaderElection
+			// followers judge expiry from the Lease's whole-second leaseDurationSeconds, so the truncated lease must
+			// outlast renewDeadline or a follower can take over while the leader still acts; also rules out a 0s lease.
+			// That field is int32, so a longer lease overflows and every lease write is rejected.
+			if le.RetryPeriod > 0 && le.LeaseDuration.Truncate(time.Second) > le.RenewDeadline &&
+				le.LeaseDuration <= math.MaxInt32*time.Second &&
+				float64(le.RenewDeadline) > leaderelection.JitterFactor*float64(le.RetryPeriod) {
+				return le
+			}
+			err = fmt.Errorf("need leaseDuration (whole seconds, at most %d s) > renewDeadline > %.1f x retryPeriod > 0, got %s/%s/%s",
+				math.MaxInt32, leaderelection.JitterFactor, le.LeaseDuration, le.RenewDeadline, le.RetryPeriod)
+		}
+	}
+	logger.Error(err, "leader-election settings from the configuration WekaPolicy not usable, using defaults")
+	return services.DefaultConfigurationSettings().LeaderElection
+}
+
 func startAsManager(ctx context.Context, logger logr.Logger) {
 	metricsAddr := config.Config.BindAddress.Metrics
 	probeAddr := config.Config.BindAddress.HealthProbe
@@ -225,7 +260,13 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		})
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	restConfig := ctrl.GetConfigOrDie()
+	leaderElection := services.DefaultConfigurationSettings().LeaderElection
+	if enableLeaderElection {
+		leaderElection = startupLeaderElectionSettings(ctx, logger, restConfig)
+	}
+
+	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme:        scheme,
 		WebhookServer: webhookServer,
 		Metrics: metricsserver.Options{
@@ -240,6 +281,9 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "ad0b5146.weka.io",
+		LeaseDuration:          &leaderElection.LeaseDuration,
+		RenewDeadline:          &leaderElection.RenewDeadline,
+		RetryPeriod:            &leaderElection.RetryPeriod,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
