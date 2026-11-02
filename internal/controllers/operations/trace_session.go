@@ -155,15 +155,9 @@ func (o *MaintainTraceSession) DeduceWekaHomeUrl(ctx context.Context) error {
 		return nil
 	}
 
-	wekaService, err := o.getWekaService(ctx)
-	if err == nil {
-		status, err := wekaService.GetWekaStatus(ctx)
-		if err == nil {
-			if status.Cloud.Url != "" {
-				wekaHomeEndpoint = status.Cloud.Url
-				return nil
-			}
-		}
+	if url := o.wekaHomeUrlFromCluster(ctx); url != "" {
+		wekaHomeEndpoint = url
+		return nil
 	}
 
 	if o.cluster.Spec.WekaHome != nil {
@@ -678,16 +672,35 @@ func (o *MaintainTraceSession) CleanupResources(ctx context.Context) error {
 }
 
 func (o *MaintainTraceSession) getWekaService(ctx context.Context) (services.WekaService, error) {
-	err := o.ensureClusterContainers(ctx)
+	container, err := o.activeComputeContainer(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return o.wekaServiceFor(container), nil
+}
 
-	container, err := resources.SelectActiveContainerWithRole(ctx, o.containers, weka.WekaContainerModeCompute)
-	if err != nil {
+func (o *MaintainTraceSession) activeComputeContainer(ctx context.Context) (*weka.WekaContainer, error) {
+	if err := o.ensureClusterContainers(ctx); err != nil {
 		return nil, err
 	}
+	return resources.SelectActiveContainerWithRole(ctx, o.containers, weka.WekaContainerModeCompute)
+}
 
-	execService := exec.NewExecService(o.restClient, o.mgr.GetConfig())
-	return services.NewWekaService(execService, container), nil
+func (o *MaintainTraceSession) wekaServiceFor(container *weka.WekaContainer) *services.CliWekaService {
+	return services.NewWekaService(exec.NewExecService(o.restClient, o.mgr.GetConfig()), container)
+}
+
+// wekaHomeUrlFromCluster returns the cloud URL the cluster reports, or "" if it cannot be reached.
+// Best-effort by design: the caller has other sources to fall back on.
+func (o *MaintainTraceSession) wekaHomeUrlFromCluster(ctx context.Context) string {
+	container, err := o.activeComputeContainer(ctx)
+	if err != nil {
+		return ""
+	}
+
+	status, err := o.wekaServiceFor(container).GetWekaStatus(ctx)
+	if err != nil {
+		return ""
+	}
+	return status.Cloud.Url
 }

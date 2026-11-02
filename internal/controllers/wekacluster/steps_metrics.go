@@ -26,7 +26,6 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/metrics"
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
@@ -342,7 +341,8 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 	}
 
 	timeout := time.Second * 30
-	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, activeContainer, &timeout)
+	wekaService := r.WekaServiceForContainer(activeContainer, &timeout)
+
 	wekaStatus, err := wekaService.GetWekaStatus(ctx)
 	if err != nil {
 		return errors.Wrap(err, "Failed to get Weka status")
@@ -603,7 +603,8 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 	}
 
 	timeout := time.Second * 30
-	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
+	wekaService := r.WekaServiceForContainer(container, &timeout)
+
 	status, err := wekaService.GetWekaStatus(ctx)
 	if err != nil {
 		return err

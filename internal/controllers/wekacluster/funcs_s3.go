@@ -24,16 +24,17 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 	cluster := r.cluster
 
 	execInContainer := discovery.SelectActiveContainer(r.containers)
-	wekaService := services.NewWekaService(r.ExecService, execInContainer)
 
-	// the CLI generation determines the S3 payload schema
-	featureFlags, err := r.GetFeatureFlags(ctx)
+	// The CLI generation determines the S3 payload schema, so the flags must come from the image
+	// this container is running, not the one the cluster spec asks for: mid-upgrade they differ and
+	// the spec's schema fails to parse the running CLI's output, aborting the reconcile.
+	wekaService, err := r.WekaServiceWithFlagsForContainer(ctx, execInContainer, nil)
 	if err != nil {
 		return err // Propagate error (including WaitError if ad-hoc container still running)
 	}
 
 	// check if s3 cluster already exists
-	s3Cluster, err := wekaService.GetS3Cluster(ctx, featureFlags)
+	s3Cluster, err := wekaService.GetS3Cluster(ctx)
 	if err != nil {
 		err = errors.Wrap(err, "Failed to get S3 cluster")
 		return err

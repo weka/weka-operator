@@ -18,6 +18,16 @@ import (
 	"github.com/weka/weka-operator/internal/services"
 )
 
+// containerImage is the image a container is actually running. Feature flags must be keyed on it
+// rather than on the spec's image: mid-upgrade the two differ, and flags read from the incoming
+// image would describe output the running one never produces.
+func containerImage(container *weka.WekaContainer) string {
+	if image := container.Status.LastAppliedImage; image != "" {
+		return image
+	}
+	return container.Spec.Image
+}
+
 // GetFeatureFlagsForImage returns feature flags for the given image.
 // It checks the cache first. If not cached, it creates an ad-hoc container
 // to fetch the flags (returning WaitError while the container is running).
@@ -95,14 +105,16 @@ func GetFeatureFlagsForContainer(
 	restClient rest.Interface,
 	container *weka.WekaContainer,
 ) (*domain.FeatureFlags, error) {
+	// SelectActiveContainer returns nil when no container is active yet, and several callers pass
+	// that straight through. Erroring lets the step retry once one comes up.
+	if container == nil {
+		return nil, errors.New("cannot resolve feature flags: no container")
+	}
+
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetFeatureFlagsForContainer", "container", container.Name)
 	defer logger.End()
 
-	// Determine the image to use
-	image := container.Status.LastAppliedImage
-	if image == "" {
-		image = container.Spec.Image
-	}
+	image := containerImage(container)
 
 	// Check cache first
 	flags, err := services.GetFeatureFlags(ctx, image)

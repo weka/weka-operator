@@ -711,7 +711,8 @@ func (r *wekaClusterReconcilerLoop) handleImageUpgrade(ctx context.Context) erro
 	}
 
 	timeout := time.Second * 30
-	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, execInContainer, &timeout)
+	wekaService := r.WekaServiceForContainer(execInContainer, &timeout)
+
 	var status services.WekaStatusResponse
 	status, err = wekaService.GetWekaStatus(ctx)
 	if err != nil {

@@ -116,6 +116,191 @@ type WekaStatusResponse struct {
 	RedundancyLevel   int                     `json:"stripe_protection_drives"`
 }
 
+// wekaStatusWire accepts both CLI generations of `weka status --json` and resolves them per field.
+// wekactl regrouped most of the payload: the per-role container counters were promoted out of
+// "containers", the stripe geometry moved under "stripe", the activity byte counters were renamed,
+// and rebuild went camelCase to snake_case with protection sizes in bytes rather than MiB.
+//
+// The payload decides, not the container's feature flags. Flags describe what some binary can emit,
+// read from a separate exec at a separate time - possibly a different pod mid-upgrade - whereas
+// these bytes are the ones actually being parsed. Pointers distinguish an absent key from a valid
+// zero, which is the whole point: every moved field decodes as zero rather than failing, and a
+// zeroed rebuild reads as a fully protected cluster.
+type wekaStatusWire struct {
+	ActiveAlertsCount int                     `json:"active_alerts_count"`
+	Status            string                  `json:"status"`
+	Capacity          WekaStatusCapacity      `json:"capacity"`
+	Cloud             WekaStatusCloud         `json:"cloud"`
+	Drives            WekaStatusObjectCounter `json:"drives"`
+	Activity          wekaStatusActivityWire  `json:"activity"`
+
+	// Legacy nests the per-role counters under "containers"; wekactl leaves only the total there and
+	// promotes the roles to siblings.
+	Containers        WekaStatusContainers     `json:"containers"`
+	BackendContainers *WekaStatusObjectCounter `json:"backend_containers"`
+	ClientContainers  *WekaStatusObjectCounter `json:"client_containers"`
+	ComputeContainers *WekaStatusObjectCounter `json:"compute_containers"`
+	DriveContainers   *WekaStatusObjectCounter `json:"drive_containers"`
+
+	Stripe          *wekaStatusStripeWire `json:"stripe"`
+	StripeWidth     *int                  `json:"stripe_data_drives"`
+	RedundancyLevel *int                  `json:"stripe_protection_drives"`
+	HotSpare        *int                  `json:"hot_spare"`
+
+	Rebuild wekaStatusRebuildWire `json:"rebuild"`
+}
+
+type wekaStatusStripeWire struct {
+	Data       int `json:"data"`
+	Protection int `json:"protection"`
+	HotSpare   int `json:"hotspare"`
+}
+
+type wekaStatusActivityWire struct {
+	NumOps    float64 `json:"num_ops"`
+	NumReads  float64 `json:"num_reads"`
+	NumWrites float64 `json:"num_writes"`
+
+	BytesRead        *float64 `json:"bytes_read"`
+	BytesWritten     *float64 `json:"bytes_written"`
+	ObsDownloadBytes *float64 `json:"obs_download_bytes"`
+	ObsUploadBytes   *float64 `json:"obs_upload_bytes"`
+
+	SumBytesRead              *float64 `json:"sum_bytes_read"`
+	SumBytesWritten           *float64 `json:"sum_bytes_written"`
+	ObsDownloadBytesPerSecond *float64 `json:"obs_download_bytes_per_second"`
+	ObsUploadBytesPerSecond   *float64 `json:"obs_upload_bytes_per_second"`
+}
+
+type wekaStatusRebuildWire struct {
+	ProgressPercentSnake *float64               `json:"progress_percent"`
+	ProtectionStateSnake *[]protectionStateWire `json:"protection_state"`
+	TotalCopiesSize      uint64                 `json:"total_copies_size"`
+	TotalCopiesDone      uint64                 `json:"total_copies_done"`
+
+	MovingData           *bool              `json:"movingData"`
+	ProgressPercentCamel *float64           `json:"progressPercent"`
+	ProtectionStateCamel *[]ProtectionState `json:"ProtectionState"`
+}
+
+type protectionStateWire struct {
+	Failures int     `json:"failures"`
+	Size     int64   `json:"size"`
+	Percent  float64 `json:"percent"`
+}
+
+// resolve errors rather than defaulting on the fields that gate disruptions - stripe geometry and
+// rebuild protection state. Activity counters are only ever reported, so those stay best-effort.
+func (s *wekaStatusWire) resolve() (WekaStatusResponse, error) {
+	rebuild, err := s.Rebuild.resolve()
+	if err != nil {
+		return WekaStatusResponse{}, err
+	}
+
+	containers := s.Containers
+	for _, role := range []struct {
+		wekactl *WekaStatusObjectCounter
+		target  *WekaStatusObjectCounter
+	}{
+		{s.BackendContainers, &containers.Backends},
+		{s.ClientContainers, &containers.Clients},
+		{s.ComputeContainers, &containers.Computes},
+		{s.DriveContainers, &containers.Drives},
+	} {
+		if role.wekactl != nil {
+			*role.target = *role.wekactl
+		}
+	}
+
+	status := WekaStatusResponse{
+		ActiveAlertsCount: s.ActiveAlertsCount,
+		Activity:          s.Activity.resolve(),
+		Status:            s.Status,
+		Capacity:          s.Capacity,
+		Cloud:             s.Cloud,
+		Containers:        containers,
+		Drives:            s.Drives,
+		Rebuild:           rebuild,
+	}
+
+	switch {
+	case s.Stripe != nil:
+		status.StripeWidth = s.Stripe.Data
+		status.RedundancyLevel = s.Stripe.Protection
+		status.HotSpare = s.Stripe.HotSpare
+	case s.StripeWidth != nil || s.RedundancyLevel != nil || s.HotSpare != nil:
+		status.StripeWidth = derefOrZero(s.StripeWidth)
+		status.RedundancyLevel = derefOrZero(s.RedundancyLevel)
+		status.HotSpare = derefOrZero(s.HotSpare)
+	default:
+		return WekaStatusResponse{}, errors.New("weka status has neither a 'stripe' object nor 'stripe_data_drives'")
+	}
+
+	return status, nil
+}
+
+func (a *wekaStatusActivityWire) resolve() WekaStatusActivity {
+	return WekaStatusActivity{
+		NumOps:                    a.NumOps,
+		NumReads:                  a.NumReads,
+		NumWrites:                 a.NumWrites,
+		SumBytesRead:              firstOrZero(a.SumBytesRead, a.BytesRead),
+		SumBytesWritten:           firstOrZero(a.SumBytesWritten, a.BytesWritten),
+		ObsDownloadBytesPerSecond: firstOrZero(a.ObsDownloadBytesPerSecond, a.ObsDownloadBytes),
+		ObsUploadBytesPerSecond:   firstOrZero(a.ObsUploadBytesPerSecond, a.ObsUploadBytes),
+	}
+}
+
+func (r *wekaStatusRebuildWire) resolve() (WekaStatusRebuild, error) {
+	rebuild := WekaStatusRebuild{
+		ProgressPercent: firstOrZero(r.ProgressPercentCamel, r.ProgressPercentSnake),
+	}
+
+	switch {
+	case r.ProtectionStateCamel != nil:
+		rebuild.ProtectionState = *r.ProtectionStateCamel
+	case r.ProtectionStateSnake != nil:
+		states := make([]ProtectionState, 0, len(*r.ProtectionStateSnake))
+		for _, state := range *r.ProtectionStateSnake {
+			states = append(states, ProtectionState{
+				MiB:         state.Size >> 20, // wekactl reports bytes, the legacy CLI reported MiB
+				NumFailures: state.Failures,
+				Percent:     state.Percent,
+			})
+		}
+		rebuild.ProtectionState = states
+	default:
+		return WekaStatusRebuild{}, errors.New("weka status rebuild has neither a 'ProtectionState' nor a 'protection_state' field")
+	}
+
+	// wekactl dropped movingData and goweka replaced it with RebuildStatus.InProgress(), which is
+	// this expression. Letting it default to false would un-gate every disruption check that refuses
+	// to act while a rebuild is moving data.
+	if r.MovingData != nil {
+		rebuild.MovingData = *r.MovingData
+	} else {
+		rebuild.MovingData = rebuild.ProgressPercent != 0 || r.TotalCopiesSize != 0 || r.TotalCopiesDone != 0
+	}
+
+	return rebuild, nil
+}
+
+func derefOrZero(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func firstOrZero(values ...*float64) float64 {
+	for _, value := range values {
+		if value != nil {
+			return *value
+		}
+	}
+	return 0
+}
+
 // WekaObsBucket represents an Object Store bucket in a Weka filesystem
 type WekaObsBucket struct {
 	DetachProgress interface{} `json:"detachProgress"`
@@ -497,7 +682,7 @@ type WekaService interface {
 	ConfigureNfs(ctx context.Context, nfsParams *NFSParams) error
 	DeleteNfsInterfaceGroup(ctx context.Context, interfaceGroupName string) error
 	EnsureNfsIpRanges(ctx context.Context, interfaceGroupName string, targetIpRanges []string) error
-	GetS3Cluster(ctx context.Context, featureFlags *domain.FeatureFlags) (*S3Cluster, error)
+	GetS3Cluster(ctx context.Context) (*S3Cluster, error)
 	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
 	ListS3ClusterContainers(ctx context.Context) ([]int, error)
 	DeleteS3Cluster(ctx context.Context) error
@@ -538,14 +723,14 @@ type WekaService interface {
 	// GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
-func NewWekaService(execService exec.ExecService, container *weka.WekaContainer) WekaService {
+func NewWekaService(execService exec.ExecService, container *weka.WekaContainer) *CliWekaService {
 	return &CliWekaService{
 		execService: execService,
 		Container:   container,
 	}
 }
 
-func NewWekaServiceWithTimeout(execService exec.ExecService, container *weka.WekaContainer, timeout *time.Duration) WekaService {
+func NewWekaServiceWithTimeout(execService exec.ExecService, container *weka.WekaContainer, timeout *time.Duration) *CliWekaService {
 	return &CliWekaService{
 		execService: execService,
 		Container:   container,
@@ -574,9 +759,29 @@ type NfsInterfaceGroupExists struct {
 }
 
 type CliWekaService struct {
-	execService exec.ExecService
-	Container   *weka.WekaContainer
-	timeout     *time.Duration
+	execService  exec.ExecService
+	Container    *weka.WekaContainer
+	timeout      *time.Duration
+	featureFlags *domain.FeatureFlags
+}
+
+// WithFeatureFlags binds the flags of the image Container is actually running. The flags belong to
+// the container, not to an individual call: methods whose payload schema changed between CLI
+// generations read them from here, and binding them once keeps the flags and the container they
+// describe from drifting apart.
+func (c *CliWekaService) WithFeatureFlags(featureFlags *domain.FeatureFlags) *CliWekaService {
+	c.featureFlags = featureFlags
+	return c
+}
+
+// wekactlSchema reports whether this container's CLI emits the wekactl payload shape. It errors
+// rather than guessing a generation: the fields that moved decode as zero instead of failing, so
+// the wrong schema yields a plausible payload the caller never actually read.
+func (c *CliWekaService) wekactlSchema(payload string) (bool, error) {
+	if c.featureFlags == nil {
+		return false, errors.Errorf("feature flags are required to parse the %s payload", payload)
+	}
+	return c.featureFlags.WekactlAsDefault, nil
 }
 
 func (c *CliWekaService) ListProcesses(ctx context.Context, listOptions ProcessListOptions) ([]Process, error) {
@@ -1646,11 +1851,16 @@ func (c *CliWekaService) CreateFilesystem(ctx context.Context, name, group strin
 	return nil
 }
 
-func (c *CliWekaService) GetWekaStatus(ctx context.Context) (response WekaStatusResponse, err error) {
-	err = c.RunJsonCmd(ctx, []string{
+func (c *CliWekaService) GetWekaStatus(ctx context.Context) (WekaStatusResponse, error) {
+	cmd := []string{
 		"wekaauthcli", "status", "--json",
-	}, "GetWekaStatus", &response)
-	return
+	}
+
+	var wire wekaStatusWire
+	if err := c.RunJsonCmd(ctx, cmd, "GetWekaStatus", &wire); err != nil {
+		return WekaStatusResponse{}, err
+	}
+	return wire.resolve()
 }
 
 func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name string, data any) error {
@@ -1877,18 +2087,19 @@ func (c *CliWekaService) ListLocalContainers(ctx context.Context) ([]WekaLocalCo
 	return containers, nil
 }
 
-func (c *CliWekaService) GetS3Cluster(ctx context.Context, featureFlags *domain.FeatureFlags) (*S3Cluster, error) {
+func (c *CliWekaService) GetS3Cluster(ctx context.Context) (*S3Cluster, error) {
 	// weka s3 cluster --json
 	cmd := []string{
 		"wekaauthcli", "s3", "cluster", "--json",
 	}
 
-	// Guessing the generation would silently pick the wrong port encoding, so require the flags.
-	if featureFlags == nil {
-		return nil, errors.New("feature flags are required to parse the S3 cluster payload")
+	// The generation picks the port encoding.
+	wekactl, err := c.wekactlSchema("S3 cluster")
+	if err != nil {
+		return nil, err
 	}
 
-	if featureFlags.WekactlAsDefault {
+	if wekactl {
 		var s3Cluster s3ClusterWekactl
 		err := c.RunJsonCmd(ctx, cmd, "GetS3Cluster", &s3Cluster)
 		if err != nil {
@@ -1898,8 +2109,7 @@ func (c *CliWekaService) GetS3Cluster(ctx context.Context, featureFlags *domain.
 	}
 
 	var s3Cluster S3Cluster
-	err := c.RunJsonCmd(ctx, cmd, "GetS3Cluster", &s3Cluster)
-	if err != nil {
+	if err := c.RunJsonCmd(ctx, cmd, "GetS3Cluster", &s3Cluster); err != nil {
 		return nil, err
 	}
 	return &s3Cluster, nil

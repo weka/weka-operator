@@ -451,7 +451,8 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 	}
 
 	timeout := time.Second * 30
-	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
+	wekaService := r.WekaServiceForContainer(container, &timeout)
+
 	status, err := wekaService.GetWekaStatus(ctx)
 	if err != nil {
 		return err
