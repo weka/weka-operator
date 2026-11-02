@@ -116,6 +116,144 @@ type WekaStatusResponse struct {
 	RedundancyLevel   int                     `json:"stripe_protection_drives"`
 }
 
+// wekactlStatus decodes `weka status --json` as emitted by wekactl, whose shape differs from the
+// legacy python CLI: the per-role container counters sit at the top level rather than inside
+// "containers", the stripe geometry is an object, the activity byte counters carry no "sum_"
+// prefix, rebuild keys are snake_case, and protection sizes are in bytes rather than MiB.
+//
+// Only this shape needs a translation. WekaStatusResponse mirrors the legacy payload field for
+// field, so that generation decodes straight into it.
+type wekactlStatus struct {
+	ActiveAlertsCount int                     `json:"active_alerts_count"`
+	Status            string                  `json:"status"`
+	Capacity          WekaStatusCapacity      `json:"capacity"`
+	Cloud             WekaStatusCloud         `json:"cloud"`
+	Drives            WekaStatusObjectCounter `json:"drives"`
+	Activity          wekactlActivity         `json:"activity"`
+
+	Containers        WekaStatusObjectCounter `json:"containers"`
+	BackendContainers WekaStatusObjectCounter `json:"backend_containers"`
+	ClientContainers  WekaStatusObjectCounter `json:"client_containers"`
+	ComputeContainers WekaStatusObjectCounter `json:"compute_containers"`
+	DriveContainers   WekaStatusObjectCounter `json:"drive_containers"`
+
+	Stripe  wekactlStripe  `json:"stripe"`
+	Rebuild wekactlRebuild `json:"rebuild"`
+}
+
+type wekactlStripe struct {
+	Data       int `json:"data"`
+	Protection int `json:"protection"`
+	HotSpare   int `json:"hotspare"`
+}
+
+type wekactlActivity struct {
+	NumOps    float64 `json:"num_ops"`
+	NumReads  float64 `json:"num_reads"`
+	NumWrites float64 `json:"num_writes"`
+
+	BytesRead        float64 `json:"bytes_read"`
+	BytesWritten     float64 `json:"bytes_written"`
+	ObsDownloadBytes float64 `json:"obs_download_bytes"`
+	ObsUploadBytes   float64 `json:"obs_upload_bytes"`
+}
+
+type wekactlRebuild struct {
+	ProgressPercent float64                  `json:"progress_percent"`
+	ProtectionState []wekactlProtectionState `json:"protection_state"`
+	TotalCopiesSize uint64                   `json:"total_copies_size"`
+	TotalCopiesDone uint64                   `json:"total_copies_done"`
+}
+
+type wekactlProtectionState struct {
+	Failures int     `json:"failures"`
+	Size     int64   `json:"size"`
+	Percent  float64 `json:"percent"`
+}
+
+func (s *wekactlStatus) toResponse() WekaStatusResponse {
+	return WekaStatusResponse{
+		ActiveAlertsCount: s.ActiveAlertsCount,
+		Status:            s.Status,
+		Capacity:          s.Capacity,
+		Cloud:             s.Cloud,
+		Drives:            s.Drives,
+		Activity: WekaStatusActivity{
+			NumOps:                    s.Activity.NumOps,
+			NumReads:                  s.Activity.NumReads,
+			NumWrites:                 s.Activity.NumWrites,
+			SumBytesRead:              s.Activity.BytesRead,
+			SumBytesWritten:           s.Activity.BytesWritten,
+			ObsDownloadBytesPerSecond: s.Activity.ObsDownloadBytes,
+			ObsUploadBytesPerSecond:   s.Activity.ObsUploadBytes,
+		},
+		Containers: WekaStatusContainers{
+			WekaStatusObjectCounter: s.Containers,
+			Backends:                s.BackendContainers,
+			Clients:                 s.ClientContainers,
+			Computes:                s.ComputeContainers,
+			Drives:                  s.DriveContainers,
+		},
+		StripeWidth:     s.Stripe.Data,
+		RedundancyLevel: s.Stripe.Protection,
+		HotSpare:        s.Stripe.HotSpare,
+		Rebuild:         s.Rebuild.toResponse(),
+	}
+}
+
+func (r *wekactlRebuild) toResponse() WekaStatusRebuild {
+	states := make([]ProtectionState, 0, len(r.ProtectionState))
+	for _, state := range r.ProtectionState {
+		states = append(states, ProtectionState{
+			MiB:         state.Size >> 20, // wekactl reports bytes, the legacy CLI MiB
+			NumFailures: state.Failures,
+			Percent:     state.Percent,
+		})
+	}
+
+	return WekaStatusRebuild{
+		// this payload carries no movingData field, so it is derived. Leaving it false would un-gate
+		// every disruption check that refuses to act while a rebuild is moving data.
+		MovingData:      r.ProgressPercent != 0 || r.TotalCopiesSize != 0 || r.TotalCopiesDone != 0,
+		ProgressPercent: r.ProgressPercent,
+		ProtectionState: states,
+	}
+}
+
+// parseWekaStatus decodes either CLI generation, choosing the schema by which stripe form the
+// payload carries.
+//
+// An unrecognized payload errors rather than falling through to one of the schemas: every field
+// that differs decodes as a zero under the wrong one, and a zeroed rebuild reads as a fully
+// protected cluster. StripeWidth is a pointer because a cluster still forming reports zero data
+// drives, which must stay distinguishable from the field being absent.
+func parseWekaStatus(payload []byte) (WekaStatusResponse, error) {
+	var probe struct {
+		Stripe      *json.RawMessage `json:"stripe"`
+		StripeWidth *int             `json:"stripe_data_drives"`
+	}
+	if err := json.Unmarshal(payload, &probe); err != nil {
+		return WekaStatusResponse{}, errors.Wrap(err, "probe weka status schema")
+	}
+
+	switch {
+	case probe.Stripe != nil:
+		var status wekactlStatus
+		if err := json.Unmarshal(payload, &status); err != nil {
+			return WekaStatusResponse{}, errors.Wrap(err, "parse wekactl weka status")
+		}
+		return status.toResponse(), nil
+	case probe.StripeWidth != nil:
+		var status WekaStatusResponse
+		if err := json.Unmarshal(payload, &status); err != nil {
+			return WekaStatusResponse{}, errors.Wrap(err, "parse legacy weka status")
+		}
+		return status, nil
+	default:
+		return WekaStatusResponse{}, errors.New("weka status has neither a 'stripe' object nor 'stripe_data_drives'")
+	}
+}
+
 // WekaObsBucket represents an Object Store bucket in a Weka filesystem
 type WekaObsBucket struct {
 	DetachProgress interface{} `json:"detachProgress"`
@@ -1646,11 +1784,16 @@ func (c *CliWekaService) CreateFilesystem(ctx context.Context, name, group strin
 	return nil
 }
 
-func (c *CliWekaService) GetWekaStatus(ctx context.Context) (response WekaStatusResponse, err error) {
-	err = c.RunJsonCmd(ctx, []string{
+func (c *CliWekaService) GetWekaStatus(ctx context.Context) (WekaStatusResponse, error) {
+	cmd := []string{
 		"wekaauthcli", "status", "--json",
-	}, "GetWekaStatus", &response)
-	return
+	}
+
+	var payload json.RawMessage
+	if err := c.RunJsonCmd(ctx, cmd, "GetWekaStatus", &payload); err != nil {
+		return WekaStatusResponse{}, err
+	}
+	return parseWekaStatus(payload)
 }
 
 func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name string, data any) error {
