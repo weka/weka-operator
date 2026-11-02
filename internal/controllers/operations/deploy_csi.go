@@ -25,6 +25,9 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
+// StatsStaleAfter is how old container stats may be before CSI accessibility falls back to the container's InternalStatus.
+const StatsStaleAfter = 5 * time.Minute
+
 type DeployCsiOperation struct {
 	client        client.Client
 	results       DeployCsiResult
@@ -358,6 +361,7 @@ func (o *DeployCsiOperation) getCsiSecret() client.ObjectKey {
 
 type CsiTopologyLabelsService struct {
 	nodeName  string
+	nodeReady bool
 	container *weka.WekaContainer
 
 	nodeLabelKey       string
@@ -367,9 +371,10 @@ type CsiTopologyLabelsService struct {
 	expectedLabels map[string]string
 }
 
-func NewCsiTopologyLabelsService(csiDriverName, nodeName string, container *weka.WekaContainer) *CsiTopologyLabelsService {
+func NewCsiTopologyLabelsService(csiDriverName, nodeName string, nodeReady bool, container *weka.WekaContainer) *CsiTopologyLabelsService {
 	return &CsiTopologyLabelsService{
 		nodeName:  nodeName,
+		nodeReady: nodeReady,
 		container: container,
 		// get the label keys for the given CSI driver name
 		nodeLabelKey:       fmt.Sprintf("topology.%s/node", csiDriverName),
@@ -442,15 +447,19 @@ func (s *CsiTopologyLabelsService) nodeIsCsiAccessible() bool {
 		return false
 	}
 
-	// we should have stats and they should be recent
 	if container.Status.Stats == nil || container.Status.Stats.LastUpdate.IsZero() {
 		return false
 	}
 
-	processes := container.Status.Stats.Processes
-	allProcessesActive := processes.Active > 0 && processes.Active == processes.Desired
+	// stale stats mean node-agent is unreachable, not that the client is down; fall back to `weka local ps`
+	if time.Since(container.Status.Stats.LastUpdate.Time) >= StatsStaleAfter {
+		// InternalStatus keeps its last value when `weka local ps` fails (only Status turns Error), and on a
+		// NotReady node `weka local ps` is skipped, so both are as stale as the stats there
+		return s.nodeReady && container.Status.Status == weka.Running && container.Status.InternalStatus == "READY"
+	}
 
-	return allProcessesActive && time.Since(container.Status.Stats.LastUpdate.Time) < 5*time.Minute
+	processes := container.Status.Stats.Processes
+	return processes.Active > 0 && processes.Active == processes.Desired
 }
 
 // isDaemonSetRolledOut reports whether every desired pod of the DaemonSet has
