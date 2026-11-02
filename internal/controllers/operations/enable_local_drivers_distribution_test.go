@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -41,40 +42,89 @@ var _ = Describe("sanitizeOsImageForLabel", func() {
 	})
 })
 
-var _ = Describe("nodeAttributes StringKey", func() {
-	It("should generate a consistent string key from node attributes", func() {
-		na := nodeAttributes{
-			kernelVersion: "5.15.0-100-generic",
-			architecture:  "amd64",
-			osImage:       "Ubuntu 22.04.5 LTS",
-			nodeSelector:  map[string]string{"zone": "us-east-1a", "env": "prod"},
+var _ = Describe("same-kernel node pools", func() {
+	const (
+		namespace = "default"
+		image     = "quay.io/weka.io/weka-in-container:4.5.0.100"
+	)
+	poolA := map[string]string{"pool": "a"}
+	poolB := map[string]string{"pool": "b"}
+
+	node := func(name string, pool map[string]string) *corev1.Node {
+		return &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Labels: maps.Clone(pool)},
+			Status: corev1.NodeStatus{NodeInfo: corev1.NodeSystemInfo{
+				KernelVersion: "5.15.0-100-generic", Architecture: "amd64", OSImage: "Ubuntu 22.04.5 LTS",
+			}},
+		}
+	}
+
+	It("share one builder that any of the pools can run, with a stable spec", func() {
+		ctx := context.Background()
+		scheme := runtime.NewScheme()
+		Expect(weka.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		origNamespace := config.Config.OperatorPodNamespace
+		config.Config.OperatorPodNamespace = "weka-operator-system"
+		DeferCleanup(func() { config.Config.OperatorPodNamespace = origNamespace })
+		Expect(services.RefreshSettings(ctx, fake.NewClientBuilder().WithScheme(scheme).Build())).To(Succeed())
+		policy := &weka.WekaPolicy{ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: namespace, UID: "test-policy-uid"}}
+		dist := &weka.WekaContainer{ObjectMeta: metav1.ObjectMeta{
+			Name: "test-policy-dist-abc", Namespace: namespace,
+			Labels: map[string]string{PolicyNameLabelKey: policy.Name, "app": "test-policy" + DriverDistContainerSuffix, "weka.io/mode": weka.WekaContainerModeDriversDist},
+		}}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(policy).
+			WithObjects(policy, dist, node("x", poolA), node("y", poolB)).Build()
+
+		pass := func() *EnsureDistServiceOperation {
+			op := &EnsureDistServiceOperation{
+				client: c, scheme: scheme, policy: policy,
+				payload:             &weka.DriverDistPayload{NodeSelectors: []map[string]string{poolB, poolA}},
+				recorder:            events.NewFakeRecorder(10),
+				throttler:           throttling.NewSyncMapThrottler(),
+				discoveredNodesAttr: map[string]nodeAttributes{},
+				discoveredImages:    map[string]bool{image: true},
+				targetKernelArchs:   map[string]nodeAttributes{},
+				builderNames:        map[string]string{},
+			}
+			Expect(op.DiscoverNodesAndLabel(ctx)).To(Succeed())
+			Expect(op.EnsureBuilderContainers(ctx)).To(Succeed())
+			return op
+		}
+		builders := func() []weka.WekaContainer {
+			var list weka.WekaContainerList
+			Expect(c.List(ctx, &list, client.MatchingLabels{"weka.io/mode": weka.WekaContainerModeDriversBuilder})).To(Succeed())
+			return list.Items
 		}
 
-		key := na.StringKey()
-		Expect(key).To(ContainSubstring("kernel=5.15.0-100-generic"))
-		Expect(key).To(ContainSubstring("arch=amd64"))
-		Expect(key).To(ContainSubstring("osImage=ubuntu-22.04.5-lts"))
-		// Selectors should be sorted by key
-		Expect(key).To(ContainSubstring("selector=env:prod,zone:us-east-1a"))
+		op := pass()
+		Expect(op.targetKernelArchs).To(HaveLen(1))
+		first := builders()
+		Expect(first).To(HaveLen(1))
+		Expect(first[0].Spec.NodeSelector).NotTo(HaveKey("pool"))
+		terms := first[0].Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+		Expect(terms).To(Equal([]corev1.NodeSelectorTerm{
+			{MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}}}},
+			{MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"b"}}}},
+		}))
 
-		// Same attributes should produce the same key
-		Expect(na.StringKey()).To(Equal(key))
+		for range 3 {
+			pass()
+		}
+		again := builders()
+		Expect(again).To(HaveLen(1))
+		Expect(again[0].ResourceVersion).To(Equal(first[0].ResourceVersion))
+
+		again[0].Status.Status = weka.Completed
+		Expect(c.Update(ctx, &again[0])).To(Succeed())
+		Expect(op.PollBuilderContainersStatus(ctx)).To(Succeed())
+		Expect(policy.Status.Progress).To(Equal("1/1"))
 	})
 
-	It("should produce different keys for different node selectors", func() {
-		na1 := nodeAttributes{
-			kernelVersion: "5.15.0",
-			architecture:  "amd64",
-			osImage:       "Ubuntu",
-			nodeSelector:  map[string]string{"zone": "a"},
-		}
-		na2 := nodeAttributes{
-			kernelVersion: "5.15.0",
-			architecture:  "amd64",
-			osImage:       "Ubuntu",
-			nodeSelector:  map[string]string{"zone": "b"},
-		}
-		Expect(na1.StringKey()).NotTo(Equal(na2.StringKey()))
+	It("leave the builder unrestricted when a pool matches every node", func() {
+		Expect(builderAffinity(nil)).To(BeNil())
+		Expect(builderAffinity([]map[string]string{nil})).To(BeNil())
+		Expect(builderAffinity([]map[string]string{poolA, {}})).To(BeNil())
 	})
 })
 

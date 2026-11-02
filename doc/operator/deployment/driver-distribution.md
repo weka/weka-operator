@@ -106,7 +106,8 @@ spec:
         - "quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2" # Example Weka image version for proactive building
         - "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4" # Another example
       # NodeSelectors to define which nodes this policy applies to for driver building.
-      # Builders will be scheduled on nodes matching these selectors AND discovered kernel/arch.
+      # One builder per image and kernel/arch/os across all selectors; it runs on any node that
+      # matches one of the selectors and has that kernel/arch/os.
       nodeSelectors:
         - role: "worker-nodes"
           environment: "production"
