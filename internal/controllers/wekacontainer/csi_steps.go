@@ -49,7 +49,7 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 		return errors.New("node affinity is not set")
 	}
 
-	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, string(nodeName), r.container)
+	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, string(nodeName), NodeIsReady(r.node), r.container)
 	if !csiTopologyLabelsService.NodeHasExpectedCsiTopologyLabels(r.node) {
 		spanCtx, logger := instrumentation.CreateLogSpan(ctx, "UpdateNodeCsiTopologyLabels")
 		defer logger.End()
@@ -78,7 +78,7 @@ func (r *containerReconcilerLoop) UnsetCsiNodeTopologyLabels(ctx context.Context
 
 	logger.Info("Unsetting CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName)
 
-	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, nodeName, r.container)
+	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, nodeName, NodeIsReady(r.node), r.container)
 	node := csiTopologyLabelsService.UpdateNodeLabels(r.node, nil)
 
 	err := r.Update(ctx, node)

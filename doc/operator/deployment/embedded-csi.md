@@ -86,6 +86,13 @@ For each client WekaContainer, the container reconciler:
 2. Manages CSI topology labels on the node to control volume scheduling
 3. Updates labels based on container health and mount state
 
+The `topology.<csi-driver>/accessible` label is set only while the container is `Running` (when
+`CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING` is on) and has reported stats at least once. With stats
+from node-agent fresher than 5 minutes, all desired processes must be active; once stats are older (node-agent
+unreachable), the node must be Ready and the container `Running` with `weka local ps` status `READY` instead, whatever
+the flag says. On a NotReady node with stale stats the label is removed.
+Failed stats polls on stale stats emit a throttled `StatusMetricsFailed` warning event on the WekaContainer.
+
 ## Node Selection and Resource Inheritance
 
 - **CSI Driver and StorageClass**: Global resources, not tied to specific nodes
