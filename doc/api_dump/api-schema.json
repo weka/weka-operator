@@ -612,6 +612,16 @@
           "description": "NodeAgent configures the node-agent DaemonSet the operator deploys on every node.",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "LeaderElection",
+          "jsonName": "leaderElection",
+          "type": {
+            "$ref": "#/definitions/LeaderElectionSpec"
+          },
+          "description": "LeaderElection configures the leader-election lease timings of the operator manager.",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -1724,6 +1734,39 @@
       ],
       "usedBy": [
         "WekaCluster"
+      ]
+    },
+    "LeaderElectionSpec": {
+      "kind": "struct",
+      "description": "LeaderElectionSpec groups the leader-election lease timings of the operator manager. They are read only\nwhen the operator pod starts, so a change applies after the operator pod restarts. They must satisfy\nleaseDuration (rounded down to whole seconds) \u003e renewDeadline \u003e 1.2 × retryPeriod \u003e 0, otherwise the operator logs an error and starts with the defaults.",
+      "fields": [
+        {
+          "name": "LeaseDuration",
+          "jsonName": "leaseDuration",
+          "type": "k8s:metav1.Duration",
+          "description": "LeaseDuration is how long non-leaders wait before trying to take over the lease. Default is 15s.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "RenewDeadline",
+          "jsonName": "renewDeadline",
+          "type": "k8s:metav1.Duration",
+          "description": "RenewDeadline is how long the leader keeps retrying to renew the lease before giving up leadership\nand exiting. Default is 10s.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "RetryPeriod",
+          "jsonName": "retryPeriod",
+          "type": "k8s:metav1.Duration",
+          "description": "RetryPeriod is how long clients wait between lease acquire and renew attempts. Default is 2s.",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
       ]
     },
     "ManualOperatorPayload": {

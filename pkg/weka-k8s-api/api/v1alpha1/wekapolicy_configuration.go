@@ -3,6 +3,7 @@ package v1alpha1
 import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ConfigurationPayload defines the parameters for the configuration policy: operator-wide settings
@@ -17,6 +18,27 @@ type ConfigurationPayload struct {
 	PodRotation *PodRotationSpec `json:"podRotation,omitempty"`
 	// NodeAgent configures the node-agent DaemonSet the operator deploys on every node.
 	NodeAgent *NodeAgentSpec `json:"nodeAgent,omitempty"`
+	// LeaderElection configures the leader-election lease timings of the operator manager.
+	LeaderElection *LeaderElectionSpec `json:"leaderElection,omitempty"`
+}
+
+// LeaderElectionSpec groups the leader-election lease timings of the operator manager. They are read only
+// when the operator pod starts, so a change applies after the operator pod restarts. They must satisfy
+// leaseDuration (rounded down to whole seconds) > renewDeadline > 1.2 × retryPeriod > 0, otherwise the operator logs an error and starts with the defaults.
+type LeaderElectionSpec struct {
+	// LeaseDuration is how long non-leaders wait before trying to take over the lease. Default is 15s.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	LeaseDuration *metav1.Duration `json:"leaseDuration,omitempty"`
+	// RenewDeadline is how long the leader keeps retrying to renew the lease before giving up leadership
+	// and exiting. Default is 10s.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	RenewDeadline *metav1.Duration `json:"renewDeadline,omitempty"`
+	// RetryPeriod is how long clients wait between lease acquire and renew attempts. Default is 2s.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	RetryPeriod *metav1.Duration `json:"retryPeriod,omitempty"`
 }
 
 // PodRotationSpec groups settings of config-change pod rotation

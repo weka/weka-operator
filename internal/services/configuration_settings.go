@@ -83,6 +83,13 @@ type NodeAgentSettings struct {
 	DevicePluginEnabled bool
 }
 
+// LeaderElectionSettings holds the lease timings of the operator manager, read once at startup.
+type LeaderElectionSettings struct {
+	LeaseDuration time.Duration
+	RenewDeadline time.Duration
+	RetryPeriod   time.Duration
+}
+
 // ConfigurationSettings is the effective operator-wide configuration: built-in defaults with any
 // configuration WekaPolicy applied over them. Every field is a resolved value, never a pointer, so
 // callers never repeat the nil-means-default decision.
@@ -92,7 +99,8 @@ type ConfigurationSettings struct {
 	Scheduling  SchedulingSettings
 	PodRotation PodRotationSettings
 	// NodeAgent is the node-agent DaemonSet configuration.
-	NodeAgent NodeAgentSettings
+	NodeAgent      NodeAgentSettings
+	LeaderElection LeaderElectionSettings
 }
 
 // DefaultConfigurationSettings returns the built-in defaults, which apply when no configuration
@@ -114,6 +122,11 @@ func DefaultConfigurationSettings() ConfigurationSettings {
 			Enabled: false,
 		},
 		NodeAgent: defaultNodeAgentSettings(),
+		LeaderElection: LeaderElectionSettings{
+			LeaseDuration: 15 * time.Second,
+			RenewDeadline: 10 * time.Second,
+			RetryPeriod:   2 * time.Second,
+		},
 	}
 }
 
@@ -193,6 +206,18 @@ func SettingsFromPayload(payload *weka.ConfigurationPayload) ConfigurationSettin
 
 	if payload.NodeAgent != nil {
 		applyNodeAgent(&resolved.NodeAgent, payload.NodeAgent)
+	}
+
+	if le := payload.LeaderElection; le != nil {
+		if le.LeaseDuration != nil {
+			resolved.LeaderElection.LeaseDuration = le.LeaseDuration.Duration
+		}
+		if le.RenewDeadline != nil {
+			resolved.LeaderElection.RenewDeadline = le.RenewDeadline.Duration
+		}
+		if le.RetryPeriod != nil {
+			resolved.LeaderElection.RetryPeriod = le.RetryPeriod.Duration
+		}
 	}
 
 	return resolved
@@ -352,7 +377,7 @@ func (s *settingsService) run(ctx context.Context, c client.Reader) {
 }
 
 func (s *settingsService) refresh(ctx context.Context, c client.Reader) error {
-	resolved, err := resolveConfigurationSettings(ctx, c)
+	resolved, err := ResolveConfigurationSettings(ctx, c)
 	if err != nil {
 		s.markUnresolved(err)
 	} else {
@@ -398,14 +423,14 @@ func (s *settingsService) markUnresolved(cause error) {
 	}
 }
 
-// resolveConfigurationSettings reads the configuration WekaPolicy from the operator's own
+// ResolveConfigurationSettings reads the configuration WekaPolicy from the operator's own
 // namespace. These are install-wide settings, so a policy in a tenant namespace must not shadow
 // them.
 //
 // An error means no single valid configuration could be derived and nothing should be served.
 // Finding no configuration policy at all is not an error: nobody asked for anything, so the
 // built-in defaults are the answer.
-func resolveConfigurationSettings(ctx context.Context, c client.Reader) (ConfigurationSettings, error) {
+func ResolveConfigurationSettings(ctx context.Context, c client.Reader) (ConfigurationSettings, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "ResolveConfigurationSettings")
 	defer logger.End()
 

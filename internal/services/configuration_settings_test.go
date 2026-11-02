@@ -122,7 +122,7 @@ func TestResolveConfigurationSettings(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("one valid policy applies", func(t *testing.T) {
-		got, err := resolveConfigurationSettings(ctx, clientWith(t, configPolicy("configuration", "weka-operator-system", true)))
+		got, err := ResolveConfigurationSettings(ctx, clientWith(t, configPolicy("configuration", "weka-operator-system", true)))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -132,7 +132,7 @@ func TestResolveConfigurationSettings(t *testing.T) {
 	})
 
 	t.Run("no policy is not an error", func(t *testing.T) {
-		got, err := resolveConfigurationSettings(ctx, clientWith(t))
+		got, err := ResolveConfigurationSettings(ctx, clientWith(t))
 		if err != nil {
 			t.Fatalf("no configuration policy must resolve to defaults, got error: %v", err)
 		}
@@ -142,14 +142,14 @@ func TestResolveConfigurationSettings(t *testing.T) {
 	})
 
 	t.Run("a policy in a tenant namespace is not seen", func(t *testing.T) {
-		got, err := resolveConfigurationSettings(ctx, clientWith(t, configPolicy("configuration", "tenant-a", true)))
+		got, err := ResolveConfigurationSettings(ctx, clientWith(t, configPolicy("configuration", "tenant-a", true)))
 		if err != nil || got.Drivers.ForceBuilderCli {
 			t.Errorf("tenant policy leaked into install-wide settings: %+v, err=%v", got, err)
 		}
 	})
 
 	t.Run("two policies cannot be chosen between", func(t *testing.T) {
-		_, err := resolveConfigurationSettings(ctx, clientWith(t,
+		_, err := ResolveConfigurationSettings(ctx, clientWith(t,
 			configPolicy("configuration-a", "weka-operator-system", true),
 			configPolicy("configuration-b", "weka-operator-system", false),
 		))
@@ -159,7 +159,7 @@ func TestResolveConfigurationSettings(t *testing.T) {
 	})
 
 	t.Run("a policy the controller rejects is an error, not a fallback", func(t *testing.T) {
-		_, err := resolveConfigurationSettings(ctx, clientWith(t, invalidConfigPolicy("broken", "weka-operator-system")))
+		_, err := ResolveConfigurationSettings(ctx, clientWith(t, invalidConfigPolicy("broken", "weka-operator-system")))
 		if err == nil {
 			t.Error("expected an error for a policy GetType rejects")
 		}
@@ -175,13 +175,13 @@ func TestResolveConfigurationSettings(t *testing.T) {
 				DiscoverDrives: &weka.DiscoverDrivesPayload{},
 			}},
 		}
-		if _, err := resolveConfigurationSettings(ctx, clientWith(t, other)); err != nil {
+		if _, err := ResolveConfigurationSettings(ctx, clientWith(t, other)); err != nil {
 			t.Errorf("an unrelated malformed policy must not break configuration: %v", err)
 		}
 	})
 
 	t.Run("an unreadable list is an error", func(t *testing.T) {
-		if _, err := resolveConfigurationSettings(ctx, &failingListClient{Client: clientWith(t)}); err == nil {
+		if _, err := ResolveConfigurationSettings(ctx, &failingListClient{Client: clientWith(t)}); err == nil {
 			t.Error("expected an error when the list fails")
 		}
 	})
@@ -401,4 +401,26 @@ func TestSettingsFromPayloadNodeAgent(t *testing.T) {
 			t.Errorf("untouched fields drifted from the defaults: %+v", got)
 		}
 	})
+}
+
+func TestSettingsFromPayloadLeaderElection(t *testing.T) {
+	want := LeaderElectionSettings{LeaseDuration: 15 * time.Second, RenewDeadline: 10 * time.Second, RetryPeriod: 2 * time.Second}
+	for name, payload := range map[string]*weka.ConfigurationPayload{
+		"nil payload":          nil,
+		"nil leaderElection":   {},
+		"empty leaderElection": {LeaderElection: &weka.LeaderElectionSpec{}},
+	} {
+		if got := SettingsFromPayload(payload).LeaderElection; got != want {
+			t.Errorf("%s: got %+v, want defaults %+v", name, got, want)
+		}
+	}
+
+	got := SettingsFromPayload(&weka.ConfigurationPayload{LeaderElection: &weka.LeaderElectionSpec{
+		LeaseDuration: &metav1.Duration{Duration: time.Minute},
+		RenewDeadline: &metav1.Duration{Duration: 40 * time.Second},
+		RetryPeriod:   &metav1.Duration{Duration: 5 * time.Second},
+	}}).LeaderElection
+	if want := (LeaderElectionSettings{LeaseDuration: time.Minute, RenewDeadline: 40 * time.Second, RetryPeriod: 5 * time.Second}); got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
 }
