@@ -30,7 +30,8 @@ func matchesNodeSelectorTerm(node *v1.Node, term v1.NodeSelectorTerm) bool {
 	for _, req := range term.MatchExpressions {
 		switch req.Operator {
 		case v1.NodeSelectorOpIn:
-			if !contains(node.Labels[req.Key], req.Values) {
+			// a missing key does not match In, even In [""]
+			if val, ok := node.Labels[req.Key]; !ok || !contains(val, req.Values) {
 				return false
 			}
 		case v1.NodeSelectorOpNotIn:

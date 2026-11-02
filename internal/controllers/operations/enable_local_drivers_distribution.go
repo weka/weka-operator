@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"maps"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,29 +67,37 @@ type nodeAttributes struct {
 	kernelVersion string
 	architecture  string
 	osImage       string
-	nodeSelector  map[string]string // Stores the first nodeSelector from payload that matched this node's attributes
+	nodeSelectors []map[string]string // payload nodeSelectors of the pools whose nodes have this kernel/arch/os
 }
 
 // StringKey generates a canonical string representation for nodeAttributes, suitable for use as a map key.
+// Pools are not part of it: same-kernel pools share one builder.
 func (na nodeAttributes) StringKey() string {
-	// Create a slice of keys from the map
-	selectorKeys := make([]string, 0, len(na.nodeSelector))
-	for k := range na.nodeSelector {
-		selectorKeys = append(selectorKeys, k)
-	}
-	// Sort the keys to ensure consistent order
-	sort.Strings(selectorKeys)
+	return fmt.Sprintf("kernel=%s|arch=%s|osImage=%s", na.kernelVersion, na.architecture, sanitizeOsImageForLabel(na.osImage))
+}
 
-	// Build the selector string part
-	var selectorParts []string
-	for _, k := range selectorKeys {
-		selectorParts = append(selectorParts, fmt.Sprintf("%s:%s", k, na.nodeSelector[k]))
+// builderAffinity admits a node of any of the target's pools. A pool selector {} (or no payload selectors)
+// matches every node, so it leaves the builder unrestricted; as a term it would match none.
+func builderAffinity(selectors []map[string]string) *corev1.Affinity {
+	if len(selectors) == 0 || slices.ContainsFunc(selectors, func(s map[string]string) bool { return len(s) == 0 }) {
+		return nil
 	}
-	selectorStr := strings.Join(selectorParts, ",")
-
-	// Use a distinct separator for the main parts of the key
-	return fmt.Sprintf("kernel=%s|arch=%s|osImage=%s|selector=%s", na.kernelVersion, na.architecture,
-		sanitizeOsImageForLabel(na.osImage), selectorStr)
+	sorted := slices.SortedFunc(slices.Values(selectors), func(a, b map[string]string) int {
+		return strings.Compare(labels.Set(a).String(), labels.Set(b).String())
+	})
+	terms := make([]corev1.NodeSelectorTerm, 0, len(sorted))
+	for _, sel := range sorted {
+		var term corev1.NodeSelectorTerm
+		for _, k := range slices.Sorted(maps.Keys(sel)) {
+			term.MatchExpressions = append(term.MatchExpressions, corev1.NodeSelectorRequirement{
+				Key: k, Operator: corev1.NodeSelectorOpIn, Values: []string{sel[k]},
+			})
+		}
+		terms = append(terms, term)
+	}
+	return &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: terms},
+	}}
 }
 
 type EnsureDistServiceOperation struct {
@@ -110,7 +118,7 @@ type EnsureDistServiceOperation struct {
 	distContainerName   string                    // Name of the drivers-dist container
 	discoveredNodesAttr map[string]nodeAttributes // nodeName -> attributes
 	discoveredImages    map[string]bool           // imageName -> true
-	targetKernelArchs   map[string]nodeAttributes // unique kernel/arch pairs, key is na.StringKey()
+	targetKernelArchs   map[string]nodeAttributes // unique kernel/arch/os, key is na.StringKey()
 	builderNames        map[string]string         // builderKey -> name resolved in this pass
 	mutex               sync.Mutex
 
@@ -249,7 +257,6 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 			kernelVersion: node.Status.NodeInfo.KernelVersion,
 			architecture:  node.Status.NodeInfo.Architecture,
 			osImage:       node.Status.NodeInfo.OSImage,
-			nodeSelector:  item.nodeSelector, // Store the captured nodeSelector (could be nil)
 		}
 		o.mutex.Lock()
 		// Store attributes for the node if not already seen (primarily for o.targetKernelArchs)
@@ -258,7 +265,14 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 			o.discoveredNodesAttr[node.Name] = attrs
 		}
 		key := attrs.StringKey()
-		o.targetKernelArchs[key] = attrs // attrs now includes the nodeSelector, making it part of the unique key
+		target, ok := o.targetKernelArchs[key]
+		if !ok {
+			target = attrs
+		}
+		if !slices.ContainsFunc(target.nodeSelectors, func(s map[string]string) bool { return maps.Equal(s, item.nodeSelector) }) {
+			target.nodeSelectors = append(target.nodeSelectors, item.nodeSelector)
+		}
+		o.targetKernelArchs[key] = target
 		o.mutex.Unlock()
 
 		// Ensure labels on the node
@@ -674,23 +688,12 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 					UploadResultsTo:    distContainerName,
 					Tolerations:        o.containerDetails.Tolerations,
 					ServiceAccountName: o.containerDetails.ServiceAccountName,
-					// NodeSelector logic:
-					// Merge payload selector (ka.nodeSelector), specific kernel/arch.
-					// Specifics (kernel, arch) take precedence if keys overlap.
-					NodeSelector: func() map[string]string {
-						builderNodeSelector := make(map[string]string)
-						// 1. Add the nodeSelector from the payload (if any) that led to this kernel/arch combination
-						if ka.nodeSelector != nil {
-							for k, v := range ka.nodeSelector {
-								builderNodeSelector[k] = v
-							}
-						}
-						// 2. Add specific kernel and architecture labels (overrides if keys exist in ka.nodeSelector)
-						builderNodeSelector[archLabelKey] = ka.architecture
-						builderNodeSelector[kernelLabelKey] = ka.kernelVersion
-						builderNodeSelector[osLabelKey] = sanitizeOsImageForLabel(ka.osImage)
-						return builderNodeSelector
-					}(),
+					NodeSelector: map[string]string{
+						archLabelKey:   ka.architecture,
+						kernelLabelKey: ka.kernelVersion,
+						osLabelKey:     sanitizeOsImageForLabel(ka.osImage),
+					},
+					Affinity: builderAffinity(ka.nodeSelectors),
 					// Instructions to tell the builder what kernel/arch to build for
 					// Instructions: &weka.Instructions{
 					// 	Type:    "build-drivers",

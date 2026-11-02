@@ -283,6 +283,10 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 	}
 	logger.AddEvent("Pod deleted")
 
+	if nodeIsUnreachable(r.node) {
+		return nodeNotReadyWait(r.node)
+	}
+
 	// setting for forceful termination, as we are in container delete flow
 	// a lot of assumptions here that absolutely all versions will shut down on force-stop + delete
 	err = r.writeAllowForceStopInstruction(ctx, pod, skipExec)
@@ -343,6 +347,10 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 		return err
 	}
 	logger.AddEvent("Pod deleted")
+
+	if nodeIsUnreachable(r.node) {
+		return nodeNotReadyWait(r.node)
+	}
 
 	err = r.writeAllowStopInstruction(ctx, pod, skipExec)
 	if err != nil {
@@ -687,4 +695,18 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ResignDrivesFailed", consts.ActionDrainContainer, msg, time.Minute) //nolint:errcheck // event recording is best-effort
 	}
 	return err
+}
+
+// Ready=Unknown means the kubelet is unreachable: node-agent calls and pod exec there only time out.
+// Ready=False can still have a working kubelet that finishes the stop, so it keeps the normal path.
+func nodeIsUnreachable(node *v1.Node) bool {
+	if node == nil {
+		return false
+	}
+	for _, c := range node.Status.Conditions {
+		if c.Type == v1.NodeReady {
+			return c.Status == v1.ConditionUnknown
+		}
+	}
+	return false
 }

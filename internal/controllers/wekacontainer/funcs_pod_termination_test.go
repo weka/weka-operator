@@ -9,6 +9,7 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -144,5 +145,52 @@ func TestHandlePodTerminationNotReadyNodeStillEvicts(t *testing.T) {
 	}
 	if got.Spec.State != weka.ContainerStateDeleting {
 		t.Fatalf("state = %q, want %q", got.Spec.State, weka.ContainerStateDeleting)
+	}
+}
+
+func TestNodeIsUnreachable(t *testing.T) {
+	for status, want := range map[v1.ConditionStatus]bool{v1.ConditionUnknown: true, v1.ConditionFalse: false, v1.ConditionTrue: false} {
+		node := &v1.Node{Status: v1.NodeStatus{Conditions: []v1.NodeCondition{{Type: v1.NodeReady, Status: status}}}}
+		if got := nodeIsUnreachable(node); got != want {
+			t.Errorf("Ready=%s: nodeIsUnreachable = %v, want %v", status, got, want)
+		}
+	}
+	if nodeIsUnreachable(&v1.Node{}) || nodeIsUnreachable(nil) {
+		t.Error("no Ready condition or no node: want reachable")
+	}
+}
+
+// Deletion flow: the pod is still deleted through the API, but nothing reaches the node.
+func TestEnsureNoPodOnUnreachableNodeWaits(t *testing.T) {
+	for name, stop := range map[string]func(*containerReconcilerLoop) func(context.Context) error{
+		"force":    func(r *containerReconcilerLoop) func(context.Context) error { return r.stopForceAndEnsureNoPod },
+		"graceful": func(r *containerReconcilerLoop) func(context.Context) error { return r.stopAndEnsureNoPod },
+	} {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := v1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			pod := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "ns"}}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+			r := &containerReconcilerLoop{
+				Client:    c,
+				container: &weka.WekaContainer{ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "ns"}},
+				node: &v1.Node{
+					ObjectMeta: metav1.ObjectMeta{Name: "dead"},
+					Status:     v1.NodeStatus{Conditions: []v1.NodeCondition{{Type: v1.NodeReady, Status: v1.ConditionUnknown}}},
+				},
+			}
+
+			err := stop(r)(context.Background())
+
+			var waitErr *lifecycle.WaitError
+			if !errors.As(err, &waitErr) || waitErr.Duration != 15*time.Second {
+				t.Fatalf("err = %v, want a 15s wait error", err)
+			}
+			if err := c.Get(context.Background(), client.ObjectKeyFromObject(pod), &v1.Pod{}); !apierrors.IsNotFound(err) {
+				t.Fatalf("pod still present (err %v), want it deleted", err)
+			}
+		})
 	}
 }
