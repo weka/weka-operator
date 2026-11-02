@@ -2120,6 +2120,7 @@
             "type": "array",
             "items": "string"
           },
+          "description": "Interfaces is the kernel interface used as the NFS interface-group port on each NFS host.\nIgnored on cloud nodes (OCI/AWS, udpMode unset)",
           "optional": true
         },
         {

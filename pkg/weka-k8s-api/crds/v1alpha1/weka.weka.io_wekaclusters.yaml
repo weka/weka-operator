@@ -782,6 +782,9 @@ spec:
               nfs:
                 properties:
                   interfaces:
+                    description: |-
+                      Interfaces is the kernel interface used as the NFS interface-group port on each NFS host.
+                      Ignored on cloud nodes (OCI/AWS, udpMode unset)
                     items:
                       type: string
                     type: array

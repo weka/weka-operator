@@ -410,7 +410,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| interfaces | []string |  |
+| interfaces | []string | Interfaces is the kernel interface used as the NFS interface-group port on each NFS host.<br>Ignored on cloud nodes (OCI/AWS, udpMode unset) |
 | ipRanges | []string |  |
 
 ---
