@@ -2,6 +2,10 @@ package operations
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"slices"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -12,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -538,4 +543,217 @@ var _ = Describe("DeleteIfNodeIneligible", func() {
 			true,
 		),
 	)
+})
+
+var _ = Describe("CleanupOldBuilderContainers", func() {
+	const (
+		good        = "quay.io/weka.io/weka-in-container:5.1.41"
+		bad         = "quay.io/weka.io/weka-in-container:5.1.42.17-op440-does-not-exist"
+		upgradeFrom = "quay.io/weka.io/weka-in-container:5.1.40"
+		clientImg   = "quay.io/weka.io/weka-in-container:5.1.39"
+		ensureImg   = "quay.io/weka.io/weka-in-container:5.1.38"
+	)
+
+	var (
+		ctx    context.Context
+		scheme *runtime.Scheme
+		policy *weka.WekaPolicy
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme = runtime.NewScheme()
+		Expect(weka.AddToScheme(scheme)).To(Succeed())
+		policy = &weka.WekaPolicy{ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"}}
+	})
+
+	cluster := func(specImage, lastAppliedImage string) *weka.WekaCluster {
+		return &weka.WekaCluster{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster", Namespace: "default"},
+			Spec:       weka.WekaClusterSpec{Image: specImage},
+			Status:     weka.WekaClusterStatus{LastAppliedImage: lastAppliedImage},
+		}
+	}
+
+	newClient := func(objs ...client.Object) client.WithWatch {
+		return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	}
+
+	newTestBuilder := func(name, policyName, image string, status weka.ContainerStatus) *weka.WekaContainer {
+		op := &EnsureDistServiceOperation{policy: &weka.WekaPolicy{ObjectMeta: metav1.ObjectMeta{Name: policyName}}}
+		return &weka.WekaContainer{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: "default",
+				Labels:    op.getBuilderContainerLabels(image, "5.15.0-100-generic", "amd64", "Ubuntu 22.04.5 LTS"),
+			},
+			Spec:   weka.WekaContainerSpec{Mode: weka.WekaContainerModeDriversBuilder, Image: image},
+			Status: weka.WekaContainerStatus{Status: status},
+		}
+	}
+
+	exists := func(c client.Client, name string) bool {
+		err := c.Get(ctx, client.ObjectKey{Namespace: "default", Name: name}, &weka.WekaContainer{})
+		if apierrors.IsNotFound(err) {
+			return false
+		}
+		Expect(err).NotTo(HaveOccurred())
+		return true
+	}
+
+	// run executes DiscoverImages then CleanupOldBuilderContainers, the order GetSteps uses.
+	run := func(c client.Client, ensureImages ...string) *EnsureDistServiceOperation {
+		op := &EnsureDistServiceOperation{
+			client:           c,
+			scheme:           scheme,
+			policy:           policy,
+			payload:          &weka.DriverDistPayload{EnsureImages: ensureImages},
+			discoveredImages: map[string]bool{},
+		}
+		Expect(op.DiscoverImages(ctx)).To(Succeed())
+		Expect(op.CleanupOldBuilderContainers(ctx)).To(Succeed())
+		return op
+	}
+
+	It("deletes an Error builder whose image is no longer discovered", func() {
+		c := newClient(cluster(good, good), newTestBuilder("stale", policy.Name, bad, weka.Error))
+
+		run(c)
+
+		Expect(exists(c, "stale")).To(BeFalse())
+	})
+
+	It("keeps a non-Error builder whose image is no longer discovered", func() {
+		statuses := []weka.ContainerStatus{weka.Completed, weka.Building, weka.PodNotRunning, ""}
+		objs := []client.Object{cluster(good, good)}
+		for i, s := range statuses {
+			objs = append(objs, newTestBuilder(fmt.Sprintf("stale-%d", i), policy.Name, bad, s))
+		}
+		c := newClient(objs...)
+
+		run(c)
+
+		for i, s := range statuses {
+			Expect(exists(c, fmt.Sprintf("stale-%d", i))).To(BeTrue(), "builder in status %q", s)
+		}
+	})
+
+	It("keeps builders of every discovered image, any status", func() {
+		wekaClient := &weka.WekaClient{
+			ObjectMeta: metav1.ObjectMeta{Name: "client", Namespace: "default"},
+			Spec:       weka.WekaClientSpec{Image: clientImg},
+		}
+		objs := []client.Object{cluster(good, upgradeFrom), wekaClient}
+		var names []string
+		for i, img := range []string{good, upgradeFrom, clientImg, ensureImg} {
+			for _, s := range []weka.ContainerStatus{weka.Error, weka.Building, weka.Completed} {
+				name := fmt.Sprintf("builder-%d-%s", i, s)
+				names = append(names, name)
+				objs = append(objs, newTestBuilder(name, policy.Name, img, s))
+			}
+		}
+		c := newClient(objs...)
+
+		run(c, ensureImg)
+
+		for _, name := range names {
+			Expect(exists(c, name)).To(BeTrue(), name)
+		}
+	})
+
+	DescribeTable("deletes nothing when discovery is incomplete",
+		func(failing client.ObjectList) {
+			c := interceptor.NewClient(
+				newClient(cluster(good, good), newTestBuilder("stale", policy.Name, bad, weka.Error)),
+				interceptor.Funcs{
+					List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+						if reflect.TypeOf(list) == reflect.TypeOf(failing) {
+							return errors.New("injected")
+						}
+						return cl.List(ctx, list, opts...)
+					},
+				},
+			)
+
+			op := run(c)
+
+			Expect(op.imageDiscoveryComplete).To(BeFalse())
+			Expect(exists(c, "stale")).To(BeTrue())
+		},
+		Entry("WekaClusterList", &weka.WekaClusterList{}),
+		Entry("WekaClientList", &weka.WekaClientList{}),
+	)
+
+	It("keeps the dist container and FF ad-hoc containers", func() {
+		// Both carry the policy label (the FF container inherits the builder's labels); only weka.io/mode differs.
+		dist := newTestBuilder("test-policy-dist", policy.Name, bad, weka.Error)
+		dist.Labels["weka.io/mode"] = weka.WekaContainerModeDriversDist
+		dist.Spec.Mode = weka.WekaContainerModeDriversDist
+		featureFlags := newTestBuilder("weka-feature-flags-x", policy.Name, bad, weka.Error)
+		featureFlags.Labels["weka.io/mode"] = weka.WekaContainerModeAdhocOpWC
+		featureFlags.Spec.Mode = weka.WekaContainerModeAdhocOpWC
+		c := newClient(cluster(good, good), dist, featureFlags)
+
+		run(c)
+
+		Expect(exists(c, "test-policy-dist")).To(BeTrue())
+		Expect(exists(c, "weka-feature-flags-x")).To(BeTrue())
+	})
+
+	It("keeps builders of another policy", func() {
+		c := newClient(cluster(good, good), newTestBuilder("other", "other-policy", bad, weka.Error))
+
+		run(c)
+
+		Expect(exists(c, "other")).To(BeTrue())
+	})
+
+	It("with nothing discovered deletes Error builders and keeps the rest", func() {
+		c := newClient(
+			newTestBuilder("errored", policy.Name, good, weka.Error),
+			newTestBuilder("completed", policy.Name, good, weka.Completed),
+		)
+
+		run(c)
+
+		Expect(exists(c, "errored")).To(BeFalse())
+		Expect(exists(c, "completed")).To(BeTrue())
+	})
+
+	It("continues after a delete error", func() {
+		c := interceptor.NewClient(
+			newClient(
+				cluster(good, good),
+				newTestBuilder("stale-a", policy.Name, bad, weka.Error),
+				newTestBuilder("stale-b", policy.Name, bad, weka.Error),
+			),
+			interceptor.Funcs{
+				Delete: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+					if obj.GetName() == "stale-a" {
+						return errors.New("injected")
+					}
+					return cl.Delete(ctx, obj, opts...)
+				},
+			},
+		)
+
+		run(c)
+
+		Expect(exists(c, "stale-a")).To(BeTrue())
+		Expect(exists(c, "stale-b")).To(BeFalse())
+	})
+})
+
+var _ = Describe("EnsureDistServiceOperation GetSteps", func() {
+	It("runs CleanupOldBuilderContainers right after DiscoverImages", func() {
+		var names []string
+		for _, step := range (&EnsureDistServiceOperation{}).GetSteps() {
+			names = append(names, step.GetName())
+		}
+
+		cleanup := slices.Index(names, "CleanupOldBuilderContainers")
+		Expect(cleanup).To(BeNumerically(">", 0))
+		Expect(names[cleanup-1]).To(Equal("DiscoverImages"))
+		Expect(cleanup).To(BeNumerically("<", slices.Index(names, "PollBuilderContainersStatus")))
+	})
 })

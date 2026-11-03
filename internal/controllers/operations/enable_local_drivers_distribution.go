@@ -106,6 +106,9 @@ type EnsureDistServiceOperation struct {
 	discoveredImages    map[string]bool           // imageName -> true
 	targetKernelArchs   map[string]nodeAttributes // unique kernel/arch pairs, key is na.StringKey()
 	mutex               sync.Mutex
+
+	// false when listing WekaClusters or WekaClients failed: discoveredImages may then miss in-use images
+	imageDiscoveryComplete bool
 }
 
 func NewEnsureDistServiceOperation(
@@ -149,11 +152,12 @@ func (o *EnsureDistServiceOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
 		&lifecycle.SimpleStep{Name: "DiscoverNodesAndLabel", Run: o.DiscoverNodesAndLabel},
 		&lifecycle.SimpleStep{Name: "DiscoverImages", Run: o.DiscoverImages},
+		// Before PollBuilderContainersStatus, which returns WaitError while any desired build is unfinished.
+		&lifecycle.SimpleStep{Name: "CleanupOldBuilderContainers", Run: o.CleanupOldBuilderContainers},
 		&lifecycle.SimpleStep{Name: "EnsureDistService", Run: o.EnsureDistService},
 		&lifecycle.SimpleStep{Name: "EnsureDistContainer", Run: o.EnsureDistContainer},
 		&lifecycle.SimpleStep{Name: "EnsureBuilderContainers", Run: o.EnsureBuilderContainers},
 		&lifecycle.SimpleStep{Name: "PollBuilderContainersStatus", Run: o.PollBuilderContainersStatus},
-		// {Name: "CleanupOldBuilderContainers", Run: o.CleanupOldBuilderContainers}, // Optional: remove builders for stale image/kernel/arch
 		&lifecycle.SimpleStep{Name: "UpdatePolicyStatusAndCallback", Run: o.UpdatePolicyStatusAndCallback},
 	}
 }
@@ -289,6 +293,7 @@ func (o *EnsureDistServiceOperation) DiscoverImages(ctx context.Context) error {
 	defer logger.End()
 
 	logger.Info("Discovering Weka images")
+	o.imageDiscoveryComplete = true
 
 	// Add images from payload
 	for _, img := range o.payload.EnsureImages {
@@ -299,6 +304,7 @@ func (o *EnsureDistServiceOperation) DiscoverImages(ctx context.Context) error {
 	var wekaClusterList weka.WekaClusterList
 	if err := o.client.List(ctx, &wekaClusterList); err != nil {
 		logger.Error(err, "Failed to list WekaClusters")
+		o.imageDiscoveryComplete = false
 		// Not returning error, proceed with EnsureImages if any
 	} else {
 		for i := range wekaClusterList.Items {
@@ -314,6 +320,7 @@ func (o *EnsureDistServiceOperation) DiscoverImages(ctx context.Context) error {
 	var wekaClientList weka.WekaClientList
 	if err := o.client.List(ctx, &wekaClientList); err != nil {
 		logger.Error(err, "Failed to list WekaClients")
+		o.imageDiscoveryComplete = false
 	} else {
 		for i := range wekaClientList.Items {
 			if wekaClientList.Items[i].Spec.Image != "" {
@@ -753,6 +760,11 @@ func (o *EnsureDistServiceOperation) CleanupOldBuilderContainers(ctx context.Con
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "CleanupOldBuilderContainers")
 	defer logger.End()
 
+	if !o.imageDiscoveryComplete {
+		logger.Info("Image discovery incomplete, skipping stale builder cleanup")
+		return nil
+	}
+
 	logger.Info("Cleaning up old builder containers")
 
 	var existingBuilderList weka.WekaContainerList
@@ -765,20 +777,14 @@ func (o *EnsureDistServiceOperation) CleanupOldBuilderContainers(ctx context.Con
 		return err
 	}
 
-	currentBuilders := make(map[string]bool)
-	for image := range o.discoveredImages {
-		for _, ka := range o.targetKernelArchs {
-			currentBuilders[o.getBuilderContainerName(ctx, image, ka.kernelVersion, ka.architecture, ka.osImage)] = true
-		}
-	}
-
 	for i := range existingBuilderList.Items {
-		if !currentBuilders[existingBuilderList.Items[i].Name] {
-			logger.Info("Deleting stale builder container", "name", existingBuilderList.Items[i].Name)
-			if err := o.client.Delete(ctx, &existingBuilderList.Items[i]); err != nil && !apierrors.IsNotFound(err) {
-				logger.Error(err, "Failed to delete stale builder container", "name", existingBuilderList.Items[i].Name)
-				// Log and continue
-			}
+		builder := &existingBuilderList.Items[i]
+		if o.discoveredImages[builder.Spec.Image] || builder.Status.Status != weka.Error {
+			continue
+		}
+		logger.Info("Deleting stale builder container", "name", builder.Name, "image", builder.Spec.Image, "status", builder.Status.Status)
+		if err := o.client.Delete(ctx, builder); err != nil && !apierrors.IsNotFound(err) {
+			logger.Error(err, "Failed to delete stale builder container", "name", builder.Name)
 		}
 	}
 	return nil
