@@ -202,6 +202,9 @@ func (r *containerReconcilerLoop) updatePodTolerationsOnChange(ctx context.Conte
 	// Unfiltered, a cordon toleration in the spec lands back on the pod that GetWekaPodTolerations
 	// stripped it from, and a pod still Pending becomes schedulable onto a cordoned node.
 	containerTolerations := resources.WithoutCordonTolerations(r.container.Spec.Tolerations)
+	if resources.ToleratesAll(r.container, r.scheduling) {
+		containerTolerations = append(containerTolerations, v1.Toleration{Operator: v1.TolerationOpExists})
+	}
 
 	var newTolerations []v1.Toleration
 	var updatedTolerations []v1.Toleration

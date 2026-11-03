@@ -195,7 +195,7 @@ Both the builder (`weka driver pack`) and the loader (`weka driver download` / `
 For every drivers-builder and drivers-dist container without a node pinned (and any other WekaContainer
 created by hand with only a `nodeSelector`), the operator splits the nodes that match its `nodeSelector` and affinity into eligible (Ready,
 no taint the pod does not tolerate, and not cordoned unless
-[`scheduling.tolerateCordon`](#cordoned-nodes) is set) and ineligible. Node discovery runs on one
+[`scheduling.clientsTolerateAll`](#cordoned-and-tainted-nodes) or the deprecated `tolerateCordon` is set) and ineligible. Node discovery runs on one
 eligible node, and the pod is created with a required `metadata.name NotIn` field requirement for each
 ineligible node (none when every matching node is eligible); the scheduler picks the node, and the
 container is pinned to it (`status.nodeAffinity`) once the pod is bound. While no matching node is
@@ -205,12 +205,12 @@ eligible there is no pod and no discovery container; for policy containers the p
 With the default (empty) policy tolerations the scheduler already keeps the pod off NotReady,
 cordoned and untolerated-taint nodes, so the exclusion changes nothing. Policies that tolerate
 every taint (`[{operator: Exists}]`, so lifecycle or remediation taints from other controllers do not
-block builds) also tolerate the not-ready/unreachable taints: without the exclusion the scheduler could
+block builds), and every builder and dist pod under `clientsTolerateAll`, also tolerate the not-ready/unreachable taints: without the exclusion the scheduler could
 bind a new builder or dist pod to a NotReady node, and each such pick would be moved and leave a
 deleted container waiting for that node.
 
 On each run, a policy moves its pinned containers when the node is gone or NotReady, or when it is
-cordoned (without `tolerateCordon`) or carries an untolerated taint and no live pod is bound there:
+cordoned (without `clientsTolerateAll` or `tolerateCordon`) or carries an untolerated taint and no live pod is bound there:
 
 | Container | On a move |
 |---|---|
@@ -220,16 +220,17 @@ cordoned (without `tolerateCordon`) or carries an untolerated taint and no live 
 
 ## Tolerations
 
-The policy's `tolerations` apply to its drivers-builder and drivers-dist containers. Cordon is governed only by `scheduling.tolerateCordon` (see
-[Cordoned nodes](#cordoned-nodes)).
+The policy's `tolerations` apply to its drivers-builder and drivers-dist containers.
+`scheduling.clientsTolerateAll` adds `operator: Exists` to them, and to the node discovery container
+(`weka-dsc-<node>`), which otherwise copies the tolerations of whichever container created it. Cordon is
+governed only by `scheduling.clientsTolerateAll` or the deprecated `scheduling.tolerateCordon` (see
+[Cordoned and tainted nodes](#cordoned-and-tainted-nodes)).
 
-## Cordoned nodes
+## Cordoned and tainted nodes
 
-A cordon taints the node `node.kubernetes.io/unschedulable:NoSchedule`. By default that holds every
-mode off the node, same as any other untolerated taint. The client path — `client`, `drivers-loader`,
-`drivers-dist`, `discovery`, the `adhoc-op` modes, and `drivers-builder` — can instead be made to
-tolerate that taint, so they keep running and keep being created on a cordoned node, by enabling
-`scheduling.tolerateCordon` in a configuration `WekaPolicy`:
+By default a cordon (`node.kubernetes.io/unschedulable:NoSchedule`) and any taint a pod does not
+tolerate hold it off the node. Enable `scheduling.clientsTolerateAll` in a configuration `WekaPolicy` to
+have clients run on their nodes regardless, like a DaemonSet that tolerates every taint:
 
 ```yaml
 apiVersion: weka.weka.io/v1alpha1
@@ -241,25 +242,26 @@ spec:
   payload:
     configurationPayload:
       scheduling:
-        tolerateCordon: true
+        clientsTolerateAll: true
 ```
 
-Backends never tolerate the cordon, regardless of this setting.
+It applies by container mode, whoever created the container: `client`, `drivers-loader`, `drivers-dist`,
+`drivers-builder`, `discovery`, and the `adhoc-op` modes except drive signing, drive discovery and
+ssdproxy kernelize. Each of them gets an `operator: Exists` toleration on top of its own tolerations and
+keeps running and being created on cordoned nodes. WekaClients create client containers on every node
+their `nodeSelector` matches, whatever its taints. Backends, and the excluded adhoc ops, are never
+affected. A drain of such a node may not complete, since the operator keeps recreating these pods there.
 
-This exists because a cordon means "no new user workloads here", not "no node infrastructure". A node
-cordoned pending validation cannot pass a storage health check with no client on it, and if the client
-cannot start because the node is cordoned, nothing ever uncordons it. Without the toleration, a
-cordoned node that reboots loses its drivers-dist container and its drivers-loader pod, and every
-client on it stalls in `WaitForDrivers` until someone uncordons by hand.
+This exists because a cordon or a validation taint means "no new user workloads here", not "no node
+infrastructure". A node held back pending validation cannot pass a storage health check with no client
+on it, and the client cannot start without its drivers and discovery. `drivers-builder` is covered for a
+different reason: it is placed on any node its kernel/architecture `nodeSelector` matches, so a node pool
+brought up entirely cordoned or tainted on a kernel nobody has built for yet has no host to build on.
 
-With `tolerateCordon` enabled, a cordon on its own does not keep a client off a node. `nodeSelector`
-and any taint the client does not tolerate still do, and `skipClientsTolerationValidation`,
-`skipClientNoScheduleToleration` and `skipAuxNoScheduleToleration` do not control this setting.
-
-`drivers-builder` is covered too, for a different reason than the rest. It is not tied to one node — it
-is placed on any node its kernel/architecture `nodeSelector` matches — so without the toleration a node pool
-brought up entirely cordoned on a kernel nobody has built for yet has no host to build on, and every
-client on it stalls in `WaitForDrivers` until someone uncordons a node by hand.
+`scheduling.tolerateCordon` is deprecated and keeps its behaviour: the same modes tolerate the cordon
+only (not other taints), and WekaClients create client containers on cordoned nodes. `clientsTolerateAll`
+includes it. Neither is controlled by `skipClientsTolerationValidation`, `skipClientNoScheduleToleration`
+or `skipAuxNoScheduleToleration`.
 
 ## See also
 

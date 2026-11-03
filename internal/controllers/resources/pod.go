@@ -1133,7 +1133,40 @@ func WithoutCordonTolerations(tolerations []corev1.Toleration) []corev1.Tolerati
 // client and aux modes carry, and the user's own tolerations copied onto the container — the latter
 // placing backends on cordoned nodes, which cordonTolerantModes exists to prevent.
 func ToleratesCordon(container *weka.WekaContainer, scheduling services.SchedulingSettings) bool {
-	return scheduling.TolerateCordon && slices.Contains(cordonTolerantModes, container.Spec.Mode)
+	return (scheduling.TolerateCordon || (scheduling.ClientsTolerateAll && !isBackendAdhocOp(container))) &&
+		slices.Contains(cordonTolerantModes, container.Spec.Mode)
+}
+
+// backendAdhocInstructions run in adhoc-op containers on backend nodes; they stay out of
+// clientsTolerateAll even though their mode is in cordonTolerantModes.
+var backendAdhocInstructions = []weka.InstructionType{
+	weka.InstructionTypeSignDrives,
+	weka.InstructionTypeForceResignDrives,
+	weka.InstructionTypeDiscoverDrives,
+	weka.InstructionTypeKernelize,
+}
+
+func isBackendAdhocOp(container *weka.WekaContainer) bool {
+	return container.Spec.Instructions != nil && slices.Contains(backendAdhocInstructions, container.Spec.Instructions.Type)
+}
+
+// ToleratesAll reports whether container gets an operator: Exists toleration from the policy's
+// scheduling.clientsTolerateAll.
+func ToleratesAll(container *weka.WekaContainer, scheduling services.SchedulingSettings) bool {
+	return scheduling.ClientsTolerateAll && slices.Contains(cordonTolerantModes, container.Spec.Mode) && !isBackendAdhocOp(container)
+}
+
+// ClientTolerations are the tolerations the policy's scheduling settings add to a WekaClient's own
+// toleration list, for paths that build it without a WekaContainer.
+func ClientTolerations(scheduling services.SchedulingSettings) []corev1.Toleration {
+	var tolerations []corev1.Toleration
+	if scheduling.CordonTolerant() {
+		tolerations = append(tolerations, GetUnschedulableToleration())
+	}
+	if scheduling.ClientsTolerateAll {
+		tolerations = append(tolerations, corev1.Toleration{Operator: corev1.TolerationOpExists})
+	}
+	return tolerations
 }
 
 func getPressureTolerations() []corev1.Toleration {
@@ -1209,6 +1242,9 @@ func GetWekaPodTolerations(container *weka.WekaContainer, scheduling services.Sc
 
 	if ToleratesCordon(container, scheduling) {
 		tolerations = append(tolerations, GetUnschedulableToleration())
+	}
+	if ToleratesAll(container, scheduling) {
+		tolerations = append(tolerations, corev1.Toleration{Operator: corev1.TolerationOpExists})
 	}
 
 	// expand with custom tolerations

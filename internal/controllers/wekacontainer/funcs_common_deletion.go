@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -153,15 +154,29 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 		RunPrivileged: true,
 	}
 
+	details := *container.ToOwnerDetails()
+	details.Tolerations = cleanupJobTolerations(container)
+
 	op := operations.NewCleanupPersistentDirOperation(
 		r.Manager,
 		&payload,
 		container,
-		*container.ToOwnerDetails(),
+		details,
 		container.Spec.NodeSelector,
 	)
 
 	return operations.ExecuteOperation(ctx, op)
+}
+
+// cleanupJobTolerations tolerate every taint: the job is pinned to the container's node and only tears down
+// local state, so a taint there (including a NoExecute one added after the container's own tolerations were
+// set) must not evict it, or the container's deletion never completes. The catch-all leads because Kubernetes
+// applies the first toleration matching a NoExecute taint, so a finite tolerationSeconds of the container's must
+// not win.
+func cleanupJobTolerations(container *weka.WekaContainer) []v1.Toleration {
+	catchAll := v1.Toleration{Operator: v1.TolerationOpExists}
+	own := slices.DeleteFunc(slices.Clone(container.Spec.Tolerations), func(t v1.Toleration) bool { return t == catchAll })
+	return append([]v1.Toleration{catchAll}, own...)
 }
 
 func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Context, pod *v1.Pod, skipExec bool) error {

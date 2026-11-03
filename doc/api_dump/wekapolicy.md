@@ -279,7 +279,8 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| tolerateCordon | *bool | TolerateCordon makes client containers, the node-local pods they depend on (drivers-loader,<br>drivers-dist, discovery, adhoc-op) and drivers-builder tolerate the<br>node.kubernetes.io/unschedulable:NoSchedule taint, so they keep running and keep being created<br>on a cordoned node. Backends never tolerate it. False by default. |
+| tolerateCordon | *bool | Deprecated: use clientsTolerateAll. TolerateCordon makes client containers, the node-local pods<br>they depend on (drivers-loader, drivers-dist, discovery, adhoc-op) and drivers-builder tolerate the<br>node.kubernetes.io/unschedulable:NoSchedule taint, so they keep running and keep being created<br>on a cordoned node. Backends never tolerate it. False by default. |
+| clientsTolerateAll | *bool | ClientsTolerateAll makes clients and every pod of their lifecycle (drivers-loader, drivers-dist,<br>drivers-builder, discovery, and adhoc ops other than drive signing/discovery and kernelize) tolerate<br>every taint (operator: Exists) and keep running and being created on cordoned nodes, like a<br>DaemonSet that tolerates everything. Includes what tolerateCordon does. Backends are never affected.<br>False by default. |
 
 ---
 
