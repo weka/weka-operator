@@ -65,7 +65,13 @@ type CsiSettings struct {
 type SchedulingSettings struct {
 	// TolerateCordon lets clients and the node-local pods they depend on keep running and keep
 	// being created on a cordoned node. Backends never tolerate the cordon regardless.
-	TolerateCordon bool
+	TolerateCordon     bool
+	ClientsTolerateAll bool
+}
+
+// CordonTolerant reports whether client-lifecycle pods may run on cordoned nodes.
+func (s SchedulingSettings) CordonTolerant() bool {
+	return s.TolerateCordon || s.ClientsTolerateAll
 }
 
 // NodeAgentSettings holds the operator-wide settings of the node-agent DaemonSet.
@@ -198,6 +204,9 @@ func SettingsFromPayload(payload *weka.ConfigurationPayload) ConfigurationSettin
 
 	if payload.Scheduling != nil && payload.Scheduling.TolerateCordon != nil {
 		resolved.Scheduling.TolerateCordon = *payload.Scheduling.TolerateCordon
+	}
+	if payload.Scheduling != nil && payload.Scheduling.ClientsTolerateAll != nil {
+		resolved.Scheduling.ClientsTolerateAll = *payload.Scheduling.ClientsTolerateAll
 	}
 
 	if payload.PodRotation != nil && payload.PodRotation.Enabled != nil {

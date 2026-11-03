@@ -71,11 +71,17 @@ type DriversSpec struct {
 
 // SchedulingSpec groups settings that control scheduling behavior of operator-managed pods
 type SchedulingSpec struct {
-	// TolerateCordon makes client containers, the node-local pods they depend on (drivers-loader,
-	// drivers-dist, discovery, adhoc-op) and drivers-builder tolerate the
+	// Deprecated: use clientsTolerateAll. TolerateCordon makes client containers, the node-local pods
+	// they depend on (drivers-loader, drivers-dist, discovery, adhoc-op) and drivers-builder tolerate the
 	// node.kubernetes.io/unschedulable:NoSchedule taint, so they keep running and keep being created
 	// on a cordoned node. Backends never tolerate it. False by default.
 	TolerateCordon *bool `json:"tolerateCordon,omitempty"`
+	// ClientsTolerateAll makes clients and every pod of their lifecycle (drivers-loader, drivers-dist,
+	// drivers-builder, discovery, and adhoc ops other than drive signing/discovery and kernelize) tolerate
+	// every taint (operator: Exists) and keep running and being created on cordoned nodes, like a
+	// DaemonSet that tolerates everything. Includes what tolerateCordon does. Backends are never affected.
+	// False by default.
+	ClientsTolerateAll *bool `json:"clientsTolerateAll,omitempty"`
 }
 
 // NodeAgentSpec groups settings of the node-agent DaemonSet
