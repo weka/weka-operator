@@ -1860,8 +1860,13 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 			Operator: corev1.NodeSelectorOpIn,
 			Values:   []string{string(f.container.GetNodeAffinity())},
 		})
-	}
-	if len(f.container.Spec.NodeSelector) != 0 {
+	} else {
+		// Only an unpinned pod still needs the selector to choose a node — pickMatchingNode already
+		// filtered on Spec.NodeSelector before the container was pinned, so alongside the hostname
+		// requirement the selector can merely veto the node it itself chose. The kubelet re-evaluates
+		// Required terms when it re-admits a bound pod after a node reboot, so a label owned by an
+		// external controller that is not back yet would reject the pod into a terminal
+		// Failed/NodeAffinity that nothing retries.
 		for k, v := range f.container.Spec.NodeSelector {
 			matchExpression = append(matchExpression, corev1.NodeSelectorRequirement{
 				Key:      k,
