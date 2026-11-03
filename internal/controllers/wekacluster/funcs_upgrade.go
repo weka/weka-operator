@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -858,21 +859,30 @@ func (r *wekaClusterReconcilerLoop) handleImageUpgrade(ctx context.Context) erro
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context, containers []*weka.WekaContainer, targetVersion string) error {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "prepareForUpgradeDrives")
+// startUpgradePhase is a no-op while the cluster is already in phase: starting it again restarts the phase.
+func (r *wekaClusterReconcilerLoop) startUpgradePhase(ctx context.Context, name string, container *weka.WekaContainer, phase, leaveCall, phaseType, targetVersion string) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "startUpgradePhase")
 	defer logger.End()
 
-	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
+	timeout := time.Second * 30
+	status, err := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout).GetWekaStatus(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to get weka status for upgrade preparation")
+	}
+	if strings.EqualFold(status.UpgradeInfo.UpgradePhase, phase) {
+		return nil
+	}
+	logger.Info("Starting upgrade phase", "currentPhase", status.UpgradeInfo.UpgradePhase, "targetPhase", phase)
+
+	executor, err := r.ExecService.GetExecutor(ctx, container)
 	if err != nil {
 		return errors.Wrap(err, "failed to get executor for upgrade preparation")
 	}
 
-	cmd := `
-wekaauthcli status --json | grep upgrade_phase | grep -i drive || wekaauthcli debug jrpc prepare_leader_for_upgrade
-wekaauthcli status --json | grep upgrade_phase | grep -i drive ||  wekaauthcli debug jrpc upgrade_phase_start target_phase_type=DrivePhase target_version_name=` + targetVersion + `
-`
+	cmd := "wekaauthcli debug jrpc " + leaveCall + "\n" +
+		"wekaauthcli debug jrpc upgrade_phase_start target_phase_type=" + phaseType + " target_version_name=" + targetVersion + "\n"
 
-	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeDrives", []string{"bash", "-ce", cmd})
+	_, stderr, err := executor.ExecNamed(ctx, name, []string{"bash", "-ce", cmd})
 	if err != nil {
 		return errors.Wrapf(err, "Failed to prepare for upgrade: %s", stderr.String())
 	}
@@ -880,26 +890,18 @@ wekaauthcli status --json | grep upgrade_phase | grep -i drive ||  wekaauthcli d
 	return nil
 }
 
+func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context, containers []*weka.WekaContainer, targetVersion string) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "prepareForUpgradeDrives")
+	defer logger.End()
+
+	return r.startUpgradePhase(ctx, "PrepareForUpgradeDrives", containers[0], services.UpgradePhaseDrives, "prepare_leader_for_upgrade", "DrivePhase", targetVersion)
+}
+
 func (r *wekaClusterReconcilerLoop) prepareForUpgradeCompute(ctx context.Context, containers []*weka.WekaContainer, targetVersion string) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "prepareForUpgradeCompute")
 	defer logger.End()
 
-	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
-	if err != nil {
-		return errors.Wrap(err, "failed to get executor for upgrade preparation")
-	}
-
-	cmd := `
-wekaauthcli status --json | grep upgrade_phase | grep -i compute || wekaauthcli debug jrpc upgrade_phase_finish
-wekaauthcli status --json | grep upgrade_phase | grep -i compute || wekaauthcli debug jrpc upgrade_phase_start target_phase_type=ComputeRollingPhase target_version_name=` + targetVersion + `
-`
-
-	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeCompute", []string{"bash", "-ce", cmd})
-	if err != nil {
-		return errors.Wrapf(err, "Failed to prepare for upgrade: %s", stderr.String())
-	}
-
-	return nil
+	return r.startUpgradePhase(ctx, "PrepareForUpgradeCompute", containers[0], services.UpgradePhaseCompute, "upgrade_phase_finish", "ComputeRollingPhase", targetVersion)
 }
 
 func (r *wekaClusterReconcilerLoop) prepareForUpgradeFrontend(ctx context.Context, containers []*weka.WekaContainer, targetVersion string) error {
@@ -911,21 +913,7 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeFrontend(ctx context.Contex
 		return nil
 	}
 
-	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
-	if err != nil {
-		return errors.Wrap(err, "failed to get executor for upgrade preparation")
-	}
-
-	cmd := `
-wekaauthcli status --json | grep upgrade_phase | grep -i frontend || wekaauthcli debug jrpc upgrade_phase_finish
-wekaauthcli status --json | grep upgrade_phase | grep -i frontend || wekaauthcli debug jrpc upgrade_phase_start target_phase_type=FrontendPhase target_version_name=` + targetVersion + `
-`
-	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeFrontend", []string{"bash", "-ce", cmd})
-	if err != nil {
-		return errors.Wrapf(err, "Failed to prepare for upgrade: %s", stderr.String())
-	}
-
-	return nil
+	return r.startUpgradePhase(ctx, "PrepareForUpgradeFrontend", containers[0], services.UpgradePhaseFrontend, "upgrade_phase_finish", "FrontendPhase", targetVersion)
 }
 
 func (r *wekaClusterReconcilerLoop) prepareForUpgradeDataServices(ctx context.Context, containers []*weka.WekaContainer, targetVersion string) error {
@@ -937,21 +925,7 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeDataServices(ctx context.Co
 		return nil
 	}
 
-	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
-	if err != nil {
-		return errors.Wrap(err, "failed to get executor for upgrade preparation")
-	}
-
-	cmd := `
-wekaauthcli status --json | grep upgrade_phase | grep -i dataserv || wekaauthcli debug jrpc upgrade_phase_finish
-wekaauthcli status --json | grep upgrade_phase | grep -i dataserv || wekaauthcli debug jrpc upgrade_phase_start target_phase_type=DataservPhase target_version_name=` + targetVersion + `
-`
-	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeDataServices", []string{"bash", "-ce", cmd})
-	if err != nil {
-		return errors.Wrapf(err, "Failed to prepare for upgrade: %s", stderr.String())
-	}
-
-	return nil
+	return r.startUpgradePhase(ctx, "PrepareForUpgradeDataServices", containers[0], services.UpgradePhaseDataServices, "upgrade_phase_finish", "DataservPhase", targetVersion)
 }
 
 func (r *wekaClusterReconcilerLoop) finalizeUpgrade(ctx context.Context, containers []*weka.WekaContainer) error {
