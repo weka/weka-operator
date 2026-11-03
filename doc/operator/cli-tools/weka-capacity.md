@@ -126,7 +126,7 @@ capacity), `TLC(free/phys)`, `QLC(free/phys)`, `CPU(free/alloc)`, `HP2Mi(free/al
 `untolerated taint`, or `-` when it can. Nodes are listed either way: hiding one would defeat the point
 of asking why it is not being used. A cordoned node reads `cordoned`: the planner models drive and
 compute containers only, and backends never tolerate a cordon. It reports nothing about the client path,
-so `scheduling.tolerateCordon` does not change this column. Two things it does not mean:
+so `scheduling.clientsTolerateAll` and `tolerateCordon` do not change this column. Two things it does not mean:
 
 - **It never bars an existing container.** A container already on the node keeps running, keeps its
   drives and resources charged, and can still grow in place.

@@ -232,3 +232,64 @@ func TestUnhealthyTolerationsExcludeCordon(t *testing.T) {
 		t.Error("client must tolerate cordon with SkipUnhealthyToleration=true")
 	}
 }
+
+// TestClientsTolerateAll pins which pods get operator: Exists from scheduling.clientsTolerateAll: the
+// client lifecycle by mode, minus the adhoc ops that run drive signing/discovery or kernelize on
+// backends. Every client-lifecycle mode also gets the cordon bypass; tolerateCordon alone never adds Exists.
+func TestClientsTolerateAll(t *testing.T) {
+	pod := func(mode string, instr weka.InstructionType) *weka.WekaContainer {
+		c := &weka.WekaContainer{Spec: weka.WekaContainerSpec{Mode: mode}}
+		if instr != "" {
+			c.Spec.Instructions = &weka.Instructions{Type: instr}
+		}
+		return c
+	}
+	cases := []struct {
+		name       string
+		container  *weka.WekaContainer
+		wantAll    bool
+		wantCordon bool
+	}{
+		{"client", pod(weka.WekaContainerModeClient, ""), true, true},
+		{"drivers-loader", pod(weka.WekaContainerModeDriversLoader, ""), true, true},
+		{"drivers-dist", pod(weka.WekaContainerModeDriversDist, ""), true, true},
+		{"drivers-builder", pod(weka.WekaContainerModeDriversBuilder, ""), true, true},
+		{"discovery", pod(weka.WekaContainerModeDiscovery, ""), true, true},
+		{"umount", pod(weka.WekaContainerModeAdhocOp, weka.InstructionTypeUmount), true, true},
+		{"feature-flags", pod(weka.WekaContainerModeAdhocOpWC, weka.InstructionTypeFeatureFlagsUpdate), true, true},
+		{"ensure-nics", pod(weka.WekaContainerModeAdhocOpWC, weka.InstructionTypeEnsureNICs), true, true},
+		{"sign-drives", pod(weka.WekaContainerModeAdhocOp, weka.InstructionTypeSignDrives), false, false},
+		{"force-resign-drives", pod(weka.WekaContainerModeAdhocOp, weka.InstructionTypeForceResignDrives), false, false},
+		{"discover-drives", pod(weka.WekaContainerModeAdhocOp, weka.InstructionTypeDiscoverDrives), false, false},
+		{"kernelize", pod(weka.WekaContainerModeAdhocOp, weka.InstructionTypeKernelize), false, false},
+		{"drive", pod(weka.WekaContainerModeDrive, ""), false, false},
+		{"compute", pod(weka.WekaContainerModeCompute, ""), false, false},
+	}
+	exists := corev1.Toleration{Operator: corev1.TolerationOpExists}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			on := GetWekaPodTolerations(tc.container, services.SchedulingSettings{ClientsTolerateAll: true})
+			if got := slices.Contains(on, exists); got != tc.wantAll {
+				t.Errorf("has Exists = %v, want %v", got, tc.wantAll)
+			}
+			if got := tolerationsCoverCordon(on); got != tc.wantCordon {
+				t.Errorf("covers cordon = %v, want %v", got, tc.wantCordon)
+			}
+		})
+	}
+	if slices.Contains(GetWekaPodTolerations(pod(weka.WekaContainerModeClient, ""), services.SchedulingSettings{TolerateCordon: true}), exists) {
+		t.Error("tolerateCordon alone added Exists")
+	}
+}
+
+func TestTolerateCordonStillCoversBackendAdhocOps(t *testing.T) {
+	c := &weka.WekaContainer{Spec: weka.WekaContainerSpec{
+		Mode: weka.WekaContainerModeAdhocOp, Instructions: &weka.Instructions{Type: weka.InstructionTypeSignDrives},
+	}}
+	if !ToleratesCordon(c, services.SchedulingSettings{TolerateCordon: true}) {
+		t.Error("deprecated tolerateCordon no longer covers a backend adhoc op")
+	}
+	if ToleratesCordon(c, services.SchedulingSettings{ClientsTolerateAll: true}) {
+		t.Error("clientsTolerateAll covers the cordon for a backend adhoc op")
+	}
+}

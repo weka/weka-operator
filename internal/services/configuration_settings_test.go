@@ -360,6 +360,18 @@ func TestSettingsFromPayloadScheduling(t *testing.T) {
 	}
 }
 
+func TestSettingsFromPayloadClientsTolerateAll(t *testing.T) {
+	if DefaultConfigurationSettings().Scheduling.ClientsTolerateAll {
+		t.Error("default ClientsTolerateAll = true, want false")
+	}
+	for _, v := range []bool{true, false} {
+		got := SettingsFromPayload(&weka.ConfigurationPayload{Scheduling: &weka.SchedulingSpec{ClientsTolerateAll: boolPtr(v)}}).Scheduling
+		if got.ClientsTolerateAll != v || got.TolerateCordon {
+			t.Errorf("clientsTolerateAll=%v resolved to %+v", v, got)
+		}
+	}
+}
+
 func TestSettingsFromPayloadNodeAgent(t *testing.T) {
 	defaults := DefaultConfigurationSettings().NodeAgent
 

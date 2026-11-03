@@ -905,7 +905,8 @@ func (c *clientReconcilerLoop) setToleratedNodes(ctx context.Context) error {
 		c.toleratedNodes = make(map[string]struct{})
 	}
 
-	if config.Config.SkipClientsTolerationValidation {
+	scheduling := services.GetSettings(ctx).Scheduling
+	if config.Config.SkipClientsTolerationValidation || scheduling.ClientsTolerateAll {
 		logger.Debug("Skipping node taints and client tolerations check")
 
 		// all nodes are tolerated
@@ -919,10 +920,8 @@ func (c *clientReconcilerLoop) setToleratedNodes(ctx context.Context) error {
 		// When enabled the client pod carries this one, so a cordon alone must not rule the node out
 		// here. This set is built from scratch rather than from the pod's tolerations, so it has to be
 		// added back.
-		tolerateCordon := services.GetSettings(ctx).Scheduling.TolerateCordon
-		if tolerateCordon {
-			clientTolerations = append(clientTolerations, resources.GetUnschedulableToleration())
-		}
+		tolerateCordon := scheduling.TolerateCordon
+		clientTolerations = append(clientTolerations, resources.ClientTolerations(scheduling)...)
 
 		for i := range nodes {
 			node := &nodes[i]
@@ -1052,12 +1051,12 @@ func (c *clientReconcilerLoop) handleImagePrePull(ctx context.Context) error {
 
 	// This list is both the node filter (GetTargetNodes) and the pre-pull pod's own tolerations, so a
 	// cordon toleration left in it from the client spec would pull cordoned nodes in with the policy off.
-	tolerations := resources.WithoutCordonTolerations(
-		util.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations),
-	)
-	if services.GetSettings(ctx).Scheduling.TolerateCordon {
-		tolerations = append(tolerations, resources.GetUnschedulableToleration())
-	}
+	// The policy's tolerations go first: Kubernetes applies the first toleration matching a NoExecute taint,
+	// so a finite tolerationSeconds from the client spec must not win over the policy's operator: Exists.
+	tolerations := append(resources.ClientTolerations(services.GetSettings(ctx).Scheduling),
+		resources.WithoutCordonTolerations(
+			util.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations),
+		)...)
 
 	payload := &operations.PrePullImagePayload{
 		TargetImage:     wekaClient.Spec.Image,
