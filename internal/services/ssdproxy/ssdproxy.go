@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"slices"
 	"sync"
 	"time"
 
@@ -161,32 +159,13 @@ func validateNodeAgentImage(pod *v1.Pod) error {
 	return nil
 }
 
-// jsonrpc POSTs a JSONRPC payload to the node-agent of agentPod and returns the raw body.
+// jsonrpc calls method on the ssdproxy container through the node-agent of agentPod.
 func jsonrpc(ctx context.Context, agentPod *v1.Pod, token, ssdproxyContainerUUID, method string, params map[string]any) (body []byte, statusCode int, err error) {
-	payload := node_agent.JSONRPCProxyPayload{
+	return node_agent.ProxyJSONRPC(ctx, agentPod, token, node_agent.JSONRPCProxyPayload{
 		ContainerId: ssdproxyContainerUUID,
 		Method:      method,
 		Params:      params,
-	}
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to marshal JSONRPC payload: %w", err)
-	}
-
-	url := node_agent.URL(agentPod.Status.PodIP, "/jsonrpc")
-	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to call node agent /jsonrpc endpoint: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
-
-	respBody, readErr := io.ReadAll(resp.Body)
-	if readErr != nil {
-		return nil, resp.StatusCode, fmt.Errorf("failed to read JSONRPC response body: %w", readErr)
-	}
-
-	return respBody, resp.StatusCode, nil
+	})
 }
 
 // ListPhysicalDrives enumerates all physical drives on the ssdproxy via JSONRPC.
@@ -265,24 +244,6 @@ func (c *Client) ListVirtualDrives(ctx context.Context, agentPod *v1.Pod, token,
 	return all, nil
 }
 
-type jsonrpcError struct {
-	Code    int             `json:"code"`
-	Message string          `json:"message"`
-	Data    json.RawMessage `json:"data"`
-}
-
-// isException reports whether the proxy threw the named weka exception; data.exceptionClass lists
-// the thrown class and its ancestors.
-func (e *jsonrpcError) isException(class string) bool {
-	var data struct {
-		ExceptionClass []string `json:"exceptionClass"`
-	}
-	if json.Unmarshal(e.Data, &data) != nil {
-		return false
-	}
-	return slices.Contains(data.ExceptionClass, class)
-}
-
 // AddVirtualDrive adds a virtual drive via ssd_proxy_add_virtual_drive and returns the VID. idParam is
 // "virtualUuid" (legacy proxy) or "label" (proxy with ssd_proxy_vid_label_add, which derives the VID
 // from the label; re-adding a label whose VID is still active returns that same VID).
@@ -313,8 +274,8 @@ func (c *Client) AddVirtualDrive(ctx context.Context, agentPod *v1.Pod, token, s
 // is the bare VID string.
 func parseAddVirtualDriveReply(respBody []byte) (string, error) {
 	var jsonrpcResp struct {
-		Result string        `json:"result"`
-		Error  *jsonrpcError `json:"error"`
+		Result string                   `json:"result"`
+		Error  *node_agent.JSONRPCError `json:"error"`
 	}
 	if err := json.Unmarshal(respBody, &jsonrpcResp); err != nil {
 		return "", fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))
@@ -379,9 +340,9 @@ func removeVirtualDrive(ctx context.Context, agentPod *v1.Pod, token, ssdproxyCo
 
 	if status != http.StatusOK {
 		var reply struct {
-			Error *jsonrpcError `json:"error"`
+			Error *node_agent.JSONRPCError `json:"error"`
 		}
-		if json.Unmarshal(respBody, &reply) == nil && reply.Error != nil && reply.Error.isException("VirtualDriveNotFoundException") {
+		if json.Unmarshal(respBody, &reply) == nil && reply.Error != nil && reply.Error.IsException("VirtualDriveNotFoundException") {
 			logger.Info("Virtual drive not found on proxy, treating as already removed")
 			return nil, nil
 		}
@@ -389,8 +350,8 @@ func removeVirtualDrive(ctx context.Context, agentPod *v1.Pod, token, ssdproxyCo
 	}
 
 	var jsonrpcResp struct {
-		Result json.RawMessage `json:"result"`
-		Error  *jsonrpcError   `json:"error"`
+		Result json.RawMessage          `json:"result"`
+		Error  *node_agent.JSONRPCError `json:"error"`
 	}
 	if err := json.Unmarshal(respBody, &jsonrpcResp); err != nil {
 		return nil, fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))
