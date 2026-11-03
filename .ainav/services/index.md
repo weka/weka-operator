@@ -14,6 +14,7 @@ API clients, Kubernetes helpers, node-local services and shared domain types.
 | Discovery | `internal/services/discovery/` | Service discovery and container operational checks |
 | SSD proxy | `internal/services/ssdproxy/` | Node-agent JSONRPC client for physical/virtual drives and node-agent pod/token lookup |
 | Node agent | `internal/node_agent/node_agent.go` | Drive discovery (`/findDrives`), local operations and JRPC forwarding |
+| Node-agent JSONRPC client | `internal/node_agent/jsonrpc_client.go` | `ProxyJSONRPC` for calling `/jsonrpc`; `JSONRPCError.IsException` (`node_agent.go`) for weka exception matching; used by ssdproxy and the container identity lookup (`funcs_cluster_joining.go`) |
 | Node metrics | `internal/node_agent/scrapper.go` | Metrics scraping |
 | NUMA device plugin | `internal/node_agent/deviceplugin/` | Discovery, kubelet plugin server and restart-aware registration; `NODE_AGENT_DEVICE_PLUGIN_ENABLED` |
 | Weka Home reporter | `internal/reporter/` | [Snapshot collection, identity and transport](reporter.md) |
