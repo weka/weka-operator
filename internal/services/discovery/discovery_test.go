@@ -180,3 +180,44 @@ func TestSelectRunningContainersByRole(t *testing.T) {
 		})
 	}
 }
+
+func discoveredNode(annotation string) corev1.Node {
+	n := corev1.Node{}
+	if annotation != "" {
+		n.Annotations = map[string]string{DiscoveryAnnotation: annotation}
+	}
+	return n
+}
+
+func TestAnyNodeHasSelinux(t *testing.T) {
+	withPolicy := discoveredNode(`{"os":"rhel","selinux_wekafs_policy":true}`)
+	withoutPolicy := discoveredNode(`{"os":"rhel","selinux_wekafs_policy":false}`)
+	oldRhcos := discoveredNode(`{"os":"rhcos"}`)
+	oldUbuntu := discoveredNode(`{"os":"ubuntu"}`)
+	rhcosNoPolicy := discoveredNode(`{"os":"rhcos","selinux_wekafs_policy":false}`)
+	missing := discoveredNode("")
+	broken := discoveredNode("{not json")
+
+	cases := []struct {
+		name  string
+		nodes []corev1.Node
+		want  bool
+	}{
+		{"no nodes", nil, false},
+		{"policy loaded", []corev1.Node{withPolicy}, true},
+		{"policy not loaded", []corev1.Node{withoutPolicy, withoutPolicy}, false},
+		{"any node with policy", []corev1.Node{withoutPolicy, withPolicy}, true},
+		{"unreported rhcos falls back to os", []corev1.Node{oldRhcos}, true},
+		{"unreported non-rhcos", []corev1.Node{oldUbuntu}, false},
+		{"reported value overrides rhcos", []corev1.Node{rhcosNoPolicy}, false},
+		{"missing and unparsable annotations are skipped", []corev1.Node{missing, broken, withPolicy}, true},
+		{"only missing annotations", []corev1.Node{missing, broken}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := AnyNodeHasSelinux(tc.nodes); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
