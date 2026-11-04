@@ -1,6 +1,6 @@
 # Build the manager binary
 # Keep this version in sync with the `go` directive in go.mod (and .dagger builders.py).
-FROM docker.io/library/golang:1.27.3@sha256:f24164268fc1e741bbdc0066dbadcf1c8426c5a8489f0729c02c3905a53032fd as builder
+FROM docker.io/library/golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b as builder
 # right now this image is not in use, might be in future when whole release process runs as docker build
 # and when used probably will be heavily re-done
 
@@ -36,7 +36,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot@sha256:516757106de35205efb70b91ba03f6f1298424a0678c603255cf2852a7000087 as manager
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 as manager
 WORKDIR /
 COPY --from=build-manager /workspace/manager .
 USER 65532:65532
