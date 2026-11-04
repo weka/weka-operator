@@ -137,10 +137,11 @@ func (r *containerReconcilerLoop) setStatusMetrics(ctx context.Context) error {
 
 	// limit the getContainerInfo request
 	timeout := config.Config.Metrics.Containers.RequestsTimeouts.GetContainerInfo
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
+	sampledAt := time.Now()
+	resp, err := util.SendJsonRequest(requestCtx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
 	if err != nil {
 		return err
 	}
@@ -162,21 +163,35 @@ func (r *containerReconcilerLoop) setStatusMetrics(ctx context.Context) error {
 		return err
 	}
 
+	return r.publishContainerStats(ctx, &response.ContainerMetrics, sampledAt)
+}
+
+// publishContainerStats stores a fresh sample taken at sampledAt (not at publish time, so that it can be compared
+// with node transitions) on the container status. The mount count is best effort: when it
+// cannot be read the sample is still published and stamped (the process and frontend counts in it are current),
+// the previous mount count is kept, and the mount error is returned after the patch.
+func (r *containerReconcilerLoop) publishContainerStats(ctx context.Context, sample *weka.WekaContainerMetrics, sampledAt time.Time) error {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+
 	patch := client.MergeFrom(r.container.DeepCopy())
 
-	r.container.Status.Stats = &response.ContainerMetrics
+	prevStats := r.container.Status.Stats
+	r.container.Status.Stats = sample
 	if r.container.Status.PrinterColumns == nil {
 		r.container.Status.PrinterColumns = &weka.ContainerPrinterColumns{}
 	}
 
+	var mountsErr error
 	if r.container.HasFrontend() {
 		var activeMounts *int
-		activeMounts, err = r.GetActiveMounts(ctx)
-		if err != nil {
-			logger.Error(err, "Error getting active mounts")
-			return err
-		}
-		if activeMounts != nil {
+		activeMounts, mountsErr = r.GetActiveMounts(ctx)
+		switch {
+		case mountsErr != nil:
+			logger.Error(mountsErr, "Error getting active mounts")
+			if prevStats != nil {
+				r.container.Status.Stats.ActiveMounts = prevStats.ActiveMounts
+			}
+		case activeMounts != nil:
 			r.container.Status.PrinterColumns.ActiveMounts = weka.StringMetric(fmt.Sprintf("%d", *activeMounts))
 			r.container.Status.Stats.ActiveMounts = weka.IntMetric(int64(*activeMounts))
 		}
@@ -194,20 +209,15 @@ func (r *containerReconcilerLoop) setStatusMetrics(ctx context.Context) error {
 		r.container.Status.PrinterColumns.Drives = weka.StringMetric(r.container.Status.Stats.Drives.DriveCounters.String())
 	}
 	r.container.Status.PrinterColumns.Processes = weka.StringMetric(r.container.Status.Stats.Processes.String())
-	r.container.Status.Stats.LastUpdate = metav1.NewTime(time.Now())
+	r.container.Status.Stats.LastUpdate = metav1.NewTime(sampledAt)
 
-	TracedPatch := func() error {
-		spanCtx, logger := instrumentation.CreateLogSpan(ctx, "PatchContainerStatus")
-		defer logger.End()
-		ctx = spanCtx
-		ret := r.Status().Patch(ctx, r.container, patch)
-		if ret != nil {
-			logger.SetError(ret, "Error patching container status")
-		}
-		return ret
+	spanCtx, patchLogger := instrumentation.CreateLogSpan(ctx, "PatchContainerStatus")
+	defer patchLogger.End()
+	if err := r.Status().Patch(spanCtx, r.container, patch); err != nil {
+		patchLogger.SetError(err, "Error patching container status")
+		return err
 	}
-
-	return TracedPatch()
+	return mountsErr
 }
 
 func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context) error {

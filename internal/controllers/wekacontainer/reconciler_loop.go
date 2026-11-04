@@ -79,10 +79,9 @@ type containerReconcilerLoop struct {
 	clusterContainers []*weka.WekaContainer
 	// values shared between steps
 	// nil until ReconcileWekaLocalStatus successfully reads `weka local ps --json`
-	localContainer    *services.WekaLocalContainer
-	activeMounts      *int
-	frontendConnected *bool
-	activeMountsErr   error
+	localContainer   *services.WekaLocalContainer
+	activeMountsInfo *activeMountsInfo
+	activeMountsErr  error
 	// resolved by GetNode, so the cordon decision is available to steps and predicates that have no ctx
 	scheduling    services.SchedulingSettings
 	ThrottlingMap throttling.Throttler

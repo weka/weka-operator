@@ -284,6 +284,7 @@ func (o *LoadDrivers) AsStep() lifecycle.Step {
 func (o *LoadDrivers) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
 		&lifecycle.SimpleStep{Name: "GetCurrentContainer", Run: o.GetCurrentContainer},
+		&lifecycle.SimpleStep{Name: "RemoveCsiAccessibleLabelsOnBootChange", Run: o.RemoveCsiAccessibleLabelsOnBootChange, Predicates: lifecycle.Predicates{o.BootIDStale}},
 		&lifecycle.SimpleStep{Name: "HandleNodeReboot", Run: o.HandleNodeReboot, Predicates: lifecycle.Predicates{o.NodeRebooted}},
 		&lifecycle.SimpleStep{Name: "CleanupIfLoaded", Run: o.CleanupIfLoaded, Predicates: lifecycle.Predicates{o.IsLoaded}, FinishOnSuccess: true},
 		&lifecycle.SimpleStep{Name: "HandleExistingLoader", Run: o.HandleExistingLoader, Predicates: lifecycle.Predicates{o.HasContainer}},
@@ -336,6 +337,38 @@ func (o *LoadDrivers) HandleNodeReboot(ctx context.Context) error {
 		return lifecycle.NewWaitError(errors.Wrap(err, "failed to update node annotations"))
 	}
 	return nil
+}
+
+// RemoveCsiAccessibleLabelsOnBootChange runs before HandleNodeReboot clears the stale record, and so before any
+// client reconcile can see the node as drivers-loaded again: after a reboot the driver is gone, and stats or
+// frontend state from before it must not keep the node accessible. Only the boot id counts; an image change
+// alone does not.
+func (o *LoadDrivers) RemoveCsiAccessibleLabelsOnBootChange(ctx context.Context) error {
+	// the optimistic lock keeps a stale node view from stripping a label restored after the new boot was recorded
+	patch := client.MergeFromWithOptions(o.node.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	removed := false
+	for key := range o.node.Labels {
+		if IsCsiAccessibleLabelKey(key) {
+			delete(o.node.Labels, key)
+			removed = true
+		}
+	}
+	if !removed {
+		return nil
+	}
+	if err := o.client.Patch(ctx, o.node, patch); err != nil {
+		return lifecycle.NewWaitError(errors.Wrap(err, "failed to remove csi accessible labels from node"))
+	}
+	return nil
+}
+
+func (o *LoadDrivers) BootIDStale() bool { return DriversBootIDStale(o.node) }
+
+// DriversBootIDStale reports whether the node's drivers-loaded record is missing, unparsable, or stamped with
+// another boot than the current one.
+func DriversBootIDStale(node *v1.Node) bool {
+	ld := parseLoadedDrivers(node)
+	return ld == nil || ld.BootID != node.Status.NodeInfo.BootID
 }
 
 func (o *LoadDrivers) NodeRebooted() bool {

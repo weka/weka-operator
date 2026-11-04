@@ -21,5 +21,6 @@ Use this map for operator settings, deployment templates and CRD definitions.
 - Extra volumes: Helm `manager.extraVolumes`/`extraVolumeMounts` for the operator pod (`tmpdir` / `/tmp` reserved); WekaCluster `spec.podConfig`, WekaClient and WekaContainer `spec` carry their own. See [extra-volumes.md](../../doc/operator/deployment/extra-volumes.md).
 - Removed-node backend cleanup: `CLEANUP_REMOVED_NODES` / Helm `cleanupRemovedNodes`, tri-state `false`/`true`/`auto` (default `auto`), grace-period logic in `wekacontainer/funcs_handle_node_statuses.go`. See [helm-install.md](../../doc/operator/deployment/helm-install.md).
 - Node-agent DaemonSet: built by `internal/node_agent/daemonset.go` from `NodeAgentSettings` (`internal/services/configuration_settings.go`); see [node-agent.md](../../doc/operator/deployment/node-agent.md).
+- CSI accessible label settings: `CsiSettings` in `internal/services/configuration_settings.go`; see [embedded-csi.md](../../doc/operator/deployment/embedded-csi.md).
 
 To add configuration, update `env.go`, Helm defaults and deployment wiring together; see [tasks.md](../tasks.md).

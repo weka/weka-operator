@@ -2,6 +2,7 @@ package wekacontainer
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -9,7 +10,10 @@ import (
 	"github.com/weka/go-steps-engine/throttling"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestSetStatusMetricsFailureEvent(t *testing.T) {
@@ -51,5 +55,41 @@ func TestSetStatusMetricsFailureEvent(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPublishContainerStatsKeepsTheSampleWhenMountsFail(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := weka.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	container := &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "default"},
+		Spec:       weka.WekaContainerSpec{Mode: weka.WekaContainerModeClient},
+		Status: weka.WekaContainerStatus{Stats: &weka.WekaContainerMetrics{
+			ActiveMounts: 3,
+			LastUpdate:   metav1.NewTime(time.Now().Add(-time.Hour)),
+		}},
+	}
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(container).WithStatusSubresource(container).Build()
+	mountsErr := errors.New("mounts unavailable")
+	r := &containerReconcilerLoop{Client: fc, container: container, activeMountsErr: mountsErr}
+
+	sampledAt := time.Now().Add(-10 * time.Minute)
+	sample := &weka.WekaContainerMetrics{DriverFrontends: weka.EntityStatefulNum{Active: 0, Created: 1}}
+	if err := r.publishContainerStats(context.Background(), sample, sampledAt); !errors.Is(err, mountsErr) {
+		t.Fatalf("err = %v, want the mount error", err)
+	}
+
+	stored := &weka.WekaContainer{}
+	if err := fc.Get(context.Background(), client.ObjectKeyFromObject(container), stored); err != nil {
+		t.Fatal(err)
+	}
+	got := stored.Status.Stats
+	if got == nil || got.LastUpdate.Time.Unix() != sampledAt.Unix() {
+		t.Fatalf("the sample was not published and stamped with its sample time: %+v", got)
+	}
+	if got.DriverFrontends.Created != 1 || got.ActiveMounts != 3 {
+		t.Fatalf("got frontends %+v, mounts %d; want the new frontends and the previous mount count", got.DriverFrontends, got.ActiveMounts)
 	}
 }

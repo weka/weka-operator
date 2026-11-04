@@ -3,11 +3,13 @@ package operations
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	obslogger "github.com/weka/go-weka-observability/logger"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
@@ -333,6 +335,100 @@ var _ = Describe("LoadDrivers HandleNodeReboot", func() {
 		}
 		Expect(newOp().HandleNodeReboot(ctx)).To(Succeed())
 		Expect(node.Annotations).NotTo(HaveKey(driversLoadedAnnotation))
+	})
+})
+
+var _ = Describe("RemoveCsiAccessibleLabelsOnBootChange", func() {
+	var (
+		ctx  context.Context
+		node *corev1.Node
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		node = &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-node", Labels: map[string]string{
+				"topology.csi.weka.io/accessible":   "true",
+				"topology.other.weka.io/accessible": "true",
+				"topology.csi.weka.io/node":         "test-node",
+				"topology.csi.weka.io/global":       "true",
+				"weka.io/supports-clients":          "true",
+			}},
+			Status: corev1.NodeStatus{NodeInfo: corev1.NodeSystemInfo{BootID: "boot-current"}},
+		}
+	})
+
+	run := func(annotation string) *LoadDrivers {
+		scheme := runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		if annotation != "" {
+			node.Annotations = map[string]string{driversLoadedAnnotation: annotation}
+		}
+		op := &LoadDrivers{client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build(), node: node}
+		// the step's predicate gates it, as in a real run
+		if op.BootIDStale() {
+			Expect(op.RemoveCsiAccessibleLabelsOnBootChange(ctx)).To(Succeed())
+		}
+		return op
+	}
+
+	record := func(boot, image string) string {
+		b, _ := json.Marshal(loadedDrivers{BootID: boot, Image: image, Priority: 3})
+		return string(b)
+	}
+
+	It("removes the accessible label of every csi group on a boot id change and keeps other labels", func() {
+		op := run(record("boot-previous", "img:1"))
+		Expect(node.Labels).To(Equal(map[string]string{
+			"topology.csi.weka.io/node":   "test-node",
+			"topology.csi.weka.io/global": "true",
+			"weka.io/supports-clients":    "true",
+		}))
+		stored := &corev1.Node{}
+		Expect(op.client.Get(ctx, client.ObjectKeyFromObject(node), stored)).To(Succeed())
+		Expect(stored.Labels).NotTo(HaveKey("topology.csi.weka.io/accessible"))
+	})
+
+	It("does not strip labels from a stale node view: the patch conflicts and is retried", func() {
+		scheme := runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		node.Annotations = map[string]string{driversLoadedAnnotation: record("boot-previous", "img:1")}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+		op := &LoadDrivers{client: c, node: node.DeepCopy()}
+
+		// another writer updates the node after op read it
+		fresh := &corev1.Node{}
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(node), fresh)).To(Succeed())
+		fresh.Annotations[driversLoadedAnnotation] = record("boot-current", "img:1")
+		Expect(c.Update(ctx, fresh)).To(Succeed())
+
+		Expect(op.RemoveCsiAccessibleLabelsOnBootChange(ctx)).NotTo(Succeed())
+		stored := &corev1.Node{}
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(node), stored)).To(Succeed())
+		Expect(stored.Labels).To(HaveKey("topology.csi.weka.io/accessible"))
+	})
+
+	It("keeps the labels when only the image changed", func() {
+		run(record("boot-current", "img:2"))
+		Expect(node.Labels).To(HaveKey("topology.csi.weka.io/accessible"))
+		Expect(node.Labels).To(HaveKey("topology.other.weka.io/accessible"))
+	})
+
+	It("removes the labels when there is no record at all", func() {
+		run("")
+		Expect(node.Labels).NotTo(HaveKey("topology.csi.weka.io/accessible"))
+	})
+
+	It("runs before the stale record is cleared", func() {
+		var names []string
+		var steps []*lifecycle.SimpleStep
+		for _, step := range (&LoadDrivers{}).GetSteps() {
+			steps = append(steps, step.(*lifecycle.SimpleStep))
+			names = append(names, steps[len(steps)-1].Name)
+		}
+		Expect(slices.Index(names, "RemoveCsiAccessibleLabelsOnBootChange")).To(BeNumerically("<", slices.Index(names, "HandleNodeReboot")))
+		Expect(slices.Index(names, "RemoveCsiAccessibleLabelsOnBootChange")).To(BeNumerically("<", slices.Index(names, "ProcessResult")))
+		Expect(steps[slices.Index(names, "RemoveCsiAccessibleLabelsOnBootChange")].Predicates).To(HaveLen(1))
 	})
 })
 

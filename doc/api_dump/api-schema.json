@@ -940,6 +940,30 @@
           "description": "ManageNfsPermissions applies to WekaClients with useNfs only. When true, the CSI plugin creates\nand removes NFS client groups, rules and permissions (exports) on the WEKA cluster itself.\nWhen false (default), the WEKA cluster admin must configure them.",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "StatsFreshness",
+          "jsonName": "statsFreshness",
+          "type": "k8s:metav1.Duration",
+          "description": "StatsFreshness is how old a client container's stats may be and still decide the node's\ntopology.\u003cdriver\u003e/accessible label without asking the node-agent. Default is 2m.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "UnknownTimeout",
+          "jsonName": "unknownTimeout",
+          "type": "k8s:metav1.Duration",
+          "description": "UnknownTimeout is how long the accessible label is kept as it is while the node-agent cannot be\nasked about a client container, before the label is removed. Default is 5m.",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "SystemicFailureThreshold",
+          "jsonName": "systemicFailureThreshold",
+          "type": "int32",
+          "description": "SystemicFailureThreshold is the percentage of a WekaClient's nodes that must be unreachable past\nunknownTimeout for the failure to count as systemic (API, network or operator side), in which case\nthe accessible labels are kept. Default is 80.",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -5566,6 +5590,29 @@
           "type": {
             "$ref": "#/definitions/EntityStatefulNum"
           },
+          "optional": true
+        },
+        {
+          "name": "ProcessesPulledAt",
+          "jsonName": "processesPulledAt",
+          "type": "k8s:metav1.Time",
+          "description": "ProcessesPulledAt is when the node-agent last read the process counts from the container. Zero when\nthe node-agent does not report it.",
+          "optional": true
+        },
+        {
+          "name": "BootID",
+          "jsonName": "bootID",
+          "type": "string",
+          "description": "BootID is the boot id of the node the node-agent sampled these stats on. Empty when the node-agent does\nnot report it.",
+          "optional": true
+        },
+        {
+          "name": "DriverFrontends",
+          "jsonName": "driverFrontends",
+          "type": {
+            "$ref": "#/definitions/EntityStatefulNum"
+          },
+          "description": "DriverFrontends counts the client's driver frontends connected (active) and all of them (created).\nCreated is 0 when the node-agent could not tell.",
           "optional": true
         },
         {

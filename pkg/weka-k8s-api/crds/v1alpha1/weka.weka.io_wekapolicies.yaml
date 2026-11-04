@@ -133,6 +133,33 @@ spec:
                               MetricsEnabled controls the Prometheus metrics endpoints of the CSI controller, the CSI node
                               plugin and the controller sidecars. Enabled by default.
                             type: boolean
+                          statsFreshness:
+                            description: |-
+                              StatsFreshness is how old a client container's stats may be and still decide the node's
+                              topology.<driver>/accessible label without asking the node-agent. Default is 2m.
+                            pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                            type: string
+                            x-kubernetes-validations:
+                            - message: must be at least 30s
+                              rule: duration(self) >= duration('30s')
+                          systemicFailureThreshold:
+                            description: |-
+                              SystemicFailureThreshold is the percentage of a WekaClient's nodes that must be unreachable past
+                              unknownTimeout for the failure to count as systemic (API, network or operator side), in which case
+                              the accessible labels are kept. Default is 80.
+                            format: int32
+                            maximum: 100
+                            minimum: 1
+                            type: integer
+                          unknownTimeout:
+                            description: |-
+                              UnknownTimeout is how long the accessible label is kept as it is while the node-agent cannot be
+                              asked about a client container, before the label is removed. Default is 5m.
+                            pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                            type: string
+                            x-kubernetes-validations:
+                            - message: must be at least 30s
+                              rule: duration(self) >= duration('30s')
                         type: object
                       drivers:
                         description: Drivers configures the drivers build and distribution.

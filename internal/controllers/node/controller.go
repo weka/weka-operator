@@ -77,7 +77,7 @@ func (r *NodeReconciler) allNodesOnConfigurationChange(ctx context.Context, obj 
 
 	nodes := &corev1.NodeList{}
 	if err := r.List(ctx, nodes); err != nil {
-		logger.Error(err, "Failed to list nodes, they are labelled on the next resync")
+		logger.Error(err, "Failed to list nodes, they are labelled on their next Node event")
 		return nil
 	}
 	requests := make([]reconcile.Request, len(nodes.Items))

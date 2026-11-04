@@ -19,42 +19,80 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-// GetActiveMounts returns the number of active mounts for this container and records in
-// r.frontendConnected whether the driver reports a connected frontend for it (nil when unknown).
-// Results, including failures, are cached for the duration of the reconciliation loop.
-func (r *containerReconcilerLoop) GetActiveMounts(ctx context.Context) (*int, error) {
-	if r.activeMounts != nil {
-		return r.activeMounts, nil
-	}
-	if r.activeMountsErr != nil {
-		return nil, r.activeMountsErr
-	}
+// frontendState is what the wekafs driver reports about a client's frontends.
+type frontendState int
 
+const (
+	frontendUnknown frontendState = iota
+	frontendNotConnected
+	frontendConnected
+)
+
+// activeMountsInfo is the node-agent's view of a container's driver interface.
+type activeMountsInfo struct {
+	mounts   int
+	frontend frontendState
+}
+
+// GetActiveMounts returns the number of active mounts for this container. It honors the SkipActiveMountsCheck
+// override, which concerns deleting the container only: the CSI label reads getActiveMountsInfo directly.
+func (r *containerReconcilerLoop) GetActiveMounts(ctx context.Context) (*int, error) {
 	if r.container.Spec.GetOverrides().SkipActiveMountsCheck {
 		_, logger := instrumentation.CreateLogSpan(ctx, "skipActiveMountsCheck")
 		defer logger.End()
 
 		logger.Info("SkipActiveMountsCheck override set, assuming no active mounts")
-		val := 0
-		r.activeMounts = &val
-		return r.activeMounts, nil
+		return new(int), nil
+	}
+
+	info, err := r.getActiveMountsInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &info.mounts, nil
+}
+
+// getActiveMountsInfo returns the active mounts and the frontend state of this container. Results, including
+// failures, are cached for the duration of the reconciliation loop.
+func (r *containerReconcilerLoop) getActiveMountsInfo(ctx context.Context) (activeMountsInfo, error) {
+	if r.activeMountsInfo != nil {
+		return *r.activeMountsInfo, nil
+	}
+	if r.activeMountsErr != nil {
+		return activeMountsInfo{}, r.activeMountsErr
 	}
 
 	resp, err := r.fetchActiveMounts(ctx)
-	if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
-		// if no weka fs driver found, we can assume that there are no active mounts
-		val := 0
-		r.activeMounts = &val
-		r.frontendConnected = new(bool)
-		return r.activeMounts, nil
-	}
+	info, err := resolveActiveMounts(resp, err)
 	if err != nil {
 		r.activeMountsErr = err
-		return nil, err
+		return activeMountsInfo{}, err
 	}
-	r.activeMounts = &resp.ActiveMounts
-	r.frontendConnected = resp.FrontendConnected
-	return r.activeMounts, nil
+	r.activeMountsInfo = &info
+	return info, nil
+}
+
+// resolveActiveMounts turns a node-agent answer into the mounts and frontend state; failures stay errors.
+func resolveActiveMounts(resp *node_agent.ActiveMountsResponse, err error) (activeMountsInfo, error) {
+	if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
+		// if no weka fs driver found, we can assume that there are no active mounts
+		return activeMountsInfo{frontend: frontendNotConnected}, nil
+	}
+	if err != nil {
+		return activeMountsInfo{}, err
+	}
+	return activeMountsInfo{mounts: resp.ActiveMounts, frontend: frontendStateOf(resp.FrontendConnected)}, nil
+}
+
+// frontendStateOf maps the node-agent's optional field; an older node-agent omits it.
+func frontendStateOf(reported *bool) frontendState {
+	switch {
+	case reported == nil:
+		return frontendUnknown
+	case *reported:
+		return frontendConnected
+	}
+	return frontendNotConnected
 }
 
 func (r *containerReconcilerLoop) fetchActiveMounts(ctx context.Context) (*node_agent.ActiveMountsResponse, error) {

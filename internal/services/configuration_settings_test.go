@@ -436,3 +436,26 @@ func TestSettingsFromPayloadLeaderElection(t *testing.T) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
+
+func TestSettingsFromPayloadCsiAccessibleLabel(t *testing.T) {
+	for name, payload := range map[string]*weka.ConfigurationPayload{
+		"nil payload": nil,
+		"nil csi":     {},
+		"empty csi":   {Csi: &weka.CsiSpec{}},
+	} {
+		got := SettingsFromPayload(payload).Csi
+		if got.StatsFreshness != 2*time.Minute || got.UnknownTimeout != 5*time.Minute || got.SystemicFailureThreshold != 80 {
+			t.Errorf("%s: got %+v, want defaults", name, got)
+		}
+	}
+
+	threshold := int32(50)
+	got := SettingsFromPayload(&weka.ConfigurationPayload{Csi: &weka.CsiSpec{
+		StatsFreshness:           &metav1.Duration{Duration: time.Minute},
+		UnknownTimeout:           &metav1.Duration{Duration: 10 * time.Minute},
+		SystemicFailureThreshold: &threshold,
+	}}).Csi
+	if got.StatsFreshness != time.Minute || got.UnknownTimeout != 10*time.Minute || got.SystemicFailureThreshold != 50 {
+		t.Errorf("overrides not applied: %+v", got)
+	}
+}
