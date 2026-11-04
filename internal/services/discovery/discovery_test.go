@@ -180,3 +180,44 @@ func TestSelectRunningContainersByRole(t *testing.T) {
 		})
 	}
 }
+
+func discoveredNode(annotation string) corev1.Node {
+	n := corev1.Node{}
+	if annotation != "" {
+		n.Annotations = map[string]string{DiscoveryAnnotation: annotation}
+	}
+	return n
+}
+
+func TestAnyNodeHasSelinux(t *testing.T) {
+	withSelinux := discoveredNode(`{"os":"rhel","selinuxfs":true}`)
+	withoutSelinux := discoveredNode(`{"os":"rhel","selinuxfs":false}`)
+	oldRhcos := discoveredNode(`{"os":"rhcos"}`)
+	oldUbuntu := discoveredNode(`{"os":"ubuntu"}`)
+	rhcosNoSelinux := discoveredNode(`{"os":"rhcos","selinuxfs":false}`)
+	missing := discoveredNode("")
+	broken := discoveredNode("{not json")
+
+	cases := []struct {
+		name  string
+		nodes []corev1.Node
+		want  bool
+	}{
+		{"no nodes", nil, false},
+		{"selinux enabled", []corev1.Node{withSelinux}, true},
+		{"selinux disabled", []corev1.Node{withoutSelinux, withoutSelinux}, false},
+		{"any node with selinux", []corev1.Node{withoutSelinux, withSelinux}, true},
+		{"unreported rhcos falls back to os", []corev1.Node{oldRhcos}, true},
+		{"unreported non-rhcos", []corev1.Node{oldUbuntu}, false},
+		{"reported value overrides rhcos", []corev1.Node{rhcosNoSelinux}, false},
+		{"missing and unparsable annotations are skipped", []corev1.Node{missing, broken, withSelinux}, true},
+		{"only missing annotations", []corev1.Node{missing, broken}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := AnyNodeHasSelinux(tc.nodes); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

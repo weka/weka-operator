@@ -122,7 +122,7 @@ helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
 | csi.provisionerImage | string | `"registry.k8s.io/sig-storage/csi-provisioner:v5.3.0"` | csi-provisioner sidecar image. |
 | csi.registrarImage | string | `"registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.14.0"` | csi-node-driver-registrar sidecar image. |
 | csi.resizerImage | string | `"registry.k8s.io/sig-storage/csi-resizer:v1.14.0"` | csi-resizer sidecar image. |
-| csi.selinuxSupport | string | `"auto"` | SELinux support mode for the embedded CSI driver: "auto" (auto-detect from host /etc/selinux/config), "enforced" (always apply SELinux contexts to volume mounts) or "off" (never apply SELinux contexts). |
+| csi.selinuxSupport | string | `"auto"` | SELinux support mode for the embedded CSI driver: "auto" (enabled when node discovery finds a node with SELinux enabled; those nodes need the Weka SELinux policy, which the chart installs on OpenShift, otherwise mounts fail; clients spanning SELinux and non-SELinux nodes should set "enforced" or "off" explicitly), "enforced" (always apply SELinux contexts to volume mounts) or "off" (never apply SELinux contexts). |
 | csi.snapshotterImage | string | `"registry.k8s.io/sig-storage/csi-snapshotter:v8.3.0"` | csi-snapshotter sidecar image. |
 | csi.storageClassCreationDisabled | bool | `false` | Do not create the CSI StorageClass. |
 
