@@ -1249,6 +1249,10 @@ func GetWekaPodTolerations(container *weka.WekaContainer, scheduling services.Sc
 
 	// expand with custom tolerations
 	tolerations = append(tolerations, WithoutCordonTolerations(container.Spec.Tolerations)...)
+	if ToleratesAll(container, scheduling) {
+		// only these pods: deduping others would change the hash of pods already running
+		return k8sapiutil.DedupeTolerations(tolerations)
+	}
 	return tolerations
 }
 
@@ -1876,27 +1880,50 @@ func (f *PodFactory) initAffinities(ctx context.Context, affinity *corev1.Affini
 // node and is left empty, so it does not become a match-all branch; a term is created only when the
 // required affinity is absent.
 func requireOnEveryTerm(affinity *corev1.Affinity, reqs ...corev1.NodeSelectorRequirement) {
+	addToEveryTerm(affinity, reqs, nil)
+}
+
+func addToEveryTerm(affinity *corev1.Affinity, exprs, fields []corev1.NodeSelectorRequirement) {
 	if affinity.NodeAffinity == nil {
 		affinity.NodeAffinity = &corev1.NodeAffinity{}
 	}
 	na := affinity.NodeAffinity
 	if na.RequiredDuringSchedulingIgnoredDuringExecution == nil {
-		na.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{}}}
-		terms := na.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
-		terms[0].MatchExpressions = append(terms[0].MatchExpressions, reqs...)
+		na.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+			MatchExpressions: exprs, MatchFields: fields,
+		}}}
 		return
 	}
 	terms := na.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
 	for i := range terms {
-		if IsEmptyNodeSelectorTerm(terms[i]) {
+		if isEmptyNodeSelectorTerm(terms[i]) {
 			continue
 		}
-		terms[i].MatchExpressions = append(terms[i].MatchExpressions, reqs...)
+		terms[i].MatchExpressions = append(terms[i].MatchExpressions, exprs...)
+		terms[i].MatchFields = append(terms[i].MatchFields, fields...)
 	}
 }
 
-// IsEmptyNodeSelectorTerm reports a term with no requirements, which Kubernetes treats as matching no node.
-func IsEmptyNodeSelectorTerm(term corev1.NodeSelectorTerm) bool {
+// ExcludeNotReadyNodes keeps the pod off nodes labelled domain.WekaLabelNotReady by the Node controller.
+// Unlabelled nodes match, so a node not yet evaluated is never excluded.
+func ExcludeNotReadyNodes(affinity *corev1.Affinity) {
+	requireOnEveryTerm(affinity, corev1.NodeSelectorRequirement{
+		Key:      domain.WekaLabelNotReady,
+		Operator: corev1.NodeSelectorOpDoesNotExist,
+	})
+}
+
+// PinToNode restricts the pod to one node, matched by metadata.name because the hostname label can differ.
+func PinToNode(affinity *corev1.Affinity, nodeName string) {
+	addToEveryTerm(affinity, nil, []corev1.NodeSelectorRequirement{{
+		Key:      "metadata.name",
+		Operator: corev1.NodeSelectorOpIn,
+		Values:   []string{nodeName},
+	}})
+}
+
+// isEmptyNodeSelectorTerm reports a term with no requirements, which Kubernetes treats as matching no node.
+func isEmptyNodeSelectorTerm(term corev1.NodeSelectorTerm) bool {
 	return len(term.MatchExpressions) == 0 && len(term.MatchFields) == 0
 }
 

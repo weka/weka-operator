@@ -7,6 +7,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/services"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
@@ -20,6 +22,9 @@ const (
 	NodeMetricsPort        = 9094
 	AttacherMetricsPort    = 9095
 )
+
+// evictionSeconds is how long a controller pod stays on a node that turned NotReady or unreachable.
+const evictionSeconds int64 = 10
 
 // httpEndpointArg is the metrics listener flag of the controller sidecars.
 func httpEndpointArg(port int) string {
@@ -50,6 +55,20 @@ func wekafsContainerNameEnv(name string) []corev1.EnvVar {
 // and the client-group registration both depend on the node's own network namespace.
 func csiHostNetwork(wekaClient *weka.WekaClient) bool {
 	return config.Config.Csi.HostNetwork || wekaClient.Spec.UseNfs
+}
+
+// controllerAffinity adds the not-ready node requirement to the controller's anti-affinity under
+// clientsTolerateAll, whose operator: Exists would otherwise admit NotReady nodes.
+func controllerAffinity(wekaClient *weka.WekaClient, podLabels map[string]string, scheduling services.SchedulingSettings) *corev1.Affinity {
+	affinity := controllerAntiAffinity(wekaClient, podLabels)
+	if !scheduling.ClientsTolerateAll {
+		return affinity
+	}
+	if affinity == nil {
+		affinity = &corev1.Affinity{}
+	}
+	resources.ExcludeNotReadyNodes(affinity)
+	return affinity
 }
 
 // controllerAntiAffinity spreads the controller replicas across nodes when UseNfs puts them on

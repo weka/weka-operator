@@ -293,3 +293,51 @@ func TestTolerateCordonStillCoversBackendAdhocOps(t *testing.T) {
 		t.Error("clientsTolerateAll covers the cordon for a backend adhoc op")
 	}
 }
+
+func TestWekaPodTolerationsDedupeUserExists(t *testing.T) {
+	exists := corev1.Toleration{Operator: corev1.TolerationOpExists}
+	c := &weka.WekaContainer{Spec: weka.WekaContainerSpec{Mode: weka.WekaContainerModeDriversBuilder, Tolerations: []corev1.Toleration{exists}}}
+	got := GetWekaPodTolerations(c, services.SchedulingSettings{ClientsTolerateAll: true})
+	n := 0
+	for _, tol := range got {
+		if tol.Key == "" && tol.Operator == corev1.TolerationOpExists && tol.Effect == "" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("Exists appears %d times, want 1: %v", n, got)
+	}
+}
+
+func TestNodePlacementRequirementsOnEveryTerm(t *testing.T) {
+	term := corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "os", Operator: corev1.NodeSelectorOpIn, Values: []string{"linux"}}}}
+	affinity := func() *corev1.Affinity {
+		return &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{*term.DeepCopy(), *term.DeepCopy(), {}},
+		}}}
+	}
+	a := affinity()
+	ExcludeNotReadyNodes(a)
+	terms := a.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	if !isEmptyNodeSelectorTerm(terms[2]) {
+		t.Errorf("empty term became %v", terms[2])
+	}
+	for i := range terms[:2] {
+		if len(terms[i].MatchExpressions) != 2 {
+			t.Errorf("term %d = %v, want the os requirement plus one", i, terms[i].MatchExpressions)
+		}
+	}
+
+	a = affinity()
+	PinToNode(a, "n1")
+	terms = a.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	if !isEmptyNodeSelectorTerm(terms[2]) {
+		t.Errorf("pin: empty term became %v", terms[2])
+	}
+	for i := range terms[:2] {
+		if len(terms[i].MatchExpressions) != 1 || len(terms[i].MatchFields) != 1 || terms[i].MatchFields[0].Key != "metadata.name" {
+			t.Errorf("pin: term %d = %v / %v", i, terms[i].MatchExpressions, terms[i].MatchFields)
+		}
+	}
+
+}
