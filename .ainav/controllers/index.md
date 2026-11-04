@@ -10,6 +10,7 @@ predicates and status transitions.
 | WekaClient | `wekaclient/client_controller.go` | [Client lifecycle](wekaclient.md) |
 | WekaPolicy | `wekapolicy_controller.go`, `wekapolicy_configuration.go` | [Operations](../operations/index.md) |
 | WekaManualOperation | `wekamanualoperation_controller.go` | [Operations](../operations/index.md) |
+| Node (labels `weka.io/not-ready`) | `node/controller.go` | [Tolerations doc](../../doc/operator/deployment/tolerations.md) |
 
 Focused routes: [capacity planning](wekacluster-drive-planning.md),
 [management proxy](management-proxy.md), [admission validation](../config/validation.md).

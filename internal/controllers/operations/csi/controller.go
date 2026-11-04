@@ -3,6 +3,7 @@ package csi
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/klog/v2"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -32,6 +34,7 @@ type CsiControllerHashableSpec struct {
 	CsiSnapshotterImage   string
 	Labels                *util2.HashableMap
 	Tolerations           []corev1.Toleration
+	NotReadyAffinity      bool
 	NodeSelector          *util2.HashableMap
 	EnforceTrustedHttps   bool
 	SkipGarbageCollection bool
@@ -47,16 +50,15 @@ type CsiControllerHashableSpec struct {
 
 // GetCsiControllerDeploymentHash generates a hash for the CSI Controller Deployment
 // that includes only the fields that are relevant for updates
-func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaClient, settings services.CsiSettings) (string, error) {
+func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaClient, settings services.CsiSettings, scheduling services.SchedulingSettings) (string, error) {
 	csiDriverName := GetCsiDriverName(csiGroupName)
-	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+	tolerations := controllerTolerations(wekaClient, scheduling)
 
 	var csiLabels map[string]string
 	var enforceTrustedHttps bool
 	var skipGarbageCollection bool
 
 	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
-		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.ControllerTolerations...)
 		csiLabels = wekaClient.Spec.CsiConfig.Advanced.ControllerLabels
 		enforceTrustedHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceTrustedHttps
 		skipGarbageCollection = wekaClient.Spec.CsiConfig.Advanced.SkipGarbageCollection
@@ -86,6 +88,7 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		CsiSnapshotterImage:   config.Config.Csi.SnapshotterImage,
 		Labels:                labelsHashable,
 		Tolerations:           tolerations,
+		NotReadyAffinity:      scheduling.ClientsTolerateAll,
 		NodeSelector:          nodeSelectorHashable,
 		EnforceTrustedHttps:   enforceTrustedHttps,
 		SkipGarbageCollection: skipGarbageCollection,
@@ -109,6 +112,45 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 	return util2.HashStruct(spec)
 }
 
+// controllerTolerations lets the controller leave a node that goes NotReady after evictionSeconds. The taint
+// manager takes the first toleration in list order that matches a NoExecute taint, so the not-ready and
+// unreachable entries lead the list, ahead of any keyless operator: Exists (clientsTolerateAll's, or the
+// user's) that has no limit. A toleration the user supplies for one of those keys that matches its NoExecute
+// taint is the entry used for it, so their tolerationSeconds wins; one that cannot match it (an Equal
+// toleration with a value, or NoSchedule only) is left in the list and ours still applies.
+func controllerTolerations(wekaClient *weka.WekaClient, scheduling services.SchedulingSettings) []corev1.Toleration {
+	user := util.ExpandTolerations(nil, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
+		user = append(user, wekaClient.Spec.CsiConfig.Advanced.ControllerTolerations...)
+	}
+
+	seconds := evictionSeconds
+	var tolerations []corev1.Toleration
+	for _, key := range []string{corev1.TaintNodeNotReady, corev1.TaintNodeUnreachable} {
+		taint := &corev1.Taint{Key: key, Effect: corev1.TaintEffectNoExecute}
+		i := slices.IndexFunc(user, func(t corev1.Toleration) bool {
+			return t.Key == key && t.ToleratesTaint(klog.Background(), taint, false)
+		})
+		if i >= 0 {
+			tolerations = append(tolerations, user[i])
+			user = slices.Delete(slices.Clone(user), i, i+1)
+			continue
+		}
+		tolerations = append(tolerations, corev1.Toleration{
+			Key:               key,
+			Operator:          corev1.TolerationOpExists,
+			Effect:            corev1.TaintEffectNoExecute,
+			TolerationSeconds: &seconds,
+		})
+	}
+	// the flag's Exists goes before the user's other tolerations, so a finite NoExecute one of theirs cannot evict
+	if scheduling.ClientsTolerateAll {
+		tolerations = append(tolerations, corev1.Toleration{Operator: corev1.TolerationOpExists})
+	}
+	tolerations = append(tolerations, user...)
+	return util.DedupeTolerations(tolerations)
+}
+
 func GetCSIControllerName(csiGroupName string) string {
 	return strings.ReplaceAll(csiGroupName, ".", "-") + "-weka-csi-controller"
 }
@@ -117,27 +159,26 @@ func GetCsiDriverName(csiGroup string) string {
 	return fmt.Sprintf("%s.weka.io", csiGroup)
 }
 
-func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient, settings services.CsiSettings) (*appsv1.Deployment, error) {
+func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient, settings services.CsiSettings, scheduling services.SchedulingSettings) (*appsv1.Deployment, error) {
 	_, logger := instrumentation.CreateLogSpan(ctx, "NewCsiControllerDeployment")
 	defer logger.End()
 
 	name := GetCSIControllerName(csiGroupName)
 	csiDriverName := GetCsiDriverName(csiGroupName)
-	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+	tolerations := controllerTolerations(wekaClient, scheduling)
 	csiLabels := map[string]string{
 		"app.kubernetes.io/created-by": "weka-operator",
 	}
 	var enforceTrustedHttps bool
 	var skipGarbageCollection bool
 	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
-		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.ControllerTolerations...)
 		csiLabels = util2.MergeMaps(csiLabels, wekaClient.Spec.CsiConfig.Advanced.ControllerLabels)
 		enforceTrustedHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceTrustedHttps
 		skipGarbageCollection = wekaClient.Spec.CsiConfig.Advanced.SkipGarbageCollection
 	}
 	labels := GetCsiLabels(csiDriverName, CSIController, wekaClient.Labels, csiLabels)
 
-	targetHash, err := GetCsiControllerDeploymentHash(csiGroupName, wekaClient, settings)
+	targetHash, err := GetCsiControllerDeploymentHash(csiGroupName, wekaClient, settings, scheduling)
 	if err != nil {
 		logger.Error(err, "Failed to get CSI controller deployment hash")
 		return nil, fmt.Errorf("failed to get CSI controller deployment hash: %w", err)
@@ -317,7 +358,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 				Spec: corev1.PodSpec{
 					SecurityContext:    resources.GetSecurityProfile(),
 					NodeSelector:       nodeSelector,
-					Affinity:           controllerAntiAffinity(wekaClient, podLabels),
+					Affinity:           controllerAffinity(wekaClient, podLabels, scheduling),
 					HostNetwork:        csiHostNetwork(wekaClient),
 					ServiceAccountName: "csi-wekafs-controller-sa",
 					PriorityClassName:  config.Config.PriorityClasses.Targeted,

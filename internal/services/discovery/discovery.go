@@ -149,6 +149,12 @@ func (nodeInfo *DiscoveryNodeInfo) IsRhCos() bool {
 	return nodeInfo.Os == weka.OsNameOpenshift
 }
 
+// IsCurrentFor reports whether a cached discovery result is usable for node as is: from the node's current
+// boot and at the target schema.
+func (nodeInfo *DiscoveryNodeInfo) IsCurrentFor(node *corev1.Node) bool {
+	return nodeInfo.BootID == node.Status.NodeInfo.BootID && nodeInfo.Schema >= DiscoveryTargetSchema
+}
+
 // NodeInfoFromAnnotation parses a node's weka.io/discovery.json annotation into a DiscoveryNodeInfo; ok is
 // false (info nil) when the annotation is absent or unparsable.
 func NodeInfoFromAnnotation(node *corev1.Node) (info *DiscoveryNodeInfo, ok bool) {

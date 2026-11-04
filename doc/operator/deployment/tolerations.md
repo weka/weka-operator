@@ -114,7 +114,7 @@ Pods that are not WekaContainers:
 | Capacity planner | helm `capacityPlanner.tolerations` (default none) |
 | node-agent DaemonSet | configuration policy `nodeAgent.tolerations`, default `[{operator: Exists}]` |
 | CSI node DaemonSet | `operator: Exists` + `WekaClient.spec.csiConfig.advanced.nodeTolerations` |
-| CSI controller | WekaClient `tolerations`/`rawTolerations` + `csiConfig.advanced.controllerTolerations` |
+| CSI controller | WekaClient `tolerations`/`rawTolerations` + `csiConfig.advanced.controllerTolerations` + `operator: Exists` with `clientsTolerateAll` + not-ready/unreachable NoExecute for 10 seconds |
 | Cleanup job (on container delete) | `operator: Exists` first, then the container's own tolerations, for every mode and whatever `clientsTolerateAll` says: it runs on the container's node and must finish there whatever is tainted |
 | Image pre-pull | WekaCluster or WekaClient tolerations; for clients also the cordon/`Exists` from the policy |
 | Monitoring, management proxy | WekaCluster tolerations |
@@ -174,6 +174,28 @@ backend container takes its drives out of the cluster, so taint backend nodes ca
 The check uses the container's desired tolerations, rebuilt from its spec and the current policy settings, not
 the tolerations visible on the running pod. Removing a toleration, or turning `clientsTolerateAll` off, therefore
 deletes containers on nodes with a matching taint even though their running pods still show the toleration.
+
+## NotReady nodes and cluster-unique pods
+
+`clientsTolerateAll` adds `operator: Exists`, which also tolerates the not-ready and unreachable taints. For
+pods that exist once per cluster (drivers-builder, drivers-dist and the CSI controller) that would let the
+scheduler place them on a dead node. With the flag on, the operator's Node controller labels NotReady nodes
+`weka.io/not-ready=true` (turning the flag on or off re-evaluates every node at once), and these pods carry a required `weka.io/not-ready DoesNotExist` node requirement. A
+pod with no other candidate stays Pending until a node is Ready. Any other pod that gets the flag's `Exists` and whose node the operator picked, such as an aux or adhoc pod created with only a
+`nodeSelector`, gets the same requirement. Without the flag, drivers-builder, drivers-dist and their ad-hoc helpers are pinned to the
+node the operator picked; other pods are placed by the scheduler. Use `clientsTolerateAll` rather than
+`{operator: Exists}` in `rawTolerations` or a drivers policy, which has neither the label nor, for the CSI
+controller, the requirement.
+
+The CSI controller also leaves a node that goes NotReady, with or without the flag: it always gets
+`node.kubernetes.io/not-ready` and `node.kubernetes.io/unreachable` NoExecute tolerations with
+`tolerationSeconds: 10`, except for a key you supply yourself in `tolerations`, `rawTolerations` or
+`controllerTolerations`: your toleration for that key is used instead, with your `tolerationSeconds`. Kubernetes applies the first toleration in the list that matches a NoExecute taint, and the operator puts these
+two entries (ours, or yours for that key) before any `Exists`, including one you wrote yourself, so the pod is evicted 10 seconds after the taint appears even though `Exists` has no
+limit, and its replacement avoids the node. With `clientsTolerateAll`, the flag's `Exists` comes right after these two
+entries, ahead of your other tolerations, so a finite NoExecute toleration of yours for another taint doesn't evict
+the controller. The first operator version with these tolerations rolls the controller
+Deployment once, because they change its pod template.
 
 ## Changing tolerations on a running system
 

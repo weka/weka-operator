@@ -1495,7 +1495,7 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 		return nil
 	}
 
-	targetDeployment, err := csi.NewCsiControllerDeployment(ctx, c.GetCSIGroup(), c.wekaClient, services.GetSettings(ctx).Csi)
+	targetDeployment, err := csi.NewCsiControllerDeployment(ctx, c.GetCSIGroup(), c.wekaClient, services.GetSettings(ctx).Csi, services.GetSettings(ctx).Scheduling)
 	if err != nil {
 		return err
 	}
