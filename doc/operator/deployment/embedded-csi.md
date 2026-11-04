@@ -100,10 +100,13 @@ For each client WekaContainer, the container reconciler:
 3. Updates labels based on container health and mount state
 
 The `topology.<csi-driver>/accessible` label is set only while the container is `Running` (when
-`CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING` is on) and has reported stats at least once. With stats
-from node-agent fresher than 5 minutes, all desired processes must be active; once stats are older (node-agent
-unreachable), the node must be Ready and the container `Running` with `weka local ps` status `READY` instead, whatever
-the flag says. On a NotReady node with stale stats the label is removed.
+`CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING` is on) and the wekafs driver on the node has a connected
+frontend for it: node-agent's `/getActiveMounts` reports `frontend_connected` from the
+`Container=<name> FE <n>: ...` lines of the global `/proc/wekafs/interface`, checked on every reconcile; at least one
+such line must exist and every one must read `Connected frontend`. With no `/proc/wekafs/interface` (driver not
+loaded) the label is removed. A NotReady node never has the label. When node-agent is unreachable, does not report
+the field (older node-agent, or the global file unreadable) or the `skipActiveMountsCheck` override is set, the
+container must be `Running` with `weka local ps` status `READY` instead, whatever the flag says.
 Failed stats polls on stale stats emit a throttled `StatusMetricsFailed` warning event on the WekaContainer.
 
 ## Node Selection and Resource Inheritance
