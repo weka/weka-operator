@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -357,11 +358,8 @@ func (o *DeployCsiOperation) getCsiSecret() client.ObjectKey {
 }
 
 type CsiTopologyLabelsService struct {
-	nodeName  string
-	nodeReady bool
-	// nil when node-agent could not tell
-	frontendConnected *bool
-	container         *weka.WekaContainer
+	nodeName   string
+	accessible bool
 
 	nodeLabelKey       string
 	transportLabelKey  string
@@ -370,16 +368,30 @@ type CsiTopologyLabelsService struct {
 	expectedLabels map[string]string
 }
 
-func NewCsiTopologyLabelsService(csiDriverName, nodeName string, nodeReady bool, frontendConnected *bool, container *weka.WekaContainer) *CsiTopologyLabelsService {
+const (
+	csiTopologyLabelPrefix    = "topology."
+	csiAccessibleLabelSuffix  = "/accessible"
+	csiDriverNameDomainSuffix = ".weka.io"
+)
+
+// CsiAccessibleLabelKey is the node label that tells the CSI driver the node can serve volumes.
+func CsiAccessibleLabelKey(csiDriverName string) string {
+	return csiTopologyLabelPrefix + csiDriverName + csiAccessibleLabelSuffix
+}
+
+// IsCsiAccessibleLabelKey matches the accessible label of any CSI driver: topology.*.weka.io/accessible.
+func IsCsiAccessibleLabelKey(key string) bool {
+	return strings.HasPrefix(key, csiTopologyLabelPrefix) && strings.HasSuffix(key, csiDriverNameDomainSuffix+csiAccessibleLabelSuffix)
+}
+
+func NewCsiTopologyLabelsService(csiDriverName, nodeName string, accessible bool) *CsiTopologyLabelsService {
 	return &CsiTopologyLabelsService{
-		nodeName:          nodeName,
-		nodeReady:         nodeReady,
-		frontendConnected: frontendConnected,
-		container:         container,
+		nodeName:   nodeName,
+		accessible: accessible,
 		// get the label keys for the given CSI driver name
 		nodeLabelKey:       fmt.Sprintf("topology.%s/node", csiDriverName),
 		transportLabelKey:  fmt.Sprintf("topology.%s/transport", csiDriverName),
-		accessibleLabelKey: fmt.Sprintf("topology.%s/accessible", csiDriverName),
+		accessibleLabelKey: CsiAccessibleLabelKey(csiDriverName),
 	}
 }
 
@@ -390,7 +402,7 @@ func (s *CsiTopologyLabelsService) GetExpectedCsiTopologyLabels() map[string]str
 
 	labels := make(map[string]string)
 
-	if s.nodeIsCsiAccessible() {
+	if s.accessible {
 		labels[s.accessibleLabelKey] = "true"
 		labels[s.nodeLabelKey] = s.nodeName
 		labels[s.transportLabelKey] = "wekafs"
@@ -438,26 +450,6 @@ func (s *CsiTopologyLabelsService) NodeHasExpectedCsiTopologyLabels(node *corev1
 	}
 
 	return true
-}
-
-func (s *CsiTopologyLabelsService) nodeIsCsiAccessible() bool {
-	container := s.container
-
-	if !s.nodeReady {
-		return false
-	}
-
-	if config.Config.Csi.PreventNewWorkloadOnClientContainerNotRunning && container.Status.Status != weka.Running {
-		return false
-	}
-
-	if s.frontendConnected != nil {
-		return *s.frontendConnected
-	}
-
-	// node-agent unreachable is not the client being down; fall back to `weka local ps`.
-	// InternalStatus keeps its last value when `weka local ps` fails (only Status turns Error)
-	return container.Status.Status == weka.Running && container.Status.InternalStatus == "READY"
 }
 
 // isDaemonSetRolledOut reports whether every desired pod of the DaemonSet has

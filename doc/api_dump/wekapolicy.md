@@ -264,6 +264,9 @@
 | metricsEnabled | *bool | MetricsEnabled controls the Prometheus metrics endpoints of the CSI controller, the CSI node<br>plugin and the controller sidecars. Enabled by default. |
 | fsGroupPolicy | *string | FsGroupPolicy sets fsGroupPolicy on the CSIDriver object, which decides whether Kubernetes<br>reapplies a pod's fsGroup to the volume. Default value is File. |
 | manageNfsPermissions | *bool | ManageNfsPermissions applies to WekaClients with useNfs only. When true, the CSI plugin creates<br>and removes NFS client groups, rules and permissions (exports) on the WEKA cluster itself.<br>When false (default), the WEKA cluster admin must configure them. |
+| statsFreshness | *metav1.Duration | StatsFreshness is how old a client container's stats may be and still decide the node's<br>topology.<driver>/accessible label without asking the node-agent. Default is 2m. |
+| unknownTimeout | *metav1.Duration | UnknownTimeout is how long the accessible label is kept as it is while the node-agent cannot be<br>asked about a client container, before the label is removed. Default is 5m. |
+| systemicFailureThreshold | *int32 | SystemicFailureThreshold is the percentage of a WekaClient's nodes that must be unreachable past<br>unknownTimeout for the failure to count as systemic (API, network or operator side), in which case<br>the accessible labels are kept. Default is 80. |
 
 ---
 

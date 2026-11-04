@@ -37,19 +37,41 @@ func TestParseDriverInterface(t *testing.T) {
 		"no container name requested": {driverInterfaceConnected, "", 1, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			mounts, connected, err := parseDriverInterface(strings.NewReader(tc.data), tc.container)
+			mounts, connectedFEs, totalFEs, err := parseDriverInterface(strings.NewReader(tc.data), tc.container)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mounts != tc.wantMounts || connected != tc.wantConnected {
+			if connected := allFrontendsConnected(connectedFEs, totalFEs); mounts != tc.wantMounts || connected != tc.wantConnected {
 				t.Fatalf("got mounts=%d connected=%v, want mounts=%d connected=%v", mounts, connected, tc.wantMounts, tc.wantConnected)
 			}
 		})
 	}
 }
 
+func TestParseDriverInterfaceTwoContainersInOneFile(t *testing.T) {
+	data := `Active mounts: 3
+Container=aaaaclient FE 0: Connected frontend pid 11
+Container=aaaaclient FE 1: Connected frontend pid 12
+Container=bbbbclient FE 0: Frontend is not connected
+Container=bbbbclient FE 1: Connected frontend pid 14
+`
+	for name, tc := range map[string]struct {
+		container        string
+		connected, total int
+	}{
+		"all connected":          {"aaaaclient", 2, 2},
+		"one of two connected":   {"bbbbclient", 1, 2},
+		"no lines for this name": {"cccclient", 0, 0},
+	} {
+		_, connected, total, err := parseDriverInterface(strings.NewReader(data), tc.container)
+		if err != nil || connected != tc.connected || total != tc.total {
+			t.Errorf("%s: got %d of %d, err=%v; want %d of %d", name, connected, total, err, tc.connected, tc.total)
+		}
+	}
+}
+
 func TestReadDriverInterfaceNoFile(t *testing.T) {
-	_, _, err := readDriverInterface(filepath.Join(t.TempDir(), "interface"), "18a057661657client")
+	_, _, _, err := readDriverInterface(filepath.Join(t.TempDir(), "interface"), "18a057661657client")
 	if !os.IsNotExist(err) {
 		t.Fatalf("err = %v, want not-exist", err)
 	}
