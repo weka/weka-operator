@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.3@sha256:f24164268fc1e741bbdc0066dbadcf1c8426c5a8489f0729c02c3905a53032fd as builder
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b as builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -44,7 +44,7 @@ RUN --mount=type=secret,id=gitconfig,target=/root/.gitconfig,required=false \
     --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build,id=gobuild-$TARGETARCH \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags "-s -w" -trimpath -o /dist/weka-capacity ./cmd/weka-capacity
 
-FROM registry.access.redhat.com/ubi9/ubi:9.8@sha256:16e9e43d99e181463513cc84a514859b1abb9460f1c4d9e208da4b4e51cd5cc3 as final
+FROM registry.access.redhat.com/ubi9/ubi:9.8@sha256:8f989cc9270da6abec0144c22846ed1e6e92e462dc7768ce0981c4ac1d574733 as final
 COPY --from=builder /dist/weka-operator /weka-operator
 COPY --from=builder /dist/weka-capacity /weka-capacity
 ENTRYPOINT ["/weka-operator"]
