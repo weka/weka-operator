@@ -192,22 +192,22 @@ Both the builder (`weka driver pack`) and the loader (`weka driver download` / `
 
 ## Placement
 
-For every drivers-builder and drivers-dist container without a node pinned (and any other WekaContainer
-created by hand with only a `nodeSelector`), the operator splits the nodes that match its `nodeSelector` and affinity into eligible (Ready,
+For every WekaContainer created without a node pinned (drivers-builder, drivers-dist, and aux or adhoc helpers created with only a
+`nodeSelector`), the operator splits the nodes that match its `nodeSelector` and affinity into eligible (Ready,
 no taint the pod does not tolerate, and not cordoned unless
-[`scheduling.clientsTolerateAll`](#cordoned-and-tainted-nodes) or the deprecated `tolerateCordon` is set) and ineligible. Node discovery runs on one
-eligible node, and the pod is created with a required `metadata.name NotIn` field requirement for each
-ineligible node (none when every matching node is eligible); the scheduler picks the node, and the
-container is pinned to it (`status.nodeAffinity`) once the pod is bound. While no matching node is
+[`scheduling.clientsTolerateAll`](#cordoned-and-tainted-nodes) or the deprecated `tolerateCordon` is set) and ineligible. It picks one eligible
+node for node discovery, preferring nodes that already have a usable discovery result (from the node's current boot, at the current schema), so a retry does not start discovery on another node. drivers-builder, drivers-dist and their ad-hoc helpers take a random one, so builders spread and a retry after Pending can try another node; any other container takes the first. Then:
+
+| Container | `clientsTolerateAll` | Pod placement |
+|---|---|---|
+| drivers-builder, drivers-dist and their ad-hoc helpers | off | pinned to the picked node with a required `metadata.name In [node]` field requirement, because a drivers policy that tolerates every taint (`[{operator: Exists}]`), or a helper's copy of its parent's catch-all tolerations, could otherwise bind it to a NotReady node |
+| any container that gets the flag's `operator: Exists` (drivers-builder, drivers-dist, client, aux and adhoc helpers) | on | floats; a required `weka.io/not-ready DoesNotExist` requirement keeps it off nodes the operator labelled NotReady (see [NotReady nodes](#notready-nodes)) |
+| any other container (backends, and the helpers without the flag) | any | not constrained: the scheduler places it, as before |
+
+The container is pinned to its node (`status.nodeAffinity`) once the pod is bound. A pod that stays
+Pending past `deleteUnschedulablePodsAfter` is deleted, and the next pass picks again. While no matching node is
 eligible there is no pod and no discovery container; for policy containers the policy also gets a
 `NoEligibleNode` warning event (at most every 5 minutes per container).
-
-With the default (empty) policy tolerations the scheduler already keeps the pod off NotReady,
-cordoned and untolerated-taint nodes, so the exclusion changes nothing. Policies that tolerate
-every taint (`[{operator: Exists}]`, so lifecycle or remediation taints from other controllers do not
-block builds), and every builder and dist pod under `clientsTolerateAll`, also tolerate the not-ready/unreachable taints: without the exclusion the scheduler could
-bind a new builder or dist pod to a NotReady node, and each such pick would be moved and leave a
-deleted container waiting for that node.
 
 On each run, a policy moves its pinned containers when the node is gone or NotReady, or when it is
 cordoned (without `clientsTolerateAll` or `tolerateCordon`) or carries an untolerated taint and no live pod is bound there:
@@ -217,6 +217,18 @@ cordoned (without `clientsTolerateAll` or `tolerateCordon`) or carries an untole
 | drivers-dist | deleted, recreated under a new generated name |
 | drivers-builder, not Completed | deleted, `DriversBuilderReplaced` warning event on the policy; the next run recreates it under a new generated name (the old object stays until its node returns and its pod finishes terminating) |
 | drivers-builder, Completed | never moved by the policy: its pod is already gone (if its Node object is deleted, the container is removed and rebuilt) |
+
+### NotReady nodes
+
+With `clientsTolerateAll` the operator runs a Node controller that sets the label `weka.io/not-ready=true` on
+every node whose Ready condition is not `True` (NotReady or unreachable) and removes it when the node is
+Ready again. Only the Ready condition counts: a cordon or custom taint never sets it. Without the flag the
+controller only removes labels left behind. The controller also watches the configuration `WekaPolicy`: changing the flag re-evaluates every node at once, and a 5-minute resync is only the fallback.
+
+On a NotReady node a drivers-builder or drivers-dist pod is not deleted by the container reconcile; the policy
+moves the container as described above, and the drivers-loader waits for the node to return. The moved
+container's deletion finishes only once the node is Ready again when the node is unreachable (Ready `Unknown`);
+its replacement is created at once under a new name and does not wait for it.
 
 ## Tolerations
 

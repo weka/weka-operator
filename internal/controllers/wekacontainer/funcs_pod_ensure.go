@@ -56,7 +56,7 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	nodeInfo := &discovery.DiscoveryNodeInfo{}
 	var err error
 	var nodeAffinity weka.NodeName
-	var avoidNodes []string
+	picked := false
 
 	if !container.IsDiscoveryContainer() {
 		// nodeName can be already set in the spec
@@ -64,10 +64,11 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 
 		if nodeAffinity == "" {
 			var node *v1.Node
-			node, avoidNodes, err = r.pickMatchingNode(ctx)
+			node, err = r.pickMatchingNode(ctx)
 			if err != nil {
 				return err
 			}
+			picked = true
 			nodeAffinity = weka.NodeName(node.Name)
 		}
 
@@ -105,7 +106,9 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	excludeNodes(desiredPod, avoidNodes)
+	if picked {
+		r.constrainPickedPlacement(desiredPod, string(nodeAffinity))
+	}
 
 	// Annotate with discovery snapshot so we can detect node-info mismatch on reconcile.
 	if !container.IsDiscoveryContainer() {
@@ -266,20 +269,22 @@ func (r *containerReconcilerLoop) handleImageMismatch(ctx context.Context) error
 	return nil
 }
 
-// excludeNodes adds the exclusions to every term: required node-selector terms are ORed. Node names are
-// matched by metadata.name (the hostname label can differ), and a field requirement takes a single value.
-func excludeNodes(pod *v1.Pod, nodeNames []string) {
-	terms := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
-	for i := range terms {
-		if resources.IsEmptyNodeSelectorTerm(terms[i]) {
-			continue
-		}
-		for _, name := range nodeNames {
-			terms[i].MatchFields = append(terms[i].MatchFields, v1.NodeSelectorRequirement{
-				Key:      "metadata.name",
-				Operator: v1.NodeSelectorOpNotIn,
-				Values:   []string{name},
-			})
-		}
+// constrainPickedPlacement keeps a pod whose node the operator picked off NotReady nodes. A container that gets
+// clientsTolerateAll's operator: Exists floats, and the Node controller's label keeps it off dead nodes. Without
+// the flag, the drivers builder and dist and their ad-hoc helpers are pinned to the eligible node picked, because
+// a drivers policy often tolerates every taint and a helper copies its parent's catch-all tolerations. Any other
+// container is left to the scheduler.
+func (r *containerReconcilerLoop) constrainPickedPlacement(pod *v1.Pod, nodeName string) {
+	switch {
+	case resources.ToleratesAll(r.container, r.scheduling):
+		resources.ExcludeNotReadyNodes(pod.Spec.Affinity)
+	case r.isDriversOrHelper():
+		resources.PinToNode(pod.Spec.Affinity, nodeName)
 	}
+}
+
+// isDriversOrHelper is the set the operator pins to its pick without the flag, and picks at random so a retry
+// can land elsewhere: drivers builder and dist, and ad-hoc helper containers.
+func (r *containerReconcilerLoop) isDriversOrHelper() bool {
+	return r.container.IsDriversBuilder() || r.container.IsDistMode() || r.container.IsAdhocOpContainer()
 }

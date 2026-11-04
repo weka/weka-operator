@@ -33,32 +33,15 @@ func (r *containerReconcilerLoop) HandleNodeNotReady(ctx context.Context) error 
 	}
 
 	node := r.node
-	pod := r.pod
 
 	if !NodeIsReady(node) {
-		ctx, logger := instrumentation.CreateLogSpan(ctx, "NodeNotReady", "node", node.Name) //nolint:govet // shadowed ctx intentionally scoped to this block
+		_, logger := instrumentation.CreateLogSpan(ctx, "NodeNotReady", "node", node.Name)
 		defer logger.End()
 
 		err := fmt.Errorf("node %s is not ready", node.Name)
 
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", consts.ActionScheduleContainers, err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 
-		if !r.container.IsDriversContainer() {
-			logger.Info("Skipping pod deletion on NotReady node for non-drivers container")
-			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
-		}
-
-		// if node is not ready, we should terminate the pod and let it be rescheduled
-		if pod != nil && pod.Status.Phase == v1.PodRunning {
-			logger.Info("Deleting pod on NotReady node", "pod", pod.Name)
-			deleteErr := r.deletePod(ctx, pod)
-			return lifecycle.NewWaitErrorWithDuration(
-				fmt.Errorf("deleting pod on NotReady node, err: %w", deleteErr),
-				time.Second*15,
-			)
-		}
-
-		// stop here, no reason to go to the next steps
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 

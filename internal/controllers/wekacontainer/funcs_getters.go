@@ -4,6 +4,7 @@ package wekacontainer
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"slices"
 	"strings"
 	"time"
@@ -436,26 +437,43 @@ func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context, nodeName weka
 	return discoverNodeOp.GetResult(), nil
 }
 
-// pickMatchingNode also returns the matching nodes the pod must be kept off: policies often tolerate every
-// taint (`operator: Exists`), not-ready/unreachable included, so without an explicit NotIn the pod could
-// bind to a NotReady node.
-func (r *containerReconcilerLoop) pickMatchingNode(ctx context.Context) (*v1.Node, []string, error) {
+// pickMatchingNode picks among the eligible nodes, preferring those with a usable discovery result so a retry
+// does not start discovery on another node. Drivers builder, dist and ad-hoc helpers take a random one, so
+// builders spread and a retry of a pinned pod after Pending can try another node; any other container takes
+// the first.
+//
+// The pick is kept for the rest of the reconcile pass, so the DRA claim sizing and the pod use the same node.
+func (r *containerReconcilerLoop) pickMatchingNode(ctx context.Context) (*v1.Node, error) {
+	if r.pickedNode != nil {
+		return r.pickedNode, nil
+	}
 	// HACK: Since we don't really know the node affinity, we will try to discover it by labels
 	// Assuming, that supplied labels represent unique type of machines
 	// this puts a requirement on user to separate machines by labels, which is common approach
 	nodes, err := r.KubeService.GetNodes(ctx, r.container.Spec.NodeSelector)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if len(nodes) == 0 {
-		return nil, nil, errors.New("no matching nodes found")
+		return nil, errors.New("no matching nodes found")
 	}
 	eligible, ineligible := resources.SplitMatchingNodes(nodes, r.container, r.scheduling)
 	if len(eligible) == 0 {
 		err = errors.Errorf("none of the %d nodes matching the nodeSelector and affinity is ready, schedulable and tolerated", len(ineligible))
-		return nil, nil, lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
+		return nil, lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
 	}
-	return &eligible[0], ineligible, nil
+	if discovered := slices.DeleteFunc(slices.Clone(eligible), func(n v1.Node) bool {
+		info, ok := discovery.NodeInfoFromAnnotation(&n)
+		return !ok || !info.IsCurrentFor(&n)
+	}); len(discovered) > 0 {
+		eligible = discovered
+	}
+	if r.isDriversOrHelper() {
+		r.pickedNode = &eligible[rand.IntN(len(eligible))]
+	} else {
+		r.pickedNode = &eligible[0]
+	}
+	return r.pickedNode, nil
 }
 
 func (r *containerReconcilerLoop) getFrontendPodsOnNode(ctx context.Context, nodeName string) ([]v1.Pod, error) {

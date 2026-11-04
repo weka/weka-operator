@@ -59,7 +59,7 @@ func TestRequireOnEveryTermKeepsEmptyTermsEmpty(t *testing.T) {
 	if len(terms[0].MatchExpressions) != 2 {
 		t.Fatalf("term 0 = %v; want zone and role", terms[0].MatchExpressions)
 	}
-	if !IsEmptyNodeSelectorTerm(terms[1]) {
+	if !isEmptyNodeSelectorTerm(terms[1]) {
 		t.Fatalf("term 1 = %v; want it left empty (matches no node)", terms[1])
 	}
 }
