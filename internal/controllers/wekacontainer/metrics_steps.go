@@ -23,7 +23,6 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
-	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -94,9 +93,12 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 	}
 }
 
+// statsStaleAfter is how old container stats may be before failed stats polls are reported as warning events.
+const statsStaleAfter = 5 * time.Minute
+
 func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	stats := r.container.Status.Stats
-	stale := stats != nil && !stats.LastUpdate.IsZero() && time.Since(stats.LastUpdate.Time) > operations.StatsStaleAfter
+	stale := stats != nil && !stats.LastUpdate.IsZero() && time.Since(stats.LastUpdate.Time) > statsStaleAfter
 
 	err := r.setStatusMetrics(ctx)
 	// failures are expected for a few minutes after an upgrade restarts the operator and node-agents

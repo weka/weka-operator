@@ -42,6 +42,8 @@ func (r *containerReconcilerLoop) getCsiDriverName() string {
 }
 
 func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) error {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ManageCsiTopologyLabels")
+	defer logger.End()
 
 	csiDriverName := r.getCsiDriverName()
 	nodeName := r.container.GetNodeAffinity()
@@ -49,7 +51,19 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 		return errors.New("node affinity is not set")
 	}
 
-	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, string(nodeName), NodeIsReady(r.node), r.container)
+	if NodeIsReady(r.node) {
+		if _, err := r.GetActiveMounts(ctx); err != nil {
+			var notFound *NodeAgentPodNotFound
+			var notRunning *NodeAgentPodNotRunning
+			if errors.As(err, &notFound) || errors.As(err, &notRunning) {
+				logger.Info("Node-agent unavailable, frontend connection unknown", "reason", err.Error())
+			} else {
+				logger.Error(err, "Failed to get frontend connection from node-agent")
+			}
+		}
+	}
+
+	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, string(nodeName), NodeIsReady(r.node), r.frontendConnected, r.container)
 	if !csiTopologyLabelsService.NodeHasExpectedCsiTopologyLabels(r.node) {
 		spanCtx, logger := instrumentation.CreateLogSpan(ctx, "UpdateNodeCsiTopologyLabels")
 		defer logger.End()
@@ -78,7 +92,7 @@ func (r *containerReconcilerLoop) UnsetCsiNodeTopologyLabels(ctx context.Context
 
 	logger.Info("Unsetting CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName)
 
-	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, nodeName, NodeIsReady(r.node), r.container)
+	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, nodeName, NodeIsReady(r.node), nil, r.container)
 	node := csiTopologyLabelsService.UpdateNodeLabels(r.node, nil)
 
 	err := r.Update(ctx, node)

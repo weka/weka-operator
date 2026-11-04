@@ -25,9 +25,6 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-// StatsStaleAfter is how old container stats may be before CSI accessibility falls back to the container's InternalStatus.
-const StatsStaleAfter = 5 * time.Minute
-
 type DeployCsiOperation struct {
 	client        client.Client
 	results       DeployCsiResult
@@ -362,7 +359,9 @@ func (o *DeployCsiOperation) getCsiSecret() client.ObjectKey {
 type CsiTopologyLabelsService struct {
 	nodeName  string
 	nodeReady bool
-	container *weka.WekaContainer
+	// nil when node-agent could not tell
+	frontendConnected *bool
+	container         *weka.WekaContainer
 
 	nodeLabelKey       string
 	transportLabelKey  string
@@ -371,11 +370,12 @@ type CsiTopologyLabelsService struct {
 	expectedLabels map[string]string
 }
 
-func NewCsiTopologyLabelsService(csiDriverName, nodeName string, nodeReady bool, container *weka.WekaContainer) *CsiTopologyLabelsService {
+func NewCsiTopologyLabelsService(csiDriverName, nodeName string, nodeReady bool, frontendConnected *bool, container *weka.WekaContainer) *CsiTopologyLabelsService {
 	return &CsiTopologyLabelsService{
-		nodeName:  nodeName,
-		nodeReady: nodeReady,
-		container: container,
+		nodeName:          nodeName,
+		nodeReady:         nodeReady,
+		frontendConnected: frontendConnected,
+		container:         container,
 		// get the label keys for the given CSI driver name
 		nodeLabelKey:       fmt.Sprintf("topology.%s/node", csiDriverName),
 		transportLabelKey:  fmt.Sprintf("topology.%s/transport", csiDriverName),
@@ -443,23 +443,21 @@ func (s *CsiTopologyLabelsService) NodeHasExpectedCsiTopologyLabels(node *corev1
 func (s *CsiTopologyLabelsService) nodeIsCsiAccessible() bool {
 	container := s.container
 
+	if !s.nodeReady {
+		return false
+	}
+
 	if config.Config.Csi.PreventNewWorkloadOnClientContainerNotRunning && container.Status.Status != weka.Running {
 		return false
 	}
 
-	if container.Status.Stats == nil || container.Status.Stats.LastUpdate.IsZero() {
-		return false
+	if s.frontendConnected != nil {
+		return *s.frontendConnected
 	}
 
-	// stale stats mean node-agent is unreachable, not that the client is down; fall back to `weka local ps`
-	if time.Since(container.Status.Stats.LastUpdate.Time) >= StatsStaleAfter {
-		// InternalStatus keeps its last value when `weka local ps` fails (only Status turns Error), and on a
-		// NotReady node `weka local ps` is skipped, so both are as stale as the stats there
-		return s.nodeReady && container.Status.Status == weka.Running && container.Status.InternalStatus == "READY"
-	}
-
-	processes := container.Status.Stats.Processes
-	return processes.Active > 0 && processes.Active == processes.Desired
+	// node-agent unreachable is not the client being down; fall back to `weka local ps`.
+	// InternalStatus keeps its last value when `weka local ps` fails (only Status turns Error)
+	return container.Status.Status == weka.Running && container.Status.InternalStatus == "READY"
 }
 
 // isDaemonSetRolledOut reports whether every desired pod of the DaemonSet has
