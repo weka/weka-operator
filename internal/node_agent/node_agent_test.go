@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 const driverInterfaceConnected = `IO node version c5a7e72cdb528b5c
@@ -37,19 +39,41 @@ func TestParseDriverInterface(t *testing.T) {
 		"no container name requested": {driverInterfaceConnected, "", 1, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			mounts, connected, err := parseDriverInterface(strings.NewReader(tc.data), tc.container)
+			mounts, connectedFEs, totalFEs, err := parseDriverInterface(strings.NewReader(tc.data), tc.container)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mounts != tc.wantMounts || connected != tc.wantConnected {
+			if connected := allFrontendsConnected(connectedFEs, totalFEs); mounts != tc.wantMounts || connected != tc.wantConnected {
 				t.Fatalf("got mounts=%d connected=%v, want mounts=%d connected=%v", mounts, connected, tc.wantMounts, tc.wantConnected)
 			}
 		})
 	}
 }
 
+func TestParseDriverInterfaceTwoContainersInOneFile(t *testing.T) {
+	data := `Active mounts: 3
+Container=aaaaclient FE 0: Connected frontend pid 11
+Container=aaaaclient FE 1: Connected frontend pid 12
+Container=bbbbclient FE 0: Frontend is not connected
+Container=bbbbclient FE 1: Connected frontend pid 14
+`
+	for name, tc := range map[string]struct {
+		container        string
+		connected, total int
+	}{
+		"all connected":          {"aaaaclient", 2, 2},
+		"one of two connected":   {"bbbbclient", 1, 2},
+		"no lines for this name": {"cccclient", 0, 0},
+	} {
+		_, connected, total, err := parseDriverInterface(strings.NewReader(data), tc.container)
+		if err != nil || connected != tc.connected || total != tc.total {
+			t.Errorf("%s: got %d of %d, err=%v; want %d of %d", name, connected, total, err, tc.connected, tc.total)
+		}
+	}
+}
+
 func TestReadDriverInterfaceNoFile(t *testing.T) {
-	_, _, err := readDriverInterface(filepath.Join(t.TempDir(), "interface"), "18a057661657client")
+	_, _, _, err := readDriverInterface(filepath.Join(t.TempDir(), "interface"), "18a057661657client")
 	if !os.IsNotExist(err) {
 		t.Fatalf("err = %v, want not-exist", err)
 	}
@@ -101,4 +125,46 @@ func TestReadActiveMounts(t *testing.T) {
 			t.Fatalf("unexpected response %+v", got)
 		}
 	})
+}
+
+// A refresh running concurrently with a reader must never pair one pull's counts with another pull's timestamp.
+func TestContainerStateSnapshotIsConsistentUnderConcurrentRefresh(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	container := &ContainerInfo{}
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for n := 1; ; n++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			var state LocalConfigStateResponse
+			state.ProcessesSummary.Total = ProcessSummary{Up: n, Total: n}
+			container.storeState(&state, base.Add(time.Duration(n)*time.Second))
+		}
+	}()
+
+	for r := 0; r < 4; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 20000; i++ {
+				snap := container.snapshot()
+				up := snap.state.ProcessesSummary.Total.Up
+				if want := base.Add(time.Duration(up) * time.Second); up != 0 && !snap.pulledAt.Equal(want) {
+					t.Errorf("counts %d paired with timestamp %v, want %v", up, snap.pulledAt, want)
+					return
+				}
+			}
+		}()
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	close(stop)
+	wg.Wait()
 }

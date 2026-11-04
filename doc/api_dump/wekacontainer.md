@@ -301,6 +301,9 @@
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | processes | EntityStatefulNum |  |
+| processesPulledAt | metav1.Time | ProcessesPulledAt is when the node-agent last read the process counts from the container. Zero when<br>the node-agent does not report it. |
+| bootID | string | BootID is the boot id of the node the node-agent sampled these stats on. Empty when the node-agent does<br>not report it. |
+| driverFrontends | EntityStatefulNum | DriverFrontends counts the client's driver frontends connected (active) and all of them (created).<br>Created is 0 when the node-agent could not tell. |
 | cpuUtilization | FloatMetric |  |
 | drives | DriveMetrics |  |
 | activeMounts | IntMetric |  |

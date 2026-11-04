@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -45,6 +46,8 @@ type NodeAgent struct {
 	token          string
 	lastTokenPull  time.Time
 	jsonrpcService *WekaJSONRPCService
+	// bootID is the node's boot id, read once: it cannot change while this process lives.
+	bootID string
 
 	// metricsCache caches the /metrics response to avoid redundant JRPC calls
 	metricsCacheMu    sync.Mutex
@@ -59,8 +62,7 @@ type ContainerInfo struct {
 	wekaContainerName            string
 	cpuInfo                      map[string]LocalCpuUtilization // {"NodeId<41>":{"value":43.8610153151695101,"err":null}}
 	cpuInfoLastPoll              time.Time
-	containerState               LocalConfigStateResponse
-	containerStateLastPull       time.Time
+	containerSnap                atomic.Pointer[stateSnapshot]
 	containerName                string
 	containerId                  string
 	mode                         string
@@ -73,6 +75,24 @@ type ContainerInfo struct {
 	podStatus                    string
 	podStatusStartTime           time.Time
 	featureFlags                 *domain.FeatureFlags // feature flags
+}
+
+// stateSnapshot is a container state and when it was pulled. It is replaced as a whole, so a reader that loads it
+// once sees counts and timestamp that belong together even while a refresh runs concurrently.
+type stateSnapshot struct {
+	state    LocalConfigStateResponse
+	pulledAt time.Time
+}
+
+func (i *ContainerInfo) storeState(state *LocalConfigStateResponse, pulledAt time.Time) {
+	i.containerSnap.Store(&stateSnapshot{state: *state, pulledAt: pulledAt})
+}
+
+func (i *ContainerInfo) snapshot() *stateSnapshot {
+	if s := i.containerSnap.Load(); s != nil {
+		return s
+	}
+	return &stateSnapshot{}
 }
 
 func (i *ContainerInfo) getMaxCpu() float64 {
@@ -147,6 +167,7 @@ type LocalConfigStateResponse struct {
 func NewNodeAgent(logger logr.Logger) *NodeAgent {
 	return &NodeAgent{
 		logger: logger,
+		bootID: readBootID(logger),
 		containersData: containersData{
 			lock: sync.RWMutex{},
 			data: make(map[string]*ContainerInfo),
@@ -443,7 +464,8 @@ func (a *NodeAgent) generateMetricsResponse(ctx context.Context) ([]byte, error)
 		switch container.mode {
 		case weka.WekaContainerModeEnvoy: // nothing todo, scrapeTargets is common
 		default:
-			if container.containerStateLastPull.Add(5 * time.Minute).Before(time.Now()) {
+			snap := container.snapshot()
+			if snap.pulledAt.Add(5 * time.Minute).Before(time.Now()) {
 				continue
 			}
 			promResponse.AddMetric(metrics2.PromMetric{
@@ -453,13 +475,13 @@ func (a *NodeAgent) generateMetricsResponse(ctx context.Context) ([]byte, error)
 				[]metrics2.TaggedValue{
 					{
 						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "up"}),
-						Value:     float64(container.containerState.ProcessesSummary.Total.Up),
-						Timestamp: container.containerStateLastPull,
+						Value:     float64(snap.state.ProcessesSummary.Total.Up),
+						Timestamp: snap.pulledAt,
 					},
 					{
 						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "down"}),
-						Value:     float64(container.containerState.ProcessesSummary.Total.Total - container.containerState.ProcessesSummary.Total.Up),
-						Timestamp: container.containerStateLastPull,
+						Value:     float64(snap.state.ProcessesSummary.Total.Total - snap.state.ProcessesSummary.Total.Up),
+						Timestamp: snap.pulledAt,
 					},
 				},
 			)
@@ -492,7 +514,7 @@ func (a *NodeAgent) generateMetricsResponse(ctx context.Context) ([]byte, error)
 				})
 			}
 
-			for _, disk := range container.containerState.DisksSummary {
+			for _, disk := range snap.state.DisksSummary {
 				if !slices.Contains([]string{services.DriveStatusActive, services.DriveStatusPhasingIn}, disk.Status) || disk.IsFailed {
 					promResponse.AddMetric(metrics2.PromMetric{
 						Metric: "weka_inactive_drives",
@@ -507,7 +529,7 @@ func (a *NodeAgent) generateMetricsResponse(ctx context.Context) ([]byte, error)
 									"is_failed": strconv.FormatBool(disk.IsFailed),
 								}),
 								Value:     1,
-								Timestamp: container.containerStateLastPull,
+								Timestamp: snap.pulledAt,
 							},
 						},
 					)
@@ -950,14 +972,14 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 
 	if container.mode != weka.WekaContainerModeEnvoy {
 		var response LocalConfigStateResponse
+		pulledAt := time.Now()
 		err := a.jrpcCall(ctx, container, "get_local_config_summary", nil, &response)
 		if err != nil {
 			logger.Error(err, "Failed to fetch local config summary, proceeding with other metrics")
 			// Do not return; attempt to gather other metrics.
 		} else if response.HasLease == nil || *response.HasLease {
 			// if no lease info = old version, if has lease field and do not have lease = stale data which we have no interest in
-			container.containerState = response
-			container.containerStateLastPull = time.Now()
+			container.storeState(&response, pulledAt)
 		}
 
 		var cpuResponse map[string]LocalCpuUtilization
@@ -1093,9 +1115,20 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 		ContainerMetrics: weka.WekaContainerMetrics{},
 	}
 	// populate metrics
+	snap := container.snapshot()
 	response.ContainerMetrics.Processes = weka.EntityStatefulNum{
-		Active:  weka.IntMetric(int64(container.containerState.ProcessesSummary.Total.Up)),
-		Created: weka.IntMetric(int64(container.containerState.ProcessesSummary.Total.Total)),
+		Active:  weka.IntMetric(int64(snap.state.ProcessesSummary.Total.Up)),
+		Created: weka.IntMetric(int64(snap.state.ProcessesSummary.Total.Total)),
+	}
+	response.ContainerMetrics.ProcessesPulledAt = metav1.NewTime(snap.pulledAt)
+	response.ContainerMetrics.BootID = a.bootID
+	if container.mode == weka.WekaContainerModeClient {
+		if _, connected, total, err := readDriverInterface(driverInterfacePath, container.wekaContainerName); err == nil {
+			response.ContainerMetrics.DriverFrontends = weka.EntityStatefulNum{
+				Active:  weka.IntMetric(int64(connected)),
+				Created: weka.IntMetric(int64(total)),
+			}
+		}
 	}
 
 	cpuUsage := weka.FloatMetric("")
@@ -1107,7 +1140,7 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 	failedDrives := []weka.DriveFailures{}
 
 	//TODO: Expand prom metrics with failed disks metrics
-	for _, disk := range container.containerState.DisksSummary {
+	for _, disk := range snap.state.DisksSummary {
 		totalDrives++
 		if disk.Status == services.DriveStatusActive {
 			activeDrives++
@@ -1133,6 +1166,17 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // error return value intentionally not checked
+}
+
+// readBootID returns the node's boot id, which is the value kubelet reports as status.nodeInfo.bootID; it is
+// empty when it cannot be read.
+func readBootID(logger logr.Logger) string {
+	raw, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		logger.Error(err, "Failed to read the node boot id, stats will not carry it")
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
@@ -1208,24 +1252,24 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 // globalPath; the per-container interface file has no frontend line, only the global one does.
 func readActiveMounts(perContainerPath, globalPath, containerName string) (ActiveMountsResponse, error) {
 	if perContainerPath == "" {
-		activeMounts, frontendConnected, err := readDriverInterface(globalPath, containerName)
+		activeMounts, connected, total, err := readDriverInterface(globalPath, containerName)
 		if err != nil {
 			return ActiveMountsResponse{}, err
 		}
 		response := ActiveMountsResponse{ActiveMounts: activeMounts}
 		if containerName != "" {
-			response.FrontendConnected = &frontendConnected
+			response.FrontendConnected = boolPtr(allFrontendsConnected(connected, total))
 		}
 		return response, nil
 	}
 
-	activeMounts, _, err := readDriverInterface(perContainerPath, containerName)
+	activeMounts, _, _, err := readDriverInterface(perContainerPath, containerName)
 	if err != nil && !os.IsNotExist(err) {
 		return ActiveMountsResponse{}, err
 	}
 	perContainerMissing := err != nil
 
-	_, frontendConnected, err := readDriverInterface(globalPath, containerName)
+	_, connected, total, err := readDriverInterface(globalPath, containerName)
 	if err != nil {
 		if perContainerMissing {
 			return ActiveMountsResponse{}, err
@@ -1233,7 +1277,7 @@ func readActiveMounts(perContainerPath, globalPath, containerName string) (Activ
 		// activeMounts still gates deletion/drain; only the frontend state is unknown
 		return ActiveMountsResponse{ActiveMounts: activeMounts}, nil
 	}
-	return ActiveMountsResponse{ActiveMounts: activeMounts, FrontendConnected: &frontendConnected}, nil
+	return ActiveMountsResponse{ActiveMounts: activeMounts, FrontendConnected: boolPtr(allFrontendsConnected(connected, total))}, nil
 }
 
 const driverInterfacePath = "/proc/wekafs/interface"
@@ -1243,38 +1287,45 @@ type ActiveMountsResponse struct {
 	FrontendConnected *bool `json:"frontend_connected,omitempty"`
 }
 
-func readDriverInterface(filePath, containerName string) (activeMounts int, frontendConnected bool, err error) {
+func boolPtr(b bool) *bool { return &b }
+
+// allFrontendsConnected needs at least one frontend and every one connected.
+func allFrontendsConnected(connected, total int) bool {
+	return total > 0 && connected == total
+}
+
+func readDriverInterface(filePath, containerName string) (activeMounts, connected, total int, err error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return 0, false, err
+		return 0, 0, 0, err
 	}
 	defer file.Close() //nolint:errcheck // error return value intentionally not checked
 	return parseDriverInterface(file, containerName)
 }
 
-// parseDriverInterface reads "Active mounts: N" and whether every "Container=<containerName> FE <n>: ..."
-// line (at least one) reports "Connected frontend pid <pid>".
-func parseDriverInterface(r io.Reader, containerName string) (activeMounts int, frontendConnected bool, err error) {
+// parseDriverInterface reads "Active mounts: N" and counts the "Container=<containerName> FE <n>: ..." lines,
+// and how many of them report "Connected frontend pid <pid>".
+func parseDriverInterface(r io.Reader, containerName string) (activeMounts, connected, total int, err error) {
 	containerPrefix := "Container=" + containerName + " "
-	feLines := 0
-	allConnected := true
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "Active mounts:") {
 			if _, err := fmt.Sscanf(line, "Active mounts: %d", &activeMounts); err != nil {
-				return 0, false, fmt.Errorf("failed to parse active mounts: %w", err)
+				return 0, 0, 0, fmt.Errorf("failed to parse active mounts: %w", err)
 			}
 		}
 		if strings.HasPrefix(line, containerPrefix) {
-			feLines++
-			allConnected = allConnected && strings.Contains(line, "Connected frontend")
+			total++
+			if strings.Contains(line, "Connected frontend") {
+				connected++
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return 0, false, fmt.Errorf("failed to scan file: %w", err)
+		return 0, 0, 0, fmt.Errorf("failed to scan file: %w", err)
 	}
-	return activeMounts, feLines > 0 && allConnected, nil
+	return activeMounts, connected, total, nil
 }
 
 func (a *NodeAgent) findDrivesHandler(w http.ResponseWriter, r *http.Request) {
@@ -1502,7 +1553,7 @@ func processStat(ctx context.Context, stat *WekaStat, container *ContainerInfo) 
 
 	var wekaDrive WekaDrive
 	if stat.Params.Disk != "" {
-		for _, disk := range container.containerState.DisksSummary {
+		for _, disk := range container.snapshot().state.DisksSummary {
 			configDriveIdInt, err := domain.DriveIdToInteger(disk.DiskId)
 			if err != nil {
 				logger.Error(err, "Failed to parse disk id", "serialNumber", disk.SerialNumber)
@@ -1579,7 +1630,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 	_, spanLogger := instrumentation.CreateLogSpan(ctx, "addLocalNodeStats")
 	defer spanLogger.End()
 
-	if time.Since(container.containerStateLastPull) > 5*time.Minute {
+	if time.Since(container.snapshot().pulledAt) > 5*time.Minute {
 		return // ignoring all data
 	}
 	if time.Since(container.statsResponseLastPoll) > 5*time.Minute {
@@ -1929,7 +1980,7 @@ func deduceFsName(ctx context.Context, container *ContainerInfo, id string) stri
 		logger.Error(err, "Failed to convert fs id to int", "fs_id", id)
 		return ""
 	}
-	for _, fs := range container.containerState.FilesystemsSummary {
+	for _, fs := range container.snapshot().state.FilesystemsSummary {
 		intId, err := domain.FsIdToInteger(fs.FilesystemId)
 		if err != nil {
 			logger.Error(err, "Failed to convert fs id to int", "fs_id", fs.FilesystemId, "fs", fs)

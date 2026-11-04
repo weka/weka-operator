@@ -59,6 +59,12 @@ type CsiSettings struct {
 	// ManageNfsPermissions lets the CSI plugin create NFS client groups, rules and exports for
 	// useNfs clients instead of leaving them to the WEKA cluster admin.
 	ManageNfsPermissions bool
+	// StatsFreshness is the age up to which container stats decide the accessible label.
+	StatsFreshness time.Duration
+	// UnknownTimeout is how long an unreachable node keeps its accessible label as it is.
+	UnknownTimeout time.Duration
+	// SystemicFailureThreshold is the percentage of unreachable nodes at which failures are treated as systemic.
+	SystemicFailureThreshold int
 }
 
 // SchedulingSettings holds the operator-wide settings for where operator-managed pods may run.
@@ -117,9 +123,12 @@ func DefaultConfigurationSettings() ConfigurationSettings {
 			ForceBuilderCli: false,
 		},
 		Csi: CsiSettings{
-			MetricsEnabled:       true,
-			FsGroupPolicy:        storagev1.FileFSGroupPolicy,
-			ManageNfsPermissions: false,
+			MetricsEnabled:           true,
+			FsGroupPolicy:            storagev1.FileFSGroupPolicy,
+			ManageNfsPermissions:     false,
+			StatsFreshness:           2 * time.Minute,
+			UnknownTimeout:           5 * time.Minute,
+			SystemicFailureThreshold: 80,
 		},
 		Scheduling: SchedulingSettings{
 			TolerateCordon: false,
@@ -199,6 +208,15 @@ func SettingsFromPayload(payload *weka.ConfigurationPayload) ConfigurationSettin
 		}
 		if payload.Csi.ManageNfsPermissions != nil {
 			resolved.Csi.ManageNfsPermissions = *payload.Csi.ManageNfsPermissions
+		}
+		if payload.Csi.StatsFreshness != nil {
+			resolved.Csi.StatsFreshness = payload.Csi.StatsFreshness.Duration
+		}
+		if payload.Csi.UnknownTimeout != nil {
+			resolved.Csi.UnknownTimeout = payload.Csi.UnknownTimeout.Duration
+		}
+		if payload.Csi.SystemicFailureThreshold != nil {
+			resolved.Csi.SystemicFailureThreshold = int(*payload.Csi.SystemicFailureThreshold)
 		}
 	}
 

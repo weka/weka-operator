@@ -60,6 +60,24 @@ type CsiSpec struct {
 	// and removes NFS client groups, rules and permissions (exports) on the WEKA cluster itself.
 	// When false (default), the WEKA cluster admin must configure them.
 	ManageNfsPermissions *bool `json:"manageNfsPermissions,omitempty"`
+	// StatsFreshness is how old a client container's stats may be and still decide the node's
+	// topology.<driver>/accessible label without asking the node-agent. Default is 2m.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('30s')",message="must be at least 30s"
+	StatsFreshness *metav1.Duration `json:"statsFreshness,omitempty"`
+	// UnknownTimeout is how long the accessible label is kept as it is while the node-agent cannot be
+	// asked about a client container, before the label is removed. Default is 5m.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('30s')",message="must be at least 30s"
+	UnknownTimeout *metav1.Duration `json:"unknownTimeout,omitempty"`
+	// SystemicFailureThreshold is the percentage of a WekaClient's nodes that must be unreachable past
+	// unknownTimeout for the failure to count as systemic (API, network or operator side), in which case
+	// the accessible labels are kept. Default is 80.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	SystemicFailureThreshold *int32 `json:"systemicFailureThreshold,omitempty"`
 }
 
 // DriversSpec groups settings of the drivers build and distribution

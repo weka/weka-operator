@@ -72,6 +72,8 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 		}
 	}
 
+	r.forgetCsiTracking()
+
 	// remove csi node topology labels
 	// NOTE: wekaClient is needed for getCsiDriverName
 	if r.wekaClient != nil && r.node != nil && r.WekaContainerManagesCsi() {
