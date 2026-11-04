@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/services"
 )
 
@@ -74,6 +76,36 @@ func (r *containerReconcilerLoop) getTargetNfsInterfaces(ctx context.Context) ([
 	return nil, errors.New("no network interfaces configured for NFS; configure EthDevice, EthDevices, or cluster-level NFSConfig.Interfaces")
 }
 
+func (r *containerReconcilerLoop) getInterfaceByIP(ctx context.Context, ip string) (string, error) {
+	executor, err := r.ExecService.GetExecutor(ctx, r.container)
+	if err != nil {
+		return "", fmt.Errorf("error getting executor: %w", err)
+	}
+	stdout, stderr, err := executor.ExecNamed(ctx, "GetNodeIpAddrs", []string{"ip", "-o", "addr", "show"})
+	if err != nil {
+		return "", fmt.Errorf("error listing interface addresses: %w, %s", err, stderr.String())
+	}
+	return findInterfaceByIP(stdout.String(), ip)
+}
+
+// findInterfaceByIP parses `ip -o addr show` output and returns the interface holding ip.
+func findInterfaceByIP(ipOutput, ip string) (string, error) {
+	target := net.ParseIP(ip)
+	if target == nil {
+		return "", fmt.Errorf("invalid IP %q", ip)
+	}
+	for _, line := range strings.Split(ipOutput, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		if addr, _, _ := strings.Cut(fields[3], "/"); target.Equal(net.ParseIP(addr)) {
+			return fields[1], nil
+		}
+	}
+	return "", fmt.Errorf("no network interface found with IP %s", ip)
+}
+
 // calculateInterfacesHash creates a deterministic hash of interfaces for change detection
 func calculateInterfacesHash(interfaces []string) string {
 	if len(interfaces) == 0 {
@@ -92,9 +124,7 @@ func calculateInterfacesHash(interfaces []string) string {
 
 // ShouldEnsureNfsInterfaceGroupPorts returns true if NFS interface group ports need to be configured.
 // It checks the condition hash against the current target interfaces hash.
-func (r *containerReconcilerLoop) ShouldEnsureNfsInterfaceGroupPorts(targetInterfaces []string) bool {
-	currentHash := calculateInterfacesHash(targetInterfaces)
-
+func (r *containerReconcilerLoop) ShouldEnsureNfsInterfaceGroupPorts(currentHash string) bool {
 	// Check if condition exists and hash matches
 	cond := meta.FindStatusCondition(r.container.Status.Conditions, condition.CondNfsInterfaceGroupsConfigured)
 	if cond != nil && cond.Status == metav1.ConditionTrue && cond.Message == currentHash {
@@ -105,16 +135,40 @@ func (r *containerReconcilerLoop) ShouldEnsureNfsInterfaceGroupPorts(targetInter
 }
 
 func (r *containerReconcilerLoop) EnsureNfsInterfaceGroupPorts(ctx context.Context) error {
-	targetInterfaces, err := r.getTargetNfsInterfaces(ctx)
-	if err != nil {
-		return err
+	var targetInterfaces []string
+	var err error
+	var currentHash, managementIP string
+	// In cloud mode the data NICs are bound to DPDK and have no kernel netdev; weka rejects a MAC
+	// as a port name and ganesha listens on the management IP, so the management NIC is used and
+	// the spec is not consulted.
+	isCloud := r.node != nil && utils.ShouldAllocateVfPerIoNode(r.node, r.container) && !r.container.Spec.Network.UdpMode
+	if isCloud {
+		managementIPs := r.container.Status.GetManagementIps()
+		if len(managementIPs) == 0 {
+			return errors.New("management IPs are not known yet")
+		}
+		managementIP = managementIPs[0]
+		currentHash = calculateInterfacesHash([]string{managementIP})
+	} else {
+		targetInterfaces, err = r.getTargetNfsInterfaces(ctx)
+		if err != nil {
+			return err
+		}
+		currentHash = calculateInterfacesHash(targetInterfaces)
 	}
 
-	if !r.ShouldEnsureNfsInterfaceGroupPorts(targetInterfaces) {
+	if !r.ShouldEnsureNfsInterfaceGroupPorts(currentHash) {
 		return nil // Already configured
 	}
 
-	currentHash := calculateInterfacesHash(targetInterfaces)
+	if isCloud {
+		var ifname string
+		ifname, err = r.getInterfaceByIP(ctx, managementIP)
+		if err != nil {
+			return err
+		}
+		targetInterfaces = []string{ifname}
+	}
 
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureNfsInterfaceGroupPorts", "hash", currentHash)
 	defer logger.End()

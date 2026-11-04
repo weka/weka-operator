@@ -744,6 +744,8 @@ type EncryptionConfig struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.interfaces) || self.interfaces.size() <= 1",message="NFS allows only 1 interface per host"
 type NfsConfig struct {
+	// Interfaces is the kernel interface used as the NFS interface-group port on each NFS host.
+	// Ignored on cloud nodes (OCI/AWS, udpMode unset)
 	Interfaces []string `json:"interfaces,omitempty"`
 	IpRanges   []string `json:"ipRanges,omitempty"`
 }
