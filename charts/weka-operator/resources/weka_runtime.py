@@ -130,6 +130,8 @@ AWS_VENDOR_ID = "1d0f"
 AWS_DEVICE_ID = "cd01"
 GCP_VENDOR_ID = "0x1ae0"
 GCP_DEVICE_ID = "0x001f"
+AZURE_VENDOR_ID = "0x1414"
+AZURE_DEVICE_ID = "0xb111"
 AUTO_REMOVE_TIMEOUT = int(os.environ.get("AUTO_REMOVE_TIMEOUT", "0"))
 
 # for client dynamic port allocation
@@ -1093,6 +1095,12 @@ async def sign_drives(instruction: dict):
                 device_id=GCP_DEVICE_ID,
                 options=options
             )
+        elif type == "azure-all":
+            return await sign_drives_for_proxy_gke(
+                vendor_id=AZURE_VENDOR_ID,
+                device_id=AZURE_DEVICE_ID,
+                options=options
+            )
         elif type == "device-identifiers":
             return await sign_drives_for_proxy_by_pci_info(
                 vendor_id=instruction.get('pciDevices', {}).get('vendorId'),
@@ -1122,6 +1130,12 @@ async def sign_drives(instruction: dict):
             device_id=GCP_DEVICE_ID,
             options=options
     )
+    elif type == "azure-all":
+        return await sign_drives_gke(
+            vendor_id=AZURE_VENDOR_ID,
+            device_id=AZURE_DEVICE_ID,
+            options=options
+        )
     elif type == "device-identifiers":
         return await sign_drives_by_pci_info(
             vendor_id=instruction.get('pciDevices', {}).get('vendorId'),

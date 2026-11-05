@@ -1641,6 +1641,7 @@ spec:
                         enum:
                         - aws-all
                         - gcp-all
+                        - azure-all
                         - device-identifiers
                         - device-paths
                         - device-serials
