@@ -821,11 +821,15 @@ type TelemetryConfig struct {
 type TelemetryExport struct {
 	// Name is the unique identifier for this export
 	Name string `json:"name"`
-	// Sources specifies which telemetry sources to export (e.g., "audit")
-	Sources []string `json:"sources"`
+	// Sources specifies which telemetry sources to export. "audit" is currently the only
+	// source the Weka CLI accepts.
+	// +kubebuilder:default={audit}
+	Sources []string `json:"sources,omitempty"`
 	// Splunk configuration for Splunk HEC export
 	Splunk *SplunkExportConfig `json:"splunk,omitempty"`
-	// Future: S3 *S3ExportConfig `json:"s3,omitempty"`
+	// S3 configuration for export to an S3 or S3-compatible object store.
+	// Mutually exclusive with Splunk; exactly one backend must be configured.
+	S3 *S3ExportConfig `json:"s3,omitempty"`
 	// Future: Kafka *KafkaExportConfig `json:"kafka,omitempty"`
 }
 
@@ -842,6 +846,38 @@ type SplunkExportConfig struct {
 	// and keyName is the key within the secret's data that contains the certificate.
 	// Maps to --ca-cert in weka CLI. Empty string is treated same as nil (de-configures if was configured).
 	// Mutually exclusive with VerifyWithClusterCACert.
+	CACertSecretRef *string `json:"caCertSecretRef,omitempty"`
+	// AllowUnverifiedCertificate allows accessing without verifying the target certificate.
+	// Maps to --allow-unverified-certificate in weka CLI.
+	AllowUnverifiedCertificate bool `json:"allowUnverifiedCertificate,omitempty"`
+	// VerifyWithClusterCACert uses the Weka cluster's internal CA certificate to verify.
+	// Maps to --verify-with-cluster-cacert in weka CLI.
+	// Mutually exclusive with CACertSecretRef.
+	VerifyWithClusterCACert bool `json:"verifyWithClusterCACert,omitempty"`
+}
+
+// S3ExportConfig defines S3-specific export configuration
+type S3ExportConfig struct {
+	// BucketName is the destination bucket telemetry events are written to.
+	// Maps to --bucket-name in weka CLI.
+	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`
+	BucketName string `json:"bucketName"`
+	// Region is the bucket region (maps to --region in weka CLI).
+	// +kubebuilder:validation:Pattern=`^[a-z0-9-]+$`
+	Region string `json:"region"`
+	// Endpoint optionally overrides the destination host and port or URL, for S3-compatible
+	// object stores. Maps to --target in weka CLI. Leave empty to use the AWS endpoint for Region.
+	Endpoint string `json:"endpoint,omitempty"`
+	// CredentialsSecretRef is the name of a secret in the same namespace holding the S3
+	// credentials under the keys "accessKeyId" and "secretKey", which map to --access-key-id
+	// and --secret-key in weka CLI. Both keys are required.
+	CredentialsSecretRef string `json:"credentialsSecretRef"`
+	// CACertSecretRef optionally names a secret in the same namespace holding a user-provided
+	// CA certificate PEM under the key "ca.crt". Maps to --ca-cert in weka CLI.
+	// Empty string is treated same as nil (de-configures if was configured).
+	// Mutually exclusive with VerifyWithClusterCACert.
+	// Note this names the whole secret, unlike the splunk export's caCertSecretRef, which takes
+	// "secretName.keyName".
 	CACertSecretRef *string `json:"caCertSecretRef,omitempty"`
 	// AllowUnverifiedCertificate allows accessing without verifying the target certificate.
 	// Maps to --allow-unverified-certificate in weka CLI.

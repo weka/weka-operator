@@ -18,6 +18,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/services"
@@ -34,6 +35,13 @@ type TelemetryExportInfo struct {
 	Sources []string `json:"sources"`
 	Enabled bool     `json:"enabled"`
 }
+
+// Backend types as they appear in TelemetryExportInfo.Type. The casing the weka CLI emits is
+// not pinned down, so compare with strings.EqualFold rather than ==.
+const (
+	exportTypeSplunk = "splunk"
+	exportTypeS3     = "s3"
+)
 
 // operatorExportPrefix is the prefix added to all operator-managed telemetry exports.
 // This allows distinguishing operator-managed exports from user-created ones.
@@ -72,6 +80,18 @@ func parseSecretRef(ref string) (secretName, keyName string, err error) {
 	return parts[0], parts[1], nil
 }
 
+func (r *wekaClusterReconcilerLoop) fetchSecret(ctx context.Context, secretName, namespace string) (*v1.Secret, error) {
+	secret := &v1.Secret{}
+	if err := r.getClient().Get(ctx, client.ObjectKey{
+		Name:      secretName,
+		Namespace: namespace,
+	}, secret); err != nil {
+		return nil, errors.Wrapf(err, "failed to get secret %q", secretName)
+	}
+
+	return secret, nil
+}
+
 // getSecretValue retrieves a value from a secret using the "secretName.keyName" format.
 func (r *wekaClusterReconcilerLoop) getSecretValue(ctx context.Context, secretRef, namespace string) (string, error) {
 	secretName, keyName, err := parseSecretRef(secretRef)
@@ -79,12 +99,23 @@ func (r *wekaClusterReconcilerLoop) getSecretValue(ctx context.Context, secretRe
 		return "", err
 	}
 
-	secret := &v1.Secret{}
-	if err := r.getClient().Get(ctx, client.ObjectKey{
-		Name:      secretName,
-		Namespace: namespace,
-	}, secret); err != nil {
-		return "", errors.Wrapf(err, "failed to get secret %q", secretName)
+	return r.getSecretKey(ctx, secretName, keyName, namespace)
+}
+
+// Keys the s3 export expects inside the secrets it names. Unlike the "secretName.keyName"
+// refs, these refs name the whole secret, so the key names are fixed here.
+const (
+	s3AccessKeyIDKey     = "accessKeyId"
+	s3SecretAccessKeyKey = "secretKey"
+	s3CACertKey          = "ca.crt"
+)
+
+// getSecretKey retrieves one key from a secret named directly, for refs that name the whole
+// secret rather than using the "secretName.keyName" form.
+func (r *wekaClusterReconcilerLoop) getSecretKey(ctx context.Context, secretName, keyName, namespace string) (string, error) {
+	secret, err := r.fetchSecret(ctx, secretName, namespace)
+	if err != nil {
+		return "", err
 	}
 
 	valueBytes, ok := secret.Data[keyName]
@@ -93,6 +124,41 @@ func (r *wekaClusterReconcilerLoop) getSecretValue(ctx context.Context, secretRe
 	}
 
 	return string(valueBytes), nil
+}
+
+// getSecretVersion returns a secret's resourceVersion. It changes on every write, so it marks
+// credential rotation for change detection without reading the credential material itself.
+func (r *wekaClusterReconcilerLoop) getSecretVersion(ctx context.Context, secretName, namespace string) (string, error) {
+	secret, err := r.fetchSecret(ctx, secretName, namespace)
+	if err != nil {
+		return "", err
+	}
+
+	return secret.ResourceVersion, nil
+}
+
+// getSecretRefVersion returns the resourceVersion of the secret named by a "secretName.keyName" ref.
+func (r *wekaClusterReconcilerLoop) getSecretRefVersion(ctx context.Context, secretRef, namespace string) (string, error) {
+	secretName, _, err := parseSecretRef(secretRef)
+	if err != nil {
+		return "", err
+	}
+
+	return r.getSecretVersion(ctx, secretName, namespace)
+}
+
+// secretFingerprint renders a secret reference for the telemetry hash as "<ref>@<resourceVersion>".
+// An unreadable secret contributes an empty version instead of failing the hash; the reconcile
+// that follows reports the error with its own context.
+func (r *wekaClusterReconcilerLoop) secretFingerprint(ctx context.Context, ref string, versionOf func(context.Context, string, string) (string, error)) string {
+	if ref == "" {
+		return "@"
+	}
+	version, err := versionOf(ctx, ref, r.cluster.Namespace)
+	if err != nil {
+		return ref + "@"
+	}
+	return ref + "@" + version
 }
 
 // getAuthTokenFromSecret retrieves the auth token from the referenced secret.
@@ -112,11 +178,21 @@ func (r *wekaClusterReconcilerLoop) validateExports(ctx context.Context) error {
 		if len(exp.Sources) == 0 {
 			return errors.Errorf("export %q has no sources configured", exp.Name)
 		}
-		if exp.Splunk == nil {
+		if exp.Splunk == nil && exp.S3 == nil {
 			return errors.Errorf("export %q has no backend configured", exp.Name)
 		}
-		if err := r.validateSplunkExport(ctx, exp.Name, exp.Splunk, ns); err != nil {
-			return err
+		if exp.Splunk != nil && exp.S3 != nil {
+			return errors.Errorf("export %q has more than one backend configured, exactly one of splunk or s3 is allowed", exp.Name)
+		}
+		if exp.Splunk != nil {
+			if err := r.validateSplunkExport(ctx, exp.Name, exp.Splunk, ns); err != nil {
+				return err
+			}
+		}
+		if exp.S3 != nil {
+			if err := r.validateS3Export(ctx, exp.Name, exp.S3, ns); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -141,6 +217,37 @@ func (r *wekaClusterReconcilerLoop) validateSplunkExport(ctx context.Context, ex
 	}
 	if hasCACert {
 		if _, err := r.getSecretValue(ctx, *cfg.CACertSecretRef, ns); err != nil {
+			return errors.Wrapf(err, "failed to get CA cert for export %s", exportName)
+		}
+	}
+	return nil
+}
+
+func (r *wekaClusterReconcilerLoop) validateS3Export(ctx context.Context, exportName string, cfg *weka.S3ExportConfig, ns string) error {
+	if cfg.BucketName == "" {
+		return errors.Errorf("export %q: s3 bucketName is required", exportName)
+	}
+	if cfg.Region == "" {
+		return errors.Errorf("export %q: s3 region is required", exportName)
+	}
+	hasCACert := cfg.CACertSecretRef != nil && *cfg.CACertSecretRef != ""
+	if hasCACert && cfg.VerifyWithClusterCACert {
+		return errors.Errorf("export %q: caCertSecretRef and verifyWithClusterCACert are mutually exclusive", exportName)
+	}
+	if cfg.AllowUnverifiedCertificate && (hasCACert || cfg.VerifyWithClusterCACert) {
+		return errors.Errorf("export %q: allowUnverifiedCertificate cannot be combined with CA certificate verification", exportName)
+	}
+	if cfg.CredentialsSecretRef == "" {
+		return errors.Errorf("export %q: s3 credentialsSecretRef is required", exportName)
+	}
+	if _, err := r.getSecretKey(ctx, cfg.CredentialsSecretRef, s3AccessKeyIDKey, ns); err != nil {
+		return errors.Wrapf(err, "failed to get access key ID for export %s", exportName)
+	}
+	if _, err := r.getSecretKey(ctx, cfg.CredentialsSecretRef, s3SecretAccessKeyKey, ns); err != nil {
+		return errors.Wrapf(err, "failed to get secret access key for export %s", exportName)
+	}
+	if hasCACert {
+		if _, err := r.getSecretKey(ctx, *cfg.CACertSecretRef, s3CACertKey, ns); err != nil {
 			return errors.Wrapf(err, "failed to get CA cert for export %s", exportName)
 		}
 	}
@@ -176,7 +283,13 @@ func (r *wekaClusterReconcilerLoop) cleanupTempFile(ctx context.Context, executo
 }
 
 // calculateTelemetryHash creates a deterministic hash of telemetry config for change detection.
-// It includes secret content to detect changes to tokens and certificates.
+// It detects changes to referenced secrets as well as to the spec itself.
+//
+// Referenced secrets contribute their ref and their resourceVersion, never their contents:
+// this hash is published in the TelemetryConfigured condition, and a rotation bumps the
+// version anyway. The ref has to be hashed alongside the version because two keys of one
+// secret share a resourceVersion, so repointing a "secretName.keyName" ref at a different
+// key would otherwise leave the hash unchanged and the old credential in use.
 func (r *wekaClusterReconcilerLoop) calculateTelemetryHash(ctx context.Context, telemetry *weka.TelemetryConfig) string {
 	if telemetry == nil || len(telemetry.Exports) == 0 {
 		return "empty"
@@ -187,28 +300,22 @@ func (r *wekaClusterReconcilerLoop) calculateTelemetryHash(ctx context.Context, 
 	for _, exp := range telemetry.Exports {
 		part := exp.Name + ":" + strings.Join(exp.Sources, ",")
 		if exp.Splunk != nil {
-			// Include auth token content in hash
-			authTokenContent := ""
-			if exp.Splunk.AuthTokenSecretRef != "" {
-				if token, err := r.getSecretValue(ctx, exp.Splunk.AuthTokenSecretRef, r.cluster.Namespace); err == nil {
-					authTokenContent = token
-				}
-			}
-
-			// Include CA cert content in hash if specified
-			caCertContent := ""
-			if exp.Splunk.CACertSecretRef != nil && *exp.Splunk.CACertSecretRef != "" {
-				if cert, err := r.getSecretValue(ctx, *exp.Splunk.CACertSecretRef, r.cluster.Namespace); err == nil {
-					caCertContent = cert
-				}
-			}
-
 			part += fmt.Sprintf(":splunk:%s:token=%s:cacert=%s:allowUnverified=%t:clusterCACert=%t",
 				exp.Splunk.Endpoint,
-				authTokenContent,
-				caCertContent,
+				r.secretFingerprint(ctx, exp.Splunk.AuthTokenSecretRef, r.getSecretRefVersion),
+				r.secretFingerprint(ctx, ptr.Deref(exp.Splunk.CACertSecretRef, ""), r.getSecretRefVersion),
 				exp.Splunk.AllowUnverifiedCertificate,
 				exp.Splunk.VerifyWithClusterCACert)
+		}
+		if exp.S3 != nil {
+			part += fmt.Sprintf(":s3:%s:%s:%s:creds=%s:cacert=%s:allowUnverified=%t:clusterCACert=%t",
+				exp.S3.BucketName,
+				exp.S3.Region,
+				exp.S3.Endpoint,
+				r.secretFingerprint(ctx, exp.S3.CredentialsSecretRef, r.getSecretVersion),
+				r.secretFingerprint(ctx, ptr.Deref(exp.S3.CACertSecretRef, ""), r.getSecretVersion),
+				exp.S3.AllowUnverifiedCertificate,
+				exp.S3.VerifyWithClusterCACert)
 		}
 		parts = append(parts, part)
 	}
@@ -477,12 +584,36 @@ func (r *wekaClusterReconcilerLoop) reconcileTelemetryExport(ctx context.Context
 	_, logger := instrumentation.CreateLogSpan(ctx, "reconcileTelemetryExport", "name", prefixedName)
 	defer logger.End()
 
-	// Currently only Splunk is supported
-	if desired.Splunk == nil {
-		return errors.Errorf("export %s has no configuration (only splunk is currently supported)", desired.Name)
+	if desired.Splunk == nil && desired.S3 == nil {
+		return errors.Errorf("export %s has no configuration (splunk or s3 is required)", desired.Name)
 	}
 
 	existing, exists := currentByName[prefixedName]
+
+	desiredType := exportTypeSplunk
+	if desired.S3 != nil {
+		desiredType = exportTypeS3
+	}
+
+	// Weka export type is immutable, so keeping a name while switching backends has to go
+	// through remove+add - `exports update <type>` against an export of the other type fails
+	// on every reconcile and never converges. An empty Type means the CLI reported none, which
+	// is not grounds for destroying the export.
+	if exists && existing.Type != "" && !strings.EqualFold(existing.Type, desiredType) {
+		logger.Info("Export backend type changed, recreating", "name", prefixedName, "from", existing.Type, "to", desiredType)
+		if err := r.removeTelemetryExport(ctx, executor, existing.ID, prefixedName); err != nil {
+			return errors.Wrapf(err, "failed to remove export %s before switching backend to %s", prefixedName, desiredType)
+		}
+		exists = false
+	}
+
+	if desired.S3 != nil {
+		if !exists {
+			return r.addS3TelemetryExport(ctx, executor, desired, prefixedName)
+		}
+		logger.Info("Updating existing telemetry export", "name", prefixedName, "id", existing.ID)
+		return r.updateS3TelemetryExport(ctx, executor, desired, existing.ID)
+	}
 
 	if !exists {
 		// Need to add the export
@@ -651,6 +782,146 @@ func (r *wekaClusterReconcilerLoop) updateTelemetryExport(ctx context.Context, e
 	}
 
 	_, stderr, err := executor.ExecNamed(ctx, "UpdateTelemetryExport", []string{"bash", "-c", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "failed to update telemetry export %s: %s", export.Name, stderr.String())
+	}
+
+	logger.Info("Telemetry export updated successfully", "name", export.Name, "id", exportID)
+	return nil
+}
+
+// s3ExportTarget resolves the --target weka requires for an S3 export. An explicit
+// endpoint wins, for S3-compatible object stores. Otherwise it is derived from the
+// region: weka rejects an export with no target ("Target is required for Telemetry
+// export of type: S3") rather than resolving the AWS endpoint itself, so leaving it
+// off is never valid.
+func s3ExportTarget(cfg *weka.S3ExportConfig) string {
+	if endpoint := strings.TrimSpace(cfg.Endpoint); endpoint != "" {
+		return endpoint
+	}
+	return fmt.Sprintf("https://s3.%s.amazonaws.com", strings.TrimSpace(cfg.Region))
+}
+
+// s3ExportFlags writes the s3 credentials and optional CA certificate to temp files in the pod and
+// renders the flags shared by `exports add s3` and `exports update s3`. The returned cleanup removes
+// those temp files and must be called once the command has run, including on the error paths.
+func (r *wekaClusterReconcilerLoop) s3ExportFlags(ctx context.Context, executor podexec.Exec, cfg *weka.S3ExportConfig, exportName string) (flags string, cleanupFn func(), err error) {
+	var paths []string
+	cleanup := func() {
+		for _, path := range paths {
+			r.cleanupTempFile(ctx, executor, path)
+		}
+	}
+
+	writeSecret := func(secretName, keyName, prefix string) (string, error) {
+		value, secretErr := r.getSecretKey(ctx, secretName, keyName, r.cluster.Namespace)
+		if secretErr != nil {
+			return "", errors.Wrapf(secretErr, "failed to get %s for export %s", prefix, exportName)
+		}
+		path, writeErr := r.writeSecretToTempFile(ctx, executor, value, prefix)
+		if writeErr != nil {
+			return "", errors.Wrapf(writeErr, "failed to write %s to temp file for export %s", prefix, exportName)
+		}
+		paths = append(paths, path)
+		return path, nil
+	}
+
+	accessKeyPath, err := writeSecret(cfg.CredentialsSecretRef, s3AccessKeyIDKey, "s3-access-key-id")
+	if err != nil {
+		return "", cleanup, err
+	}
+	secretKeyPath, err := writeSecret(cfg.CredentialsSecretRef, s3SecretAccessKeyKey, "s3-secret-key")
+	if err != nil {
+		return "", cleanup, err
+	}
+
+	// Use double quotes around $(cat) to protect key content from shell interpretation
+	// Trim values to handle any trailing newlines from YAML parsing
+	flags = fmt.Sprintf(" --bucket-name '%s' --region '%s' --access-key-id \"$(cat '%s')\" --secret-key \"$(cat '%s')\"",
+		strings.TrimSpace(cfg.BucketName),
+		strings.TrimSpace(cfg.Region),
+		accessKeyPath,
+		secretKeyPath,
+	)
+
+	flags += fmt.Sprintf(" --target '%s'", s3ExportTarget(cfg))
+
+	if cfg.CACertSecretRef != nil && *cfg.CACertSecretRef != "" {
+		caCertPath, caErr := writeSecret(*cfg.CACertSecretRef, s3CACertKey, "s3-cacert")
+		if caErr != nil {
+			return "", cleanup, caErr
+		}
+		flags += fmt.Sprintf(" --ca-cert '%s'", caCertPath)
+	}
+	if cfg.AllowUnverifiedCertificate {
+		flags += " --allow-unverified-certificate yes"
+	}
+	if cfg.VerifyWithClusterCACert {
+		flags += " --verify-with-cluster-cacert yes"
+	}
+
+	return flags, cleanup, nil
+}
+
+// addS3TelemetryExport adds a new s3 telemetry export with the given name (should include operator prefix)
+func (r *wekaClusterReconcilerLoop) addS3TelemetryExport(ctx context.Context, executor podexec.Exec, export weka.TelemetryExport, exportName string) error {
+	_, logger := instrumentation.CreateLogSpan(ctx, "addS3TelemetryExport", "name", exportName)
+	defer logger.End()
+
+	flags, cleanup, err := r.s3ExportFlags(ctx, executor, export.S3, exportName)
+	defer cleanup()
+	if err != nil {
+		return err
+	}
+
+	cmd := fmt.Sprintf("weka telemetry exports add s3 %s --sources %s%s",
+		exportName,
+		strings.Join(export.Sources, ","),
+		flags,
+	)
+
+	_, stderr, err := executor.ExecNamed(ctx, "AddS3TelemetryExport", []string{"bash", "-c", cmd})
+	if err != nil {
+		stderrStr := stderr.String()
+		// Check if export already exists (race condition handling)
+		if strings.Contains(stderrStr, "already used by export") {
+			logger.Info("Export already exists, will attempt update", "name", exportName)
+			// Get the ID from re-listing
+			exports, listErr := r.listTelemetryExports(ctx, executor)
+			if listErr != nil {
+				return errors.Wrapf(listErr, "failed to list exports after add conflict")
+			}
+			for _, exp := range exports {
+				if exp.Name == exportName {
+					return r.updateS3TelemetryExport(ctx, executor, export, exp.ID)
+				}
+			}
+			return errors.Errorf("export %s exists but could not find its ID", exportName)
+		}
+		return errors.Wrapf(err, "failed to add telemetry export %s: %s", exportName, stderrStr)
+	}
+
+	logger.Info("Telemetry export added successfully", "name", exportName)
+	return nil
+}
+
+// updateS3TelemetryExport updates an existing s3 telemetry export
+func (r *wekaClusterReconcilerLoop) updateS3TelemetryExport(ctx context.Context, executor podexec.Exec, export weka.TelemetryExport, exportID string) error {
+	_, logger := instrumentation.CreateLogSpan(ctx, "updateS3TelemetryExport", "name", export.Name, "id", exportID)
+	defer logger.End()
+
+	flags, cleanup, err := r.s3ExportFlags(ctx, executor, export.S3, export.Name)
+	defer cleanup()
+	if err != nil {
+		return err
+	}
+
+	// Extract numeric ID from TelemetrySinkId<N> format - weka CLI expects just the number
+	// Sources are omitted: `update --sources` attaches an additional source and fails when the
+	// export already has one.
+	cmd := fmt.Sprintf("weka telemetry exports update s3 %s%s", extractNumericID(exportID), flags)
+
+	_, stderr, err := executor.ExecNamed(ctx, "UpdateS3TelemetryExport", []string{"bash", "-c", cmd})
 	if err != nil {
 		return errors.Wrapf(err, "failed to update telemetry export %s: %s", export.Name, stderr.String())
 	}
