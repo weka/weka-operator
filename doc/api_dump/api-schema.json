@@ -3123,6 +3123,65 @@
         "WekaCluster"
       ]
     },
+    "S3ExportConfig": {
+      "kind": "struct",
+      "description": "S3ExportConfig defines S3-specific export configuration",
+      "fields": [
+        {
+          "name": "BucketName",
+          "jsonName": "bucketName",
+          "type": "string",
+          "description": "BucketName is the destination bucket telemetry events are written to.\nMaps to --bucket-name in weka CLI.",
+          "optional": false
+        },
+        {
+          "name": "Region",
+          "jsonName": "region",
+          "type": "string",
+          "description": "Region is the bucket region (maps to --region in weka CLI).",
+          "optional": false
+        },
+        {
+          "name": "Endpoint",
+          "jsonName": "endpoint",
+          "type": "string",
+          "description": "Endpoint optionally overrides the destination host and port or URL, for S3-compatible\nobject stores. Maps to --target in weka CLI. Leave empty to use the AWS endpoint for Region.",
+          "optional": true
+        },
+        {
+          "name": "CredentialsSecretRef",
+          "jsonName": "credentialsSecretRef",
+          "type": "string",
+          "description": "CredentialsSecretRef is the name of a secret in the same namespace holding the S3\ncredentials under the keys \"accessKeyId\" and \"secretKey\", which map to --access-key-id\nand --secret-key in weka CLI. Both keys are required.",
+          "optional": false
+        },
+        {
+          "name": "CACertSecretRef",
+          "jsonName": "caCertSecretRef",
+          "type": "string",
+          "description": "CACertSecretRef optionally names a secret in the same namespace holding a user-provided\nCA certificate PEM under the key \"ca.crt\". Maps to --ca-cert in weka CLI.\nEmpty string is treated same as nil (de-configures if was configured).\nMutually exclusive with VerifyWithClusterCACert.\nNote this names the whole secret, unlike the splunk export's caCertSecretRef, which takes\n\"secretName.keyName\".",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "AllowUnverifiedCertificate",
+          "jsonName": "allowUnverifiedCertificate",
+          "type": "bool",
+          "description": "AllowUnverifiedCertificate allows accessing without verifying the target certificate.\nMaps to --allow-unverified-certificate in weka CLI.",
+          "optional": true
+        },
+        {
+          "name": "VerifyWithClusterCACert",
+          "jsonName": "verifyWithClusterCACert",
+          "type": "bool",
+          "description": "VerifyWithClusterCACert uses the Weka cluster's internal CA certificate to verify.\nMaps to --verify-with-cluster-cacert in weka CLI.\nMutually exclusive with CACertSecretRef.",
+          "optional": true
+        }
+      ],
+      "usedBy": [
+        "WekaCluster"
+      ]
+    },
     "S3Params": {
       "kind": "struct",
       "fields": [
@@ -3717,8 +3776,8 @@
             "type": "array",
             "items": "string"
           },
-          "description": "Sources specifies which telemetry sources to export (e.g., \"audit\")",
-          "optional": false
+          "description": "Sources specifies which telemetry sources to export. \"audit\" is currently the only\nsource the Weka CLI accepts.",
+          "optional": true
         },
         {
           "name": "Splunk",
@@ -3727,6 +3786,16 @@
             "$ref": "#/definitions/SplunkExportConfig"
           },
           "description": "Splunk configuration for Splunk HEC export",
+          "optional": true,
+          "pointer": true
+        },
+        {
+          "name": "S3",
+          "jsonName": "s3",
+          "type": {
+            "$ref": "#/definitions/S3ExportConfig"
+          },
+          "description": "S3 configuration for export to an S3 or S3-compatible object store.\nMutually exclusive with Splunk; exactly one backend must be configured.",
           "optional": true,
           "pointer": true
         }

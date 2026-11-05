@@ -47,6 +47,7 @@
 - [CapacityMetrics](#capacitymetrics)
 - [FilesystemMetrics](#filesystemmetrics)
 - [SplunkExportConfig](#splunkexportconfig)
+- [S3ExportConfig](#s3exportconfig)
 - [ContainerMetrics](#containermetrics)
 - [StatusThroughput](#statusthroughput)
 - [StatusIops](#statusiops)
@@ -601,8 +602,9 @@
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | name | string | Name is the unique identifier for this export |
-| sources | []string | Sources specifies which telemetry sources to export (e.g., "audit") |
+| sources | []string | Sources specifies which telemetry sources to export. "audit" is currently the only<br>source the Weka CLI accepts. |
 | splunk | *SplunkExportConfig | Splunk configuration for Splunk HEC export |
+| s3 | *S3ExportConfig | S3 configuration for export to an S3 or S3-compatible object store.<br>Mutually exclusive with Splunk; exactly one backend must be configured. |
 
 ---
 
@@ -670,6 +672,20 @@
 | authTokenSecretRef | string | AuthTokenSecretRef references a secret containing the Splunk HEC authentication token.<br>Format: "secretName.keyName" where secretName is the name of the secret in the same namespace<br>and keyName is the key within the secret's data that contains the token. |
 | endpoint | string | Endpoint is the Splunk HEC endpoint URL (maps to --target in weka CLI) |
 | caCertSecretRef | *string | CACertSecretRef optionally references a secret containing a user-provided CA certificate PEM file.<br>Format: "secretName.keyName" where secretName is the name of the secret in the same namespace<br>and keyName is the key within the secret's data that contains the certificate.<br>Maps to --ca-cert in weka CLI. Empty string is treated same as nil (de-configures if was configured).<br>Mutually exclusive with VerifyWithClusterCACert. |
+| allowUnverifiedCertificate | bool | AllowUnverifiedCertificate allows accessing without verifying the target certificate.<br>Maps to --allow-unverified-certificate in weka CLI. |
+| verifyWithClusterCACert | bool | VerifyWithClusterCACert uses the Weka cluster's internal CA certificate to verify.<br>Maps to --verify-with-cluster-cacert in weka CLI.<br>Mutually exclusive with CACertSecretRef. |
+
+---
+
+## S3ExportConfig
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| bucketName | string | BucketName is the destination bucket telemetry events are written to.<br>Maps to --bucket-name in weka CLI. |
+| region | string | Region is the bucket region (maps to --region in weka CLI). |
+| endpoint | string | Endpoint optionally overrides the destination host and port or URL, for S3-compatible<br>object stores. Maps to --target in weka CLI. Leave empty to use the AWS endpoint for Region. |
+| credentialsSecretRef | string | CredentialsSecretRef is the name of a secret in the same namespace holding the S3<br>credentials under the keys "accessKeyId" and "secretKey", which map to --access-key-id<br>and --secret-key in weka CLI. Both keys are required. |
+| caCertSecretRef | *string | CACertSecretRef optionally names a secret in the same namespace holding a user-provided<br>CA certificate PEM under the key "ca.crt". Maps to --ca-cert in weka CLI.<br>Empty string is treated same as nil (de-configures if was configured).<br>Mutually exclusive with VerifyWithClusterCACert.<br>Note this names the whole secret, unlike the splunk export's caCertSecretRef, which takes<br>"secretName.keyName". |
 | allowUnverifiedCertificate | bool | AllowUnverifiedCertificate allows accessing without verifying the target certificate.<br>Maps to --allow-unverified-certificate in weka CLI. |
 | verifyWithClusterCACert | bool | VerifyWithClusterCACert uses the Weka cluster's internal CA certificate to verify.<br>Maps to --verify-with-cluster-cacert in weka CLI.<br>Mutually exclusive with CACertSecretRef. |
 
