@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/pkg/errors"
@@ -11,16 +12,16 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	"go.opentelemetry.io/otel/codes"
 
-	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/internal/services"
-	"github.com/weka/weka-operator/pkg/util/podexec"
 )
+
+var errNotJoined = errors.New("container is not part of the cluster yet")
 
 func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
 	container := r.container
-	pod := r.pod
 
 	if r.pod == nil {
 		return errors.New("Pod is not found")
@@ -30,52 +31,59 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 		return nil
 	}
 
-	timeout := time.Second * 15
-
-	executor, err := podexec.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
-	if err != nil {
-		logger.Error(err, "Error creating executor")
-		return err
-	}
-
-	containerName := container.Spec.WekaContainerName
-
-	showAgentPortCmd := `cat /opt/weka/k8s-runtime/vars/agent_port`
-	cmd := fmt.Sprintf("weka local run wapi -H localhost:$(%s)/jrpc -W container-get-identity --container-name %s --json", showAgentPortCmd, containerName)
-	if container.Spec.JoinIps != nil {
-		cmd = fmt.Sprintf("wekaauthcli local run wapi -H 127.0.0.1:$(%s)/jrpc -W container-get-identity --container-name %s --json", showAgentPortCmd, containerName)
-	}
-
-	stdout, _, err := executor.ExecNamed(ctx, "WekaLocalContainerGetIdentity", []string{"bash", "-ce", cmd})
-	if err != nil {
-		return lifecycle.NewWaitError(err)
-	}
-	logger.Debug("Parsing weka local container-get-identity")
-	response := resources.WekaLocalContainerGetIdentityResponse{}
-	err = json.Unmarshal(stdout.Bytes(), &response)
-	if err != nil {
-		logger.Error(err, "Error parsing weka local status")
-		return lifecycle.NewWaitError(err)
-	}
-
 	waitDuration := time.Second * 15
-	if !response.HasValue && response.Exception != nil {
-		return lifecycle.NewWaitErrorWithDuration(errors.New(*response.Exception), waitDuration)
-	}
-	if response.Value == nil {
-		return lifecycle.NewWaitErrorWithDuration(errors.New("no value in response from weka local container-get-identity"), waitDuration)
-	}
-	if response.Value.ClusterId == "" || response.Value.ClusterId == "00000000-0000-0000-0000-000000000000" {
-		return lifecycle.NewWaitErrorWithDuration(errors.New("container is not part of the cluster yet"), waitDuration)
+
+	agentPod, err := r.GetNodeAgentPod(ctx, container.GetNodeAffinity())
+	if err != nil {
+		return lifecycle.NewWaitError(err)
 	}
 
-	container.Status.ClusterContainerID = &response.Value.ContainerId
-	container.Status.ClusterID = response.Value.ClusterId
+	token, err := r.getNodeAgentToken(ctx)
+	if err != nil {
+		return lifecycle.NewWaitError(err)
+	}
+
+	body, status, err := node_agent.ProxyJSONRPC(ctx, agentPod, token, node_agent.JSONRPCProxyPayload{
+		ContainerId:       string(container.GetUID()),
+		WekaContainerName: container.Spec.WekaContainerName,
+		Method:            "cluster_identity",
+		Params:            map[string]any{},
+	})
+	if err != nil {
+		return lifecycle.NewWaitError(err)
+	}
+
+	var reply struct {
+		Result *struct {
+			ClusterID   string `json:"cluster_guid"`
+			ContainerID int    `json:"host_id"`
+		} `json:"result"`
+		Error *node_agent.JSONRPCError `json:"error"`
+	}
+	parseErr := json.Unmarshal(body, &reply)
+	if reply.Error != nil && reply.Error.IsException("NodeIsStemException") {
+		return lifecycle.NewWaitErrorWithDuration(errNotJoined, waitDuration)
+	}
+	if status != http.StatusOK {
+		return lifecycle.NewWaitError(fmt.Errorf("node agent returned non-OK status: %d, body: %s", status, string(body)))
+	}
+	if parseErr != nil {
+		return lifecycle.NewWaitError(fmt.Errorf("failed to parse cluster_identity response: %w, body: %s", parseErr, string(body)))
+	}
+	if reply.Result == nil {
+		return lifecycle.NewWaitErrorWithDuration(errors.New("no result in cluster_identity response"), waitDuration)
+	}
+	if reply.Result.ClusterID == "" || reply.Result.ClusterID == "00000000-0000-0000-0000-000000000000" {
+		return lifecycle.NewWaitErrorWithDuration(errNotJoined, waitDuration)
+	}
+
+	container.Status.ClusterContainerID = &reply.Result.ContainerID
+	container.Status.ClusterID = reply.Result.ClusterID
 	logger.InfoWithStatus(
 		codes.Ok,
 		"Cluster GUID and container ID are updated in WekaContainer status",
-		"cluster_guid", response.Value.ClusterId,
-		"container_id", response.Value.ContainerId,
+		"cluster_guid", reply.Result.ClusterID,
+		"container_id", reply.Result.ContainerID,
 	)
 	if err := r.Status().Update(ctx, container); err != nil {
 		return err

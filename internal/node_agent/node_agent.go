@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/hlog"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -638,6 +640,8 @@ type JSONRPCProxyPayload struct {
 	ContainerId string         `json:"container_id"`
 	Method      string         `json:"method"`
 	Params      map[string]any `json:"params"`
+	// WekaContainerName lets the call reach a container that has not registered with the node-agent.
+	WekaContainerName string `json:"weka_container_name,omitempty"`
 }
 
 // jsonrpcHandler is a generic JSONRPC proxy that forwards calls to container Unix sockets
@@ -672,9 +676,19 @@ func (a *NodeAgent) jsonrpcHandler(w http.ResponseWriter, r *http.Request) {
 	a.containersData.lock.RUnlock()
 
 	if !exists {
-		logger.Error(errors.New("container not found"), "Container not registered")
-		http.Error(w, "Container not registered", http.StatusNotFound)
-		return
+		if payload.WekaContainerName == "" {
+			logger.Error(errors.New("container not found"), "Container not registered")
+			http.Error(w, "Container not registered", http.StatusNotFound)
+			return
+		}
+		// Both values are formatted into socket and symlink paths.
+		if uuid.Validate(payload.ContainerId) != nil || payload.WekaContainerName != filepath.Base(payload.WekaContainerName) || payload.WekaContainerName == ".." {
+			http.Error(w, "Invalid container_id or weka_container_name", http.StatusBadRequest)
+			return
+		}
+		container = &ContainerInfo{containerId: payload.ContainerId, wekaContainerName: payload.WekaContainerName}
+		// Unregistered containers are never deregistered, so their client must not stay cached.
+		defer a.jsonrpcService.RemoveContainer(payload.ContainerId)
 	}
 
 	// Make the JSONRPC call via the WekaJSONRPCService
@@ -730,13 +744,25 @@ type JSONRPCResponse struct {
 
 // JSONRPCError represents a JSONRPC 2.0 error object
 type JSONRPCError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 func (e *JSONRPCError) Error() string {
 	return fmt.Sprintf("JSONRPC error %d: %s", e.Code, e.Message)
+}
+
+// IsException reports whether the container threw the named weka exception; data.exceptionClass lists
+// the thrown class and its ancestors.
+func (e *JSONRPCError) IsException(class string) bool {
+	var data struct {
+		ExceptionClass []string `json:"exceptionClass"`
+	}
+	if json.Unmarshal(e.Data, &data) != nil {
+		return false
+	}
+	return slices.Contains(data.ExceptionClass, class)
 }
 
 // NewWekaJSONRPCService creates a new JSONRPC service
@@ -908,7 +934,10 @@ func (s *WekaJSONRPCService) RemoveContainer(containerId string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	delete(s.clients, containerId)
+	if client, exists := s.clients[containerId]; exists {
+		client.CloseIdleConnections()
+		delete(s.clients, containerId)
+	}
 }
 
 func (a *NodeAgent) jrpcCall(ctx context.Context, container *ContainerInfo, method string, params map[string]any, data interface{}) error {
