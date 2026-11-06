@@ -316,8 +316,8 @@ removes it. The one Pending pod sizing deletes is a drive pod that was never sch
 
 **A node has no containers.** Check `kubectl describe wekacluster` for `AutoFullDrivesUnsignedDriveNodes`
 (sign drives there; an unparsable annotation is named in the message) and
-`AutoFullDrivesNodeIneligible` (uncordon, tolerate the taint, or add the FD label). The `DCT`/`CCT`
-columns show fewer created than desired while a node is unsigned.
+`AutoFullDrivesNodeIneligible` (uncordon, tolerate the taint, or add the FD label). An unsigned node, and
+a node whose drives are all held by other containers, is not counted in the `DCT`/`CCT` desired columns.
 
 **`AutoFullDrivesComputeCoresCapped`.** The ratio asks for more than 19 cores per compute container.
 Add compute-role nodes, lower `computeToDriveCoreRatio` (never below 1.0 in effect), or accept the lower

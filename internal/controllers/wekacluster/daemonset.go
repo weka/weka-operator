@@ -74,8 +74,7 @@ type daemonsetPlan struct {
 	unsigned, unused, capped, noFree []string
 	ineligible                       map[string]string // node -> reason
 	driveCores, computeCores         int
-	// Printer columns only; placement never reads them.
-	statusDesiredDrive, statusDesiredCompute, statusDesiredS3 int
+	statusDesiredS3                  int // printer column only; placement never reads it
 }
 
 func planDaemonset(in *daemonsetInput) daemonsetPlan {
@@ -260,15 +259,6 @@ func planDaemonset(in *daemonsetInput) daemonsetPlan {
 		}
 	}
 
-	for _, name := range names {
-		n := in.nodes[name]
-		if liveDrive[name] != nil || (n.driveRole && n.ineligible == "") {
-			p.statusDesiredDrive++
-		}
-		if liveCompute[name] != nil || (n.computeRole && n.ineligible == "") {
-			p.statusDesiredCompute++
-		}
-	}
 	if in.s3 {
 		planDaemonsetS3(in, &p)
 	}
@@ -550,8 +540,8 @@ func (r *wekaClusterReconcilerLoop) buildDaemonsetContainers(ctx context.Context
 		}
 	}
 	computeCount = targets.Compute
-	cluster.Status.Stats.Containers.Drive.Containers.Desired = weka.IntMetric(p.statusDesiredDrive)
-	cluster.Status.Stats.Containers.Compute.Containers.Desired = weka.IntMetric(p.statusDesiredCompute)
+	cluster.Status.Stats.Containers.Drive.Containers.Desired = weka.IntMetric(targets.Drive)
+	cluster.Status.Stats.Containers.Compute.Containers.Desired = weka.IntMetric(targets.Compute)
 	cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(desiredDrives)
 	if in.s3 {
 		if cluster.Status.Stats.Containers.S3 == nil {

@@ -89,20 +89,17 @@ func TestPlanDaemonset(t *testing.T) {
 		ineligible     map[string]string
 		unused, noFree []string
 		capped         int
-		statusD, statC int
 		statS3         int
 	}{
 		{
-			name:    "shared homogeneous selector",
-			in:      daemonsetInput{nodes: map[string]dsNode{"n1": shared(8), "n2": shared(8)}, cons: cons},
-			want:    []dsWant{d("n1", 8, 8), d("n2", 8, 8), c("n1", 16, hp(8000, 1, 16)), c("n2", 16, hp(8000, 1, 16))},
-			statusD: 2, statC: 2,
+			name: "shared homogeneous selector",
+			in:   daemonsetInput{nodes: map[string]dsNode{"n1": shared(8), "n2": shared(8)}, cons: cons},
+			want: []dsWant{d("n1", 8, 8), d("n2", 8, 8), c("n1", 16, hp(8000, 1, 16)), c("n2", 16, hp(8000, 1, 16))},
 		},
 		{
-			name:    "disjoint selectors spread evenly",
-			in:      daemonsetInput{nodes: map[string]dsNode{"d1": driveOnly(4), "d2": driveOnly(4), "c1": computeOnly(), "c2": computeOnly(), "c3": computeOnly()}, cons: cons},
-			want:    []dsWant{d("d1", 4, 4), d("d2", 4, 4), c("c1", 6, hp(8000, 3, 6)), c("c2", 6, hp(8000, 3, 6)), c("c3", 6, hp(8000, 3, 6))},
-			statusD: 2, statC: 3,
+			name: "disjoint selectors spread evenly",
+			in:   daemonsetInput{nodes: map[string]dsNode{"d1": driveOnly(4), "d2": driveOnly(4), "c1": computeOnly(), "c2": computeOnly(), "c3": computeOnly()}, cons: cons},
+			want: []dsWant{d("d1", 4, 4), d("d2", 4, 4), c("c1", 6, hp(8000, 3, 6)), c("c2", 6, hp(8000, 3, 6)), c("c3", 6, hp(8000, 3, 6))},
 		},
 		{
 			name: "partial overlap pairs then spreads the remainder",
@@ -114,13 +111,11 @@ func TestPlanDaemonset(t *testing.T) {
 				d("n1", 4, 4), d("n2", 4, 4), d("n3", 4, 4),
 				c("n1", 8, hp(4000, 1, 8)), c("n2", 8, hp(4000, 1, 8)), c("x1", 4, hp(4000, 2, 4)), c("x2", 4, hp(4000, 2, 4)),
 			},
-			statusD: 3, statC: 4,
 		},
 		{
-			name:    "remainder at or below zero gives one core",
-			in:      daemonsetInput{nodes: map[string]dsNode{"n1": shared(4), "n2": shared(4), "x1": computeOnly()}, cons: cons},
-			want:    []dsWant{d("n1", 4, 4), d("n2", 4, 4), c("n1", 8, hp(4000, 1, 8)), c("n2", 8, hp(4000, 1, 8)), c("x1", 1, hp(0, 1, 1))},
-			statusD: 2, statC: 3,
+			name: "remainder at or below zero gives one core",
+			in:   daemonsetInput{nodes: map[string]dsNode{"n1": shared(4), "n2": shared(4), "x1": computeOnly()}, cons: cons},
+			want: []dsWant{d("n1", 4, 4), d("n2", 4, 4), c("n1", 8, hp(4000, 1, 8)), c("n2", 8, hp(4000, 1, 8)), c("x1", 1, hp(0, 1, 1))},
 		},
 		{
 			name: "heterogeneous drives size each node on its own",
@@ -129,13 +124,12 @@ func TestPlanDaemonset(t *testing.T) {
 				d("n1", 6, 6), d("n2", 4, 4), d("n3", 2, 2),
 				c("n1", 12, hp(6000, 1, 12)), c("n2", 8, hp(4000, 1, 8)), c("n3", 4, hp(2000, 1, 4)),
 			},
-			statusD: 3, statC: 3,
 		},
 		{
 			name:     "unannotated node gets nothing and is listed",
 			in:       daemonsetInput{nodes: map[string]dsNode{"n1": shared(4), "n2": {driveRole: true, computeRole: true}}, cons: cons},
 			want:     []dsWant{d("n1", 4, 4), c("n1", 8, hp(4000, 1, 8))},
-			unsigned: []string{"n2"}, statusD: 2, statC: 2,
+			unsigned: []string{"n2"},
 		},
 		{
 			name: "existing drive container on a node with no usable drives gets no new compute",
@@ -144,8 +138,7 @@ func TestPlanDaemonset(t *testing.T) {
 				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(4, 4)}, nil),
 				cons:  cons,
 			},
-			want:    []dsWant{d("n1", 4, 4)},
-			statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 4, 4)},
 		},
 		{
 			name: "ineligible new node gets nothing",
@@ -153,7 +146,7 @@ func TestPlanDaemonset(t *testing.T) {
 				"n1": shared(4), "n2": {driveRole: true, computeRole: true, ineligible: "cordoned", drivesGiB: drives(4)},
 			}, cons: cons},
 			want:       []dsWant{d("n1", 4, 4), c("n1", 8, hp(4000, 1, 8))},
-			ineligible: map[string]string{"n2": "cordoned"}, statusD: 1, statC: 1,
+			ineligible: map[string]string{"n2": "cordoned"},
 		},
 		{
 			name: "ineligible node with containers still grows",
@@ -162,7 +155,7 @@ func TestPlanDaemonset(t *testing.T) {
 				live:  liveOf(map[string]*weka.WekaContainer{"n2": ctr(4, 4)}, map[string]*weka.WekaContainer{"n2": ctr(0, 8)}),
 				cons:  cons,
 			},
-			want: []dsWant{d("n2", 6, 6), c("n2", 12, hp(6000, 1, 12))}, statusD: 1, statC: 1,
+			want: []dsWant{d("n2", 6, 6), c("n2", 12, hp(6000, 1, 12))},
 		},
 		{
 			name: "existing containers on an off-selector node count",
@@ -170,81 +163,79 @@ func TestPlanDaemonset(t *testing.T) {
 				live: liveOf(map[string]*weka.WekaContainer{"z": ctr(3, 3)}, map[string]*weka.WekaContainer{"z": ctr(0, 2)}),
 				cons: cons,
 			},
-			want: []dsWant{d("z", 3, 3), c("z", 6, 0)}, statusD: 1, statC: 1,
+			want: []dsWant{d("z", 3, 3), c("z", 6, 0)},
 		},
 		{
 			name: "deleting drive container: node skipped for both roles",
 			in:   daemonsetInput{nodes: map[string]dsNode{"n1": shared(4), "n2": shared(4)}, deleting: map[string]map[string]bool{weka.WekaContainerModeDrive: {"n1": true}}, cons: cons},
-			want: []dsWant{d("n2", 4, 4), c("n2", 8, hp(4000, 1, 8))}, statusD: 2, statC: 2,
+			want: []dsWant{d("n2", 4, 4), c("n2", 8, hp(4000, 1, 8))},
 		},
 		{
 			name: "deleting compute container: only compute skipped",
 			in:   daemonsetInput{nodes: map[string]dsNode{"n1": shared(4), "n2": shared(4)}, deleting: map[string]map[string]bool{weka.WekaContainerModeCompute: {"n1": true}}, cons: cons},
-			want: []dsWant{d("n1", 4, 4), d("n2", 4, 4), c("n2", 8, hp(4000, 1, 8))}, statusD: 2, statC: 2,
+			want: []dsWant{d("n1", 4, 4), d("n2", 4, 4), c("n2", 8, hp(4000, 1, 8))},
 		},
 		{
 			name:   "numDrives pin below signed count",
 			in:     daemonsetInput{nodes: map[string]dsNode{"n1": shared(8)}, numDrivesPin: 5, cons: cons},
 			want:   []dsWant{d("n1", 5, 5), c("n1", 10, hp(5000, 1, 10))},
-			unused: []string{"3 of 8 signed drives unused on n1 (numDrives pin=5)"}, statusD: 1, statC: 1,
+			unused: []string{"3 of 8 signed drives unused on n1 (numDrives pin=5)"},
 		},
 		{
 			name: "numDrives pin above signed count is written verbatim",
 			in:   daemonsetInput{nodes: map[string]dsNode{"n1": shared(8)}, numDrivesPin: 10, cons: cons},
-			want: []dsWant{d("n1", 10, 10), c("n1", 19, 0)}, capped: 1, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 10, 10), c("n1", 19, 0)}, capped: 1,
 		},
 		{
 			name: "driveCores pin",
 			in:   daemonsetInput{nodes: map[string]dsNode{"n1": shared(8)}, driveCoresPin: 3, cons: cons},
-			want: []dsWant{d("n1", 8, 3), c("n1", 6, 0)}, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 8, 3), c("n1", 6, 0)},
 		},
 		{
 			name: "computeCores pin on paired and compute-only",
 			in:   daemonsetInput{nodes: map[string]dsNode{"n1": shared(8), "x1": computeOnly()}, computeCoresPin: 4, cons: cons},
-			want: []dsWant{d("n1", 8, 8), c("n1", 4, 0), c("x1", 4, 0)}, statusD: 1, statC: 2,
+			want: []dsWant{d("n1", 8, 8), c("n1", 4, 0), c("x1", 4, 0)},
 		},
 		{
 			name: "cap with default ratio",
 			in:   daemonsetInput{nodes: map[string]dsNode{"n1": shared(12)}, cons: dsCons(19, 2)},
-			want: []dsWant{d("n1", 12, 12), c("n1", 19, 0)}, capped: 1, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 12, 12), c("n1", 19, 0)}, capped: 1,
 		},
 		{
 			name: "cap with explicit ratio",
 			in:   daemonsetInput{nodes: map[string]dsNode{"n1": shared(12)}, cons: dsCons(19, 4)},
-			want: []dsWant{d("n1", 12, 12), c("n1", 19, 0)}, capped: 1, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 12, 12), c("n1", 19, 0)}, capped: 1,
 		},
 		{
 			name: "no cap when MaxCoresPerContainer is 0",
 			in:   daemonsetInput{nodes: map[string]dsNode{"n1": shared(24)}, cons: dsCons(0, 2)},
-			want: []dsWant{d("n1", 24, 24), c("n1", 48, 0)}, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 24, 24), c("n1", 48, 0)},
 		},
 		{
 			name: "ratio below 1 keeps the 1:1 floor",
 			in:   daemonsetInput{nodes: map[string]dsNode{"n1": shared(8)}, cons: dsCons(19, 0.5)},
-			want: []dsWant{d("n1", 8, 8), c("n1", 8, 0)}, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 8, 8), c("n1", 8, 0)},
 		},
 		{
-			name:    "foreign container holds 3 of 8: new container takes the 5 free",
-			in:      daemonsetInput{nodes: map[string]dsNode{"n1": sharedFree(8, 1000, 1000, 1000, 1000, 1000)}, cons: cons},
-			want:    []dsWant{d("n1", 5, 5), c("n1", 10, hp(5000, 1, 10))},
-			statusD: 1, statC: 1,
+			name: "foreign container holds 3 of 8: new container takes the 5 free",
+			in:   daemonsetInput{nodes: map[string]dsNode{"n1": sharedFree(8, 1000, 1000, 1000, 1000, 1000)}, cons: cons},
+			want: []dsWant{d("n1", 5, 5), c("n1", 10, hp(5000, 1, 10))},
 		},
 		{
-			name:    "the largest free drives feed the capacity",
-			in:      daemonsetInput{nodes: map[string]dsNode{"n1": sharedFree(4, 4000, 3000, 2000, 1000)}, numDrivesPin: 2, cons: cons},
-			want:    []dsWant{d("n1", 2, 2), c("n1", 4, hp(7000, 1, 4))},
-			unused:  []string{"2 of 4 signed drives unused on n1 (numDrives pin=2)"},
-			statusD: 1, statC: 1,
+			name:   "the largest free drives feed the capacity",
+			in:     daemonsetInput{nodes: map[string]dsNode{"n1": sharedFree(4, 4000, 3000, 2000, 1000)}, numDrivesPin: 2, cons: cons},
+			want:   []dsWant{d("n1", 2, 2), c("n1", 4, hp(7000, 1, 4))},
+			unused: []string{"2 of 4 signed drives unused on n1 (numDrives pin=2)"},
 		},
 		{
 			name:   "every drive held: no container",
 			in:     daemonsetInput{nodes: map[string]dsNode{"n1": sharedFree(8)}, cons: cons},
-			noFree: []string{"n1 (8 signed, 8 held by other containers)"}, statusD: 1, statC: 1,
+			noFree: []string{"n1 (8 signed, 8 held by other containers)"},
 		},
 		{
 			name: "numDrives pin above the free drives is written",
 			in:   daemonsetInput{nodes: map[string]dsNode{"n1": sharedFree(8, 1000, 1000, 1000)}, numDrivesPin: 10, cons: cons},
-			want: []dsWant{d("n1", 10, 10), c("n1", 19, 0)}, capped: 1, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 10, 10), c("n1", 19, 0)}, capped: 1,
 		},
 		{
 			name: "blocked drive with no spare is lowered",
@@ -253,7 +244,7 @@ func TestPlanDaemonset(t *testing.T) {
 				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(6, 6)}, map[string]*weka.WekaContainer{"n1": ctr(0, 12)}),
 				cons:  cons,
 			},
-			want: []dsWant{d("n1", 5, 6), c("n1", 12, 0)}, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 5, 6), c("n1", 12, 0)},
 		},
 		{
 			name: "drives taken before the claim lower the container, never below 1",
@@ -262,7 +253,7 @@ func TestPlanDaemonset(t *testing.T) {
 				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(8, 8)}, map[string]*weka.WekaContainer{"n1": ctr(0, 16)}),
 				cons:  cons,
 			},
-			want: []dsWant{d("n1", 1, 8), c("n1", 16, 0)}, statusD: 1, statC: 1,
+			want:   []dsWant{d("n1", 1, 8), c("n1", 16, 0)},
 			noFree: []string{"n1 (8 signed, 8 held by other containers; container waits for a free drive)"},
 		},
 		{
@@ -273,7 +264,7 @@ func TestPlanDaemonset(t *testing.T) {
 				numDrivesPin: 4,
 				cons:         cons,
 			},
-			want: []dsWant{d("n1", 8, 8), c("n1", 16, 0)}, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 8, 8), c("n1", 16, 0)},
 		},
 		{
 			name: "drives freed by another cluster are taken",
@@ -282,7 +273,7 @@ func TestPlanDaemonset(t *testing.T) {
 				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(3, 3)}, map[string]*weka.WekaContainer{"n1": ctr(0, 6)}),
 				cons:  cons,
 			},
-			want: []dsWant{d("n1", 8, 8), c("n1", 16, hp(8000, 1, 16))}, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 8, 8), c("n1", 16, hp(8000, 1, 16))},
 		},
 		{
 			name: "node not listed keeps the container as is",
@@ -291,7 +282,7 @@ func TestPlanDaemonset(t *testing.T) {
 				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(3, 3)}, map[string]*weka.WekaContainer{"n1": ctr(0, 6)}),
 				cons:  cons,
 			},
-			want: []dsWant{d("n1", 3, 3), c("n1", 6, hp(3000, 1, 6))}, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 3, 3), c("n1", 6, hp(3000, 1, 6))},
 		},
 		{
 			name: "existing cores are never lowered",
@@ -301,7 +292,7 @@ func TestPlanDaemonset(t *testing.T) {
 				cons:  cons,
 			},
 			// wants 16 compute cores, but the existing 30 already covers it: no cap warning
-			want: []dsWant{d("n1", 8, 10), c("n1", 30, 0)}, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 8, 10), c("n1", 30, 0)},
 		},
 		{
 			name: "cap is reported when the existing container stays below what was wanted",
@@ -310,7 +301,7 @@ func TestPlanDaemonset(t *testing.T) {
 				live:  liveOf(map[string]*weka.WekaContainer{"n1": ctr(8, 10)}, map[string]*weka.WekaContainer{"n1": ctr(0, 10)}),
 				cons:  cons,
 			},
-			want: []dsWant{d("n1", 8, 10), c("n1", 19, 0)}, capped: 1, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 8, 10), c("n1", 19, 0)}, capped: 1,
 		},
 		{
 			name: "numDrives pin below an existing container's drives reports nothing unused",
@@ -320,13 +311,13 @@ func TestPlanDaemonset(t *testing.T) {
 				numDrivesPin: 4,
 				cons:         cons,
 			},
-			want: []dsWant{d("n1", 6, 6), c("n1", 12, hp(6000, 1, 12))}, statusD: 1, statC: 1,
+			want: []dsWant{d("n1", 6, 6), c("n1", 12, hp(6000, 1, 12))},
 		},
 		{
-			name:    "s3 node gets an s3",
-			in:      daemonsetInput{nodes: map[string]dsNode{"n1": s3Node(shared(4))}, s3: true, cons: cons},
-			want:    []dsWant{d("n1", 4, 4), c("n1", 8, hp(4000, 1, 8)), s3("n1")},
-			statusD: 1, statC: 1, statS3: 1,
+			name:   "s3 node gets an s3",
+			in:     daemonsetInput{nodes: map[string]dsNode{"n1": s3Node(shared(4))}, s3: true, cons: cons},
+			want:   []dsWant{d("n1", 4, 4), c("n1", 8, hp(4000, 1, 8)), s3("n1")},
+			statS3: 1,
 		},
 		{
 			name:   "s3-only node still gets s3",
@@ -379,8 +370,8 @@ func TestPlanDaemonset(t *testing.T) {
 			if len(p.capped) != tc.capped {
 				t.Errorf("capped = %v, want %d entries", p.capped, tc.capped)
 			}
-			if p.statusDesiredDrive != tc.statusD || p.statusDesiredCompute != tc.statC || p.statusDesiredS3 != tc.statS3 {
-				t.Errorf("status desired = %d/%d/%d, want %d/%d/%d", p.statusDesiredDrive, p.statusDesiredCompute, p.statusDesiredS3, tc.statusD, tc.statC, tc.statS3)
+			if p.statusDesiredS3 != tc.statS3 {
+				t.Errorf("s3 status desired = %d, want %d", p.statusDesiredS3, tc.statS3)
 			}
 		})
 	}
@@ -684,7 +675,7 @@ func TestBuildMissingContainersDaemonsetFailedRaiseDoesNotBlockCreation(t *testi
 }
 
 func TestBuildMissingContainersDaemonsetWritesStatusDesired(t *testing.T) {
-	loop := dsGlueLoop(t, map[string]int{"n1": 4, "n2": 2}, true)
+	loop := dsGlueLoop(t, map[string]int{"n1": 4, "n2": 2, "n3": 0}, true)
 	if _, err := loop.BuildMissingContainers(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -929,6 +920,9 @@ func TestBuildDaemonsetContainersNoFreeDrivesEmitsEvent(t *testing.T) {
 	}
 	if evs := eventsMatching(drainLoopEvents(t, loop), "AutoFullDrivesNoFreeDrives"); len(evs) != 1 || !strings.Contains(evs[0], "n1 (2 signed, 2 held by other containers)") {
 		t.Errorf("want one NoFreeDrives event naming n1, got %v", evs)
+	}
+	if st := loop.cluster.Status.Stats; st == nil || st.Containers.Drive.Containers.Desired != 0 || st.Containers.Compute.Containers.Desired != 0 {
+		t.Errorf("desired drive/compute containers = %+v, want 0/0", st)
 	}
 }
 
