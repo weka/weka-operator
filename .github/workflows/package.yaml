@@ -112,6 +112,31 @@ jobs:
         env:
           VERSION: ${{ env.VERSION }}
         run: ./build-release.sh
+      # semantic-release pushes the tag before its channel note, and resolves a tag's channel
+      # from that note. A tag left without one is invisible on a prerelease branch, so every
+      # later run recomputes the same version and dies on "tag already exists".
+      - name: Drop half-released tag
+        if: ${{ env.VERSION != '' && github.event_name != 'workflow_dispatch' }}
+        env:
+          VERSION: ${{ env.VERSION }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          # `ls-remote --exit-code` exits 2 for "no such ref" and 128 for a transport error.
+          # A failed read must not pass as "missing": on the note lookup that would delete a
+          # correctly released tag and detach its GitHub release.
+          exists() {
+            git ls-remote --exit-code origin "$1" >/dev/null && return 0
+            local status=$?
+            [ "$status" -eq 2 ] && return 1
+            echo "::warning::could not read $1 from origin (exit $status); skipping the half-released tag check"
+            exit 0
+          }
+          if exists "refs/tags/$tag" && ! exists "refs/notes/semantic-release-$tag"; then
+            echo "::warning::$tag has no semantic-release note; deleting it to recreate the release"
+            git push origin ":refs/tags/$tag"
+            git tag -d "$tag" 2>/dev/null || true
+          fi
       - name: Create release
         if: ${{ env.VERSION != '' && github.event_name != 'workflow_dispatch' }}
         env:
