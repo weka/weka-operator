@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
@@ -153,15 +155,29 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 		RunPrivileged: true,
 	}
 
+	details := *container.ToOwnerDetails()
+	details.Tolerations = cleanupJobTolerations(container, r.scheduling)
+
 	op := operations.NewCleanupPersistentDirOperation(
 		r.Manager,
 		&payload,
 		container,
-		*container.ToOwnerDetails(),
+		details,
 		container.Spec.NodeSelector,
 	)
 
 	return operations.ExecuteOperation(ctx, op)
+}
+
+// cleanupJobTolerations are the tolerations of the cleanup job, which runs on the container's node. Under
+// clientsTolerateAll it must tolerate what the container's pod tolerated there, or a NoExecute taint evicts it
+// until its backoff limit and the container's deletion never completes.
+func cleanupJobTolerations(container *weka.WekaContainer, scheduling services.SchedulingSettings) []v1.Toleration {
+	if !resources.ToleratesAll(container, scheduling) {
+		return slices.Clone(container.Spec.Tolerations)
+	}
+	// first: Kubernetes applies the first toleration matching a NoExecute taint, so a user's finite tolerationSeconds must not win
+	return append([]v1.Toleration{{Operator: v1.TolerationOpExists}}, container.Spec.Tolerations...)
 }
 
 func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Context, pod *v1.Pod, skipExec bool) error {
