@@ -456,11 +456,20 @@ type Drive struct {
 }
 
 type WekaContainerMetrics struct {
-	Processes    EntityStatefulNum `json:"processes,omitempty"`
-	CpuUsage     FloatMetric       `json:"cpuUtilization,omitempty"`
-	Drives       DriveMetrics      `json:"drives,omitempty"`
-	ActiveMounts IntMetric         `json:"activeMounts,omitempty"`
-	LastUpdate   metav1.Time       `json:"lastUpdate,omitempty"`
+	Processes EntityStatefulNum `json:"processes,omitempty"`
+	// ProcessesPulledAt is when the node-agent last read the process counts from the container. Zero when
+	// the node-agent does not report it.
+	ProcessesPulledAt metav1.Time `json:"processesPulledAt,omitempty"`
+	// BootID is the boot id of the node the node-agent sampled these stats on. Empty when the node-agent does
+	// not report it.
+	BootID string `json:"bootID,omitempty"`
+	// DriverFrontends counts the client's driver frontends connected (active) and all of them (created).
+	// Created is 0 when the node-agent could not tell.
+	DriverFrontends EntityStatefulNum `json:"driverFrontends,omitempty"`
+	CpuUsage        FloatMetric       `json:"cpuUtilization,omitempty"`
+	Drives          DriveMetrics      `json:"drives,omitempty"`
+	ActiveMounts    IntMetric         `json:"activeMounts,omitempty"`
+	LastUpdate      metav1.Time       `json:"lastUpdate,omitempty"`
 }
 
 type ContainerPrinterColumns struct {

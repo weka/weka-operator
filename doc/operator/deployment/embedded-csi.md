@@ -99,14 +99,76 @@ For each client WekaContainer, the container reconciler:
 2. Manages CSI topology labels on the node to control volume scheduling
 3. Updates labels based on container health and mount state
 
-The `topology.<csi-driver>/accessible` label is set only while the container is `Running` (when
-`CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING` is on) and the wekafs driver on the node has a connected
-frontend for it: node-agent's `/getActiveMounts` reports `frontend_connected` from the
-`Container=<name> FE <n>: ...` lines of the global `/proc/wekafs/interface`, checked on every reconcile; at least one
-such line must exist and every one must read `Connected frontend`. With no `/proc/wekafs/interface` (driver not
-loaded) the label is removed. A NotReady node never has the label. When node-agent is unreachable, does not report
-the field (older node-agent, or the global file unreadable) or the `skipActiveMountsCheck` override is set, the
-container must be `Running` with `weka local ps` status `READY` instead, whatever the flag says.
+The `topology.<csi-driver>/accessible` label is evaluated for every client container on each reconcile. The
+first matching row decides:
+
+| # | Signal | Result |
+|---|--------|--------|
+| 0 | The node's `weka.io/drivers-loaded` boot ID is missing or differs from the node's boot ID | remove |
+| 1 | Node NotReady, or this client's own pod is missing, terminating or not `Running` | remove |
+| 2 | The CSI node pod of this WekaClient is missing on the node or not `Ready` | remove |
+| 3 | The WekaContainer status says WEKA reports the container not serving: `status.internalStatus` (written only from a `weka local ps` reply) is set and not `READY`, or (only when `CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING` is on) `status.status` is not `Running` | remove |
+| 4 | Usable stats report processes or driver frontends not all connected | remove |
+| 5 | Usable stats report all processes active and all driver frontends connected | set, no node-agent call |
+| 6 | No usable stats (stale, disabled, from another boot, or from before the node last became Ready): node-agent `/getActiveMounts` reports `frontend_connected` | set |
+| 7 | node-agent reports the frontend not connected, or no driver interface | remove |
+| 8 | node-agent unreachable or unable to tell, for less than `unknownTimeout` since the first failure | keep the current label, never add it |
+| 9 | Unknown for at least `unknownTimeout`, and at least `systemicFailureThreshold` percent of the WekaClient's nodes evaluated in the last 2 × `unknownTimeout` are unknown, whatever their streak length (at least 3 such nodes; fewer are never systemic) | keep the current label: the operator, its network or the Kubernetes API is the likely culprit |
+| 10 | Unknown for at least `unknownTimeout`, below the threshold | remove |
+
+Notes:
+
+- Stats are usable only when they are younger than `statsFreshness`, were sampled under the node's current boot (the node-agent stamps them with the
+  node boot ID, `bootID`) and are newer than the node's last Ready transition. Stats from before a reboot or outage
+  are ignored; a node-agent that does not report `bootID` is treated the same way.
+- The process counts in stats are trusted only if the node-agent pulled them from the container within
+  `statsFreshness` and after the node's last Ready transition (`processesPulledAt`). An older pull, or a node-agent
+  that does not report it, makes them unknown, so usable stats then neither set nor remove on them and the
+  node-agent check decides. The driver frontend
+  counts are read live and are not gated.
+- Stats are an optimisation: with container metrics disabled the label is decided by rows 0-3 and 6-10.
+- Driver frontend state is counted per WEKA client container. The node-agent reads the global
+  `/proc/wekafs/interface` and counts only the `Container=<that container's WEKA name> FE <n>: ...` lines, so several
+  WekaClients on one node (for example from different clusters) are judged independently. A container is connected
+  when it has at least one such line and every one reads `Connected frontend`. A container with no frontend lines is
+  "unknown" in stats and "not connected" from the node-agent's `/getActiveMounts`. Stats from a node-agent that does
+  not send the driver frontend count are treated as unknown for that part and row 6 applies.
+- Row 3 reads the WekaContainer status. `status.internalStatus` changes only on a real `weka local ps` reply, so a
+  failed attempt (timeout, Kubernetes API error, refused exec) leaves it as it was. `status.status` of `Error` is
+  written by the operator when a step fails and never by WEKA, and `Unknown` means WEKA cannot read its own state;
+  neither removes the label by itself, and the evaluation falls through to the stats and node-agent rows. Any other
+  status (`Stopped`, `Starting`, `Unhealthy`, `PodNotRunning`, ...) removes it.
+- Healthy nodes count in row 9 only if they were reconciled within 2 × `unknownTimeout`, so raising the requeue
+  interval past that weakens the systemic check.
+- Row 9 compares two counts kept in the failure tracker, one entry per node of the WekaClient: nodes whose latest
+  evaluation was unknown, and all nodes evaluated (set or unknown). A node decided by a reliable signal (rows 0-3, or
+  the node-agent reporting the frontend not connected) is dropped from the tracker, so excluded nodes never make a
+  failure look systemic. Containers without a WekaClient are never correlated.
+- The CSI node pod is looked up through the DaemonSet's `app` label from the operator's own pod cache (the same
+  watch the container controller already runs), so it makes no API call and adds no staleness. A missing pod, a pod
+  that is not `Ready`, or one that is terminating is unhealthy; a failed lookup is no signal.
+- The failure tracker (rows 8-10) is kept in memory. An operator restart only delays a removal. A node's streak start
+  lasts until something proves it healthy (a success, a reliable signal, or the container's cleanup), however far apart
+  its evaluations are, so a node that was unknown long ago is past the timeout at once when it fails again.
+- During an upgrade, until the node-agents run the new version their stats carry no `bootID`, so every evaluation
+  asks the node-agent over HTTP instead of using stats. That is correct, and only adds node-agent traffic until the
+  rollout finishes.
+- The mount count is best effort when publishing stats: if it cannot be read, the sample (process and frontend
+  counts) is still published and stamped, the previous mount count is kept, and the error is reported.
+- When driver loading finds the boot ID changed, it also removes every `topology.*.weka.io/accessible` label on the
+  node (all CSI groups) before it continues. An image change alone does not.
+- A CSI node pod that is terminating counts as not ready.
+- The operator never deletes CSI node pods. The only exception is the upgrade cleanup of pre-DaemonSet pods, which
+  never touches DaemonSet pods.
+
+The thresholds are set in the configuration WekaPolicy under `csi`:
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `statsFreshness` | `2m` (minimum `30s`) | Age up to which container stats decide the label |
+| `unknownTimeout` | `5m` (minimum `30s`) | How long an unreachable node keeps its label as it is |
+| `systemicFailureThreshold` | `80` (1-100) | Percentage of failing nodes at which failures count as systemic |
+
 Failed stats polls on stale stats emit a throttled `StatusMetricsFailed` warning event on the WekaContainer.
 
 ## Node Selection and Resource Inheritance

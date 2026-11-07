@@ -48,6 +48,7 @@ Container states and their flow files:
 ## CSI Integration
 
 - `csi_steps.go` - CSI lifecycle steps within container
+- `csi_accessible.go` - accessible label decision, failure tracker, CSI node pod cache
 - Coordinates with `operations/csi/` for actual CSI resources
 
 ## Metrics

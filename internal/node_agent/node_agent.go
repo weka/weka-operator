@@ -45,6 +45,8 @@ type NodeAgent struct {
 	token          string
 	lastTokenPull  time.Time
 	jsonrpcService *WekaJSONRPCService
+	// bootID is the node's boot id, read once: it cannot change while this process lives.
+	bootID string
 
 	// metricsCache caches the /metrics response to avoid redundant JRPC calls
 	metricsCacheMu    sync.Mutex
@@ -147,6 +149,7 @@ type LocalConfigStateResponse struct {
 func NewNodeAgent(logger logr.Logger) *NodeAgent {
 	return &NodeAgent{
 		logger: logger,
+		bootID: readBootID(logger),
 		containersData: containersData{
 			lock: sync.RWMutex{},
 			data: make(map[string]*ContainerInfo),
@@ -1097,6 +1100,16 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 		Active:  weka.IntMetric(int64(container.containerState.ProcessesSummary.Total.Up)),
 		Created: weka.IntMetric(int64(container.containerState.ProcessesSummary.Total.Total)),
 	}
+	response.ContainerMetrics.ProcessesPulledAt = metav1.NewTime(container.containerStateLastPull)
+	response.ContainerMetrics.BootID = a.bootID
+	if container.mode == weka.WekaContainerModeClient {
+		if _, connected, total, err := readDriverInterface(driverInterfacePath, container.wekaContainerName); err == nil {
+			response.ContainerMetrics.DriverFrontends = weka.EntityStatefulNum{
+				Active:  weka.IntMetric(int64(connected)),
+				Created: weka.IntMetric(int64(total)),
+			}
+		}
+	}
 
 	cpuUsage := weka.FloatMetric("")
 	response.ContainerMetrics.CpuUsage = cpuUsage
@@ -1133,6 +1146,17 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // error return value intentionally not checked
+}
+
+// readBootID returns the node's boot id, which is the value kubelet reports as status.nodeInfo.bootID; it is
+// empty when it cannot be read.
+func readBootID(logger logr.Logger) string {
+	raw, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		logger.Error(err, "Failed to read the node boot id, stats will not carry it")
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
@@ -1208,24 +1232,24 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 // globalPath; the per-container interface file has no frontend line, only the global one does.
 func readActiveMounts(perContainerPath, globalPath, containerName string) (ActiveMountsResponse, error) {
 	if perContainerPath == "" {
-		activeMounts, frontendConnected, err := readDriverInterface(globalPath, containerName)
+		activeMounts, connected, total, err := readDriverInterface(globalPath, containerName)
 		if err != nil {
 			return ActiveMountsResponse{}, err
 		}
 		response := ActiveMountsResponse{ActiveMounts: activeMounts}
 		if containerName != "" {
-			response.FrontendConnected = &frontendConnected
+			response.FrontendConnected = boolPtr(allFrontendsConnected(connected, total))
 		}
 		return response, nil
 	}
 
-	activeMounts, _, err := readDriverInterface(perContainerPath, containerName)
+	activeMounts, _, _, err := readDriverInterface(perContainerPath, containerName)
 	if err != nil && !os.IsNotExist(err) {
 		return ActiveMountsResponse{}, err
 	}
 	perContainerMissing := err != nil
 
-	_, frontendConnected, err := readDriverInterface(globalPath, containerName)
+	_, connected, total, err := readDriverInterface(globalPath, containerName)
 	if err != nil {
 		if perContainerMissing {
 			return ActiveMountsResponse{}, err
@@ -1233,7 +1257,7 @@ func readActiveMounts(perContainerPath, globalPath, containerName string) (Activ
 		// activeMounts still gates deletion/drain; only the frontend state is unknown
 		return ActiveMountsResponse{ActiveMounts: activeMounts}, nil
 	}
-	return ActiveMountsResponse{ActiveMounts: activeMounts, FrontendConnected: &frontendConnected}, nil
+	return ActiveMountsResponse{ActiveMounts: activeMounts, FrontendConnected: boolPtr(allFrontendsConnected(connected, total))}, nil
 }
 
 const driverInterfacePath = "/proc/wekafs/interface"
@@ -1243,38 +1267,45 @@ type ActiveMountsResponse struct {
 	FrontendConnected *bool `json:"frontend_connected,omitempty"`
 }
 
-func readDriverInterface(filePath, containerName string) (activeMounts int, frontendConnected bool, err error) {
+func boolPtr(b bool) *bool { return &b }
+
+// allFrontendsConnected needs at least one frontend and every one connected.
+func allFrontendsConnected(connected, total int) bool {
+	return total > 0 && connected == total
+}
+
+func readDriverInterface(filePath, containerName string) (activeMounts, connected, total int, err error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return 0, false, err
+		return 0, 0, 0, err
 	}
 	defer file.Close() //nolint:errcheck // error return value intentionally not checked
 	return parseDriverInterface(file, containerName)
 }
 
-// parseDriverInterface reads "Active mounts: N" and whether every "Container=<containerName> FE <n>: ..."
-// line (at least one) reports "Connected frontend pid <pid>".
-func parseDriverInterface(r io.Reader, containerName string) (activeMounts int, frontendConnected bool, err error) {
+// parseDriverInterface reads "Active mounts: N" and counts the "Container=<containerName> FE <n>: ..." lines,
+// and how many of them report "Connected frontend pid <pid>".
+func parseDriverInterface(r io.Reader, containerName string) (activeMounts, connected, total int, err error) {
 	containerPrefix := "Container=" + containerName + " "
-	feLines := 0
-	allConnected := true
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "Active mounts:") {
 			if _, err := fmt.Sscanf(line, "Active mounts: %d", &activeMounts); err != nil {
-				return 0, false, fmt.Errorf("failed to parse active mounts: %w", err)
+				return 0, 0, 0, fmt.Errorf("failed to parse active mounts: %w", err)
 			}
 		}
 		if strings.HasPrefix(line, containerPrefix) {
-			feLines++
-			allConnected = allConnected && strings.Contains(line, "Connected frontend")
+			total++
+			if strings.Contains(line, "Connected frontend") {
+				connected++
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return 0, false, fmt.Errorf("failed to scan file: %w", err)
+		return 0, 0, 0, fmt.Errorf("failed to scan file: %w", err)
 	}
-	return activeMounts, feLines > 0 && allConnected, nil
+	return activeMounts, connected, total, nil
 }
 
 func (a *NodeAgent) findDrivesHandler(w http.ResponseWriter, r *http.Request) {

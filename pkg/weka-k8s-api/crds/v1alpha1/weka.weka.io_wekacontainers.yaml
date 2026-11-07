@@ -2220,8 +2220,28 @@ spec:
                   activeMounts:
                     format: int64
                     type: integer
+                  bootID:
+                    description: |-
+                      BootID is the boot id of the node the node-agent sampled these stats on. Empty when the node-agent does
+                      not report it.
+                    type: string
                   cpuUtilization:
                     type: string
+                  driverFrontends:
+                    description: |-
+                      DriverFrontends counts the client's driver frontends connected (active) and all of them (created).
+                      Created is 0 when the node-agent could not tell.
+                    properties:
+                      active:
+                        format: int64
+                        type: integer
+                      created:
+                        format: int64
+                        type: integer
+                      desired:
+                        format: int64
+                        type: integer
+                    type: object
                   drives:
                     properties:
                       counters:
@@ -2261,6 +2281,12 @@ spec:
                         format: int64
                         type: integer
                     type: object
+                  processesPulledAt:
+                    description: |-
+                      ProcessesPulledAt is when the node-agent last read the process counts from the container. Zero when
+                      the node-agent does not report it.
+                    format: date-time
+                    type: string
                 type: object
               status:
                 default: Init
