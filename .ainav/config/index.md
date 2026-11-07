@@ -15,15 +15,10 @@ Use this map for operator settings, deployment templates and CRD definitions.
 ## Focused routes
 
 - Capacity constraints: `CapacityPlannerConfig` is shared by both planners; `ClusterCapacityConfig` applies to clusterCapacity. `allocator.CapacityConstraintsFromConfig` wires them to the planner. See the [Helm constraints table](../../doc/operator/deployment/cluster-capacity.md) and [planner map](../controllers/wekacluster-drive-planning.md). `capacityPlannerConstraints` configures the algorithm; `capacityPlanner` configures the optional toolbox pod.
-- Pod security: `internal/controllers/resources/security_context.go` (`ApplySecurityProfile`, `mergePodSecurityContext`) applies `WEKA_POD_SECURITY_CONTEXT` / Helm `podSecurityContext`. Only supported fields are merged; inspect the helper before adding a field.
+- Pod security: `resources/security_context.go` (`ApplySecurityProfile`, `mergePodSecurityContext`) applies `WEKA_POD_SECURITY_CONTEXT` / Helm `podSecurityContext`; only supported fields merge.
 - Management proxy: [management-proxy.md](../controllers/management-proxy.md).
-- Generated API reference: `doc/api_dump/` (do not edit); shared conditions live in `pkg/weka-k8s-api/api/v1alpha1/condition/conditions.go`.
-- Extra volumes: `manager.extraVolumes`/`extraVolumeMounts` (Helm) add volumes to the operator's
-  own pod; the `tmpdir` volume and `/tmp` mount are reserved and rejected via Helm `fail`.
-  WekaCluster (`spec.podConfig`), WekaClient (`spec`) and WekaContainer (`spec`, propagated only,
-  not admission-validated) carry their own `extraVolumes`/`extraVolumeMounts` — e.g. a CA bundle.
-  See [extra-volumes.md](../../doc/operator/deployment/extra-volumes.md).
-
+- Generated API reference: `doc/api_dump/` (do not edit); shared conditions: `api/v1alpha1/condition/conditions.go`.
+- Extra volumes: Helm `manager.extraVolumes`/`extraVolumeMounts` for the operator pod (`tmpdir` / `/tmp` reserved); WekaCluster `spec.podConfig`, WekaClient and WekaContainer `spec` carry their own. See [extra-volumes.md](../../doc/operator/deployment/extra-volumes.md).
 - Removed-node backend cleanup: `CLEANUP_REMOVED_NODES` / Helm `cleanupRemovedNodes`, tri-state `false`/`true`/`auto` (default `auto`), grace-period logic in `wekacontainer/funcs_handle_node_statuses.go`. See [helm-install.md](../../doc/operator/deployment/helm-install.md).
 - Node-agent DaemonSet: built by `internal/node_agent/daemonset.go` from `NodeAgentSettings` (`internal/services/configuration_settings.go`); see [node-agent.md](../../doc/operator/deployment/node-agent.md).
 

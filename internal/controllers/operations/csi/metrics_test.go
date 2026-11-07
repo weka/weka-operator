@@ -65,7 +65,7 @@ func TestNewCsiControllerDeployment_MetricsDisabledIncludingSidecars(t *testing.
 	settings := services.DefaultConfigurationSettings().Csi
 	settings.MetricsEnabled = false
 
-	deployment, err := NewCsiControllerDeployment(t.Context(), "csi", testWekaClient(nil), settings)
+	deployment, err := NewCsiControllerDeployment(t.Context(), "csi", testWekaClient(nil), settings, services.SchedulingSettings{})
 	if err != nil {
 		t.Fatalf("NewCsiControllerDeployment: %v", err)
 	}
@@ -92,14 +92,14 @@ func TestNewCsiControllerDeployment_MetricsDisabledIncludingSidecars(t *testing.
 func TestGetCsiControllerDeploymentHash_ChangesWithMetrics(t *testing.T) {
 	client := testWekaClient(nil)
 
-	enabled, err := GetCsiControllerDeploymentHash("csi", client, services.DefaultConfigurationSettings().Csi)
+	enabled, err := GetCsiControllerDeploymentHash("csi", client, services.DefaultConfigurationSettings().Csi, services.SchedulingSettings{})
 	if err != nil {
 		t.Fatalf("hash with metrics enabled: %v", err)
 	}
 
 	settings := services.DefaultConfigurationSettings().Csi
 	settings.MetricsEnabled = false
-	disabled, err := GetCsiControllerDeploymentHash("csi", client, settings)
+	disabled, err := GetCsiControllerDeploymentHash("csi", client, settings, services.SchedulingSettings{})
 	if err != nil {
 		t.Fatalf("hash with metrics disabled: %v", err)
 	}

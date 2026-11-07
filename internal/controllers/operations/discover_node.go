@@ -104,7 +104,7 @@ func (o *DiscoverNodeOperation) GetNode(ctx context.Context) error {
 	if annotation, ok := node.Annotations[discovery.DiscoveryAnnotation]; ok {
 		discoveryNodeInfo := &discovery.DiscoveryNodeInfo{}
 		err = json.Unmarshal([]byte(annotation), discoveryNodeInfo)
-		if err == nil && discoveryNodeInfo.BootID == node.Status.NodeInfo.BootID && discoveryNodeInfo.Schema >= discovery.DiscoveryTargetSchema {
+		if err == nil && discoveryNodeInfo.IsCurrentFor(node) {
 			o.result = discoveryNodeInfo
 			enrichErr := o.Enrich(ctx)
 			if enrichErr != nil {

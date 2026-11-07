@@ -70,6 +70,7 @@ type containerReconcilerLoop struct {
 	pod              *v1.Pod
 	nodeAffinityLock LockMap
 	node             *v1.Node
+	pickedNode       *v1.Node
 	wekaClient       *weka.WekaClient
 	targetCluster    *weka.WekaCluster
 	MetricsService   kubernetes.KubeMetricsService

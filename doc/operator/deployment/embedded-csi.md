@@ -52,6 +52,19 @@ To disable StorageClass creation, set `csi.storageClassCreationDisabled: true` i
 The CSI controller deployment is created by default.
 To disable the CSI controller deployment, set in the WekaClient `spec.csiConfig.disableControllerCreation: true`.
 
+### Controller placement and NotReady nodes
+
+The controller (2 replicas) runs on nodes matching the WekaClient's `nodeSelector`. It leaves a node that goes
+NotReady or unreachable after 10 seconds, because it always carries `not-ready` / `unreachable` NoExecute
+tolerations with `tolerationSeconds: 10`; the Deployment starts a replacement elsewhere.
+
+With `scheduling.clientsTolerateAll` the controller also tolerates every taint (`operator: Exists`), and a required
+`weka.io/not-ready DoesNotExist` node requirement keeps it off nodes the operator's Node controller labelled NotReady
+(see [Tolerations: NotReady nodes](tolerations.md#notready-nodes-and-cluster-unique-pods)).
+
+To run the controller on other nodes than the clients, for example when two WekaClients with different
+`nodeSelector`s share one CSI group, set `disableControllerCreation: true` on one of them.
+
 ## Additional Configuration:
 - Operator Values Configuration Options
   - csi plugin namespace: `csi.namespace`
@@ -96,7 +109,7 @@ Failed stats polls on stale stats emit a throttled `StatusMetricsFailed` warning
 ## Node Selection and Resource Inheritance
 
 - **CSI Driver and StorageClass**: Global resources, not tied to specific nodes
-- **CSI Controller**: Inherits NodeSelector and Tolerations from the WekaClient
+- **CSI Controller**: Inherits NodeSelector and Tolerations from the WekaClient, plus the placement rules above
 - **CSI Node DaemonSet**:
   - Runs on all nodes where WekaClient pods would run
   - Inherits NodeSelector and Tolerations from the parent WekaClient

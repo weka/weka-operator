@@ -49,7 +49,7 @@ func TestUseNfs_RendersUseNfsFlagAndHostNetwork(t *testing.T) {
 		wc   *weka.WekaClient
 		want bool
 	}{{"useNfs", nfs, true}, {"native", native, false}} {
-		dep, err := NewCsiControllerDeployment(t.Context(), "csi", tc.wc, settings)
+		dep, err := NewCsiControllerDeployment(t.Context(), "csi", tc.wc, settings, services.SchedulingSettings{})
 		if err != nil {
 			t.Fatalf("NewCsiControllerDeployment: %v", err)
 		}
@@ -82,7 +82,7 @@ func TestUseNfs_OmitsWekafsContainerNameFlagAndEnv(t *testing.T) {
 	settings := services.DefaultConfigurationSettings().Csi
 	wc := nfsWekaClient()
 
-	dep, err := NewCsiControllerDeployment(t.Context(), "csi", wc, settings)
+	dep, err := NewCsiControllerDeployment(t.Context(), "csi", wc, settings, services.SchedulingSettings{})
 	if err != nil {
 		t.Fatalf("NewCsiControllerDeployment: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestEmbeddedPath_RendersWekafsContainerNameAndEnvTogether(t *testing.T) {
 	settings := services.DefaultConfigurationSettings().Csi
 	wc := testWekaClient(nil)
 
-	dep, err := NewCsiControllerDeployment(t.Context(), "csi", wc, settings)
+	dep, err := NewCsiControllerDeployment(t.Context(), "csi", wc, settings, services.SchedulingSettings{})
 	if err != nil {
 		t.Fatalf("NewCsiControllerDeployment: %v", err)
 	}
@@ -192,11 +192,11 @@ func TestUseNfsFlagChangesHash(t *testing.T) {
 		t.Error("useNfs did not reach the pod-template hash: the DaemonSet would keep its old args")
 	}
 
-	ca, err := GetCsiControllerDeploymentHash("csi", testWekaClient(nil), settings)
+	ca, err := GetCsiControllerDeploymentHash("csi", testWekaClient(nil), settings, services.SchedulingSettings{})
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
-	cb, err := GetCsiControllerDeploymentHash("csi", nfsWekaClient(), settings)
+	cb, err := GetCsiControllerDeploymentHash("csi", nfsWekaClient(), settings, services.SchedulingSettings{})
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
@@ -226,11 +226,11 @@ func TestUseNfsFalse_HashUnchanged(t *testing.T) {
 		t.Error("UseNfs=false must hash identically to UseNfs unset")
 	}
 
-	ca, err := GetCsiControllerDeploymentHash("csi", plain, settings)
+	ca, err := GetCsiControllerDeploymentHash("csi", plain, settings, services.SchedulingSettings{})
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
-	cb, err := GetCsiControllerDeploymentHash("csi", explicitFalse, settings)
+	cb, err := GetCsiControllerDeploymentHash("csi", explicitFalse, settings, services.SchedulingSettings{})
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestUseNfsFalse_HashUnchanged(t *testing.T) {
 // Under UseNfs the controller runs on hostNetwork, so two replicas on one node would collide on
 // the same healthz/metrics host ports. Anti-affinity must keep them apart.
 func TestControllerAntiAffinity_UseNfsAddsRequiredTerm(t *testing.T) {
-	dep, err := NewCsiControllerDeployment(t.Context(), "csi", nfsWekaClient(), services.DefaultConfigurationSettings().Csi)
+	dep, err := NewCsiControllerDeployment(t.Context(), "csi", nfsWekaClient(), services.DefaultConfigurationSettings().Csi, services.SchedulingSettings{})
 	if err != nil {
 		t.Fatalf("NewCsiControllerDeployment: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestControllerAntiAffinity_UseNfsAddsRequiredTerm(t *testing.T) {
 
 // Without UseNfs the rendered spec must be unchanged: no affinity at all.
 func TestControllerAntiAffinity_AbsentWithoutUseNfs(t *testing.T) {
-	dep, err := NewCsiControllerDeployment(t.Context(), "csi", testWekaClient(nil), services.DefaultConfigurationSettings().Csi)
+	dep, err := NewCsiControllerDeployment(t.Context(), "csi", testWekaClient(nil), services.DefaultConfigurationSettings().Csi, services.SchedulingSettings{})
 	if err != nil {
 		t.Fatalf("NewCsiControllerDeployment: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestManageNfsPermissions_FlagRendering(t *testing.T) {
 		{"native default", testWekaClient(nil), off, ""},
 		{"native enabled", testWekaClient(nil), on, ""},
 	} {
-		dep, err := NewCsiControllerDeployment(t.Context(), "csi", tc.wc, tc.settings)
+		dep, err := NewCsiControllerDeployment(t.Context(), "csi", tc.wc, tc.settings, services.SchedulingSettings{})
 		if err != nil {
 			t.Fatalf("NewCsiControllerDeployment: %v", err)
 		}
@@ -336,7 +336,7 @@ func TestManageNfsPermissions_Hash(t *testing.T) {
 		if err != nil {
 			t.Fatalf("hash: %v", err)
 		}
-		ctrl, err := GetCsiControllerDeploymentHash("csi", wc, s)
+		ctrl, err := GetCsiControllerDeploymentHash("csi", wc, s, services.SchedulingSettings{})
 		if err != nil {
 			t.Fatalf("hash: %v", err)
 		}

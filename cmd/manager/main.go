@@ -59,6 +59,7 @@ import (
 	"github.com/weka/weka-operator/internal/admission"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers"
+	"github.com/weka/weka-operator/internal/controllers/node"
 	"github.com/weka/weka-operator/internal/controllers/wekaclient"
 	"github.com/weka/weka-operator/internal/controllers/wekacluster"
 	"github.com/weka/weka-operator/internal/controllers/wekacontainer"
@@ -337,6 +338,7 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		wekacluster.NewWekaClusterController(mgr, restClient),
 		controllers.NewWekaPolicyController(mgr, restClient),
 		controllers.NewWekaManualOperationController(mgr, restClient),
+		node.NewNodeController(mgr),
 	}
 
 	setupContextMiddleware := func(next WekaReconciler) reconcile.Reconciler {

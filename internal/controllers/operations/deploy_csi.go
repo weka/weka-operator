@@ -240,7 +240,7 @@ func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "deployCsiController")
 	defer logger.End()
 
-	deploymentSpec, err := csi.NewCsiControllerDeployment(ctx, o.csiGroupName, o.wekaClient, o.settings)
+	deploymentSpec, err := csi.NewCsiControllerDeployment(ctx, o.csiGroupName, o.wekaClient, o.settings, services.GetSettings(ctx).Scheduling)
 	if err != nil {
 		return err
 	}
