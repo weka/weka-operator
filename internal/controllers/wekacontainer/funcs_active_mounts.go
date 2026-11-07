@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/pkg/errors"
@@ -18,11 +19,15 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-// GetActiveMounts returns the number of active mounts for this container.
-// Results are cached for the duration of the reconciliation loop.
+// GetActiveMounts returns the number of active mounts for this container and records in
+// r.frontendConnected whether the driver reports a connected frontend for it (nil when unknown).
+// Results, including failures, are cached for the duration of the reconciliation loop.
 func (r *containerReconcilerLoop) GetActiveMounts(ctx context.Context) (*int, error) {
 	if r.activeMounts != nil {
 		return r.activeMounts, nil
+	}
+	if r.activeMountsErr != nil {
+		return nil, r.activeMountsErr
 	}
 
 	if r.container.Spec.GetOverrides().SkipActiveMountsCheck {
@@ -35,21 +40,24 @@ func (r *containerReconcilerLoop) GetActiveMounts(ctx context.Context) (*int, er
 		return r.activeMounts, nil
 	}
 
-	activeMounts, err := r.fetchActiveMounts(ctx)
+	resp, err := r.fetchActiveMounts(ctx)
 	if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 		// if no weka fs driver found, we can assume that there are no active mounts
 		val := 0
 		r.activeMounts = &val
+		r.frontendConnected = new(bool)
 		return r.activeMounts, nil
 	}
 	if err != nil {
+		r.activeMountsErr = err
 		return nil, err
 	}
-	r.activeMounts = activeMounts
+	r.activeMounts = &resp.ActiveMounts
+	r.frontendConnected = resp.FrontendConnected
 	return r.activeMounts, nil
 }
 
-func (r *containerReconcilerLoop) fetchActiveMounts(ctx context.Context) (*int, error) {
+func (r *containerReconcilerLoop) fetchActiveMounts(ctx context.Context) (*node_agent.ActiveMountsResponse, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "fetchActiveMounts")
 	defer logger.End()
 
@@ -64,8 +72,7 @@ func (r *containerReconcilerLoop) fetchActiveMounts(ctx context.Context) (*int, 
 		if apierrors.IsNotFound(getNodeErr) {
 			// if node is not found, we can assume that there are no active mounts
 			logger.Info("Node not found in cluster, assuming no active mounts", "node", nodeName)
-			val := 0
-			return &val, nil
+			return &node_agent.ActiveMountsResponse{}, nil
 		}
 		if getNodeErr != nil {
 			logger.Error(getNodeErr, "Failed to get node, ignoring", "node", nodeName)
@@ -82,14 +89,14 @@ func (r *containerReconcilerLoop) fetchActiveMounts(ctx context.Context) (*int, 
 	}
 
 	// Build URL with container_name and container_uuid query parameters
-	url := node_agent.URL(agentPod.Status.PodIP, "/getActiveMounts")
+	endpoint := node_agent.URL(agentPod.Status.PodIP, "/getActiveMounts")
 	if r.container.Spec.WekaContainerName != "" {
 		// container_uuid is the UID of the WekaContainer CR
-		containerUuid := string(r.container.GetUID())
-		url = fmt.Sprintf("%s?container_name=%s&container_uuid=%s", url, r.container.Spec.WekaContainerName, containerUuid)
+		query := url.Values{"container_name": {r.container.Spec.WekaContainerName}, "container_uuid": {string(r.container.GetUID())}}
+		endpoint += "?" + query.Encode()
 	}
 
-	resp, requestErr := util.SendGetRequest(ctx, url, util.RequestOptions{AuthHeader: "Token " + token})
+	resp, requestErr := util.SendGetRequest(ctx, endpoint, util.RequestOptions{AuthHeader: "Token " + token})
 	if requestErr != nil {
 		requestErr = errors.Wrap(requestErr, "error sending getActiveMountsget request")
 		return nil, requestErr
@@ -105,16 +112,14 @@ func (r *containerReconcilerLoop) fetchActiveMounts(ctx context.Context) (*int, 
 		return nil, reqErr
 	}
 
-	var activeMountsResp struct {
-		ActiveMounts int `json:"active_mounts"`
-	}
+	var activeMountsResp node_agent.ActiveMountsResponse
 	err = json.NewDecoder(resp.Body).Decode(&activeMountsResp)
 	if err != nil {
 		err = errors.Wrap(err, "error decoding response")
 		return nil, err
 	}
 
-	return &activeMountsResp.ActiveMounts, nil
+	return &activeMountsResp, nil
 }
 
 func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context) (bool, error) {

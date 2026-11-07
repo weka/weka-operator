@@ -1177,45 +1177,23 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 			}
 			filePath = fmt.Sprintf("/proc/wekafs/%s/interface", containerName)
 		} else {
-			// Feature flag not enabled, use default path
-			filePath = "/proc/wekafs/interface"
+			filePath = driverInterfacePath
 		}
 	} else {
 		// No container specified, use default path for backward compatibility
-		filePath = "/proc/wekafs/interface"
+		filePath = driverInterfacePath
 	}
 
-	file, err := os.Open(filePath)
-	if err != nil && os.IsNotExist(err) {
-		// file does not exist, respond with not found
+	perContainerPath := ""
+	if filePath != driverInterfacePath {
+		perContainerPath = filePath
+	}
+	response, err := readActiveMounts(perContainerPath, driverInterfacePath, containerName)
+	if os.IsNotExist(err) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	if err != nil {
-		err = fmt.Errorf("failed to open file: %w", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer file.Close() //nolint:errcheck // error return value intentionally not checked
-
-	var activeMounts int
-
-	// Create a scanner to read the file line by line
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "Active mounts:") {
-			_, err := fmt.Sscanf(line, "Active mounts: %d", &activeMounts)
-			if err != nil {
-				err = fmt.Errorf("failed to parse active mounts: %w", err)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		err = fmt.Errorf("failed to scan file: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1223,7 +1201,80 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 	// write response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]int{"active_mounts": activeMounts}) //nolint:errcheck // error return value intentionally not checked
+	_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // error return value intentionally not checked
+}
+
+// readActiveMounts reads mounts from perContainerPath (empty when unused) and the frontend state from
+// globalPath; the per-container interface file has no frontend line, only the global one does.
+func readActiveMounts(perContainerPath, globalPath, containerName string) (ActiveMountsResponse, error) {
+	if perContainerPath == "" {
+		activeMounts, frontendConnected, err := readDriverInterface(globalPath, containerName)
+		if err != nil {
+			return ActiveMountsResponse{}, err
+		}
+		response := ActiveMountsResponse{ActiveMounts: activeMounts}
+		if containerName != "" {
+			response.FrontendConnected = &frontendConnected
+		}
+		return response, nil
+	}
+
+	activeMounts, _, err := readDriverInterface(perContainerPath, containerName)
+	if err != nil && !os.IsNotExist(err) {
+		return ActiveMountsResponse{}, err
+	}
+	perContainerMissing := err != nil
+
+	_, frontendConnected, err := readDriverInterface(globalPath, containerName)
+	if err != nil {
+		if perContainerMissing {
+			return ActiveMountsResponse{}, err
+		}
+		// activeMounts still gates deletion/drain; only the frontend state is unknown
+		return ActiveMountsResponse{ActiveMounts: activeMounts}, nil
+	}
+	return ActiveMountsResponse{ActiveMounts: activeMounts, FrontendConnected: &frontendConnected}, nil
+}
+
+const driverInterfacePath = "/proc/wekafs/interface"
+
+type ActiveMountsResponse struct {
+	ActiveMounts      int   `json:"active_mounts"`
+	FrontendConnected *bool `json:"frontend_connected,omitempty"`
+}
+
+func readDriverInterface(filePath, containerName string) (activeMounts int, frontendConnected bool, err error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0, false, err
+	}
+	defer file.Close() //nolint:errcheck // error return value intentionally not checked
+	return parseDriverInterface(file, containerName)
+}
+
+// parseDriverInterface reads "Active mounts: N" and whether every "Container=<containerName> FE <n>: ..."
+// line (at least one) reports "Connected frontend pid <pid>".
+func parseDriverInterface(r io.Reader, containerName string) (activeMounts int, frontendConnected bool, err error) {
+	containerPrefix := "Container=" + containerName + " "
+	feLines := 0
+	allConnected := true
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "Active mounts:") {
+			if _, err := fmt.Sscanf(line, "Active mounts: %d", &activeMounts); err != nil {
+				return 0, false, fmt.Errorf("failed to parse active mounts: %w", err)
+			}
+		}
+		if strings.HasPrefix(line, containerPrefix) {
+			feLines++
+			allConnected = allConnected && strings.Contains(line, "Connected frontend")
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, false, fmt.Errorf("failed to scan file: %w", err)
+	}
+	return activeMounts, feLines > 0 && allConnected, nil
 }
 
 func (a *NodeAgent) findDrivesHandler(w http.ResponseWriter, r *http.Request) {
