@@ -84,6 +84,7 @@ NET_NETMASK = int(os.environ.get("NET_NETMASK") or 0)
 IS_IPV6 = os.environ.get("IS_IPV6", "false") == "true"
 MANAGEMENT_IPS = []  # to be populated at later stage
 UDP_MODE = os.environ.get("UDP_MODE", "false") == "true"
+CLOUD_PROVIDER = os.environ.get("CLOUD_PROVIDER", "")
 NO_RESERVE_SPACE = os.environ.get("NO_RESERVE_SPACE", "false") == "true"
 DUMPER_CONFIG_MODE = os.environ.get("DUMPER_CONFIG_MODE", "auto")
 EXCLUDED_DRIVE_PATHS = set()  # Resolved (realpath) device paths to exclude from signing
@@ -983,7 +984,19 @@ async def sign_drives_for_proxy_by_pci_info(vendor_id: str, device_id: str, opti
     return await sign_device_paths_for_proxy_batch(devices, options)
 
 
-async def sign_drives_for_proxy_gke(vendor_id: str, device_id: str, options: SignOptions) -> List[dict]:
+async def exclude_mounted_devices(devices: List[str]) -> List[str]:
+    """Drop devices that are mounted or have a mounted partition (e.g. an NVMe OS disk matching the PCI id)."""
+    disks = {disk.path: disk for disk in await find_disks()}
+    unverifiable = [d for d in devices if d not in disks]
+    if unverifiable:
+        raise Exception(f"Cannot verify mount status of {unverifiable}, refusing to sign them")
+    mounted = [d for d in devices if disks[d].is_mounted]
+    if mounted:
+        logging.warning(f"Skipping mounted devices: {mounted}")
+    return [d for d in devices if not disks[d].is_mounted]
+
+
+async def sign_drives_for_proxy_gke(vendor_id: str, device_id: str, options: SignOptions, skip_mounted: bool = False) -> List[dict]:
     """
     Sign drives for proxy mode using GKE/sysfs discovery (uses /sys/block/ and /dev/ paths).
     Returns list of dicts with physical_uuid, serial, capacity_gib for each drive.
@@ -1009,11 +1022,13 @@ done"""
 
     dev_devices = stdout.decode().strip().split("\n")
     devices = [f"/dev/{dev_device}" for dev_device in dev_devices if dev_device]
+    if skip_mounted:
+        devices = await exclude_mounted_devices(devices)
     logging.info(f"Found {len(devices)} drives to sign for proxy")
     return await sign_device_paths_for_proxy_batch(devices, options)
 
 
-async def sign_drives_gke(vendor_id: str, device_id: str, options: dict) -> List[str]:
+async def sign_drives_gke(vendor_id: str, device_id: str, options: dict, skip_mounted: bool = False) -> List[str]:
     logging.info("Signing drives (GKE). Vendor ID: %s, Device ID: %s", vendor_id, device_id)
 
     if not vendor_id or not device_id:
@@ -1033,6 +1048,8 @@ done"""
 
     dev_devices = stdout.decode().strip().split("\n")
     devices = [f"/dev/{dev_device}" for dev_device in dev_devices if dev_device]
+    if skip_mounted:
+        devices = await exclude_mounted_devices(devices)
     logging.info(f"Found {len(devices)} drives to sign")
     return await sign_device_paths_batch(devices, options)
 
@@ -1099,7 +1116,8 @@ async def sign_drives(instruction: dict):
             return await sign_drives_for_proxy_gke(
                 vendor_id=AZURE_VENDOR_ID,
                 device_id=AZURE_DEVICE_ID,
-                options=options
+                options=options,
+                skip_mounted=True
             )
         elif type == "device-identifiers":
             return await sign_drives_for_proxy_by_pci_info(
@@ -1134,7 +1152,8 @@ async def sign_drives(instruction: dict):
         return await sign_drives_gke(
             vendor_id=AZURE_VENDOR_ID,
             device_id=AZURE_DEVICE_ID,
-            options=options
+            options=options,
+            skip_mounted=True
         )
     elif type == "device-identifiers":
         return await sign_drives_by_pci_info(
@@ -4466,11 +4485,12 @@ async def ensure_source_routing(devices: List[str]):
         logging.info(f"Configuring source routing for {device} ({ip}), table {table}")
 
         default_route = f"ip route replace default via {gateway} dev {device} table {table}" if gateway and gateway in network else ""
+        # Containers on one node run this concurrently; the loser of `ip rule add` gets EEXIST, which is success.
         command = dedent(f"""
             ip route replace {network} dev {device} src {ip} table {table}
             {default_route}
             while ip rule del from {ip} table {table} 2>/dev/null; do :; done
-            ip rule add from {ip} table {table} priority {table}
+            ip rule add from {ip} table {table} priority {table} || ip rule show priority {table} | grep -q "from {ip} lookup {table}"
         """)
         stdout, stderr, ec = await run_command(command)
         if ec != 0:
@@ -4667,6 +4687,8 @@ async def write_management_ips():
 
 
 async def ensure_source_routing_for_container():
+    if CLOUD_PROVIDER != "azure":
+        return
     if MODE not in ['drive', 'compute', 's3', 'nfs', 'smbw', 'client', 'data-services']:
         return
     if should_allocate_vf_per_ionode():

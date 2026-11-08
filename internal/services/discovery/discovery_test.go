@@ -67,6 +67,31 @@ func TestInstanceIDAndRegionFromProviderID(t *testing.T) {
 	}
 }
 
+func TestProviderFromIDAndSupport(t *testing.T) {
+	cases := []struct {
+		providerID    string
+		want          Provider
+		wantSupported bool
+	}{
+		{"aws:///eu-west-1a/i-0123", ProviderAWS, true},
+		{"ocid1.instance.oc1.iad.aaaa", ProviderOCI, true},
+		{"azure:///subscriptions/s/resourceGroups/rg/providers/Microsoft.Compute/virtualMachineScaleSets/vmss/virtualMachines/0", ProviderAzure, false},
+		{"", ProviderUnknown, false},
+		{"gce://proj/zone/vm", ProviderUnknown, false},
+	}
+	for _, tc := range cases {
+		if got := ProviderFromID(tc.providerID); got != tc.want {
+			t.Errorf("ProviderFromID(%q) = %q, want %q", tc.providerID, got, tc.want)
+		}
+		if got := IsSupportedCloudProvider(tc.providerID); got != tc.wantSupported {
+			t.Errorf("IsSupportedCloudProvider(%q) = %v, want %v", tc.providerID, got, tc.wantSupported)
+		}
+		if got := (&DiscoveryNodeInfo{Provider: tc.want}).HasSupportedCloudProvider(); got != tc.wantSupported {
+			t.Errorf("HasSupportedCloudProvider(%q) = %v, want %v", tc.want, got, tc.wantSupported)
+		}
+	}
+}
+
 func TestIsKarpenterManagedNode(t *testing.T) {
 	cases := []struct {
 		name string

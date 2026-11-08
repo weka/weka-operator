@@ -119,6 +119,13 @@ func TestShouldRequestNICs(t *testing.T) {
 			wantNICs: false,
 		},
 		{
+			name:     "azure, no explicit devices -> no NICs requested",
+			provider: discovery.ProviderAzure,
+			mode:     weka.WekaContainerModeCompute,
+			network:  weka.Network{},
+			wantNICs: false,
+		},
+		{
 			// AllocateVfPerIoNode: true explicitly overrides the provider default,
 			// so NICs are requested even on an unsupported provider.
 			name:     "allocateVfPerIoNode true, no explicit devices, unsupported provider -> request NICs",
