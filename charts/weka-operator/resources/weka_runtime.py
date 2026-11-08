@@ -4418,6 +4418,69 @@ async def get_single_device_ip(device_name: str = "default", subnet: Optional[st
     return ip
 
 
+SOURCE_ROUTING_BASE = 10000
+
+
+def parse_ipv4_interfaces(ip_addr_output: str) -> List[Tuple[str, ipaddress.IPv4Interface]]:
+    """(device, address/prefix) for every non-loopback IPv4 address in `ip -o -4 addr` output."""
+    result = []
+    for line in ip_addr_output.strip().split("\n"):
+        parts = line.split()
+        if len(parts) < 4 or parts[2] != "inet":
+            continue
+        interface = ipaddress.IPv4Interface(parts[3])
+        if not interface.ip.is_loopback:
+            result.append((parts[1], interface))
+    return result
+
+
+async def ensure_source_routing(devices: List[str]):
+    """Pin traffic sourced from a device's IP to that device when other NICs share its subnet.
+
+    Linux picks the egress NIC by destination only, so with several same-subnet NICs the packets
+    sourced from one NIC's IP leave via another; clouds (Azure) drop those and strict rp_filter
+    drops the asymmetric replies. Rules and routes do not survive a reboot, hence every start.
+    """
+    stdout, stderr, ec = await run_command("ip -o -4 addr show")
+    if ec != 0:
+        raise Exception(f"Failed to list ipv4 addresses: {stderr}")
+    interfaces = parse_ipv4_interfaces(stdout.decode('utf-8'))
+
+    gateway = None
+    stdout, stderr, ec = await run_command("ip -4 route show default")
+    if ec != 0:
+        raise Exception(f"Failed to get default route: {stderr}")
+    for line in stdout.decode('utf-8').strip().split("\n"):
+        parts = line.split()
+        if "via" in parts:
+            gateway = ipaddress.IPv4Address(parts[parts.index("via") + 1])
+            break
+
+    for device in devices:
+        own = next((i for d, i in interfaces if d == device), None)
+        if own is None or not any(i.network.overlaps(own.network) for d, i in interfaces if d != device):
+            continue
+
+        ip, network = own.ip, own.network
+        table = SOURCE_ROUTING_BASE + int(await read_file(f"/sys/class/net/{device}/ifindex"))
+        logging.info(f"Configuring source routing for {device} ({ip}), table {table}")
+
+        default_route = f"ip route replace default via {gateway} dev {device} table {table}" if gateway and gateway in network else ""
+        command = dedent(f"""
+            ip route replace {network} dev {device} src {ip} table {table}
+            {default_route}
+            while ip rule del from {ip} table {table} 2>/dev/null; do :; done
+            ip rule add from {ip} table {table} priority {table}
+        """)
+        stdout, stderr, ec = await run_command(command)
+        if ec != 0:
+            raise Exception(f"Failed to configure source routing for {device}: {stderr}")
+
+        for key, value in (("rp_filter", 2), ("arp_ignore", 1), ("arp_announce", 2)):
+            with open(f"/proc/sys/net/ipv4/conf/{device}/{key}", "w") as f:
+                f.write(str(value))
+
+
 async def get_devices_waiting_for_all_subnets_to_have_device(subnets: List[str], timeout: int = 300) -> List[Tuple[str, str]]:
     """Waits for all subnets to have at least one device.
     Returns a list of (device, subnet) pairs found in all subnets.
@@ -4601,6 +4664,23 @@ async def write_management_ips():
     logging.info(f"Management IPs: {ipAddresses}")
     global MANAGEMENT_IPS
     MANAGEMENT_IPS = ipAddresses
+
+
+async def ensure_source_routing_for_container():
+    if MODE not in ['drive', 'compute', 's3', 'nfs', 'smbw', 'client', 'data-services']:
+        return
+    if should_allocate_vf_per_ionode():
+        return
+
+    if NETWORK_DEVICE:
+        devices = NETWORK_DEVICE.split(",")
+    elif NETWORK_SELECTORS:
+        devices = [d['device'] for d in await get_devices_by_selectors(NETWORK_SELECTORS)]
+    elif SUBNETS:
+        devices = [device for device, _ in await get_devices_by_subnets(SUBNETS)]
+    else:
+        return
+    await ensure_source_routing(devices)
 
 
 async def has_iommu_groups() -> bool:
@@ -4915,6 +4995,7 @@ async def main():
     await wait_for_resources()
     await write_generation()  # write own generation to kill other processes
     await write_management_ips()
+    await ensure_source_routing_for_container()
     global _server
     _server = await obtain_lock()  # then waiting for lock with short timeout
 
