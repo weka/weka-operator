@@ -16,8 +16,8 @@ import (
 func (r *wekaClusterReconcilerLoop) GetFeatureFlags(ctx context.Context) (*domain.FeatureFlags, error) {
 	return operations.GetFeatureFlagsForImage(
 		ctx,
-		r.Manager.GetClient(),
-		r.Manager.GetScheme(),
+		r.Manager,
+		r.RestClient,
 		&operations.AdhocContainerParams{
 			Image:           r.cluster.Spec.Image,
 			Labels:          r.cluster.GetLabels(),

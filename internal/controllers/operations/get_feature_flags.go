@@ -37,8 +37,53 @@ type GetFeatureFlagsOperation struct {
 	featureFlags     *domain.FeatureFlags
 }
 
-type FeatureFlagsResult struct {
-	FeatureFlags *domain.FeatureFlags `json:"feature_flags"`
+// readFeatureFlagsViaExec reads feature flags off a container's image by exec-ing into it. Every
+// path uses it, ad-hoc included: the flags come from the image, so nothing here depends on which
+// weka_runtime.py the pod started with.
+func readFeatureFlagsViaExec(ctx context.Context, execService exec.ExecService, container *weka.WekaContainer) (*domain.FeatureFlags, error) {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "readFeatureFlagsViaExec", "container", container.Name)
+	defer logger.End()
+
+	timeout := time.Second * 10
+
+	executor, err := execService.GetExecutorWithTimeout(ctx, container, &timeout)
+	if err != nil {
+		return nil, fmt.Errorf("error getting executor: %w", err)
+	}
+
+	// Anything but exactly one spec fails rather than guessing, since the result is cached for the
+	// image operator-wide. The second directory is the shared-weka-version bind mount over /opt/weka.
+	cmd := []string{"sh", "-c",
+		`set -- /opt/weka/dist/release/*.spec; ` +
+			`[ -e "$1" ] || set -- /shared-weka-version/opt-weka/dist/release/*.spec; ` +
+			`[ "$#" -eq 1 ] && [ -e "$1" ] && cat "$1"`}
+	stdout, _, err := executor.ExecNamed(ctx, "ReadReleaseSpec", cmd)
+	if err != nil {
+		return nil, fmt.Errorf("error reading release spec: %w", err)
+	}
+	// Catches a spec file that exists but is empty, which would otherwise decode to an empty
+	// bitmap and read every flag as false.
+	if stdout.Len() == 0 {
+		return nil, errors.New("release spec is empty")
+	}
+
+	flags, err := domain.ParseReleaseSpec(stdout.Bytes())
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Info("Successfully read feature flags from container", "flags", flags)
+	return flags, nil
+}
+
+// readAdhocFeatureFlags reads the flags off an ad-hoc container. That container's reported result
+// is not the source: the pod writes it to prove it is up and to let the one-off flow clean the
+// container up afterwards, while the flags themselves come from the image, read by the exec here.
+func readAdhocFeatureFlags(ctx context.Context, execService exec.ExecService, adhoc *weka.WekaContainer) (*domain.FeatureFlags, error) {
+	if adhoc == nil || adhoc.Status.ExecutionResult == nil {
+		return nil, errors.New("no ad-hoc container result to process")
+	}
+	return readFeatureFlagsViaExec(ctx, execService, adhoc)
 }
 
 func NewGetFeatureFlagsOperation(
@@ -108,7 +153,7 @@ func (o *GetFeatureFlagsOperation) AdhocIsDone() bool {
 func (o *GetFeatureFlagsOperation) ExecCurrentContainer(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
-	flags, err := o.readFeatureFlagsFromContainer(ctx, o.currentContainer)
+	flags, err := readFeatureFlagsViaExec(ctx, o.execService, o.currentContainer)
 	if err != nil {
 		logger.Info("Failed to read feature flags from current container, will try fallback", "error", err)
 		return nil // Don't fail, just try fallback
@@ -154,7 +199,7 @@ func (o *GetFeatureFlagsOperation) ExecActiveContainer(ctx context.Context) erro
 		return nil // Don't fail, just try fallback
 	}
 
-	flags, err := o.readFeatureFlagsFromContainer(ctx, activeContainer)
+	flags, err := readFeatureFlagsViaExec(ctx, o.execService, activeContainer)
 	if err != nil {
 		logger.Info("Failed to read feature flags from active container, will try ad-hoc container", "error", err)
 		return nil // Don't fail, just try fallback
@@ -163,35 +208,6 @@ func (o *GetFeatureFlagsOperation) ExecActiveContainer(ctx context.Context) erro
 	o.featureFlags = flags
 	logger.Info("Successfully read feature flags from active container")
 	return nil
-}
-
-// readFeatureFlagsFromContainer reads feature flags from a container by exec-ing into it
-func (o *GetFeatureFlagsOperation) readFeatureFlagsFromContainer(ctx context.Context, container *weka.WekaContainer) (*domain.FeatureFlags, error) {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "readFeatureFlagsFromContainer", "container", container.Name)
-	defer logger.End()
-
-	timeout := time.Second * 10
-
-	executor, err := o.execService.GetExecutorWithTimeout(ctx, container, &timeout)
-	if err != nil {
-		return nil, fmt.Errorf("error getting executor: %w", err)
-	}
-
-	// Read the feature flags JSON file
-	featureFlagsPath := "/opt/weka/k8s-runtime/feature_flags.json"
-	cmd := []string{"cat", featureFlagsPath}
-	stdout, _, err := executor.ExecNamed(ctx, "ReadFeatureFlagsFile", cmd)
-	if err != nil {
-		return nil, fmt.Errorf("error reading feature flags file: %w", err)
-	}
-
-	flags, err := domain.ParseFeatureFlags(stdout.Bytes())
-	if err != nil {
-		return nil, fmt.Errorf("error parsing feature_flags.json: %w", err)
-	}
-
-	logger.Info("Successfully read feature flags from container", "flags", flags)
-	return flags, nil
 }
 
 // GetAdhocContainer gets existing ad-hoc container if any
@@ -307,22 +323,16 @@ func (o *GetFeatureFlagsOperation) PollAdhocResult(ctx context.Context) error {
 	return nil
 }
 
-// ProcessAdhocResult processes the result from the ad-hoc container
 func (o *GetFeatureFlagsOperation) ProcessAdhocResult(ctx context.Context) error {
-	_, logger := instrumentation.CreateLogSpan(ctx, "ProcessAdhocResult")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ProcessAdhocResult")
 	defer logger.End()
 
-	if o.adhocContainer == nil || o.adhocContainer.Status.ExecutionResult == nil {
-		return errors.New("no ad-hoc container result to process")
-	}
-
-	var result FeatureFlagsResult
-	err := json.Unmarshal([]byte(*o.adhocContainer.Status.ExecutionResult), &result)
+	flags, err := readAdhocFeatureFlags(ctx, o.execService, o.adhocContainer)
 	if err != nil {
-		return fmt.Errorf("error parsing ad-hoc container result: %w", err)
+		return err
 	}
 
-	o.featureFlags = result.FeatureFlags
+	o.featureFlags = flags
 	logger.Info("Successfully processed feature flags from ad-hoc container", "flags", o.featureFlags)
 	return nil
 }

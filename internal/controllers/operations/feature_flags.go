@@ -9,10 +9,8 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
@@ -27,8 +25,8 @@ import (
 //
 // Parameters:
 //   - ctx: context for the operation
-//   - k8sClient: Kubernetes client for creating ad-hoc containers
-//   - scheme: runtime scheme for owner references
+//   - mgr: controller manager for client, scheme and exec config
+//   - restClient: REST client for exec operations
 //   - params: parameters for the ad-hoc container (image, scheduling, etc.)
 //
 // Returns:
@@ -37,8 +35,8 @@ import (
 //   - Other error if something failed
 func GetFeatureFlagsForImage(
 	ctx context.Context,
-	k8sClient client.Client,
-	scheme *runtime.Scheme,
+	mgr ctrl.Manager,
+	restClient rest.Interface,
 	params *AdhocContainerParams,
 ) (*domain.FeatureFlags, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetFeatureFlagsForImage", "image", params.Image)
@@ -59,7 +57,7 @@ func GetFeatureFlagsForImage(
 	logger.Info("Feature flags not cached, fetching via ad-hoc container")
 
 	// Run operation to fetch feature flags via ad-hoc container
-	op := NewGetFeatureFlagsFromImage(k8sClient, scheme, params)
+	op := NewGetFeatureFlagsFromImage(mgr, restClient, params)
 	err = AsRunFunc(op)(ctx)
 	if err != nil {
 		// Propagate all errors including WaitError
