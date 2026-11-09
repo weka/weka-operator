@@ -256,7 +256,7 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 	var webhookServer webhook.Server
 	if admissionEnabled {
 		webhookServer = webhook.NewServer(webhook.Options{
-			Port:    9443,
+			Port:    config.Config.Webhook.Port,
 			CertDir: config.Config.Webhook.CertDir,
 		})
 	}
@@ -392,8 +392,8 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		os.Exit(1)
 	}
 	// When admission is enabled, gate readiness on the webhook server
-	// having actually bound :9443. Without this, the pod can flip Ready
-	// (healthz on :8081 succeeds) before the webhook port is listening.
+	// having actually bound the webhook port. Without this, the pod can flip
+	// Ready (healthz succeeds) before the webhook port is listening.
 	if admissionEnabled {
 		if err := mgr.AddReadyzCheck("webhook-server", mgr.GetWebhookServer().StartedChecker()); err != nil {
 			logger.Error(err, "unable to set up webhook ready check")

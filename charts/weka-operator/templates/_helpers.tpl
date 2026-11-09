@@ -60,3 +60,10 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Port of a bind address (":8081" -> 8081).
+*/}}
+{{- define "weka-operator.addressPort" -}}
+{{- . | toString | splitList ":" | last }}
+{{- end }}
