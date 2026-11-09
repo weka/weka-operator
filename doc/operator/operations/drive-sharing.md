@@ -791,10 +791,10 @@ the id the operator generates at allocation. How the two relate depends on the n
   dropped and, with dynamic drive scaling on, a replacement is allocated.
 - Allocations made before `label` existed have only `virtualUUID` and use the flag-off path.
 
-The ssdproxy's flags must be known before allocation; until they are, allocation retries. Flags
-read from a running pod's `feature_flags.json` are discarded when the file lacks a flag the operator
-knows (a pod started by an older operator wrote it without that flag); an ad-hoc container fetches
-them instead. When a container is deleted, or its physical drive is blocked, while a drive's
+The ssdproxy's flags must be known before allocation; until they are, allocation retries. Flags come
+from the feature bitmap in the weka image's release `.spec`, read out of a running pod, so a pod of
+any age reports the same flags for a given image; an ad-hoc container fetches them when no pod runs
+that image. When a container is deleted, or its physical drive is blocked, while a drive's
 `virtualUUID` is still empty, the VID is removed from the proxy by label (`ssd_proxy_remove_label`,
 which returns the VID) before the allocation is dropped (blocking removes such allocations even when
 the container has no added drive on that physical drive).

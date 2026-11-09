@@ -13,12 +13,15 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
+	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -39,6 +42,7 @@ type AdhocContainerParams struct {
 // when no running container is available to exec into.
 type GetFeatureFlagsViaAdhocOperation struct {
 	client         client.Client
+	execService    exec.ExecService
 	scheme         *runtime.Scheme
 	params         *AdhocContainerParams
 	adhocContainer *weka.WekaContainer
@@ -48,14 +52,15 @@ type GetFeatureFlagsViaAdhocOperation struct {
 // NewGetFeatureFlagsFromImage creates an operation to get feature flags for an image.
 // This is the main constructor - just needs image and scheduling params.
 func NewGetFeatureFlagsFromImage(
-	k8sClient client.Client,
-	scheme *runtime.Scheme,
+	mgr ctrl.Manager,
+	restClient rest.Interface,
 	params *AdhocContainerParams,
 ) *GetFeatureFlagsViaAdhocOperation {
 	return &GetFeatureFlagsViaAdhocOperation{
-		client: k8sClient,
-		scheme: scheme,
-		params: params,
+		client:      mgr.GetClient(),
+		execService: exec.NewExecService(restClient, mgr.GetConfig()),
+		scheme:      mgr.GetScheme(),
+		params:      params,
 	}
 }
 
@@ -198,20 +203,15 @@ func (o *GetFeatureFlagsViaAdhocOperation) PollAdhocResult(ctx context.Context) 
 }
 
 func (o *GetFeatureFlagsViaAdhocOperation) ProcessAdhocResult(ctx context.Context) error {
-	_, logger := instrumentation.CreateLogSpan(ctx, "ProcessAdhocResult")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ProcessAdhocResult")
 	defer logger.End()
 
-	if o.adhocContainer == nil || o.adhocContainer.Status.ExecutionResult == nil {
-		return errors.New("no ad-hoc container result to process")
-	}
-
-	var result FeatureFlagsResult
-	err := json.Unmarshal([]byte(*o.adhocContainer.Status.ExecutionResult), &result)
+	flags, err := readAdhocFeatureFlags(ctx, o.execService, o.adhocContainer)
 	if err != nil {
-		return fmt.Errorf("error parsing ad-hoc container result: %w", err)
+		return err
 	}
 
-	o.featureFlags = result.FeatureFlags
+	o.featureFlags = flags
 	logger.Info("Processed feature flags from ad-hoc container", "image", o.params.Image)
 	return nil
 }

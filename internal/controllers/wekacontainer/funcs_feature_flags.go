@@ -30,8 +30,8 @@ func (r *containerReconcilerLoop) ssdProxyUsesVidLabel(ctx context.Context) (boo
 	if image == "" {
 		image = proxy.Spec.Image
 	}
-	// The ssdproxy runtime never writes its feature flags file, so they come from the image.
-	flags, err := operations.GetFeatureFlagsForImage(ctx, r.Manager.GetClient(), r.Manager.GetScheme(), &operations.AdhocContainerParams{
+	// The flags must come from the ssdproxy image, not this container's weka image.
+	flags, err := operations.GetFeatureFlagsForImage(ctx, r.Manager, r.RestClient, &operations.AdhocContainerParams{
 		Image:           image,
 		NodeAffinity:    proxy.GetNodeAffinity(),
 		ImagePullSecret: proxy.Spec.ImagePullSecret,
