@@ -269,6 +269,7 @@ type WebhookConfig struct {
 	SecretName  string
 	ServiceName string
 	WebhookName string
+	Port        int
 }
 
 // AdmissionControlConfig is the master switch. Enabled=false deletes the
@@ -761,6 +762,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Webhook.SecretName = getEnvOrDefault("WEBHOOK_SECRET_NAME", "weka-operator-webhook-server-cert")
 	Config.Webhook.ServiceName = getEnvOrDefault("WEBHOOK_SERVICE_NAME", "weka-operator-webhook-service")
 	Config.Webhook.WebhookName = getEnvOrDefault("WEBHOOK_NAME", "weka-operator-validating-webhook-configuration")
+	Config.Webhook.Port = getIntEnvOrDefault("WEBHOOK_PORT", 9443)
 
 	// Admission control: master switch. When false the operator removes
 	// the ValidatingWebhookConfiguration on startup and skips the webhook

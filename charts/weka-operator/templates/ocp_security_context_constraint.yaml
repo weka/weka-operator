@@ -13,6 +13,7 @@ volumes:
   - emptyDir
 readOnlyRootFilesystem: false
 allowHostPorts: true
+allowHostNetwork: {{ .Values.manager.hostNetwork | default false }}
 runAsUser:
   type: RunAsAny
 seLinuxContext:

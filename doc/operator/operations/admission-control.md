@@ -104,5 +104,5 @@ enforce one specific check, set
 The webhook is configured with `failurePolicy: Fail`, meaning the API server
 rejects writes when it can't reach the webhook service. To prevent this from
 extending across rolling restarts, the operator pod is gated by a dedicated
-readiness check that waits for the webhook server to bind `:9443` before
-flipping Ready.
+readiness check that waits for the webhook server to bind the webhook port
+(`webhookPort`, default 9443) before flipping Ready.
