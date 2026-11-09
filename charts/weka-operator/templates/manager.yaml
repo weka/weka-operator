@@ -1,6 +1,17 @@
 {{- if .Values.nodeAgent }}
 {{- fail "nodeAgent.* values moved to the configuration WekaPolicy, spec.payload.configurationPayload.nodeAgent; see doc/operator/deployment/node-agent.md" }}
 {{- end }}
+{{- if and .Values.manager.hostNetwork .Values.enableClusterApi }}
+{{- fail "enableClusterApi can't be combined with manager.hostNetwork: the cluster API is unauthenticated and would listen on port 8082 of every node interface" }}
+{{- end }}
+{{- /* controller-runtime treats an empty metrics address as :8080 */}}
+{{- $metricsPort := include "weka-operator.addressPort" (.Values.operatorMetricsBindAddress | default ":8080") }}
+{{- /* --reuse-values upgrades from older charts lack these values */}}
+{{- $webhookPort := .Values.webhookPort | default 9443 }}
+{{- $kubeRbacProxyPort := .Values.kubeRbacProxyPort | default 8443 }}
+{{- $healthPort := include "weka-operator.addressPort" .Values.healthProbeBindAddress }}
+{{- /* hostPorts are rendered explicitly: the API server defaults them under hostNetwork, and Helm keeps a defaulted field after hostNetwork is turned off */}}
+{{- $hostNetwork := .Values.manager.hostNetwork }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,7 +32,7 @@ spec:
     metadata:
       annotations:
         kubectl.kubernetes.io/default-container: manager
-        prometheus.io/port: "8080"
+        prometheus.io/port: {{ $metricsPort | quote }}
         prometheus.io/scrape: "true"
         prometheus.io/path: "/metrics"
       labels:
@@ -63,8 +74,14 @@ spec:
       nodeSelector:
         {{- toYaml .Values.manager.nodeSelector | nindent 8 }}
       {{- end }}
+      {{- if .Values.manager.hostNetwork }}
+      hostNetwork: true
+      {{- /* with hostNetwork, ClusterFirst silently falls back to the node's DNS */}}
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- else }}
       {{- with .Values.dnsPolicy }}
       dnsPolicy: {{ .k8sNetwork | default "" }}
+      {{- end }}
       {{- end }}
       {{- range .Values.manager.extraVolumes }}
       {{- if eq .name "tmpdir" }}{{ fail "manager.extraVolumes: the volume name \"tmpdir\" is reserved by the operator" }}{{ end }}
@@ -85,14 +102,17 @@ spec:
         {{- end }}
       containers:
         - args:
-            - --secure-listen-address=0.0.0.0:8443
-            - --upstream=http://127.0.0.1:8080/
+            - --secure-listen-address=0.0.0.0:{{ $kubeRbacProxyPort }}
+            - --upstream=http://127.0.0.1:{{ $metricsPort }}/
             - --logtostderr=true
             - --v=0
           image: {{ .Values.kubeProxyImage }}
           name: kube-rbac-proxy
           ports:
-            - containerPort: 8443
+            - containerPort: {{ $kubeRbacProxyPort }}
+              {{- if $hostNetwork }}
+              hostPort: {{ $kubeRbacProxyPort }}
+              {{- end }}
               name: https
               protocol: TCP
           resources:
@@ -110,11 +130,26 @@ spec:
         - command:
             - /weka-operator
           ports:
-            - containerPort: 8080
+            {{- /* "0" disables metrics */}}
+            {{- if ne $metricsPort "0" }}
+            - containerPort: {{ $metricsPort }}
+              {{- if $hostNetwork }}
+              hostPort: {{ $metricsPort }}
+              {{- end }}
               name: metrics
               protocol: TCP
+            {{- end }}
+            - containerPort: {{ $healthPort }}
+              {{- if $hostNetwork }}
+              hostPort: {{ $healthPort }}
+              {{- end }}
+              name: health
+              protocol: TCP
             {{- if .Values.enableAdmissionControl }}
-            - containerPort: 9443
+            - containerPort: {{ $webhookPort }}
+              {{- if $hostNetwork }}
+              hostPort: {{ $webhookPort }}
+              {{- end }}
               name: webhook-server
               protocol: TCP
             {{- end }}
@@ -536,6 +571,8 @@ spec:
               value: "{{ .Values.prefix }}-webhook-service"
             - name: WEBHOOK_NAME
               value: "{{ .Values.prefix }}-validating-webhook-configuration"
+            - name: WEBHOOK_PORT
+              value: "{{ $webhookPort }}"
             - name: WEKA_POD_SECURITY_CONTEXT
               value: {{ .Values.podSecurityContext | default dict | toJson | quote }}
 
@@ -556,13 +593,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8081
+              port: health
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 8081
+              port: health
             initialDelaySeconds: 5
             periodSeconds: 10
           # TODO(user): Configure the resources accordingly based on the project requirements.
