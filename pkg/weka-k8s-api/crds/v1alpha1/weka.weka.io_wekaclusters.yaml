@@ -728,13 +728,39 @@ spec:
                           description: Minimum number of interfaces required from
                             nodes matching this selector.
                           type: integer
+                        pciDevices:
+                          description: |-
+                            PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                            An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                            subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                            PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                            card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                            VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                            When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                          items:
+                            properties:
+                              deviceId:
+                                description: DeviceId is the 4-digit hexadecimal PCI
+                                  device ID
+                                pattern: ^[0-9a-fA-F]{4}$
+                                type: string
+                              vendorId:
+                                description: VendorId is the 4-digit hexadecimal PCI
+                                  vendor ID
+                                pattern: ^[0-9a-fA-F]{4}$
+                                type: string
+                            required:
+                            - deviceId
+                            - vendorId
+                            type: object
+                          type: array
                         rdmaOnly:
                           type: boolean
                         subnet:
                           description: |-
                             CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                            When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                            address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                            When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                            that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                           type: string
                       type: object
                     type: array
@@ -773,13 +799,39 @@ spec:
                           description: Minimum number of interfaces required from
                             nodes matching this selector.
                           type: integer
+                        pciDevices:
+                          description: |-
+                            PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                            An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                            subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                            PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                            card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                            VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                            When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                          items:
+                            properties:
+                              deviceId:
+                                description: DeviceId is the 4-digit hexadecimal PCI
+                                  device ID
+                                pattern: ^[0-9a-fA-F]{4}$
+                                type: string
+                              vendorId:
+                                description: VendorId is the 4-digit hexadecimal PCI
+                                  vendor ID
+                                pattern: ^[0-9a-fA-F]{4}$
+                                type: string
+                            required:
+                            - deviceId
+                            - vendorId
+                            type: object
+                          type: array
                         rdmaOnly:
                           type: boolean
                         subnet:
                           description: |-
                             CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                            When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                            address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                            When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                            that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                           type: string
                       type: object
                     type: array
@@ -1300,13 +1352,39 @@ spec:
                               description: Minimum number of interfaces required from
                                 nodes matching this selector.
                               type: integer
+                            pciDevices:
+                              description: |-
+                                PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                                An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                                subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                                PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                                card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                                VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                                When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                              items:
+                                properties:
+                                  deviceId:
+                                    description: DeviceId is the 4-digit hexadecimal
+                                      PCI device ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                  vendorId:
+                                    description: VendorId is the 4-digit hexadecimal
+                                      PCI vendor ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                required:
+                                - deviceId
+                                - vendorId
+                                type: object
+                              type: array
                             rdmaOnly:
                               type: boolean
                             subnet:
                               description: |-
                                 CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                                When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                                that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1345,13 +1423,39 @@ spec:
                               description: Minimum number of interfaces required from
                                 nodes matching this selector.
                               type: integer
+                            pciDevices:
+                              description: |-
+                                PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                                An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                                subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                                PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                                card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                                VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                                When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                              items:
+                                properties:
+                                  deviceId:
+                                    description: DeviceId is the 4-digit hexadecimal
+                                      PCI device ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                  vendorId:
+                                    description: VendorId is the 4-digit hexadecimal
+                                      PCI vendor ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                required:
+                                - deviceId
+                                - vendorId
+                                type: object
+                              type: array
                             rdmaOnly:
                               type: boolean
                             subnet:
                               description: |-
                                 CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                                When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                                that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1427,13 +1531,39 @@ spec:
                               description: Minimum number of interfaces required from
                                 nodes matching this selector.
                               type: integer
+                            pciDevices:
+                              description: |-
+                                PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                                An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                                subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                                PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                                card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                                VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                                When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                              items:
+                                properties:
+                                  deviceId:
+                                    description: DeviceId is the 4-digit hexadecimal
+                                      PCI device ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                  vendorId:
+                                    description: VendorId is the 4-digit hexadecimal
+                                      PCI vendor ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                required:
+                                - deviceId
+                                - vendorId
+                                type: object
+                              type: array
                             rdmaOnly:
                               type: boolean
                             subnet:
                               description: |-
                                 CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                                When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                                that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1472,13 +1602,39 @@ spec:
                               description: Minimum number of interfaces required from
                                 nodes matching this selector.
                               type: integer
+                            pciDevices:
+                              description: |-
+                                PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                                An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                                subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                                PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                                card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                                VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                                When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                              items:
+                                properties:
+                                  deviceId:
+                                    description: DeviceId is the 4-digit hexadecimal
+                                      PCI device ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                  vendorId:
+                                    description: VendorId is the 4-digit hexadecimal
+                                      PCI vendor ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                required:
+                                - deviceId
+                                - vendorId
+                                type: object
+                              type: array
                             rdmaOnly:
                               type: boolean
                             subnet:
                               description: |-
                                 CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                                When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                                that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1554,13 +1710,39 @@ spec:
                               description: Minimum number of interfaces required from
                                 nodes matching this selector.
                               type: integer
+                            pciDevices:
+                              description: |-
+                                PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                                An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                                subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                                PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                                card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                                VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                                When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                              items:
+                                properties:
+                                  deviceId:
+                                    description: DeviceId is the 4-digit hexadecimal
+                                      PCI device ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                  vendorId:
+                                    description: VendorId is the 4-digit hexadecimal
+                                      PCI vendor ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                required:
+                                - deviceId
+                                - vendorId
+                                type: object
+                              type: array
                             rdmaOnly:
                               type: boolean
                             subnet:
                               description: |-
                                 CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                                When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                                that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1599,13 +1781,39 @@ spec:
                               description: Minimum number of interfaces required from
                                 nodes matching this selector.
                               type: integer
+                            pciDevices:
+                              description: |-
+                                PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                                An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                                subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                                PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                                card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                                VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                                When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                              items:
+                                properties:
+                                  deviceId:
+                                    description: DeviceId is the 4-digit hexadecimal
+                                      PCI device ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                  vendorId:
+                                    description: VendorId is the 4-digit hexadecimal
+                                      PCI vendor ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                required:
+                                - deviceId
+                                - vendorId
+                                type: object
+                              type: array
                             rdmaOnly:
                               type: boolean
                             subnet:
                               description: |-
                                 CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                                When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                                that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1681,13 +1889,39 @@ spec:
                               description: Minimum number of interfaces required from
                                 nodes matching this selector.
                               type: integer
+                            pciDevices:
+                              description: |-
+                                PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                                An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                                subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                                PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                                card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                                VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                                When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                              items:
+                                properties:
+                                  deviceId:
+                                    description: DeviceId is the 4-digit hexadecimal
+                                      PCI device ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                  vendorId:
+                                    description: VendorId is the 4-digit hexadecimal
+                                      PCI vendor ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                required:
+                                - deviceId
+                                - vendorId
+                                type: object
+                              type: array
                             rdmaOnly:
                               type: boolean
                             subnet:
                               description: |-
                                 CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                                When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                                that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1726,13 +1960,39 @@ spec:
                               description: Minimum number of interfaces required from
                                 nodes matching this selector.
                               type: integer
+                            pciDevices:
+                              description: |-
+                                PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                                An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                                subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                                PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                                card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                                VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                                When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                              items:
+                                properties:
+                                  deviceId:
+                                    description: DeviceId is the 4-digit hexadecimal
+                                      PCI device ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                  vendorId:
+                                    description: VendorId is the 4-digit hexadecimal
+                                      PCI vendor ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                required:
+                                - deviceId
+                                - vendorId
+                                type: object
+                              type: array
                             rdmaOnly:
                               type: boolean
                             subnet:
                               description: |-
                                 CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                                When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                                that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1808,13 +2068,39 @@ spec:
                               description: Minimum number of interfaces required from
                                 nodes matching this selector.
                               type: integer
+                            pciDevices:
+                              description: |-
+                                PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                                An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                                subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                                PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                                card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                                VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                                When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                              items:
+                                properties:
+                                  deviceId:
+                                    description: DeviceId is the 4-digit hexadecimal
+                                      PCI device ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                  vendorId:
+                                    description: VendorId is the 4-digit hexadecimal
+                                      PCI vendor ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                required:
+                                - deviceId
+                                - vendorId
+                                type: object
+                              type: array
                             rdmaOnly:
                               type: boolean
                             subnet:
                               description: |-
                                 CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                                When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                                that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1853,13 +2139,39 @@ spec:
                               description: Minimum number of interfaces required from
                                 nodes matching this selector.
                               type: integer
+                            pciDevices:
+                              description: |-
+                                PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                                An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                                subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                                PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                                card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                                VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                                When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                              items:
+                                properties:
+                                  deviceId:
+                                    description: DeviceId is the 4-digit hexadecimal
+                                      PCI device ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                  vendorId:
+                                    description: VendorId is the 4-digit hexadecimal
+                                      PCI vendor ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                required:
+                                - deviceId
+                                - vendorId
+                                type: object
+                              type: array
                             rdmaOnly:
                               type: boolean
                             subnet:
                               description: |-
                                 CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                                When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                                that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1935,13 +2247,39 @@ spec:
                               description: Minimum number of interfaces required from
                                 nodes matching this selector.
                               type: integer
+                            pciDevices:
+                              description: |-
+                                PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                                An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                                subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                                PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                                card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                                VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                                When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                              items:
+                                properties:
+                                  deviceId:
+                                    description: DeviceId is the 4-digit hexadecimal
+                                      PCI device ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                  vendorId:
+                                    description: VendorId is the 4-digit hexadecimal
+                                      PCI vendor ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                required:
+                                - deviceId
+                                - vendorId
+                                type: object
+                              type: array
                             rdmaOnly:
                               type: boolean
                             subnet:
                               description: |-
                                 CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                                When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                                that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array
@@ -1980,13 +2318,39 @@ spec:
                               description: Minimum number of interfaces required from
                                 nodes matching this selector.
                               type: integer
+                            pciDevices:
+                              description: |-
+                                PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+                                An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+                                subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+                                PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+                                card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+                                VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+                                When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+                              items:
+                                properties:
+                                  deviceId:
+                                    description: DeviceId is the 4-digit hexadecimal
+                                      PCI device ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                  vendorId:
+                                    description: VendorId is the 4-digit hexadecimal
+                                      PCI vendor ID
+                                    pattern: ^[0-9a-fA-F]{4}$
+                                    type: string
+                                required:
+                                - deviceId
+                                - vendorId
+                                type: object
+                              type: array
                             rdmaOnly:
                               type: boolean
                             subnet:
                               description: |-
                                 CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-                                When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-                                address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+                                When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+                                that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
                               type: string
                           type: object
                         type: array

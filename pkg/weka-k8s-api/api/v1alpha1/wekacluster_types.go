@@ -47,8 +47,8 @@ const (
 
 type NetworkSelector struct {
 	// CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.
-	// When set together with deviceNames, both conditions apply: only the named interfaces that also hold an
-	// address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
+	// When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces
+	// that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.
 	Subnet string `json:"subnet,omitempty"`
 	// Minimum number of interfaces required from nodes matching this selector.
 	Min int `json:"min,omitempty"`
@@ -58,8 +58,16 @@ type NetworkSelector struct {
 	// holding an address in that subnet, which lets one selector cover nodes on different subnets.
 	// The subnet narrowing is skipped for rdmaOnly selectors, whose interfaces may carry no address at all.
 	DeviceNames []string `json:"deviceNames,omitempty"`
-	RdmaOnly    bool     `json:"rdmaOnly,omitempty"`
-	DisableRdma bool     `json:"disableRdma,omitempty"`
+	// PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).
+	// An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.
+	// subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then
+	// PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a
+	// card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.
+	// VLAN, bond and other virtual interfaces have no PCI device of their own and never match.
+	// When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.
+	PCIDevices []PCIDevices `json:"pciDevices,omitempty"`
+	RdmaOnly    bool         `json:"rdmaOnly,omitempty"`
+	DisableRdma bool         `json:"disableRdma,omitempty"`
 }
 
 func (n *NetworkSelector) Equal(o *NetworkSelector) bool {
@@ -74,6 +82,7 @@ func (n *NetworkSelector) Equal(o *NetworkSelector) bool {
 		n.Min == o.Min &&
 		n.Max == o.Max &&
 		slices.Equal(n.DeviceNames, o.DeviceNames) &&
+		slices.Equal(n.PCIDevices, o.PCIDevices) &&
 		n.RdmaOnly == o.RdmaOnly &&
 		n.DisableRdma == o.DisableRdma
 }
