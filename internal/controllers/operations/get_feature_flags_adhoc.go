@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
@@ -13,15 +12,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/services"
-	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -42,7 +38,6 @@ type AdhocContainerParams struct {
 // when no running container is available to exec into.
 type GetFeatureFlagsViaAdhocOperation struct {
 	client         client.Client
-	execService    exec.ExecService
 	scheme         *runtime.Scheme
 	params         *AdhocContainerParams
 	adhocContainer *weka.WekaContainer
@@ -53,14 +48,12 @@ type GetFeatureFlagsViaAdhocOperation struct {
 // This is the main constructor - just needs image and scheduling params.
 func NewGetFeatureFlagsFromImage(
 	mgr ctrl.Manager,
-	restClient rest.Interface,
 	params *AdhocContainerParams,
 ) *GetFeatureFlagsViaAdhocOperation {
 	return &GetFeatureFlagsViaAdhocOperation{
-		client:      mgr.GetClient(),
-		execService: exec.NewExecService(restClient, mgr.GetConfig()),
-		scheme:      mgr.GetScheme(),
-		params:      params,
+		client: mgr.GetClient(),
+		scheme: mgr.GetScheme(),
+		params: params,
 	}
 }
 
@@ -75,10 +68,7 @@ func (o *GetFeatureFlagsViaAdhocOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
 		&lifecycle.SimpleStep{Name: "GetAdhocContainer", Run: o.GetAdhocContainer},
 		&lifecycle.SimpleStep{Name: "EnsureAdhocContainer", Run: o.EnsureAdhocContainer, Predicates: lifecycle.Predicates{lifecycle.IsNotFunc(o.AdhocExists)}},
-		&lifecycle.SimpleStep{Name: "PollAdhocResult", Run: o.PollAdhocResult},
-		&lifecycle.SimpleStep{Name: "ProcessAdhocResult", Run: o.ProcessAdhocResult},
-		&lifecycle.SimpleStep{Name: "CacheFeatureFlags", Run: o.CacheFeatureFlags},
-		&lifecycle.SimpleStep{Name: "DeleteAdhocContainer", Run: o.DeleteAdhocContainer, Predicates: lifecycle.Predicates{o.AdhocExists}},
+		&lifecycle.SimpleStep{Name: "WaitForCachedFlags", Run: o.WaitForCachedFlags},
 	}
 }
 
@@ -186,69 +176,10 @@ func (o *GetFeatureFlagsViaAdhocOperation) EnsureAdhocContainer(ctx context.Cont
 	return nil
 }
 
-func (o *GetFeatureFlagsViaAdhocOperation) PollAdhocResult(ctx context.Context) error {
-	err := o.client.Get(ctx, client.ObjectKey{
-		Namespace: o.adhocContainer.Namespace,
-		Name:      o.adhocContainer.Name,
-	}, o.adhocContainer)
-	if err != nil {
-		return err
-	}
-
-	if o.adhocContainer.Status.ExecutionResult == nil {
-		return lifecycle.NewWaitError(fmt.Errorf("ad-hoc container execution result not ready"))
-	}
-
-	return nil
-}
-
-func (o *GetFeatureFlagsViaAdhocOperation) ProcessAdhocResult(ctx context.Context) error {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "ProcessAdhocResult")
-	defer logger.End()
-
-	flags, err := readAdhocFeatureFlags(ctx, o.execService, o.adhocContainer)
-	if err != nil {
-		return err
-	}
-
+func (o *GetFeatureFlagsViaAdhocOperation) WaitForCachedFlags(ctx context.Context) error {
+	flags, err := waitForCachedFeatureFlags(ctx, o.params.Image)
 	o.featureFlags = flags
-	logger.Info("Processed feature flags from ad-hoc container", "image", o.params.Image)
-	return nil
-}
-
-func (o *GetFeatureFlagsViaAdhocOperation) CacheFeatureFlags(ctx context.Context) error {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "CacheFeatureFlags")
-	defer logger.End()
-
-	if o.featureFlags == nil {
-		return errors.New("no feature flags to cache")
-	}
-
-	err := services.SetFeatureFlags(ctx, o.params.Image, o.featureFlags)
-	if err != nil {
-		return err
-	}
-
-	logger.Info("Cached feature flags", "image", o.params.Image)
-	return nil
-}
-
-func (o *GetFeatureFlagsViaAdhocOperation) DeleteAdhocContainer(ctx context.Context) error {
-	if o.adhocContainer == nil {
-		return nil
-	}
-
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "DeleteAdhocContainer")
-	defer logger.End()
-
-	err := o.client.Delete(ctx, o.adhocContainer)
-	if err != nil {
-		logger.Info("Failed to delete ad-hoc container", "error", err)
-		return nil
-	}
-
-	logger.Info("Deleted ad-hoc container")
-	return nil
+	return err
 }
 
 func (o *GetFeatureFlagsViaAdhocOperation) GetFeatureFlags() *domain.FeatureFlags {

@@ -37,11 +37,11 @@ type GetFeatureFlagsOperation struct {
 	featureFlags     *domain.FeatureFlags
 }
 
-// readFeatureFlagsViaExec reads feature flags off a container's image by exec-ing into it. Every
+// ReadFeatureFlagsViaExec reads feature flags off a container's image by exec-ing into it. Every
 // path uses it, ad-hoc included: the flags come from the image, so nothing here depends on which
 // weka_runtime.py the pod started with.
-func readFeatureFlagsViaExec(ctx context.Context, execService exec.ExecService, container *weka.WekaContainer) (*domain.FeatureFlags, error) {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "readFeatureFlagsViaExec", "container", container.Name)
+func ReadFeatureFlagsViaExec(ctx context.Context, execService exec.ExecService, container *weka.WekaContainer) (*domain.FeatureFlags, error) {
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "ReadFeatureFlagsViaExec", "container", container.Name)
 	defer logger.End()
 
 	timeout := time.Second * 10
@@ -76,14 +76,16 @@ func readFeatureFlagsViaExec(ctx context.Context, execService exec.ExecService, 
 	return flags, nil
 }
 
-// readAdhocFeatureFlags reads the flags off an ad-hoc container. That container's reported result
-// is not the source: the pod writes it to prove it is up and to let the one-off flow clean the
-// container up afterwards, while the flags themselves come from the image, read by the exec here.
-func readAdhocFeatureFlags(ctx context.Context, execService exec.ExecService, adhoc *weka.WekaContainer) (*domain.FeatureFlags, error) {
-	if adhoc == nil || adhoc.Status.ExecutionResult == nil {
-		return nil, errors.New("no ad-hoc container result to process")
+// waitForCachedFeatureFlags waits for the ad-hoc container's own reconcile to cache the flags
+// (processResults). Requesters never exec into that pod: it deletes itself shortly after.
+func waitForCachedFeatureFlags(ctx context.Context, image string) (*domain.FeatureFlags, error) {
+	flags, err := services.GetFeatureFlags(ctx, image)
+	if errors.Is(err, services.ErrFeatureFlagsNotCached) {
+		// A stuck wait means that container's result step keeps failing; its status has the cause.
+		err = fmt.Errorf("waiting for ad-hoc container %s to cache feature flags of %s: %w", GetFeatureFlagsAdhocContainerName(image), image, err)
+		return nil, lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
 	}
-	return readFeatureFlagsViaExec(ctx, execService, adhoc)
+	return flags, err
 }
 
 func NewGetFeatureFlagsOperation(
@@ -121,12 +123,9 @@ func (o *GetFeatureFlagsOperation) GetSteps() []lifecycle.Step {
 		&lifecycle.SimpleStep{Name: "GetAdhocContainer", Run: o.GetAdhocContainer},
 		&lifecycle.SimpleStep{Name: "ExecCurrentContainer", Run: o.ExecCurrentContainer, Predicates: lifecycle.Predicates{lifecycle.IsNotFunc(o.AdhocExists)}},
 		&lifecycle.SimpleStep{Name: "ExecActiveContainer", Run: o.ExecActiveContainer, Predicates: lifecycle.Predicates{o.NeedsFallback, lifecycle.IsNotFunc(o.AdhocExists)}},
-		&lifecycle.SimpleStep{Name: "DeleteOnDone", Run: o.DeleteAdhocContainer, Predicates: lifecycle.Predicates{o.AdhocIsDone}, FinishOnSuccess: true},
-		&lifecycle.SimpleStep{Name: "EnsureAdhocContainer", Run: o.EnsureAdhocContainer, Predicates: lifecycle.Predicates{o.NeedsFallback, lifecycle.IsNotFunc(o.AdhocExists)}},
-		&lifecycle.SimpleStep{Name: "PollAdhocResult", Run: o.PollAdhocResult, Predicates: lifecycle.Predicates{o.NeedsFallback}},
-		&lifecycle.SimpleStep{Name: "ProcessAdhocResult", Run: o.ProcessAdhocResult, Predicates: lifecycle.Predicates{o.NeedsFallback}},
-		&lifecycle.SimpleStep{Name: "CacheFeatureFlags", Run: o.CacheFeatureFlags},
-		&lifecycle.SimpleStep{Name: "DeleteAdhocContainer", Run: o.DeleteAdhocContainer, Predicates: lifecycle.Predicates{o.AdhocExists}},
+		&lifecycle.SimpleStep{Name: "CacheFeatureFlags", Run: o.CacheFeatureFlags, Predicates: lifecycle.Predicates{lifecycle.IsNotFunc(o.NeedsFallback)}, FinishOnSuccess: true},
+		&lifecycle.SimpleStep{Name: "EnsureAdhocContainer", Run: o.EnsureAdhocContainer, Predicates: lifecycle.Predicates{lifecycle.IsNotFunc(o.AdhocExists)}},
+		&lifecycle.SimpleStep{Name: "WaitForCachedFlags", Run: o.WaitForCachedFlags},
 	}
 }
 
@@ -146,14 +145,10 @@ func (o *GetFeatureFlagsOperation) AdhocExists() bool {
 	return o.adhocContainer != nil
 }
 
-func (o *GetFeatureFlagsOperation) AdhocIsDone() bool {
-	return o.adhocContainer != nil && o.adhocContainer.Status.ExecutionResult != nil && o.featureFlags != nil
-}
-
 func (o *GetFeatureFlagsOperation) ExecCurrentContainer(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
 
-	flags, err := readFeatureFlagsViaExec(ctx, o.execService, o.currentContainer)
+	flags, err := ReadFeatureFlagsViaExec(ctx, o.execService, o.currentContainer)
 	if err != nil {
 		logger.Info("Failed to read feature flags from current container, will try fallback", "error", err)
 		return nil // Don't fail, just try fallback
@@ -199,7 +194,7 @@ func (o *GetFeatureFlagsOperation) ExecActiveContainer(ctx context.Context) erro
 		return nil // Don't fail, just try fallback
 	}
 
-	flags, err := readFeatureFlagsViaExec(ctx, o.execService, activeContainer)
+	flags, err := ReadFeatureFlagsViaExec(ctx, o.execService, activeContainer)
 	if err != nil {
 		logger.Info("Failed to read feature flags from active container, will try ad-hoc container", "error", err)
 		return nil // Don't fail, just try fallback
@@ -305,36 +300,10 @@ func (o *GetFeatureFlagsOperation) EnsureAdhocContainer(ctx context.Context) err
 	return nil
 }
 
-// PollAdhocResult waits for the ad-hoc container to complete
-func (o *GetFeatureFlagsOperation) PollAdhocResult(ctx context.Context) error {
-	// Refresh container status
-	err := o.client.Get(ctx, client.ObjectKey{
-		Namespace: o.adhocContainer.Namespace,
-		Name:      o.adhocContainer.Name,
-	}, o.adhocContainer)
-	if err != nil {
-		return err
-	}
-
-	if o.adhocContainer.Status.ExecutionResult == nil {
-		return lifecycle.NewWaitError(fmt.Errorf("ad-hoc container execution result not ready"))
-	}
-
-	return nil
-}
-
-func (o *GetFeatureFlagsOperation) ProcessAdhocResult(ctx context.Context) error {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "ProcessAdhocResult")
-	defer logger.End()
-
-	flags, err := readAdhocFeatureFlags(ctx, o.execService, o.adhocContainer)
-	if err != nil {
-		return err
-	}
-
+func (o *GetFeatureFlagsOperation) WaitForCachedFlags(ctx context.Context) error {
+	flags, err := waitForCachedFeatureFlags(ctx, o.image)
 	o.featureFlags = flags
-	logger.Info("Successfully processed feature flags from ad-hoc container", "flags", o.featureFlags)
-	return nil
+	return err
 }
 
 // CacheFeatureFlags caches the feature flags
@@ -352,25 +321,5 @@ func (o *GetFeatureFlagsOperation) CacheFeatureFlags(ctx context.Context) error 
 	}
 
 	logger.Info("Successfully cached feature flags", "image", o.image)
-	return nil
-}
-
-// DeleteAdhocContainer deletes the ad-hoc container
-func (o *GetFeatureFlagsOperation) DeleteAdhocContainer(ctx context.Context) error {
-	if o.adhocContainer == nil {
-		return nil
-	}
-
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "DeleteAdhocContainer")
-	defer logger.End()
-
-	err := o.client.Delete(ctx, o.adhocContainer)
-	if err != nil {
-		logger.Info("Failed to delete ad-hoc container", "error", err)
-		// Don't fail the operation if cleanup fails
-		return nil
-	}
-
-	logger.Info("Deleted ad-hoc container")
 	return nil
 }

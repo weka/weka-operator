@@ -70,13 +70,10 @@ func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) err
 			}
 		}
 	}
-	// Cleanup feature-flags containers after results are processed
-	// These containers are created by GetFeatureFlagsOperation and should be cleaned up
-	// after the feature flags have been cached (which happens when results are processed)
+	// Flags are cached before CondResultsProcessed is set; requesters read the cache, never this pod.
 	if r.isFeatureFlagsOperation() {
 		for _, c := range r.container.Status.Conditions {
 			if c.Type == condition.CondResultsProcessed && c.Status == metav1.ConditionTrue {
-				// Give a short grace period before cleanup to ensure cache is populated
 				if time.Since(c.LastTransitionTime.Time) > time.Second*30 {
 					return r.Delete(ctx, r.container)
 				}
@@ -299,9 +296,19 @@ func (r *containerReconcilerLoop) processResults(ctx context.Context) error {
 		return r.updateNodeAnnotations(ctx)
 	case r.isKernelizeOperation():
 		return r.updateContainerStatusIfNotEquals(ctx, weka.Completed)
+	case r.isFeatureFlagsOperation():
+		return r.cacheFeatureFlags(ctx)
 	default:
 		return nil
 	}
+}
+
+func (r *containerReconcilerLoop) cacheFeatureFlags(ctx context.Context) error {
+	flags, err := operations.ReadFeatureFlagsViaExec(ctx, r.ExecService, r.container)
+	if err != nil {
+		return err
+	}
+	return services.SetFeatureFlags(ctx, r.container.Spec.Image, flags)
 }
 
 func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) error {
