@@ -26,7 +26,6 @@ import (
 // Parameters:
 //   - ctx: context for the operation
 //   - mgr: controller manager for client, scheme and exec config
-//   - restClient: REST client for exec operations
 //   - params: parameters for the ad-hoc container (image, scheduling, etc.)
 //
 // Returns:
@@ -36,7 +35,6 @@ import (
 func GetFeatureFlagsForImage(
 	ctx context.Context,
 	mgr ctrl.Manager,
-	restClient rest.Interface,
 	params *AdhocContainerParams,
 ) (*domain.FeatureFlags, error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetFeatureFlagsForImage", "image", params.Image)
@@ -57,7 +55,7 @@ func GetFeatureFlagsForImage(
 	logger.Info("Feature flags not cached, fetching via ad-hoc container")
 
 	// Run operation to fetch feature flags via ad-hoc container
-	op := NewGetFeatureFlagsFromImage(mgr, restClient, params)
+	op := NewGetFeatureFlagsFromImage(mgr, params)
 	err = AsRunFunc(op)(ctx)
 	if err != nil {
 		// Propagate all errors including WaitError

@@ -1,8 +1,10 @@
 package wekacontainer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -18,6 +20,9 @@ import (
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
+	"github.com/weka/weka-operator/internal/services/exec"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 // newTestPod builds a minimal pod with the given creation time and phase, for the
@@ -571,4 +576,78 @@ func TestUpdateProxyModeAnnotations_MergePreservesModel(t *testing.T) {
 	if tlc != 0 || qlc != 100 {
 		t.Errorf("capacity = %d TLC / %d QLC, want 0/100: the model rule must still match, which it only can if the merge preserved the persisted Model against an empty incoming one", tlc, qlc)
 	}
+}
+
+type fakeSpecExec struct {
+	out string
+	err error
+}
+
+func (f fakeSpecExec) ExecNamed(_ context.Context, _ string, _ []string) (stdout, stderr bytes.Buffer, err error) {
+	stdout.WriteString(f.out)
+	return stdout, stderr, f.err
+}
+
+func (f fakeSpecExec) Exec(ctx context.Context, c []string) (bytes.Buffer, bytes.Buffer, error) {
+	return f.ExecNamed(ctx, "", c)
+}
+
+func (f fakeSpecExec) ExecSensitive(ctx context.Context, n string, c []string) (bytes.Buffer, bytes.Buffer, error) {
+	return f.ExecNamed(ctx, n, c)
+}
+
+func (f fakeSpecExec) ExecSensitiveWithStdin(ctx context.Context, n string, c []string, _ string) (bytes.Buffer, bytes.Buffer, error) {
+	return f.ExecNamed(ctx, n, c)
+}
+
+type fakeExecService struct {
+	exec.ExecService
+	e podexec.Exec
+}
+
+func (f fakeExecService) GetExecutorWithTimeout(context.Context, *weka.WekaContainer, *time.Duration) (podexec.Exec, error) {
+	return f.e, nil
+}
+
+func TestProcessResultsFeatureFlags(t *testing.T) {
+	ctx := context.Background()
+	newLoop := func(image string, e podexec.Exec) *containerReconcilerLoop {
+		return &containerReconcilerLoop{
+			ExecService: fakeExecService{e: e},
+			container: &weka.WekaContainer{
+				ObjectMeta: metav1.ObjectMeta{Name: "ff"},
+				Spec: weka.WekaContainerSpec{
+					Mode:         weka.WekaContainerModeAdhocOpWC,
+					Image:        image,
+					Instructions: &weka.Instructions{Type: weka.InstructionTypeFeatureFlagsUpdate},
+				},
+			},
+		}
+	}
+
+	t.Run("caches flags under Spec.Image", func(t *testing.T) {
+		image := "quay.io/weka.io/weka-in-container:test-oneoff-ok"
+		r := newLoop(image, fakeSpecExec{out: `{"feature_flags":"AQ=="}`})
+		if err := r.processResults(ctx); err != nil {
+			t.Fatal(err)
+		}
+		flags, err := services.GetFeatureFlags(ctx, image)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !flags.TracesOverridePartialSupport {
+			t.Fatalf("expected bit 0 set, got %+v", flags)
+		}
+	})
+
+	t.Run("exec failure returns error and leaves cache untouched", func(t *testing.T) {
+		image := "quay.io/weka.io/weka-in-container:test-oneoff-fail"
+		r := newLoop(image, fakeSpecExec{err: errors.New("exec boom")})
+		if err := r.processResults(ctx); err == nil {
+			t.Fatal("expected error")
+		}
+		if _, err := services.GetFeatureFlags(ctx, image); err == nil {
+			t.Fatal("cache must stay empty")
+		}
+	})
 }

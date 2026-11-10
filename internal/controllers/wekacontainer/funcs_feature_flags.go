@@ -31,7 +31,7 @@ func (r *containerReconcilerLoop) ssdProxyUsesVidLabel(ctx context.Context) (boo
 		image = proxy.Spec.Image
 	}
 	// The flags must come from the ssdproxy image, not this container's weka image.
-	flags, err := operations.GetFeatureFlagsForImage(ctx, r.Manager, r.RestClient, &operations.AdhocContainerParams{
+	flags, err := operations.GetFeatureFlagsForImage(ctx, r.Manager, &operations.AdhocContainerParams{
 		Image:           image,
 		NodeAffinity:    proxy.GetNodeAffinity(),
 		ImagePullSecret: proxy.Spec.ImagePullSecret,

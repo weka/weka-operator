@@ -153,7 +153,7 @@ func (r *containerReconcilerLoop) buildPod(ctx context.Context, container *weka.
 	if container.Spec.Mode == weka.WekaContainerModeSSDProxy {
 		var err error
 		if ff, err = r.GetFeatureFlags(ctx); err != nil {
-			return nil, errors.Wrap(err, "failed to get feature flags")
+			return nil, err
 		}
 	}
 
@@ -202,7 +202,7 @@ func (r *containerReconcilerLoop) prepareContainerForPod(ctx context.Context, co
 
 		builderFlags, ffErr := r.GetFeatureFlags(ctx)
 		if ffErr != nil {
-			return "", errors.Wrap(ffErr, "failed to get feature flags for drivers-builder")
+			return "", ffErr
 		}
 
 		payloadBytes, _ := json.Marshal(map[string]string{ //nolint:errcheck // error return value intentionally not checked
