@@ -45,8 +45,16 @@ The timings are read once, when the operator pod starts. After changing them, re
 kubectl -n <namespace> rollout restart deployment <prefix>-controller-manager
 ```
 
-If the configuration WekaPolicy cannot be read within 10 seconds at startup (for example two configuration policies
-exist), or its timings are inconsistent, the operator logs `leader-election settings from the configuration WekaPolicy
-not usable, using defaults` and starts with the default timings. The ordering is not checked when the policy is
-applied, so that log line is the only sign: after a restart, check the operator log or the Lease
+At startup the operator reads the configuration WekaPolicy, retrying channel failures for up to 30 seconds with a
+2-second pause between attempts (each request is limited to 10 seconds). The timings used:
+
+| Outcome of the read | Timings |
+|---|---|
+| Read OK and consistent, or no configuration policy | the policy's, or the defaults |
+| Read OK but inconsistent | the defaults, after logging `leader-election settings from the configuration WekaPolicy not usable, using defaults` |
+| Fails on the channel to the API server (timeout, `429`, `5xx`, network timeout) and still fails after 30 seconds | `leaseDuration: 60s`, `renewDeadline: 40s`, `retryPeriod: 5s`, after logging `using slow-API leader-election settings` |
+| Fails any other way (for example missing permissions, more than one configuration policy) | the defaults at once, after logging `could not be read, using default leader-election settings` |
+
+The ordering is not checked when the policy is applied, so the log line is the only sign: after a restart, check the
+operator log or the Lease
 (`kubectl -n <namespace> get lease ad0b5146.weka.io -o jsonpath='{.spec.leaseDurationSeconds}'`).
