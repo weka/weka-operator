@@ -10,14 +10,12 @@ concurrency:
 
 jobs:
   claude-review:
-    # Drafts are skipped; ready_for_review starts the review on promotion. In a stack
-    # only the top layer is reviewed: it contains every lower layer. Forks are excluded
-    # because the job needs secrets.
+    # Drafts are skipped; ready_for_review starts the review on promotion. Forks are
+    # excluded because the job needs secrets. Label `skip-claude-review` opts a PR out.
     if: >-
       !github.event.pull_request.draft &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (github.event.pull_request.stack == null ||
-       github.event.pull_request.stack.position == github.event.pull_request.stack.size)
+      !contains(github.event.pull_request.labels.*.name, 'skip-claude-review')
     runs-on: ubuntu-latest
     permissions:
       contents: read
