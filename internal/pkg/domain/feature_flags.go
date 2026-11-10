@@ -33,6 +33,9 @@ type FeatureFlags struct {
 	S3OffPathForwarder bool `json:"s3_off_path_forwarder"` // 16
 	// SsdProxyVidLabelAdd means ssd_proxy_add_virtual_drive takes a label and returns the VID it derives from it.
 	SsdProxyVidLabelAdd bool `json:"ssd_proxy_vid_label_add"` // 17
+	// flag 18 is not used by the operator
+	// S3ClusterCreateWithoutConfigFs means `weka s3 cluster create` takes no config filesystem.
+	S3ClusterCreateWithoutConfigFs bool `json:"s3_cluster_create_without_config_fs"` // 19
 }
 
 // ParseReleaseSpec reads the feature bitmap out of a weka image's release .spec file. A spec with
@@ -73,5 +76,6 @@ func parseFeatureBitmap(b64 string) (*FeatureFlags, error) {
 		WekactlAsDefault:                  bit(14),
 		S3OffPathForwarder:                bit(16),
 		SsdProxyVidLabelAdd:               bit(17),
+		S3ClusterCreateWithoutConfigFs:    bit(19),
 	}, nil
 }

@@ -14,11 +14,15 @@ import (
 // Uses the high-level accessor which handles cache and fetching automatically.
 // Returns WaitError if ad-hoc container is still running (caller should retry).
 func (r *wekaClusterReconcilerLoop) GetFeatureFlags(ctx context.Context) (*domain.FeatureFlags, error) {
+	return r.getFeatureFlagsForImage(ctx, r.cluster.Spec.Image)
+}
+
+func (r *wekaClusterReconcilerLoop) getFeatureFlagsForImage(ctx context.Context, image string) (*domain.FeatureFlags, error) {
 	return operations.GetFeatureFlagsForImage(
 		ctx,
 		r.Manager,
 		&operations.AdhocContainerParams{
-			Image:           r.cluster.Spec.Image,
+			Image:           image,
 			Labels:          r.cluster.GetLabels(),
 			NodeSelector:    r.cluster.Spec.NodeSelector,
 			ImagePullSecret: r.cluster.Spec.ImagePullSecret,

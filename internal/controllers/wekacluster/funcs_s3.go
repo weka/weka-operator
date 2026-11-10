@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -74,12 +75,18 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 		clusterCreateArgs = cluster.Spec.S3Config.ClusterCreateArgs
 	}
 
-	err = wekaService.CreateS3Cluster(ctx, services.S3Params{
+	withoutConfigFS, err := r.s3CreateWithoutConfigFS(ctx, featureFlags)
+	if err != nil {
+		return err // Propagate error (including WaitError if ad-hoc container still running)
+	}
+
+	err = wekaService.CreateS3Cluster(ctx, &services.S3Params{
 		EnvoyPort:         cluster.Status.Ports.LbPort,
 		EnvoyAdminPort:    cluster.Status.Ports.LbAdminPort,
 		S3Port:            cluster.Status.Ports.S3Port,
 		ContainerIds:      containerIds,
 		ClusterCreateArgs: clusterCreateArgs,
+		WithoutConfigFS:   withoutConfigFS,
 	})
 	if err != nil {
 		var s3ClusterExists *services.S3ClusterExists
@@ -91,6 +98,21 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 	logger.SetStatus(codes.Ok, "S3 cluster ensured")
 
 	return nil
+}
+
+// s3CreateWithoutConfigFS reads the flag from LastAppliedImage, which moves to the new image only
+// once every container runs it: Weka keeps requiring the configuration filesystem until the whole
+// cluster supports creating S3 without one.
+func (r *wekaClusterReconcilerLoop) s3CreateWithoutConfigFS(ctx context.Context, specImageFlags *domain.FeatureFlags) (bool, error) {
+	image := r.cluster.Status.LastAppliedImage
+	if image == "" || image == r.cluster.Spec.Image || !specImageFlags.S3ClusterCreateWithoutConfigFs {
+		return specImageFlags.S3ClusterCreateWithoutConfigFs, nil
+	}
+	flags, err := r.getFeatureFlagsForImage(ctx, image)
+	if err != nil {
+		return false, err
+	}
+	return flags.S3ClusterCreateWithoutConfigFs, nil
 }
 
 func (r *wekaClusterReconcilerLoop) ShouldDestroyS3Cluster() bool {

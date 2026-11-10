@@ -334,6 +334,8 @@ type S3Params struct {
 	S3Port            int
 	ContainerIds      []int
 	ClusterCreateArgs []string
+	// WithoutConfigFS selects the create form for images with s3_cluster_create_without_config_fs.
+	WithoutConfigFS bool
 }
 
 type S3Cluster struct {
@@ -696,7 +698,7 @@ type WekaService interface {
 	DeleteNfsInterfaceGroup(ctx context.Context, interfaceGroupName string) error
 	EnsureNfsIpRanges(ctx context.Context, interfaceGroupName string, targetIpRanges []string) error
 	GetS3Cluster(ctx context.Context, featureFlags *domain.FeatureFlags) (*S3Cluster, error)
-	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
+	CreateS3Cluster(ctx context.Context, s3Params *S3Params) error
 	ListS3ClusterContainers(ctx context.Context) ([]int, error)
 	DeleteS3Cluster(ctx context.Context) error
 	JoinS3Cluster(ctx context.Context, containerId int) error
@@ -1455,7 +1457,7 @@ func (c *CliWekaService) EnsureNfsInterfaceGroupPorts(ctx context.Context, inter
 	return nil
 }
 
-func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params) error {
+func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params *S3Params) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "CreateS3Cluster")
 	defer logger.End()
 	executor, err := c.getExecutor(ctx)
@@ -1463,23 +1465,7 @@ func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params)
 		return err
 	}
 
-	cmd := []string{
-		"wekaauthcli", "s3", "cluster", "create", "default", ".config_fs",
-		"--port", strconv.Itoa(s3Params.EnvoyPort),
-		// The off-path forwarder serves its admin surface on Envoy's admin port, so this one flag
-		// covers both modes. --slb-forwarder-admin-port only asserts equality against the configured
-		// envoy admin port, it never sets it.
-		"--envoy-admin-port", strconv.Itoa(s3Params.EnvoyAdminPort),
-		"--internal-port", strconv.Itoa(s3Params.S3Port),
-		"--container", commaSeparatedInts(s3Params.ContainerIds),
-		// "--container-name", s3Params.MinioContainerName,
-		// "--envoy-container-name", s3Params.EnvoyContainerName,
-	}
-
-	// Append additional cluster create args from S3Config
-	cmd = append(cmd, s3Params.ClusterCreateArgs...)
-
-	_, stderr, err := executor.ExecNamed(ctx, "CreateS3Cluster", cmd)
+	_, stderr, err := executor.ExecNamed(ctx, "CreateS3Cluster", s3ClusterCreateCmd(s3Params))
 	if err != nil {
 		if strings.Contains(stderr.String(), "already exists") {
 			return &S3ClusterExists{err}
@@ -1489,6 +1475,27 @@ func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params)
 	}
 
 	return nil
+}
+
+func s3ClusterCreateCmd(s3Params *S3Params) []string {
+	cmd := []string{"wekaauthcli", "s3", "cluster", "create"}
+	if s3Params.WithoutConfigFS {
+		cmd = append(cmd, "--default-fs-name", "default")
+	} else {
+		cmd = append(cmd, "default", ".config_fs")
+	}
+	cmd = append(cmd,
+		"--port", strconv.Itoa(s3Params.EnvoyPort),
+		// The off-path forwarder serves its admin surface on Envoy's admin port, so this one flag
+		// covers both modes. --slb-forwarder-admin-port only asserts equality against the configured
+		// envoy admin port, it never sets it.
+		"--envoy-admin-port", strconv.Itoa(s3Params.EnvoyAdminPort),
+		"--internal-port", strconv.Itoa(s3Params.S3Port),
+		"--container", commaSeparatedInts(s3Params.ContainerIds),
+		// "--container-name", s3Params.MinioContainerName,
+		// "--envoy-container-name", s3Params.EnvoyContainerName,
+	)
+	return append(cmd, s3Params.ClusterCreateArgs...)
 }
 
 func (c *CliWekaService) ListS3ClusterContainers(ctx context.Context) ([]int, error) {
