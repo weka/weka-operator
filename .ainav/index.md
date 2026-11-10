@@ -28,6 +28,7 @@ internal/controllers/        # All reconciliation logic
   operations/               # Manual/policy operations
   upgrade/                  # Container upgrade orchestration
   metrics/                  # Prometheus metrics building
+  reconcilerun/             # Run steps engine; requeue floor for channel errors
 internal/services/           # Weka API, K8s abstractions
 internal/config/             # Environment configuration
 internal/consts/             # Shared constants, annotations, resources

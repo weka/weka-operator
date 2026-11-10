@@ -3,15 +3,22 @@ package podexec
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
@@ -27,6 +34,58 @@ type Exec interface {
 	ExecNamed(ctx context.Context, name string, command []string) (stdout, stderr bytes.Buffer, err error)
 	ExecSensitive(ctx context.Context, name string, command []string) (stdout, stderr bytes.Buffer, err error)
 	ExecSensitiveWithStdin(ctx context.Context, name string, command []string, stdin string) (stdout, stderr bytes.Buffer, err error)
+}
+
+// ChannelError marks a failure of the pods/exec transport (API server, network, executor), not of the command.
+type ChannelError struct{ Err error }
+
+func (e *ChannelError) Error() string { return e.Err.Error() }
+func (e *ChannelError) Unwrap() error { return e.Err }
+
+// IsChannelError reports whether err is a transport failure of the API server / pods/exec connection: a
+// ChannelError, an API 5xx or 429, or a network-level error. Command failures (exec.ExitError), container-side
+// errors reported by the kubelet, TLS/config errors, definitive API answers and context expiry are not.
+func IsChannelError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var ce *ChannelError
+	if errors.As(err, &ce) {
+		return true
+	}
+	return isTransportError(err)
+}
+
+func isTransportError(err error) bool {
+	var exitErr exec.ExitError
+	if errors.As(err, &exitErr) {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var statusErr apierrors.APIStatus
+	if errors.As(err, &statusErr) {
+		code := statusErr.Status().Code
+		return code >= 500 || code == http.StatusTooManyRequests
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		err = urlErr.Err
+	}
+	var x509Err x509.UnknownAuthorityError
+	var hostErr x509.HostnameError
+	var certErr x509.CertificateInvalidError
+	var recErr *tls.RecordHeaderError
+	if errors.As(err, &x509Err) || errors.As(err, &hostErr) || errors.As(err, &certErr) || errors.As(err, &recErr) {
+		return false
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 type PodExec struct {
@@ -131,7 +190,12 @@ func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command
 			return stdout, stderr, errors.Wrap(err, fmt.Sprintf("command %s failed", name))
 		}
 		logger.SetError(err, "Exec failed to stream")
-		return stdout, stderr, errors.Wrap(err, "Exec failed to stream")
+		wrapped := errors.Wrap(err, "Exec failed to stream")
+		// The exec's own timeout is a hung command, not a broken channel.
+		if ctx.Err() == nil && isTransportError(err) {
+			return stdout, stderr, &ChannelError{Err: wrapped}
+		}
+		return stdout, stderr, wrapped
 	}
 	logger.SetValues("exit_code", 0)
 	logger.SetStatus(codes.Ok, "Exec success")

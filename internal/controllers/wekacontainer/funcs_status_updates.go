@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/weka/weka-operator/internal/consts"
+	"github.com/weka/weka-operator/internal/controllers/reconcilerun"
+	"github.com/weka/weka-operator/pkg/util/podexec"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -46,6 +48,10 @@ func (r *containerReconcilerLoop) updateStatusWaitForDrivers(ctx context.Context
 func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, stepName string, err error) error {
 	// ignore "the object has been modified" errors
 	if apierrors.IsConflict(err) {
+		return nil
+	}
+
+	if podexec.IsChannelError(reconcilerun.Cause(err)) {
 		return nil
 	}
 

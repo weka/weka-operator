@@ -4,6 +4,10 @@
         <tags>operator architecture, wekacluster, wekacontainer, container types, lifecycle, overrides, custom resources</tags>
         <summary>Core project overview defining Weka Operator architecture, including WekaCluster and WekaContainer custom resources, container types and modes, lifecycle management, and resource override mechanisms.</summary>
     </file>
+    <file relpath="operator/concepts/container-status.md">
+        <tags>WekaContainer status, weka local ps, pods/exec, channel error, requeue, Unknown, unknownTimeout, Error status</tags>
+        <summary>Where a WekaContainer's status comes from (weka local ps through pods/exec) and what the operator does when the exec channel fails: no status change or events, a 30-60s requeue floor, and Unknown after the CSI unknownTimeout.</summary>
+    </file>
     <file relpath="operator/concepts/cpu-policy.md">
         <tags>cpuPolicy, auto, manual, coreIds, hyperthreading, core allocation, DPDK processes, management processes</tags>
         <summary>Explains CPU policy configuration options for WekaCluster and WekaClient resources, including automatic hyperthreading detection, manual core assignment, and core allocation best practices for DPDK and management processes.</summary>
