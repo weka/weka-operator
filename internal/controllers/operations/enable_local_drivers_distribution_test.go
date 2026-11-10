@@ -682,6 +682,20 @@ var _ = Describe("CleanupOldBuilderContainers", func() {
 		}
 	})
 
+	It("deletes a non-Error builder of an undiscovered image once its dist is gone, keeps it while the dist exists", func() {
+		dist := &weka.WekaContainer{ObjectMeta: metav1.ObjectMeta{Name: "live-dist", Namespace: "default"}}
+		stranded := newTestBuilder("stranded", policy.Name, bad, weka.Completed)
+		stranded.Spec.UploadResultsTo = "deleted-dist"
+		serving := newTestBuilder("serving", policy.Name, bad, weka.Completed)
+		serving.Spec.UploadResultsTo = "live-dist"
+		c := newClient(cluster(good, good), dist, stranded, serving)
+
+		run(c)
+
+		Expect(exists(c, "stranded")).To(BeFalse())
+		Expect(exists(c, "serving")).To(BeTrue())
+	})
+
 	It("keeps builders of every discovered image, any status", func() {
 		wekaClient := &weka.WekaClient{
 			ObjectMeta: metav1.ObjectMeta{Name: "client", Namespace: "default"},

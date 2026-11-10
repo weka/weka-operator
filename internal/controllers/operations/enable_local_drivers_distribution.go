@@ -852,8 +852,20 @@ func (o *EnsureDistServiceOperation) CleanupOldBuilderContainers(ctx context.Con
 
 	for i := range existingBuilderList.Items {
 		builder := &existingBuilderList.Items[i]
-		if o.discoveredImages[builder.Spec.Image] || builder.Status.Status != weka.Error {
+		if o.discoveredImages[builder.Spec.Image] {
 			continue
+		}
+		if builder.Status.Status != weka.Error {
+			// A Completed builder keeps refilling its dist, which rolling client upgrades still need: WekaClient
+			// discovery only sees the new image. Once its dist is gone it can never upload again.
+			distGone, err := o.distContainerGone(ctx, builder)
+			if err != nil {
+				logger.Error(err, "Failed to check builder's dist container", "name", builder.Name)
+				continue
+			}
+			if !distGone {
+				continue
+			}
 		}
 		logger.Info("Deleting stale builder container", "name", builder.Name, "image", builder.Spec.Image, "status", builder.Status.Status)
 		if err := o.client.Delete(ctx, builder); err != nil && !apierrors.IsNotFound(err) {
@@ -861,6 +873,17 @@ func (o *EnsureDistServiceOperation) CleanupOldBuilderContainers(ctx context.Con
 		}
 	}
 	return nil
+}
+
+func (o *EnsureDistServiceOperation) distContainerGone(ctx context.Context, builder *weka.WekaContainer) (bool, error) {
+	if builder.Spec.UploadResultsTo == "" {
+		return false, nil
+	}
+	err := o.client.Get(ctx, client.ObjectKey{Namespace: builder.Namespace, Name: builder.Spec.UploadResultsTo}, &weka.WekaContainer{})
+	if apierrors.IsNotFound(err) {
+		return true, nil
+	}
+	return false, err
 }
 
 func (o *EnsureDistServiceOperation) UpdatePolicyStatusAndCallback(ctx context.Context) error {
