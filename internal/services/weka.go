@@ -102,6 +102,18 @@ func (status *WekaStatusRebuild) IsFullyProtected() bool {
 	return true
 }
 
+// Upgrade phase names as reported by `weka status --json`, identical across CLI generations.
+const (
+	UpgradePhaseDrives       = "DRIVES_UPGRADE"
+	UpgradePhaseCompute      = "COMPUTE_UPGRADE"
+	UpgradePhaseFrontend     = "FRONTEND_UPGRADE"
+	UpgradePhaseDataServices = "DATA_SERVICE_UPGRADE"
+)
+
+type WekaStatusUpgradeInfo struct {
+	UpgradePhase string `json:"upgrade_phase"`
+}
+
 type WekaStatusResponse struct {
 	ActiveAlertsCount int                     `json:"active_alerts_count"`
 	Activity          WekaStatusActivity      `json:"activity"`
@@ -114,6 +126,7 @@ type WekaStatusResponse struct {
 	HotSpare          int                     `json:"hot_spare"`
 	StripeWidth       int                     `json:"stripe_data_drives"`
 	RedundancyLevel   int                     `json:"stripe_protection_drives"`
+	UpgradeInfo       WekaStatusUpgradeInfo   `json:"upgrade_info"`
 }
 
 // wekactlStatus decodes `weka status --json` as emitted by wekactl, whose shape differs from the
@@ -139,6 +152,11 @@ type wekactlStatus struct {
 
 	Stripe  wekactlStripe  `json:"stripe"`
 	Rebuild wekactlRebuild `json:"rebuild"`
+	Upgrade wekactlUpgrade `json:"upgrade"`
+}
+
+type wekactlUpgrade struct {
+	Phase string `json:"phase"`
 }
 
 type wekactlStripe struct {
@@ -198,6 +216,7 @@ func (s *wekactlStatus) toResponse() WekaStatusResponse {
 		RedundancyLevel: s.Stripe.Protection,
 		HotSpare:        s.Stripe.HotSpare,
 		Rebuild:         s.Rebuild.toResponse(),
+		UpgradeInfo:     WekaStatusUpgradeInfo{UpgradePhase: s.Upgrade.Phase},
 	}
 }
 
