@@ -45,8 +45,16 @@ The timings are read once, when the operator pod starts. After changing them, re
 kubectl -n <namespace> rollout restart deployment <prefix>-controller-manager
 ```
 
-If the configuration WekaPolicy cannot be read within 10 seconds at startup (for example two configuration policies
-exist), or its timings are inconsistent, the operator logs `leader-election settings from the configuration WekaPolicy
-not usable, using defaults` and starts with the default timings. The ordering is not checked when the policy is
-applied, so that log line is the only sign: after a restart, check the operator log or the Lease
+At startup the operator serves `/healthz` on the probe port, then reads the configuration WekaPolicy for up to 2
+minutes, retrying with backoff on transient errors; the pod is not ready (`/readyz`) until the manager is up. The
+timings used, and the log line that says so (field `source`):
+
+| Outcome of the read | Timings | Log |
+|---|---|---|
+| Read OK and valid, or no configuration policy | the policy's, or the defaults | `leader-election settings read from the configuration WekaPolicy` (`source=policy`) |
+| Still failing on a transient error at the limit (timeouts, 5xx, `429`, connection errors), so the API server is assumed slow | `leaseDuration: 60s`, `renewDeadline: 40s`, `retryPeriod: 5s` | `assuming a slow API server` (`source=slow-api`) |
+| Any other failure: `Forbidden`, more than one configuration policy, inconsistent timings | the defaults | `leader-election settings from the configuration WekaPolicy not usable, using defaults` (`source=defaults`) |
+
+The ordering is not checked when the policy is applied, so the log line is the only sign: after a restart, check the
+operator log or the Lease
 (`kubectl -n <namespace> get lease ad0b5146.weka.io -o jsonpath='{.spec.leaseDurationSeconds}'`).

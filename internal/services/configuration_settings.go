@@ -145,6 +145,16 @@ func DefaultConfigurationSettings() ConfigurationSettings {
 	}
 }
 
+// SlowAPILeaderElection is used when the startup read of the configuration could not complete because the
+// API server is slow or unreachable: longer timings let lease renewals survive the same slowness.
+func SlowAPILeaderElection() LeaderElectionSettings {
+	return LeaderElectionSettings{
+		LeaseDuration: 60 * time.Second,
+		RenewDeadline: 40 * time.Second,
+		RetryPeriod:   5 * time.Second,
+	}
+}
+
 func defaultNodeAgentSettings() NodeAgentSettings {
 	maxSurge := intstr.FromInt32(0)
 	maxUnavailable := intstr.FromString("100%")
