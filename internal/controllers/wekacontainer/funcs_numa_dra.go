@@ -116,7 +116,7 @@ func (r *containerReconcilerLoop) numaClaimCPUCount(ctx context.Context) (int, e
 }
 
 // resolveNumaClaimCPUPolicy resolves the effective cpu policy exactly like PodFactory.setResources
-// does (pod.go ~1171-1185: invalid policies rejected, "auto" resolved via CoreIds/node HT) so it
+// does (invalid policies rejected, "auto" resolved via node HT) so it
 // mirrors what the pod will actually run with, then rejects anything that isn't
 // dedicated/dedicated_ht — NUMA confinement via a DRA claim hands the pod an exclusive cpuset, so
 // manual/shared policies (which don't reserve whole cores) can't back it. A pure function, split
@@ -128,9 +128,6 @@ func resolveNumaClaimCPUPolicy(spec *weka.WekaContainerSpec, isHt bool) (weka.Cp
 		return "", fmt.Errorf("invalid CPU policy: %s", cpuPolicy)
 	}
 	if cpuPolicy == weka.CpuPolicyAuto {
-		if len(spec.CoreIds) > 0 {
-			cpuPolicy = weka.CpuPolicyManual
-		}
 		if isHt {
 			cpuPolicy = weka.CpuPolicyDedicatedHT
 		} else {

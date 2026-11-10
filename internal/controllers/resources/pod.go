@@ -1447,9 +1447,6 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 	}
 
 	if cpuPolicy == weka.CpuPolicyAuto {
-		if len(f.container.Spec.CoreIds) > 0 {
-			cpuPolicy = weka.CpuPolicyManual
-		}
 		if f.nodeInfo.IsHt {
 			cpuPolicy = weka.CpuPolicyDedicatedHT
 		} else {
