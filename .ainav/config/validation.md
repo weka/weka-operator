@@ -30,3 +30,6 @@ certificate (a missing Secret is skipped, self-heals), `client_wekahome_cacert_u
 both missing and unusable on a client (shared check in `wekahome_cacert.go`);
 `client_wekahome_cacert_not_inherited.go` warns that a cross-namespace cluster's `cacertSecret`
 is not inherited.
+
+`client_cpu_policy_core_ids.go` ties a client's `cpuPolicy` to `coreIds` / `nonDatapathCoreIds`;
+it is in `WekaClientUpdate`, whose validators also run on create with a nil old object.

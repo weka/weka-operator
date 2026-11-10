@@ -48,7 +48,9 @@ var (
 	WekaContainerUpdate = []UpdateValidator{
 		&containerCoresDecrease{},
 	}
+	// Also run on WekaClient create, with a nil oldObj.
 	WekaClientUpdate = []UpdateValidator{
 		&clientCoresDecrease{},
+		&clientCpuPolicyCoreIds{},
 	}
 )

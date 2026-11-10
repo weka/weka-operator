@@ -35,7 +35,9 @@ func RegisterWekaClientWebhookWithManager(mgr ctrl.Manager) error {
 
 func (v *WekaClientCustomValidator) ValidateCreate(ctx context.Context, wc *wekav1alpha1.WekaClient) (admission.Warnings, error) {
 	warns, errs := v.run(ctx, wc)
-	return warns, errs.ToAggregate()
+	// Update validators that handle a nil oldObj also run on create.
+	createWarns, createErrs := evaluateUpdate(ctx, v.Client, nil, wc, validation.WekaClientUpdate, wekaClientUpdateDefaults, config.Config.AdmissionPolicies)
+	return append(warns, createWarns...), append(errs, createErrs...).ToAggregate()
 }
 
 // ValidateUpdate short-circuits on unchanged spec — same finalizer-deadlock

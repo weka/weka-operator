@@ -72,5 +72,8 @@ var (
 	}
 	wekaClientUpdateDefaults = map[string]PolicyDefaults{
 		"client_cores_decrease": {Strict: Error, Relaxed: Error},
+		// Error in both modes: otherwise the pod build fails (manual without coreIds) or the core
+		// lists are silently ignored.
+		"client_cpu_policy_core_ids": {Strict: Error, Relaxed: Error},
 	}
 )

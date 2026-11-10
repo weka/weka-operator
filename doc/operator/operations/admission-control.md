@@ -64,6 +64,22 @@ Warning: spec.startIoConditions.minNumDrives: Invalid value: 100: spec.startIoCo
 Error from server (Forbidden): error when creating "my-cluster.yaml": admission webhook "validate.wekacluster.weka.io" denied the request: spec.startIoConditions.minNumDrives: Invalid value: 100: spec.startIoConditions.minNumDrives (100) exceeds total drive capacity (6 × 1 = 6). The cluster will never satisfy the IO-start condition. Reduce minNumDrives or increase driveContainers / numDrives.
 ```
 
+## WekaClient CPU policy and core lists
+
+`client_cpu_policy_core_ids` (rejects in both postures) checks `cpuPolicy`, `coreIds` and
+`nonDatapathCoreIds` together. An empty `cpuPolicy` counts as `auto`.
+
+| Rule | Create | Update |
+|---|---|---|
+| `manual` needs non-empty `coreIds` | reject | reject, only if the policy changed |
+| `coreIds` with a policy other than `manual` | reject | reject, only if the policy changed |
+| `nonDatapathCoreIds` with a policy other than `manual` / `shared` | reject | reject, only if the policy changed |
+| Move into `manual` or `shared` | n/a | reject: recreate the WekaClient (existing containers would apply the lists they were created with) |
+| Any change to `coreIds` / `nonDatapathCoreIds` | n/a | reject: recreate the WekaClient, unless both lists are cleared and the new policy is `auto` / `dedicated` / `dedicated_ht` |
+
+Core lists are copied to client containers only at creation, so changes would not reach existing
+containers. See `concepts/cpu-policy.md`.
+
 ## Posture: strict vs relaxed
 
 - **Relaxed** (default): most policies emit warnings so non-compliant specs
