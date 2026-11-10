@@ -94,12 +94,10 @@ type ManualOperatorPayload struct {
 }
 
 type PCIDevices struct {
-	// VendorId is the 4-digit hexadecimal vendor ID
-	// default for AWS: `1d0f` (Amazon.com, Inc.)
+	// VendorId is the 4-digit hexadecimal PCI vendor ID
 	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F]{4}$`
 	VendorId string `json:"vendorId"`
-	// DeviceId is the 4-digit hexadecimal device ID
-	// default for AWS: `cd01` (NVMe SSD)
+	// DeviceId is the 4-digit hexadecimal PCI device ID
 	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F]{4}$`
 	DeviceId string `json:"deviceId"`
 }
@@ -124,7 +122,8 @@ type SignDrivesPayload struct {
 	DevicePaths  []string          `json:"devicePaths,omitempty"`
 	// DeviceSerials sign drives by serial ID. Used with type device-serials.
 	DeviceSerials []string `json:"deviceSerials,omitempty"`
-	// PCI vendor and device IDs of the drives to sign.
+	// PCI vendor and device IDs of the drives to sign. Default for AWS: vendorId `1d0f` (Amazon.com, Inc.),
+	// deviceId `cd01` (NVMe SSD).
 	// To get the values for VendorId and DeviceId:
 	// 1. Run the following command to list all PCI devices on your system:
 	//    ```bash

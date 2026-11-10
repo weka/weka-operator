@@ -27,6 +27,7 @@
 - [VirtualDrive](#virtualdrive)
 - [EntityStatefulNum](#entitystatefulnum)
 - [DriveMetrics](#drivemetrics)
+- [PCIDevices](#pcidevices)
 - [DriveFailures](#drivefailures)
 
 ---
@@ -328,10 +329,11 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| subnet | string | CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.<br>When set together with deviceNames, both conditions apply: only the named interfaces that also hold an<br>address in this subnet are selected. For management IPs, the address picked is the one within this subnet. |
+| subnet | string | CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.<br>When set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces<br>that also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet. |
 | min | int | Minimum number of interfaces required from nodes matching this selector. |
 | max | int | Maximum number of interfaces to select per node matching this selector. |
 | deviceNames | []string | Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface<br>holding an address in that subnet, which lets one selector cover nodes on different subnets.<br>The subnet narrowing is skipped for rdmaOnly selectors, whose interfaces may carry no address at all. |
+| pciDevices | []PCIDevices | PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).<br>An interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.<br>subnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then<br>PCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a<br>card, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.<br>VLAN, bond and other virtual interfaces have no PCI device of their own and never match.<br>When no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing. |
 | rdmaOnly | bool |  |
 | disableRdma | bool |  |
 
@@ -376,6 +378,15 @@
 |------------|------|-------------|
 | counters | EntityStatefulNum |  |
 | failures | []DriveFailures |  |
+
+---
+
+## PCIDevices
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| vendorId | string | VendorId is the 4-digit hexadecimal PCI vendor ID |
+| deviceId | string | DeviceId is the 4-digit hexadecimal PCI device ID |
 
 ---
 
