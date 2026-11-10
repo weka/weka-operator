@@ -2088,7 +2088,7 @@
           "name": "Subnet",
           "jsonName": "subnet",
           "type": "string",
-          "description": "CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.\nWhen set together with deviceNames, both conditions apply: only the named interfaces that also hold an\naddress in this subnet are selected. For management IPs, the address picked is the one within this subnet.",
+          "description": "CIDR subnet (e.g. 192.168.10.0/24) to filter interfaces. Only interfaces with an IP in this subnet are eligible.\nWhen set together with deviceNames or pciDevices, both conditions apply: only the named or matched interfaces\nthat also hold an address in this subnet are selected. For management IPs, the address picked is the one within this subnet.",
           "optional": true
         },
         {
@@ -2113,6 +2113,18 @@
             "items": "string"
           },
           "description": "Interface names (e.g. eth1) to select. Combine with subnet to narrow these to the interface\nholding an address in that subnet, which lets one selector cover nodes on different subnets.\nThe subnet narrowing is skipped for rdmaOnly selectors, whose interfaces may carry no address at all.",
+          "optional": true
+        },
+        {
+          "name": "PCIDevices",
+          "jsonName": "pciDevices",
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/PCIDevices"
+            }
+          },
+          "description": "PCI vendor and device IDs of the NICs to select, as `lspci -nn` shows them ([vendorId:deviceId]).\nAn interface is selected when its PCI device matches any entry; with deviceNames, it must also be named there.\nsubnet, min, max and rdmaOnly then apply as for deviceNames. max keeps the first matches in entry order, then\nPCI address order, or in deviceNames order when deviceNames is set. NICs of one model share an ID (both ports of a\ncard, every ENI or VNIC of a cloud VM): narrow with subnet or deviceNames; rdmaOnly selectors skip subnet.\nVLAN, bond and other virtual interfaces have no PCI device of their own and never match.\nWhen no interface matches, the pod fails if subnet or min is set; otherwise the selector selects nothing.",
           "optional": true
         },
         {
@@ -2295,18 +2307,21 @@
           "name": "VendorId",
           "jsonName": "vendorId",
           "type": "string",
-          "description": "VendorId is the 4-digit hexadecimal vendor ID\ndefault for AWS: `1d0f` (Amazon.com, Inc.)",
+          "description": "VendorId is the 4-digit hexadecimal PCI vendor ID",
           "optional": false
         },
         {
           "name": "DeviceId",
           "jsonName": "deviceId",
           "type": "string",
-          "description": "DeviceId is the 4-digit hexadecimal device ID\ndefault for AWS: `cd01` (NVMe SSD)",
+          "description": "DeviceId is the 4-digit hexadecimal PCI device ID",
           "optional": false
         }
       ],
       "usedBy": [
+        "WekaClient",
+        "WekaCluster",
+        "WekaContainer",
         "WekaManualOperation",
         "WekaPolicy"
       ]
@@ -3304,7 +3319,7 @@
           "type": {
             "$ref": "#/definitions/PCIDevices"
           },
-          "description": "PCI vendor and device IDs of the drives to sign.\nTo get the values for VendorId and DeviceId:\n1. Run the following command to list all PCI devices on your system:\n```bash\nlspci -nn\n```\n2. Find the relevant PCI device in the output, which will display both the\nvendor and device IDs in square brackets in the format [vendorId:deviceId].\nFor example:\n```\n00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01]\n```",
+          "description": "PCI vendor and device IDs of the drives to sign. Default for AWS: vendorId `1d0f` (Amazon.com, Inc.),\ndeviceId `cd01` (NVMe SSD).\nTo get the values for VendorId and DeviceId:\n1. Run the following command to list all PCI devices on your system:\n```bash\nlspci -nn\n```\n2. Find the relevant PCI device in the output, which will display both the\nvendor and device IDs in square brackets in the format [vendorId:deviceId].\nFor example:\n```\n00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01]\n```",
           "optional": true,
           "pointer": true
         },

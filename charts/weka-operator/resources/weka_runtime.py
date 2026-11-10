@@ -4416,6 +4416,39 @@ async def device_interface_exists(device_name: str) -> bool:
 
 
 
+def get_devices_by_pci_ids(pci_ids: List[str]) -> List[str]:
+    """Interface names whose PCI vendor:device id is in pci_ids, in pci_ids order, then PCI address order."""
+    net_root = "/sys/class/net"
+    interfaces = []
+    for name in os.listdir(net_root):
+        # the PCI function is not always the interface's direct sysfs parent: virtio-net sits on a virtioN device
+        address = None
+        for part in os.path.realpath(f"{net_root}/{name}").split("/"):
+            if re.fullmatch(r"[0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]", part):
+                address = part
+        if address is None:
+            continue
+        try:
+            with open(f"/sys/bus/pci/devices/{address}/vendor") as f:
+                vendor = f.read().strip().removeprefix("0x")
+            with open(f"/sys/bus/pci/devices/{address}/device") as f:
+                device = f.read().strip().removeprefix("0x")
+        except OSError:
+            continue
+        interfaces.append((address, name, f"{vendor}:{device}"))
+
+    interfaces.sort()
+    names = []
+    for pci_id in dict.fromkeys(pci_ids):
+        for _, name, found_id in interfaces:
+            if found_id == pci_id:
+                names.append(name)
+    if not names:
+        logging.warning(f"No interface matches pciDevices {pci_ids}; PCI interfaces on this node: "
+                        f"{[f'{name}={found_id}' for _, name, found_id in interfaces]}")
+    return names
+
+
 async def filter_out_missing_devices(device_names: List[str], rdma_only: bool = False,
                                      subnet: Optional[str] = None) -> List[str]:
     """Filter out devices that are not available in the system.
@@ -4459,17 +4492,25 @@ async def get_devices_by_selectors(selectors_str: str) -> List[dict]:
         min_devices = selector.get("min", 0)
         max_devices = selector.get("max", 0)
         device_names = selector.get("deviceNames")
+        pci_devices = selector.get("pciDevices")
         subnet = selector.get("subnet")
         rdma_only = selector.get("rdmaOnly", False)
         disable_rdma = selector.get("disableRdma", False)
 
-        if device_names:
+        if pci_devices:
+            pci_ids = [f"{d['vendorId']}:{d['deviceId']}".lower() for d in pci_devices]
+            pci_names = get_devices_by_pci_ids(pci_ids)
+            if not pci_names and (subnet or min_devices > 0):
+                raise Exception(f"No interface matches pciDevices {pci_ids}.")
+            device_names = [name for name in device_names if name in pci_names] if device_names else pci_names
+
+        if device_names is not None:
             requested_device_names = device_names
             device_names = await filter_out_missing_devices(device_names, rdma_only=rdma_only, subnet=subnet)
             if subnet and not device_names:
                 raise Exception(f"No device in {requested_device_names} has an address in subnet {subnet}.")
             if len(device_names) < min_devices:
-                raise Exception(f"Not enough devices found by deviceNames selector. Expected at least {min_devices}, found {len(device_names)}.")
+                raise Exception(f"Not enough devices found by deviceNames/pciDevices selector in {requested_device_names}. Expected at least {min_devices}, found {len(device_names)}.")
 
             if max_devices > 0:
                 device_names = device_names[:max_devices]
@@ -4484,7 +4525,7 @@ async def get_devices_by_selectors(selectors_str: str) -> List[dict]:
             continue
 
         if not subnet:
-            raise Exception("Either 'deviceNames' or 'subnet' must be provided in the selector.")
+            raise Exception("Either 'deviceNames', 'pciDevices' or 'subnet' must be provided in the selector.")
 
         subnet_devices = await get_devices_waiting_for_all_subnets_to_have_device([subnet])
         if len(subnet_devices) < min_devices:
