@@ -3,6 +3,7 @@ package wekacontainer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -70,6 +71,10 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 			}
 			picked = true
 			nodeAffinity = weka.NodeName(node.Name)
+		}
+
+		if waitErr := r.waitForNumaRegionResource(r.nodeForPod()); waitErr != nil {
+			return waitErr
 		}
 
 		nodeInfo, err = r.GetNodeInfo(ctx, nodeAffinity)
@@ -287,4 +292,29 @@ func (r *containerReconcilerLoop) constrainPickedPlacement(pod *v1.Pod, nodeName
 // can land elsewhere: drivers builder and dist, and ad-hoc helper containers.
 func (r *containerReconcilerLoop) isDriversOrHelper() bool {
 	return r.container.IsDriversBuilder() || r.container.IsDistMode() || r.container.IsAdhocOpContainer()
+}
+
+func (r *containerReconcilerLoop) nodeForPod() *v1.Node {
+	if r.node != nil {
+		return r.node
+	}
+	return r.pickedNode
+}
+
+// waitForNumaRegionResource holds back a pod that requests weka.io/numa-region-<N> until the node advertises it:
+// after a reboot or node-agent restart kubelet can admit the pod before the device plugin registers, failing it
+// with UnexpectedAdmissionError. Kubelet reports a plugin's resource as 0 once it is gone and omits it before the
+// first registration, so both count as not advertised. A not-Ready node is also waited on: right after a reboot
+// the cached node still shows the old allocatable until kubelet posts its first status.
+func (r *containerReconcilerLoop) waitForNumaRegionResource(node *v1.Node) error {
+	name, ok := resources.NumaRegionResourceName(r.container)
+	if !ok || node == nil {
+		return nil
+	}
+	if q, found := node.Status.Allocatable[name]; NodeIsReady(node) && found && !q.IsZero() {
+		return nil
+	}
+	msg := fmt.Sprintf("node %s is not Ready or does not advertise %s yet, waiting for the node-agent device plugin to register (is nodeAgent.devicePlugin enabled?)", node.Name, name)
+	_ = r.RecordEventThrottled(v1.EventTypeNormal, "WaitingForNumaRegionResource", consts.ActionScheduleContainers, msg, time.Minute) //nolint:errcheck // event is best effort
+	return lifecycle.NewWaitErrorWithDuration(errors.New(msg), 15*time.Second)
 }

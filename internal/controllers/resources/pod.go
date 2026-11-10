@@ -1777,12 +1777,11 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod, hgDetail
 	}
 
 	numa := f.container.Spec.Numa
-	if numa != nil && numa.Single && numa.Region != nil {
+	if numaResourceName, ok := NumaRegionResourceName(f.container); ok {
+		pod.Spec.Containers[0].Resources.Requests[numaResourceName] = resource.MustParse("1")
+		pod.Spec.Containers[0].Resources.Limits[numaResourceName] = resource.MustParse("1")
+	} else if numa != nil && numa.Single && numa.Region != nil {
 		switch numa.Method {
-		case "", weka.WekaNumaMethodDevicePlugin:
-			numaResourceName := corev1.ResourceName(consts.WekaNumaRegionResourcePrefix + strconv.Itoa(*numa.Region))
-			pod.Spec.Containers[0].Resources.Requests[numaResourceName] = resource.MustParse("1")
-			pod.Spec.Containers[0].Resources.Limits[numaResourceName] = resource.MustParse("1")
 		case weka.WekaNumaMethodDra:
 			// The claim object itself (created in the wekacontainer reconciler, see
 			// ensureNumaResourceClaimForCPUCount) requests dra.cpu/cpu capacity equal to
@@ -1846,6 +1845,18 @@ func applyResourcesOverride(target *corev1.ResourceRequirements, override *weka.
 	apply(corev1.ResourceCPU, override.Requests.Cpu, override.Limits.Cpu)
 	apply(corev1.ResourceMemory, override.Requests.Memory, override.Limits.Memory)
 	apply(corev1.ResourceName(corev1.ResourceHugePagesPrefix+"2Mi"), override.Requests.Hugepages2Mi, override.Limits.Hugepages2Mi)
+}
+
+// NumaRegionResourceName returns the device-plugin resource the pod requests for a NUMA-confined container.
+func NumaRegionResourceName(c *weka.WekaContainer) (corev1.ResourceName, bool) {
+	numa := c.Spec.Numa
+	if numa == nil || !numa.Single || numa.Region == nil {
+		return "", false
+	}
+	if numa.Method != "" && numa.Method != weka.WekaNumaMethodDevicePlugin {
+		return "", false
+	}
+	return corev1.ResourceName(consts.WekaNumaRegionResourcePrefix + strconv.Itoa(*numa.Region)), true
 }
 
 // NumaClaimNameForContainer returns the name of the namespace-scoped DRA ResourceClaim object
