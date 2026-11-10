@@ -13,8 +13,17 @@ func TestParseFeatureBitmap(t *testing.T) {
 	if !flags.TracesOverridePartialSupport || !flags.SsdProxyVidLabelAdd {
 		t.Errorf("bits 0 and 17 should be set: %+v", flags)
 	}
-	if flags.WekactlAsDefault {
-		t.Errorf("bits 14 and 16 should be clear: %+v", flags)
+	if flags.WekactlAsDefault || flags.S3ClusterCreateWithoutConfigFs {
+		t.Errorf("bits 14, 16 and 19 should be clear: %+v", flags)
+	}
+
+	// The bitmap of a 6.2.0 build: bits 0-5, 9, 10, 12, 14-17 and 19.
+	v620, err := parseFeatureBitmap("P9YL")
+	if err != nil {
+		t.Fatalf("6.2.0 bitmap: %v", err)
+	}
+	if !v620.S3ClusterCreateWithoutConfigFs || !v620.SsdProxyVidLabelAdd || v620.DriverSupportsAutoDrain {
+		t.Errorf("6.2.0 bitmap: %+v", v620)
 	}
 
 	// A bitmap too short to hold a bit reads it as false rather than failing: that is what an
