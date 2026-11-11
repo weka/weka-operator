@@ -120,12 +120,25 @@ func (r *containerReconcilerLoop) reportAdhocPodNotProgressing(ctx context.Conte
 	return nil
 }
 
-// deleteStuckAdhocContainer marks an adhoc-op container for deletion once its pod has failed to
-// produce a result for too long. Adhoc-op containers are node-pinned and only produce a result
-// once their pod runs, so a pod that can never run would otherwise leak the CR forever: cleanup
-// is gated on CondResultsProcessed, set only after fetchResults execs into a running pod.
+// deleteStuckAdhocContainer marks an adhoc-op container for deletion once it has failed to produce a result for
+// too long: it has no pod (never created, or deleted) that long after creation, or its pod made no progress. Adhoc-op containers are node-pinned and only produce
+// a result once their pod runs, so otherwise the CR leaks forever and its requesters wait on it forever: cleanup is
+// gated on CondResultsProcessed, set only after fetchResults execs into a running pod. A requester recreates it,
+// with the requester's current spec (tolerations included).
 func (r *containerReconcilerLoop) deleteStuckAdhocContainer(ctx context.Context) error {
 	logger := instrumentation.CurrentSpanLogger(ctx)
+
+	if r.pod == nil {
+		since := r.container.CreationTimestamp.UTC().Format(time.RFC3339)
+		_ = r.RecordEvent( //nolint:errcheck // best-effort event
+			v1.EventTypeWarning,
+			"AdhocPodNotCreated",
+			consts.ActionManageOneOffOperation,
+			fmt.Sprintf("Adhoc-op container has no pod and no result %s after creation (%s), deleting container; its EnsurePod events give the reason", config.Config.StuckAdhocPodStartingTimeout, since),
+		)
+		logger.Info("Deleting adhoc-op container without a pod past the starting timeout", "created", since)
+		return services.SetContainerStateDeleting(ctx, r.container, r.Client)
+	}
 
 	reason, detail := podNotRunningReason(r.pod)
 	stuckFor := time.Since(podStuckSince(r.pod)).Round(time.Second)
@@ -148,10 +161,15 @@ func (r *containerReconcilerLoop) adhocPodNotProgressing() bool {
 	return r.pod.Status.Phase != v1.PodRunning || podCrashLoopingAfterFailure(r.pod)
 }
 
-// adhocPodStuckTimeoutElapsed reports whether the pod has been stuck long enough to
-// delete the container.
-func (r *containerReconcilerLoop) adhocPodStuckTimeoutElapsed() bool {
-	return podStuckTimeoutElapsed(
+// adhocStuckTimeoutElapsed reports whether the container has gone without a pod, or with a pod that makes no
+// progress, long enough to delete it. Not having a pod counts as starting up: the usual causes are waits
+// (a resource the node doesn't advertise yet, discovery) rather than hard failures.
+func (r *containerReconcilerLoop) adhocStuckTimeoutElapsed() bool {
+	if r.pod == nil {
+		return r.container.Status.ExecutionResult == nil &&
+			time.Since(r.container.CreationTimestamp.Time) > config.Config.StuckAdhocPodStartingTimeout
+	}
+	return r.adhocPodNotProgressing() && podStuckTimeoutElapsed(
 		r.pod,
 		time.Now(),
 		config.Config.StuckAdhocPodTimeout,

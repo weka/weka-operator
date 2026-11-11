@@ -7,6 +7,25 @@
 `runStatus` becomes `status.status` and `internalStatus.display_status` becomes `status.internalStatus`.
 Statuses that proxy a higher-level state (`Completed`, `Deleting`, `Destroying`) are never overwritten by it.
 
+## When the pod cannot be created
+
+When creating the pod has to wait (for example for feature flags), the status is `PodNotRunning`, except for the
+statuses that proxy a higher-level state, and the reason goes into an `EnsurePodWaiting` Warning event, throttled to
+one a minute. A failure sets `Error`, with an `EnsurePodError` event. A channel failure, whether or not it is a wait,
+is handled as described in [When the API server or exec channel fails](#when-the-api-server-or-exec-channel-fails).
+
+## Stuck ad-hoc and deleting containers
+
+An ad-hoc container (modes `adhoc-op`, `adhoc-op-with-container` and `drivers-loader`) that has no pod and no result
+`stuckAdhocPodStartingTimeout` (default 30m) after it was created is deleted, with an `AdhocPodNotCreated` event.
+This covers a pod that was never created and one the operator deleted (for example on an unschedulable node). One
+whose pod makes no progress for `stuckAdhocPodTimeout` (default 10m), or for `stuckAdhocPodStartingTimeout` while the
+pod is still pulling its image or creating containers, is deleted with an `AdhocPodStuck` event. In both cases the requester, while it still needs the result, creates a new one with its
+current spec, tolerations included.
+
+A container being deleted for longer than 10 minutes gets a `DeletionSlow` Warning event, at most one every
+10 minutes, with the state of its pod.
+
 ## When the API server or exec channel fails
 
 A failure of the channel itself is different from a command that ran and failed (non-zero exit, unparsable output).

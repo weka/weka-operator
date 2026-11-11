@@ -15,9 +15,39 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
+
+const slowDeletionAfter = 10 * time.Minute
+
+// reportSlowDeletion shows a deletion that is taking long, with the pod state it is waiting on. The note
+// carries timestamps, not elapsed time, so repeats bump one Event's count instead of creating new ones.
+func (r *containerReconcilerLoop) reportSlowDeletion(ctx context.Context) error {
+	pod := "no pod"
+	if p := r.pod; p != nil {
+		pod = fmt.Sprintf("pod %s on node %q is %s", p.Name, p.Spec.NodeName, p.Status.Phase)
+		if p.DeletionTimestamp != nil {
+			pod += fmt.Sprintf(", terminating since %s", p.DeletionTimestamp.UTC().Format(time.RFC3339))
+		}
+	}
+	msg := fmt.Sprintf("Being deleted since %s; %s", r.container.GetDeletionTimestamp().UTC().Format(time.RFC3339), pod)
+	return r.RecordEventThrottled(v1.EventTypeWarning, "DeletionSlow", consts.ActionReconcile, msg, slowDeletionAfter)
+}
+
+func (r *containerReconcilerLoop) reportSlowDeletionStep() lifecycle.Step {
+	return &lifecycle.SimpleStep{
+		Run: r.reportSlowDeletion,
+		Predicates: lifecycle.Predicates{
+			func() bool {
+				ts := r.container.GetDeletionTimestamp()
+				return ts != nil && time.Since(ts.Time) > slowDeletionAfter
+			},
+		},
+		ContinueOnError: true,
+	}
+}
 
 // DeletingStateFlow returns the steps for a container in the deleting state
 func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
@@ -36,6 +66,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.refreshPod,
 		},
+		r.reportSlowDeletionStep(),
 		&lifecycle.SimpleStep{
 			Run: r.GetWekaClient,
 			Predicates: lifecycle.Predicates{

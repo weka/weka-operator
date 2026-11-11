@@ -141,6 +141,11 @@ by writing the loaded driver name to `/tmp/weka-drivers.log`
 also runs `weka driver ready --version {version}` before reporting success, so a successful
 load means the *requested* version is genuinely resident.
 
+While the loader has no result, the waiting container gets an `EnsureDriversWaiting` Warning event, throttled to one a
+minute, once the loader has existed for 2 minutes; the message names the loader and its status. Other waits in
+`EnsureDrivers` record no event. A loader that gets no pod is deleted and recreated, see
+[Stuck ad-hoc and deleting containers](../concepts/container-status.md#stuck-ad-hoc-and-deleting-containers).
+
 ### Node reboot
 
 Kernel modules do not persist across a reboot. When the node's BootID differs from the
