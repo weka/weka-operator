@@ -20,6 +20,7 @@ func DestroyingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.refreshPod,
 		},
+		r.reportSlowDeletionStep(),
 		&lifecycle.SimpleStep{
 			Run: r.GetWekaClient,
 			Predicates: lifecycle.Predicates{

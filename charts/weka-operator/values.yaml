@@ -419,7 +419,7 @@ dnsPolicy:
 # operator deletes it so the planner can re-place its capacity on a node that can host it;
 # `stuckAdhocPodTimeout` is how long an adhoc-op container's pod may fail to produce a result before the operator
 # deletes the container, and `stuckAdhocPodStartingTimeout` is the longer variant that applies while the pod is still
-# pulling its image / creating containers.
+# pulling its image / creating containers, or to a container with no pod that long after creation.
 # @section -- Timeouts & intervals
 defaultIntervals:
   deleteEnvoyWithoutS3NeighborTimeout: 5m

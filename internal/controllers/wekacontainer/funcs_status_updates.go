@@ -2,12 +2,16 @@ package wekacontainer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
 	"time"
 
+	"github.com/weka/go-steps-engine/lifecycle"
+
 	"github.com/weka/weka-operator/internal/consts"
+	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util/channelerr"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
@@ -36,6 +40,8 @@ func wekaContainerRunning(pod *v1.Pod) bool {
 func (r *containerReconcilerLoop) isChannelFailure(err error) bool {
 	return channelerr.Is(err) && (r.pod == nil || wekaContainerRunning(r.pod))
 }
+
+const driversLoaderWaitEventAfter = 2 * time.Minute
 
 func (r *containerReconcilerLoop) IsStatusOverwritableByLocal() bool {
 	// we do not want to overwrite this statuses, as they proxy some higher-level state
@@ -104,6 +110,32 @@ func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, stepName s
 	}
 	r.container.Status.Status = weka.Error
 	return r.Status().Update(ctx, r.container)
+}
+
+// setPodCreationFailureStatus keeps Error for a real failure. A wait (feature flags not cached,
+// discovery in progress) is expected, so the status is PodNotRunning and the reason goes
+// into a throttled event.
+func (r *containerReconcilerLoop) setPodCreationFailureStatus(ctx context.Context, stepName string, err error) error {
+	if !errors.As(err, new(*lifecycle.WaitError)) || r.isChannelFailure(err) {
+		return r.setErrorStatus(ctx, stepName, err)
+	}
+	r.recordWaitEvent(stepName, err)
+	if !r.IsStatusOverwritableByLocal() {
+		return nil
+	}
+	return r.updateContainerStatusIfNotEquals(ctx, weka.PodNotRunning)
+}
+
+func (r *containerReconcilerLoop) recordWaitEvent(stepName string, err error) {
+	_ = r.RecordEventThrottled(v1.EventTypeWarning, stepName+"Waiting", consts.ActionReconcile, err.Error(), time.Minute) //nolint:errcheck // best-effort event
+}
+
+// recordDriversLoaderWait records the wait event only once the drivers loader has existed for driversLoaderWaitEventAfter without a result.
+func (r *containerReconcilerLoop) recordDriversLoaderWait(_ context.Context, stepName string, err error) error {
+	if notReady, ok := errors.AsType[*operations.DriversLoaderNotReadyError](err); ok && time.Since(notReady.Since) >= driversLoaderWaitEventAfter {
+		r.recordWaitEvent(stepName, err)
+	}
+	return nil
 }
 
 func (r *containerReconcilerLoop) setDrivesErrorStatus(ctx context.Context, _ string, err error) error {

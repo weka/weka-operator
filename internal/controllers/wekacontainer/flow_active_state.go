@@ -262,7 +262,9 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
-			Run: r.EnsureDrivers,
+			Name:   "EnsureDrivers",
+			Run:    r.EnsureDrivers,
+			OnFail: r.recordDriversLoaderWait,
 			Predicates: lifecycle.Predicates{
 				r.container.RequiresDrivers,
 				lifecycle.IsNotFunc(r.container.IsMarkedForDeletion),
@@ -351,13 +353,22 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				lifecycle.IsNotFunc(r.container.IsMarkedForDeletion),
 			},
 		},
+		// Before ensurePod: a container whose pod cannot be created never gets past it.
+		&lifecycle.SimpleStep{
+			Run: r.deleteStuckAdhocContainer,
+			Predicates: lifecycle.Predicates{
+				r.container.IsAdhocOpContainer,
+				r.adhocStuckTimeoutElapsed,
+			},
+			FinishOnSuccess: true,
+		},
 		&lifecycle.SimpleStep{
 			Name: "EnsurePod",
 			Run:  r.ensurePod,
 			Predicates: lifecycle.Predicates{
 				r.PodNotSet,
 			},
-			OnFail: r.setErrorStatus,
+			OnFail: r.setPodCreationFailureStatus,
 		},
 		&lifecycle.SimpleStep{
 			Run: r.finalizeKernelizeAfterProxyPod,
@@ -391,15 +402,6 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.IsAdhocOpContainer,
 				r.PodIsSet,
 				r.adhocPodNotProgressing,
-			},
-		},
-		&lifecycle.SimpleStep{
-			Run: r.deleteStuckAdhocContainer,
-			Predicates: lifecycle.Predicates{
-				r.container.IsAdhocOpContainer,
-				r.PodIsSet,
-				r.adhocPodNotProgressing,
-				r.adhocPodStuckTimeoutElapsed,
 			},
 		},
 		&lifecycle.SimpleStep{

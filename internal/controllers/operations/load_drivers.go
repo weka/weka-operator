@@ -588,9 +588,28 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	return nil
 }
 
+// DriversLoaderNotReadyError is the wait PollResults returns while the loader has no result; Since is when the loader was created.
+type DriversLoaderNotReadyError struct {
+	Name   string
+	Status string
+	Since  time.Time
+}
+
+func (e *DriversLoaderNotReadyError) Error() string {
+	return fmt.Sprintf("drivers loader %s is %s, result not ready", e.Name, e.Status)
+}
+
 func (o *LoadDrivers) PollResults(ctx context.Context) error {
 	if o.container.Status.ExecutionResult == nil {
-		return lifecycle.NewWaitErrorWithDuration(fmt.Errorf("container execution result is not ready"), time.Second*10)
+		status := string(o.container.Status.Status)
+		if status == "" {
+			status = "pending"
+		}
+		return lifecycle.NewWaitErrorWithDuration(&DriversLoaderNotReadyError{
+			Name:   o.container.Name,
+			Status: status,
+			Since:  o.container.CreationTimestamp.Time,
+		}, time.Second*10)
 	}
 	return nil
 }

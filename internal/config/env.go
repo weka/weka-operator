@@ -373,7 +373,8 @@ var Config struct {
 	// operator deletes the container, so a pod that can never run cannot leak the CR
 	// forever. StuckAdhocPodStartingTimeout applies while the pod is still legitimately
 	// starting up (image pull / container creation), which can take much longer than a
-	// hard failure like ImagePullBackOff or Unschedulable.
+	// hard failure like ImagePullBackOff or Unschedulable, and to a container that has
+	// no pod (never created, or deleted) that long after creation.
 	StuckAdhocPodTimeout             time.Duration
 	StuckAdhocPodStartingTimeout     time.Duration
 	RemoveFailedDrivesFromWeka       bool
