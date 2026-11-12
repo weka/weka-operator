@@ -8,7 +8,6 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	v1 "k8s.io/api/core/v1"
 )
@@ -88,36 +87,27 @@ func GetBuilderImageForNode(node *v1.Node) (string, error) {
 	}
 }
 
-func GetLoaderImageForNode(ctx context.Context, node *v1.Node, image string, forceBuilderCli bool) (string, error) {
-	flags, err := services.GetFeatureFlags(ctx, image)
-	if err != nil {
-		flags = nil
-	}
-
-	builderImage, err := GetBuilderImageForNode(node)
-	if err != nil {
-		return "", err
-	}
-
-	return GetBuilderCliImage(flags, image, builderImage, forceBuilderCli), nil
-}
-
 // GetBuilderCliImage picks the image that supplies the weka CLI staged for the
 // drivers-builder init containers. The extraction step bind-mounts over /opt/weka,
 // where the cluster image keeps its CLI, so a CLI is always staged out of band;
 // prefer the cluster image's own CLI when it can copy driver files itself.
 //
 // forceBuilderCli comes from the operator-wide configuration policy and overrides that
-// preference, always staging the CLI out of the builder image.
-func GetBuilderCliImage(flags *domain.FeatureFlags, clusterImage, builderImage string, forceBuilderCli bool) string {
+// preference, always staging the CLI out of the builder image without fetching feature flags.
+func GetBuilderCliImage(ctx context.Context, clusterImage, builderImage string, forceBuilderCli bool,
+	getFlags func(context.Context) (*domain.FeatureFlags, error)) (string, error) {
 	if forceBuilderCli {
-		return builderImage
+		return builderImage, nil
 	}
 
+	flags, err := getFlags(ctx)
+	if err != nil {
+		return "", err
+	}
 	if flags != nil && flags.WekaGetCopyLocalDriverFiles {
 		// innovation cli --kernel-build-id etc.
-		return clusterImage
+		return clusterImage, nil
 	}
 
-	return builderImage
+	return builderImage, nil
 }

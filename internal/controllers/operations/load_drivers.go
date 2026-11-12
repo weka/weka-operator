@@ -21,6 +21,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/drivers"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -527,9 +528,21 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	serviceAccountName := config.Config.MaintenanceSaName
 	name := o.getContainerName()
 	forceBuilderCli := services.GetSettings(ctx).Drivers.ForceBuilderCli
-	loaderImage, err := drivers.GetLoaderImageForNode(ctx, o.node, o.containerDetails.Image, forceBuilderCli)
+	builderImage, err := drivers.GetBuilderImageForNode(o.node)
 	if err != nil {
 		return errors.Wrap(err, "failed to pick drivers-loader image")
+	}
+	loaderImage, err := drivers.GetBuilderCliImage(ctx, o.containerDetails.Image, builderImage, forceBuilderCli,
+		func(ctx context.Context) (*domain.FeatureFlags, error) {
+			return GetFeatureFlagsForImage(ctx, o.mgr, &AdhocContainerParams{
+				Image:           o.containerDetails.Image,
+				NodeAffinity:    weka.NodeName(o.node.Name),
+				ImagePullSecret: o.containerDetails.ImagePullSecret,
+				Tolerations:     o.containerDetails.Tolerations,
+			})
+		})
+	if err != nil {
+		return err
 	}
 
 	labels := map[string]string{

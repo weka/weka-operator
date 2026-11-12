@@ -3,6 +3,7 @@ package drivers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
@@ -171,91 +171,36 @@ var _ = Describe("Driver Image Selection", func() {
 		})
 	})
 
-	Describe("GetLoaderImageForNode", func() {
-		var ctx context.Context
-
-		BeforeEach(func() {
-			ctx = context.Background()
-		})
+	Describe("GetBuilderCliImage", func() {
+		const (
+			clusterImage = "quay.io/weka.io/weka-in-container:4.5.0.100"
+			builderImage = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
+		)
+		flagOn := &domain.FeatureFlags{WekaGetCopyLocalDriverFiles: true}
+		flagsFn := func(flags *domain.FeatureFlags, err error) func(context.Context) (*domain.FeatureFlags, error) {
+			return func(context.Context) (*domain.FeatureFlags, error) { return flags, err }
+		}
 
 		It("should return the cluster image when feature flag WekaGetCopyLocalDriverFiles is true", func() {
-			clusterImage := "quay.io/weka.io/weka-in-container:4.5.0.100"
-			node := &corev1.Node{
-				Status: corev1.NodeStatus{
-					NodeInfo: corev1.NodeSystemInfo{
-						OSImage: "Ubuntu 22.04.5 LTS",
-					},
-				},
-			}
-
-			// Pre-populate the feature flags cache with the flag enabled
-			flags := &domain.FeatureFlags{
-				WekaGetCopyLocalDriverFiles: true,
-			}
-			err := services.SetFeatureFlags(ctx, clusterImage, flags)
-			Expect(err).NotTo(HaveOccurred())
-
-			loaderImage, err := GetLoaderImageForNode(ctx, node, clusterImage, false)
-
-			Expect(err).NotTo(HaveOccurred())
-			Expect(loaderImage).To(Equal(clusterImage))
+			Expect(GetBuilderCliImage(context.Background(), clusterImage, builderImage, false, flagsFn(flagOn, nil))).To(Equal(clusterImage))
 		})
 
-		It("should return builder image when feature flag is not set or flags not cached", func() {
-			// Use an image that is not in the cache
-			clusterImage := "quay.io/weka.io/weka-in-container:4.4.0.50-uncached"
-			node := &corev1.Node{
-				Status: corev1.NodeStatus{
-					NodeInfo: corev1.NodeSystemInfo{
-						OSImage: "Ubuntu 22.04.5 LTS",
-					},
-				},
-			}
-
-			loaderImage, err := GetLoaderImageForNode(ctx, node, clusterImage, false)
-
-			// Should fall back to builder image since flags are not cached
-			Expect(err).NotTo(HaveOccurred())
-			Expect(loaderImage).To(Equal("quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"))
+		It("should return builder image when feature flag is not set", func() {
+			Expect(GetBuilderCliImage(context.Background(), clusterImage, builderImage, false, flagsFn(&domain.FeatureFlags{}, nil))).To(Equal(builderImage))
 		})
 
-		It("should return the builder image when forceBuilderCli is set, even with the flag on", func() {
-			clusterImage := "quay.io/weka.io/weka-in-container:4.5.0.101"
-			node := &corev1.Node{
-				Status: corev1.NodeStatus{
-					NodeInfo: corev1.NodeSystemInfo{
-						OSImage: "Ubuntu 22.04.5 LTS",
-					},
-				},
+		It("should return the builder image without fetching flags when forceBuilderCli is set", func() {
+			mustNotFetch := func(context.Context) (*domain.FeatureFlags, error) {
+				Fail("feature flags must not be fetched when forceBuilderCli is set")
+				return nil, nil
 			}
-
-			flags := &domain.FeatureFlags{
-				WekaGetCopyLocalDriverFiles: true,
-			}
-			err := services.SetFeatureFlags(ctx, clusterImage, flags)
-			Expect(err).NotTo(HaveOccurred())
-
-			loaderImage, err := GetLoaderImageForNode(ctx, node, clusterImage, true)
-
-			Expect(err).NotTo(HaveOccurred())
-			Expect(loaderImage).To(Equal("quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"),
-				"forceBuilderCli must override the feature flag")
+			Expect(GetBuilderCliImage(context.Background(), clusterImage, builderImage, true, mustNotFetch)).To(Equal(builderImage))
 		})
 
-		It("should return the builder image when forceBuilderCli is set and flags are not cached", func() {
-			clusterImage := "quay.io/weka.io/weka-in-container:4.4.0.51-uncached"
-			node := &corev1.Node{
-				Status: corev1.NodeStatus{
-					NodeInfo: corev1.NodeSystemInfo{
-						OSImage: "Ubuntu 24.04.3 LTS",
-					},
-				},
-			}
-
-			loaderImage, err := GetLoaderImageForNode(ctx, node, clusterImage, true)
-
-			Expect(err).NotTo(HaveOccurred())
-			Expect(loaderImage).To(Equal("quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24"))
+		It("should propagate a feature flags fetch error", func() {
+			fetchErr := errors.New("adhoc container still running")
+			_, err := GetBuilderCliImage(context.Background(), clusterImage, builderImage, false, flagsFn(nil, fetchErr))
+			Expect(err).To(MatchError(fetchErr))
 		})
 	})
 })

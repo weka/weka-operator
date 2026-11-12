@@ -200,14 +200,14 @@ func (r *containerReconcilerLoop) prepareContainerForPod(ctx context.Context, co
 
 		forceBuilderCli := services.GetSettings(ctx).Drivers.ForceBuilderCli
 
-		builderFlags, ffErr := r.GetFeatureFlags(ctx)
-		if ffErr != nil {
-			return "", ffErr
+		cliImage, cliErr := drivers.GetBuilderCliImage(ctx, container.Spec.Image, image, forceBuilderCli, r.GetFeatureFlags)
+		if cliErr != nil {
+			return "", cliErr
 		}
 
 		payloadBytes, _ := json.Marshal(map[string]string{ //nolint:errcheck // error return value intentionally not checked
 			"targetImage": container.Spec.Image,
-			"cliImage":    drivers.GetBuilderCliImage(builderFlags, container.Spec.Image, image, forceBuilderCli),
+			"cliImage":    cliImage,
 		})
 		container.Spec.Instructions = &weka.Instructions{
 			Type:    weka.InstructionCopyWekaFilesToDriverLoader,

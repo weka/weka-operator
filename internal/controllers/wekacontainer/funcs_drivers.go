@@ -184,7 +184,7 @@ func (r *containerReconcilerLoop) nodeFrontendDemands(ctx context.Context) ([]op
 // Only pods whose mode actually consumes drivers count. The rest run the same
 // images without holding wekafs mounts, so treating them as consumers would
 // re-create the permanent block this whole path exists to remove: a
-// drivers-loader pod runs the very image being recorded (GetLoaderImageForNode
+// drivers-loader pod runs the very image being recorded (GetBuilderCliImage
 // returns the cluster image once weka can copy local driver files), and dist /
 // drivers-builder / envoy / telemetry pods are long-lived on the same image.
 // Loader-vs-loader ordering belongs to LoadDrivers.HandleExistingLoader, not
