@@ -681,6 +681,7 @@ jobs:
                 "weka-secret-ref": "weka-client-upgrade-extended",
                 "csi-secret-name": "weka-csi-upgrade-extended",
                 "pre-clean-env": true,
+                "cleanup": "on-start",
                 "is-openshift": true
               }
             }')
