@@ -22,7 +22,7 @@ func (r *containerReconcilerLoop) getManagementIps(ctx context.Context) ([]strin
 
 	stdout, stderr, err := executor.ExecNamed(ctx, "GetManagementIps", []string{"cat", "/opt/weka/k8s-runtime/management_ips"})
 	if err != nil {
-		err = fmt.Errorf("Error reading management IPs: %v, %s", err, stderr.String())
+		err = fmt.Errorf("Error reading management IPs: %w, %s", err, stderr.String())
 		return nil, err
 	}
 
