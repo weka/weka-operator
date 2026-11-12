@@ -85,6 +85,12 @@ spec:
 The device plugin is off by default. With it off, no node advertises `weka.io/numa-region-<N>` and
 a pod requesting it cannot be scheduled.
 
+After a node reboot or a node-agent restart, kubelet can admit a pod before the device plugin has registered
+and fail it with `UnexpectedAdmissionError`. The operator therefore waits until the node is Ready and its allocatable
+for `weka.io/numa-region-<N>` is above 0 before it creates such a pod, retrying every 15 seconds and
+recording a `WaitingForNumaRegionResource` event. The check reads the operator's cached view of the node, so a
+node status that has not caught up can still let one pod through; a pod that fails admission is replaced.
+
 ### `dra`
 
 Uses Kubernetes Dynamic Resource Allocation (`resource.k8s.io/v1`, GA since Kubernetes 1.34) with

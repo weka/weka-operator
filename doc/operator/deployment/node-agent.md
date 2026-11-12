@@ -61,6 +61,9 @@ the guard, so drop `--reuse-values` or pass `--set nodeAgent=null`. Move the val
 - The DaemonSet is named `<prefix>-node-agent` and owned by the operator Deployment, so uninstalling the chart removes it.
 - Upgrading from a chart that rendered the DaemonSet: Helm removes the old object and the new operator recreates it
   under the same name. Node-agent pods are down until the new operator is running.
+  On a 1.16 to 1.17 upgrade this leaves node-agent, and the device plugin it runs, down on every node until the
+  recreated DaemonSet's pods are up. Containers that request `weka.io/numa-region-<N>` wait for the node to
+  advertise it again instead of failing admission.
 - To roll back to a chart version from before this change, first scale the operator down so it cannot recreate the
   DaemonSet (`kubectl -n <namespace> scale deploy <prefix>-controller-manager --replicas=0`), delete the DaemonSet
   (`kubectl -n <namespace> delete ds <prefix>-node-agent`), then run `helm rollback`, which restores the replica count.
