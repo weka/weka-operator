@@ -198,19 +198,8 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 		// Decide whether all of this container's drives go to the single "legacy" pool, or are
 		// routed to type-specific pools (iubig for QLC, iu4k for TLC).
-		var allSameType bool
-		if cluster.Spec.Dynamic != nil && cluster.Spec.Dynamic.DriveTypesRatio != nil {
-			ratio := cluster.Spec.Dynamic.DriveTypesRatio
-			allSameType = ratio.Qlc == 0 || ratio.Tlc == 0
-		} else {
-			allSameType = true
-			for _, vd := range container.Status.Allocations.VirtualDrives {
-				if vd.Type != container.Status.Allocations.VirtualDrives[0].Type {
-					allSameType = false
-					break
-				}
-			}
-		}
+		ratio := allocator.DriveTypesRatioOrDefault(cluster.Spec.Dynamic)
+		allSameType := allDrivesSameTypePool(ratio, container.Status.Allocations.VirtualDrives)
 
 		// A blocked VID is on its way out: re-adding it would undo the removal in progress, and would
 		// keep doing so on every pass for as long as its proxy erase kept failing.
@@ -1248,4 +1237,18 @@ func (r *containerReconcilerLoop) handleOversizedDrivePod(ctx context.Context) e
 	}
 	msg := fmt.Sprintf("pod requests %d weka.io/drives but numDrives is %d; recreate the pod to release the extra drive(s)", req.Value(), r.container.Spec.NumDrives)
 	return r.RecordEventThrottled(v1.EventTypeWarning, "PodRequestsExtraDrives", consts.ActionManageDrives, msg, 5*time.Minute)
+}
+
+// allDrivesSameTypePool reports whether all drives go to the single legacy pool. Without a ratio, that holds only
+// when the allocated virtual drives are all of one type.
+func allDrivesSameTypePool(ratio *weka.DriveTypesRatio, vds []weka.VirtualDrive) bool {
+	if ratio != nil {
+		return ratio.Qlc == 0 || ratio.Tlc == 0
+	}
+	for _, vd := range vds {
+		if vd.Type != vds[0].Type {
+			return false
+		}
+	}
+	return true
 }

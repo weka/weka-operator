@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/tools/events"
 
 	"github.com/weka/weka-operator/internal/capacityplanner"
+	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 )
 
@@ -367,6 +368,36 @@ func TestPlanClusterCapacitySkipsNodeInventory(t *testing.T) {
 			t.Errorf("buildNodeInventory called %d times, want 1 (fall-through)", *calls)
 		}
 	})
+}
+
+// TestPlanClusterCapacityNilRatioUsesHelmDefault: existing all-TLC drive containers cover the target only
+// when it is split all-TLC; without a ratio on the cluster the helm ratio adds a QLC share, so the planner
+// re-plans instead of taking the steady-state fast path.
+func TestPlanClusterCapacityNilRatioUsesHelmDefault(t *testing.T) {
+	prev := globalconfig.Config.DriveSharing.DriveTypesRatio
+	globalconfig.Config.DriveSharing.DriveTypesRatio = weka.DriveTypesRatio{Tlc: 1, Qlc: 10}
+	t.Cleanup(func() { globalconfig.Config.DriveSharing.DriveTypesRatio = prev })
+
+	// 30Gi usable at sw3/rl2/hs1 => 66 GiB raw, covered all-TLC by 6 × 11 GiB.
+	covering := func() []*weka.WekaContainer {
+		var cs []*weka.WekaContainer
+		for range 6 {
+			c := ownedDriveContainer("me", "n", 11, 1, 0)
+			c.Status.NodeAffinity = "n"
+			cs = append(cs, &c)
+		}
+		for range 6 {
+			cs = append(cs, computeContainer("c", 1))
+		}
+		return cs
+	}
+	noInventory := func() ([]capacityplanner.NodeCapacity, error) { return nil, nil }
+
+	r, calls := newCapacityLoop("30Gi", covering(), noInventory)
+	_, _ = r.planClusterCapacity(t.Context())
+	if *calls != 1 {
+		t.Errorf("nil ratio: buildNodeInventory called %d times, want 1 (helm 1:10 adds a QLC share)", *calls)
+	}
 }
 
 // newCapacityLoop builds a wekaClusterReconcilerLoop wired with a sw3/rl2/hs1 clusterCapacity cluster and a counting buildNodeInventory test seam.

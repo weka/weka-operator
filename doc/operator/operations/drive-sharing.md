@@ -139,7 +139,7 @@ spec:
 
 Specify total capacity per container using `containerCapacity`. The `driveTypesRatio` controls how capacity is split between TLC and QLC drives.
 
-**Important:** When `containerCapacity` is set, the operator **always** uses the `driveTypesRatio` to determine drive allocation. If no explicit ratio is provided, the global default from Helm values is used (default: `tlc: 1, qlc: 10`).
+**Important:** When `containerCapacity` (or `clusterCapacity`) is set, the operator **always** uses the `driveTypesRatio` to determine drive allocation. If no explicit ratio is provided, the global default from Helm values `driveSharing.driveTypesRatio` is used (default: `tlc: 1, qlc: 10`) — for the drive split of new drive containers, drive cores and compute hugepages alike. Existing drive containers keep the ratio stored on them.
 
 ##### TLC-Only with containerCapacity
 

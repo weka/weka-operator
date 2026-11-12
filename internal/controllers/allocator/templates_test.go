@@ -609,3 +609,91 @@ func TestGetContainerHugepages_BlocksWhenNoDriveContainersAllocated(t *testing.T
 		t.Fatal("expected error when no drive containers have allocated drives, got nil")
 	}
 }
+
+func setHelmDriveTypesRatio(t *testing.T, tlc, qlc int) {
+	t.Helper()
+	prev := globalconfig.Config.DriveSharing.DriveTypesRatio
+	globalconfig.Config.DriveSharing.DriveTypesRatio = weka.DriveTypesRatio{Tlc: tlc, Qlc: qlc}
+	t.Cleanup(func() { globalconfig.Config.DriveSharing.DriveTypesRatio = prev })
+}
+
+func TestDriveTypesRatioOrDefault(t *testing.T) {
+	explicit := &weka.DriveTypesRatio{Tlc: 1, Qlc: 0}
+	helm := &weka.DriveTypesRatio{Tlc: 1, Qlc: 10}
+
+	setHelmDriveTypesRatio(t, 1, 10)
+	tests := []struct {
+		name   string
+		config *weka.WekaClusterTemplate
+		want   *weka.DriveTypesRatio
+	}{
+		{"nil template", nil, nil},
+		{"explicit ratio wins", &weka.WekaClusterTemplate{ContainerCapacity: 8000, DriveTypesRatio: explicit}, explicit},
+		{"containerCapacity without ratio", &weka.WekaClusterTemplate{ContainerCapacity: 8000}, helm},
+		{"clusterCapacity without ratio", &weka.WekaClusterTemplate{ClusterCapacity: "100TiB"}, helm},
+		{"driveCapacity mode stays TLC-only", &weka.WekaClusterTemplate{NumDrives: 4, DriveCapacity: 1000}, nil},
+		{"full drives", &weka.WekaClusterTemplate{NumDrives: 4}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DriveTypesRatioOrDefault(tt.config)
+			if (got == nil) != (tt.want == nil) || (got != nil && *got != *tt.want) {
+				t.Errorf("got %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+
+	for _, r := range [][2]int{{0, 0}, {0, 5}} {
+		setHelmDriveTypesRatio(t, r[0], r[1])
+		if got := DriveTypesRatioOrDefault(&weka.WekaClusterTemplate{ContainerCapacity: 8000}); got != nil {
+			t.Errorf("helm %d:%d: got %+v, want nil", r[0], r[1], got)
+		}
+	}
+}
+
+// A WekaCluster without driveTypesRatio is sized (template ratio, drive cores, compute hugepages)
+// exactly as if it set the helm ratio explicitly.
+func TestGetWekaClusterTemplate_NilRatioUsesHelmDefault(t *testing.T) {
+	prevTlc := globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB
+	prevQlc := globalconfig.Config.ClusterCapacity.QlcCapacityPerCoreGiB
+	globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = 5 * 1024
+	globalconfig.Config.ClusterCapacity.QlcCapacityPerCoreGiB = 50 * 1024
+	t.Cleanup(func() {
+		globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = prevTlc
+		globalconfig.Config.ClusterCapacity.QlcCapacityPerCoreGiB = prevQlc
+	})
+	setHelmDriveTypesRatio(t, 1, 10)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	k8sClient := fakeclient.NewClientBuilder().WithScheme(scheme).Build()
+
+	newConfig := func(ratio *weka.DriveTypesRatio) *weka.WekaClusterTemplate {
+		return &weka.WekaClusterTemplate{
+			ContainerCapacity: 24000,
+			DriveContainers:   6,
+			ComputeContainers: 6,
+			ComputeCores:      1,
+			DriveTypesRatio:   ratio,
+		}
+	}
+	size := func(config *weka.WekaClusterTemplate) (ClusterTemplate, int) {
+		template := GetWekaClusterTemplate(config)
+		cluster := weka.WekaCluster{Spec: weka.WekaClusterSpec{Dynamic: config}}
+		hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, nil, "compute")
+		if err != nil {
+			t.Fatalf("GetContainerHugepages: %v", err)
+		}
+		return template, hp.Hugepages
+	}
+
+	got, gotHp := size(newConfig(nil))
+	want, wantHp := size(newConfig(&weka.DriveTypesRatio{Tlc: 1, Qlc: 10}))
+
+	if got.Cores.Drive != want.Cores.Drive {
+		t.Errorf("drive cores = %d, want %d (explicit 1:10)", got.Cores.Drive, want.Cores.Drive)
+	}
+	if gotHp != wantHp {
+		t.Errorf("compute hugepages = %d, want %d (explicit 1:10)", gotHp, wantHp)
+	}
+}

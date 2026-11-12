@@ -482,8 +482,8 @@ clusterCapacity:
 # Drive sharing configuration
 driveSharing:
   # -- Global default ratio of drive types (TLC vs QLC) when using drive sharing, as integer parts of relative
-  # proportions. Used when spec.dynamicTemplate.driveTypesRatio is not set on the WekaCluster; can be overridden per
-  # cluster via that field. Drive sharing is enabled by setting containerCapacity in spec.dynamicTemplate of WekaCluster.
+  # proportions. Used when spec.dynamicTemplate.driveTypesRatio is not set on the WekaCluster (containerCapacity and
+  # clusterCapacity alike); can be overridden per cluster via that field. Existing drive containers keep their own ratio.
   # For example tlc: 1, qlc: 0 = 100% TLC; tlc: 4, qlc: 1 = 80% TLC, 20% QLC; tlc: 1, qlc: 1 = 50% TLC, 50% QLC.
   # NOTE: tlc must be > 0. QLC-only configurations (tlc: 0) are not supported.
   # @section -- Drives & capacity

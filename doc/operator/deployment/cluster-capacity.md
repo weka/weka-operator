@@ -105,7 +105,7 @@ reconcile. They are referenced throughout the algorithm and examples.
 |---|---|---|
 | `minFdNum` | `stripeWidth + redundancyLevel + hotSpare` | Minimum failure domains capacity must spread across. |
 | `rawCapacity` | `clusterCapacity × minFdNum / stripeWidth ÷ 0.9` | Usable target inflated to raw: protection overhead (`minFdNum / stripeWidth`) **and** a ~10% usable reserve (`÷ 0.9`), so ~90% of raw is usable. |
-| `tlcRaw`, `qlcRaw` | `rawCapacity` split by `driveTypesRatio` | Per-pool raw targets, planned independently. |
+| `tlcRaw`, `qlcRaw` | `rawCapacity` split by `driveTypesRatio` (Helm `driveSharing.driveTypesRatio` when unset) | Per-pool raw targets, planned independently. |
 | `current` | Σ this pool's capacity over this cluster's healthy drive containers | What the cluster already has, this pool. |
 | `delta` | `desiredRaw − current` | Drives the planning branch. **Sign and the deadband** select grow / no-op / shrink — a positive `delta` within `capacityDeadbandFraction` (default 5%) of `desiredRaw` is also a no-op. |
 

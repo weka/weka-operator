@@ -175,7 +175,8 @@ func (cmd *planCommand) executeClusterCapacity(ctx context.Context, c client.Cli
 		return fmt.Errorf("parsing clusterCapacity: %w", err)
 	}
 	raw := capacityplanner.RawCapacityGiB(capGiB, s.StripeWidth, s.RedundancyLevel, s.HotSpare)
-	tlcRaw, qlcRaw := weka.GetTlcQlcCapacity(raw, cluster.Spec.Dynamic.DriveTypesRatio)
+	ratio := allocator.DriveTypesRatioOrDefault(cluster.Spec.Dynamic)
+	tlcRaw, qlcRaw := weka.GetTlcQlcCapacity(raw, ratio)
 	desired := capacityplanner.DesiredCapacity{
 		TlcRawGiB:         tlcRaw,
 		QlcRawGiB:         qlcRaw,
@@ -202,7 +203,7 @@ func (cmd *planCommand) executeClusterCapacity(ctx context.Context, c client.Cli
 	d := planData{
 		Cluster:         displayName,
 		ClusterCapacity: cluster.Spec.Dynamic.ClusterCapacity,
-		Ratio:           ratioString(cluster.Spec.Dynamic.DriveTypesRatio),
+		Ratio:           ratioString(ratio),
 		SW:              s.StripeWidth,
 		RL:              s.RedundancyLevel,
 		HS:              s.HotSpare,

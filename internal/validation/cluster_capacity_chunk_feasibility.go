@@ -59,7 +59,7 @@ func (clusterCapacityChunkFeasibility) Validate(ctx context.Context, c client.Cl
 	}
 
 	raw := capacityplanner.RawCapacityGiB(capGiB, sw, rl, hs)
-	tlcRaw, qlcRaw := weka.GetTlcQlcCapacity(raw, cluster.Spec.Dynamic.DriveTypesRatio)
+	tlcRaw, qlcRaw := weka.GetTlcQlcCapacity(raw, allocator.DriveTypesRatioOrDefault(cluster.Spec.Dynamic))
 	numFDmin := sw + rl + hs
 
 	// The largest even per-FD chunk of a pool is poolRaw/numFDmin; if that is below MinChunkSizeGiB the

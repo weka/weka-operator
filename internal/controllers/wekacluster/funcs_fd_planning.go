@@ -48,7 +48,7 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*c
 		return nil, err
 	}
 	raw := capacityplanner.RawCapacityGiB(capGiB, s.StripeWidth, s.RedundancyLevel, s.HotSpare)
-	tlcRaw, qlcRaw := weka.GetTlcQlcCapacity(raw, cluster.Spec.Dynamic.DriveTypesRatio)
+	tlcRaw, qlcRaw := weka.GetTlcQlcCapacity(raw, allocator.DriveTypesRatioOrDefault(cluster.Spec.Dynamic))
 	desired := capacityplanner.DesiredCapacity{
 		TlcRawGiB:         tlcRaw,
 		QlcRawGiB:         qlcRaw,
