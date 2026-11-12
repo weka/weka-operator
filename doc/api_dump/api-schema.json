@@ -622,6 +622,16 @@
           "description": "LeaderElection configures the leader-election lease timings of the operator manager.",
           "optional": true,
           "pointer": true
+        },
+        {
+          "name": "ContainerHealth",
+          "jsonName": "containerHealth",
+          "type": {
+            "$ref": "#/definitions/ContainerHealthSpec"
+          },
+          "description": "ContainerHealth configures how the operator reports WekaContainers it cannot reach.",
+          "optional": true,
+          "pointer": true
         }
       ],
       "usedBy": [
@@ -690,6 +700,23 @@
       ],
       "usedBy": [
         "WekaContainer"
+      ]
+    },
+    "ContainerHealthSpec": {
+      "kind": "struct",
+      "description": "ContainerHealthSpec groups settings of WekaContainer status reporting",
+      "fields": [
+        {
+          "name": "UnreachableTimeout",
+          "jsonName": "unreachableTimeout",
+          "type": "k8s:metav1.Duration",
+          "description": "UnreachableTimeout is how old the last successful weka local ps of a container may be when the operator\nhits an API server / exec channel failure (an exec that runs past its own timeout is not one), before the\nstatus is set to Unknown.\nApplies only to containers running WEKA processes. A healthy container is read about every 30s, so the\nminimum leaves room for several reads. Default is 5m.",
+          "optional": true,
+          "pointer": true
+        }
+      ],
+      "usedBy": [
+        "WekaPolicy"
       ]
     },
     "ContainerMetrics": {

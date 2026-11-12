@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/reconcilerun"
 	"github.com/weka/weka-operator/internal/services/exec"
 )
 
@@ -50,7 +51,7 @@ func (c *ClientController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	logger.SetValues("client_uuid", string(wekaClient.GetUID()))
 	steps := ClientReconcileSteps(c, wekaClient)
-	return steps.RunAsReconcilerResponse(ctx)
+	return reconcilerun.Run(ctx, &steps)
 }
 
 func (c *ClientController) GetClient(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaClient, error) {

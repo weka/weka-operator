@@ -21,6 +21,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/reconcilerun"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -304,7 +305,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 		Steps: steps,
 	}
 
-	return stepsEngine.RunAsReconcilerResponse(ctx)
+	return reconcilerun.Run(ctx, &stepsEngine)
 }
 
 // SetupWithManager sets up the controller with the Manager.

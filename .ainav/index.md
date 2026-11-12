@@ -28,12 +28,14 @@ internal/controllers/        # All reconciliation logic
   operations/               # Manual/policy operations
   upgrade/                  # Container upgrade orchestration
   metrics/                  # Prometheus metrics building
+  reconcilerun/             # Run steps engine; requeue floor for channel errors
 internal/services/           # Weka API, K8s abstractions
 internal/config/             # Environment configuration
 internal/consts/             # Shared constants, annotations, resources
 internal/rest_api/           # Optional REST API server (cluster CRUD)
 internal/node_agent/         # Per-node agent server
 pkg/weka-k8s-api/           # CRD type definitions
+pkg/util/channelerr/        # Channel (API server / exec transport) error type and Is()
 charts/weka-operator/        # Helm chart and Python runtime
 website/                     # Reference site (mkdocs, preview-docs.sh); see doc/dev/reference-site.md
 ```

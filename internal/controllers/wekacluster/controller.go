@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/reconcilerun"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/exec"
 )
@@ -99,7 +100,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		Steps:       loop.GetAllSteps(),
 	}
 
-	return stepsEngine.RunAsReconcilerResponse(ctx)
+	return reconcilerun.Run(ctx, &stepsEngine)
 }
 
 func (r *WekaClusterReconciler) GetProvisionContext(initContext context.Context, wekaCluster *weka.WekaCluster) (context.Context, error) {
