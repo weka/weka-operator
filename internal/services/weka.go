@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -269,7 +271,6 @@ type WekaObsBucket struct {
 // WekaFilesystem represents an individual filesystem from the weka fs command
 type WekaFilesystem struct {
 	AvailableSsd int64           `json:"available_ssd"`
-	FsId         string          `json:"fs_id"`
 	GroupId      string          `json:"group_id"`
 	GroupName    string          `json:"group_name"`
 	IsReady      bool            `json:"is_ready"`
@@ -2137,15 +2138,21 @@ func (c *CliWekaService) GetCapacity(ctx context.Context) (WekaCapacityInfo, err
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "GetCapacity")
 	defer logger.End()
 
-	var filesystems []WekaFilesystem
+	// Not `weka fs --json`: the 6.x CLI drops is_ready/total_budget/ssd_budget and turns group_id
+	// into a number, while the backend RPC keeps the same fields and types on 4.x, 5.x and 6.x.
+	var byId map[string]WekaFilesystem
 	err := c.RunJsonCmd(ctx, []string{
-		"weka", "fs", "--json",
-	}, "GetFilesystems", &filesystems)
+		"weka", "debug", "jrpc", "filesystems_list",
+	}, "GetFilesystems", &byId)
 	if err != nil {
 		logger.SetError(err, "Failed to get filesystems")
 		return WekaCapacityInfo{}, err
 	}
 
+	return capacityFromFilesystems(slices.Collect(maps.Values(byId))), nil
+}
+
+func capacityFromFilesystems(filesystems []WekaFilesystem) WekaCapacityInfo {
 	capacity := WekaCapacityInfo{
 		Filesystems: filesystems,
 	}
@@ -2194,7 +2201,7 @@ func (c *CliWekaService) GetCapacity(ctx context.Context) (WekaCapacityInfo, err
 	// Calculate available capacity
 	capacity.TotalAvailableCapacity = capacity.TotalProvisionedCapacity - capacity.TotalUsedCapacity
 
-	return capacity, nil
+	return capacity
 }
 
 func (c *CliWekaService) ListOverridesByKey(ctx context.Context, key string) ([]WekaOverride, error) {
