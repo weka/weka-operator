@@ -20,6 +20,20 @@ type ConfigurationPayload struct {
 	NodeAgent *NodeAgentSpec `json:"nodeAgent,omitempty"`
 	// LeaderElection configures the leader-election lease timings of the operator manager.
 	LeaderElection *LeaderElectionSpec `json:"leaderElection,omitempty"`
+	// ContainerHealth configures how the operator reports WekaContainers it cannot reach.
+	ContainerHealth *ContainerHealthSpec `json:"containerHealth,omitempty"`
+}
+
+// ContainerHealthSpec groups settings of WekaContainer status reporting
+type ContainerHealthSpec struct {
+	// UnreachableTimeout is how old the last successful weka local ps of a container may be when the operator
+	// hits an API server / exec channel failure (exec timeouts included), before the status is set to Unknown.
+	// Applies only to containers running WEKA processes. A healthy container is read about every 30s, so the
+	// minimum leaves room for several reads. Default is 5m.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('2m')",message="must be at least 2m"
+	UnreachableTimeout *metav1.Duration `json:"unreachableTimeout,omitempty"`
 }
 
 // LeaderElectionSpec groups the leader-election lease timings of the operator manager. They are read only

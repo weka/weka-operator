@@ -126,7 +126,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	logger.SetValues("mode", container.Spec.Mode, "uuid", string(container.GetUID()))
 	if container.DeletionTimestamp != nil {
-		channelFailures.clear(container.GetUID())
+		lastLocalPsRead.Delete(container.GetUID())
 	}
 	steps := ContainerReconcileSteps(r, container)
 	return reconcilerun.Run(ctx, &steps)

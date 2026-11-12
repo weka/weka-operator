@@ -10,7 +10,7 @@ import (
 	"github.com/weka/go-steps-engine/throttling"
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/weka/weka-operator/pkg/util/podexec"
+	"github.com/weka/weka-operator/pkg/util/channelerr"
 )
 
 func run(t *testing.T, stepErr error) (time.Duration, error) {
@@ -28,7 +28,7 @@ func run(t *testing.T, stepErr error) (time.Duration, error) {
 }
 
 func TestRunChannelErrorFloor(t *testing.T) {
-	channel := &podexec.ChannelError{Err: errors.New("stream failed")}
+	channel := channelerr.Wrap(errors.New("stream failed"))
 	for _, stepErr := range []error{
 		lifecycle.NewWaitError(channel),
 		lifecycle.NewWaitErrorWithDuration(channel, 5*time.Second),
@@ -47,7 +47,7 @@ func TestRunChannelErrorFloor(t *testing.T) {
 }
 
 func TestRunChannelErrorKeepsLongerWait(t *testing.T) {
-	got, _ := run(t, lifecycle.NewWaitErrorWithDuration(&podexec.ChannelError{Err: errors.New("x")}, 5*time.Minute))
+	got, _ := run(t, lifecycle.NewWaitErrorWithDuration(channelerr.Wrap(errors.New("x")), 5*time.Minute))
 	if got != 5*time.Minute {
 		t.Fatalf("RequeueAfter = %v, want 5m", got)
 	}

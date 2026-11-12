@@ -459,3 +459,22 @@ func TestSettingsFromPayloadCsiAccessibleLabel(t *testing.T) {
 		t.Errorf("overrides not applied: %+v", got)
 	}
 }
+
+func TestSettingsFromPayloadContainerHealth(t *testing.T) {
+	for name, payload := range map[string]*weka.ConfigurationPayload{
+		"nil payload":           nil,
+		"nil containerHealth":   {},
+		"empty containerHealth": {ContainerHealth: &weka.ContainerHealthSpec{}},
+	} {
+		if got := SettingsFromPayload(payload).ContainerHealth.UnreachableTimeout; got != 5*time.Minute {
+			t.Errorf("%s: got %v, want 5m", name, got)
+		}
+	}
+
+	got := SettingsFromPayload(&weka.ConfigurationPayload{ContainerHealth: &weka.ContainerHealthSpec{
+		UnreachableTimeout: &metav1.Duration{Duration: 30 * time.Second},
+	}}).ContainerHealth.UnreachableTimeout
+	if got != 30*time.Second {
+		t.Errorf("override not applied: %v", got)
+	}
+}

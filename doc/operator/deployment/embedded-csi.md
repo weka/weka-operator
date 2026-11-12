@@ -138,7 +138,9 @@ Notes:
   not send the driver frontend count are treated as unknown for that part and row 6 applies.
 - Row 3 reads the WekaContainer status. `status.internalStatus` changes only on a real `weka local ps` reply, so a
   failed attempt (timeout, Kubernetes API error, refused exec) leaves it as it was. `status.status` of `Error` is
-  written by the operator when a step fails and never by WEKA, and `Unknown` means WEKA cannot read its own state;
+  written by the operator when a step fails and never by WEKA, and `Unknown` means WEKA cannot read its own state or
+  the operator hit a channel failure while its last successful `weka local ps` of the container was older than
+  `containerHealth.unreachableTimeout`;
   neither removes the label by itself, and the evaluation falls through to the stats and node-agent rows. Any other
   status (`Stopped`, `Starting`, `Unhealthy`, `PodNotRunning`, ...) removes it.
 - Row 9 exists because when most of a client's nodes look unknown at the same time, the cause is almost always on
@@ -185,6 +187,12 @@ The thresholds are set in the configuration WekaPolicy under `csi`:
 | `statsFreshness` | `2m` (minimum `30s`) | Age up to which container stats decide the label |
 | `unknownTimeout` | `5m` (minimum `30s`) | How long an unreachable node keeps its label as it is |
 | `systemicFailureThreshold` | `80` (1-100) | Percentage of failing nodes at which failures count as systemic |
+
+The WekaContainer status timeout is set separately, under `containerHealth`:
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `unreachableTimeout` | `5m` (minimum `2m`) | How old the last successful `weka local ps` of a container may be, when the operator hits a channel failure, before the status becomes `Unknown` (see [WekaContainer status](../concepts/container-status.md)) |
 
 Failed stats polls on stale stats emit a throttled `StatusMetricsFailed` warning event on the WekaContainer.
 

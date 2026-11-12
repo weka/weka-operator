@@ -67,6 +67,13 @@ type CsiSettings struct {
 	SystemicFailureThreshold int
 }
 
+// ContainerHealthSettings holds the operator-wide settings for WekaContainer status reporting.
+type ContainerHealthSettings struct {
+	// UnreachableTimeout is how long a container's status is kept while the operator cannot reach it,
+	// before it is set to Unknown.
+	UnreachableTimeout time.Duration
+}
+
 // SchedulingSettings holds the operator-wide settings for where operator-managed pods may run.
 type SchedulingSettings struct {
 	// TolerateCordon lets clients and the node-local pods they depend on keep running and keep
@@ -111,8 +118,9 @@ type ConfigurationSettings struct {
 	Scheduling  SchedulingSettings
 	PodRotation PodRotationSettings
 	// NodeAgent is the node-agent DaemonSet configuration.
-	NodeAgent      NodeAgentSettings
-	LeaderElection LeaderElectionSettings
+	NodeAgent       NodeAgentSettings
+	LeaderElection  LeaderElectionSettings
+	ContainerHealth ContainerHealthSettings
 }
 
 // DefaultConfigurationSettings returns the built-in defaults, which apply when no configuration
@@ -141,6 +149,9 @@ func DefaultConfigurationSettings() ConfigurationSettings {
 			LeaseDuration: 15 * time.Second,
 			RenewDeadline: 10 * time.Second,
 			RetryPeriod:   2 * time.Second,
+		},
+		ContainerHealth: ContainerHealthSettings{
+			UnreachableTimeout: 5 * time.Minute,
 		},
 	}
 }
@@ -225,6 +236,10 @@ func SettingsFromPayload(payload *weka.ConfigurationPayload) ConfigurationSettin
 	}
 	if payload.Scheduling != nil && payload.Scheduling.ClientsTolerateAll != nil {
 		resolved.Scheduling.ClientsTolerateAll = *payload.Scheduling.ClientsTolerateAll
+	}
+
+	if payload.ContainerHealth != nil && payload.ContainerHealth.UnreachableTimeout != nil {
+		resolved.ContainerHealth.UnreachableTimeout = payload.ContainerHealth.UnreachableTimeout.Duration
 	}
 
 	if payload.PodRotation != nil && payload.PodRotation.Enabled != nil {

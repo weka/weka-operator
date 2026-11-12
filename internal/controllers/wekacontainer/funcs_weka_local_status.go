@@ -14,7 +14,6 @@ import (
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/services"
-	"github.com/weka/weka-operator/pkg/util/podexec"
 )
 
 func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) error {
@@ -40,8 +39,8 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	localContainers, err := wekaService.ListLocalContainers(ctx)
 	if err != nil {
 		logger.Error(err, "Error getting weka local ps")
-		if podexec.IsChannelError(err) {
-			return r.handleLocalPsChannelError(ctx, err)
+		if r.isChannelFailure(err) {
+			return lifecycle.NewWaitError(err)
 		}
 		// TODO: Validate agent-specific errors, but should not be very important
 
@@ -73,7 +72,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 		return lifecycle.NewWaitError(err)
 	}
 
-	channelFailures.clear(container.GetUID())
+	lastLocalPsRead.Store(container.GetUID(), time.Now())
 
 	err = r.checkContainerNotFound(localContainers, err)
 	if err != nil {
@@ -134,24 +133,6 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	}
 
 	return nil
-}
-
-// handleLocalPsChannelError leaves status and events alone while the exec channel is down; only a failure
-// lasting longer than the CSI unknownTimeout turns the status into Unknown.
-func (r *containerReconcilerLoop) handleLocalPsChannelError(ctx context.Context, err error) error {
-	since := channelFailures.failure(r.container.GetUID(), time.Now())
-	timeout := services.GetSettings(ctx).Csi.UnknownTimeout
-	if time.Since(since) > timeout && r.IsStatusOverwritableByLocal() {
-		changed := r.container.Status.Status != runStatusUnknown
-		if statusErr := r.updateContainerStatusIfNotEquals(ctx, runStatusUnknown); statusErr != nil {
-			return statusErr
-		}
-		if changed {
-			_ = r.RecordEvent(v1.EventTypeWarning, "StatusUnknown", consts.ActionMonitorContainerHealth, //nolint:errcheck // error return value intentionally not checked
-				fmt.Sprintf("weka local ps unreachable for %s: %v", timeout, err))
-		}
-	}
-	return lifecycle.NewWaitError(err)
 }
 
 func (r *containerReconcilerLoop) checkContainerNotFound(localPsResponse []services.WekaLocalContainer, psErr error) error {
