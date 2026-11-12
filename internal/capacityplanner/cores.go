@@ -40,6 +40,29 @@ func QlcDriveCores(qlcGiB int, cons *CapacityConstraints) int {
 	return max(1, util.CeilDiv(qlcGiB, cons.QlcCapacityPerCoreGiB))
 }
 
+// MinCapacityShortfall is the allocator's minimum for a new drive container: numCores virtual drives of at
+// least cons.MinChunkSizeGiB each — per active type under cons.EnforceMinDrivesPerTypePerCore, else in total.
+// It returns which part is short ("TLC", "QLC", "total", or "drives" when the total is enough but the per-type
+// split yields fewer than numCores drives; empty when none) and the GiB numCores drives need.
+func MinCapacityShortfall(tlcGiB, qlcGiB, numCores int, cons *CapacityConstraints) (binding string, neededGiB int) {
+	needed := numCores * cons.MinChunkSizeGiB
+	switch {
+	case !cons.EnforceMinDrivesPerTypePerCore:
+		if tlcGiB+qlcGiB < needed {
+			return "total", needed
+		}
+		// A drive never mixes types, so each type's remainder below MinChunkSizeGiB yields no drive.
+		if tlcGiB/cons.MinChunkSizeGiB+qlcGiB/cons.MinChunkSizeGiB < numCores {
+			return "drives", needed
+		}
+	case tlcGiB > 0 && tlcGiB < needed:
+		return "TLC", needed
+	case qlcGiB > 0 && qlcGiB < needed:
+		return "QLC", needed
+	}
+	return "", 0
+}
+
 // FullDriveCores returns the drive-core count for a full-drives container: one core per drive, capped
 // at cons.MaxCoresPerContainer. Capacity is not an input — weka requires >=1 physical drive per core in
 // full-drives mode, so a capacity-derived count could exceed the drive count and let one large drive

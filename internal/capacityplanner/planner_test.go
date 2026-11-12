@@ -24,10 +24,12 @@ func testCons() *CapacityConstraints {
 		TlcCapacityPerCoreGiB: 5 * tib,
 		QlcCapacityPerCoreGiB: 50 * tib,
 		MinChunkSizeGiB:       384,
-		ImbalanceFactor:       2.0,
-		HugepagesPerCoreMiB:   1600,
-		MemoryBaseMiB:         8000,
-		MemoryPerCoreMiB:      3000,
+		// Mirrors the production default (helm driveSharing.enforceMinDrivesPerTypePerCore=true).
+		EnforceMinDrivesPerTypePerCore: true,
+		ImbalanceFactor:                2.0,
+		HugepagesPerCoreMiB:            1600,
+		MemoryBaseMiB:                  8000,
+		MemoryPerCoreMiB:               3000,
 		// Default matches enableDynamicDriveScalingForSharedDrives=true; disabled-flag scenarios override to false.
 		AllowInPlaceGrowth: true,
 		// Mirrors helm/config production defaults so the uniform-increase path exercises real fractions/ratios.
@@ -1027,6 +1029,87 @@ func Test_DriveCores_NodeLacksCores_Infeasible(t *testing.T) {
 	plan := planCap(desiredDrive(90*tib, s, ratio(1, 0), 0, 10), s, nil, nodes(6, 100*tib, 0, 8, "n"), testCons())
 	if plan.Infeasible == "" {
 		t.Fatalf("want infeasible: node cannot host the pinned driveCores")
+	}
+}
+
+func Test_DriveCores_AboveVirtualDriveMinimum_Infeasible(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	// raw 13653 GiB over 6 FDs -> 2276 GiB/container; driveCores=8 needs 8 × 384 = 3072 GiB of virtual drives.
+	plan := planCap(desiredDrive(6*tib, s, ratio(1, 0), 0, 8), s, nil, nodes(6, 100*tib, 0, 64, "n"), testCons())
+	if !strings.Contains(plan.Infeasible, "virtual drives") {
+		t.Fatalf("want infeasible on the virtual-drive minimum, got %q", plan.Infeasible)
+	}
+}
+
+// 147 TiB at 1:60 over 6 FDs gives each mixed container 3 cores but less than 3 × 384 GiB of TLC.
+func Test_Mixed_SmallTlcShare_PerTypeMinimum(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	build := func(enforce bool) CapacityPlan {
+		cons := testCons()
+		cons.EnforceMinDrivesPerTypePerCore = enforce
+		return planCap(desiredFrom(147*tib, s, ratio(1, 60)), s, nil, nodes(6, 10*tib, 100*tib, 64, "n"), cons)
+	}
+	plan := build(true)
+	if !strings.Contains(plan.Infeasible, "each new drive container would get 914 GiB TLC + 54838 GiB QLC and 3 drive cores; with enforceMinDrivesPerTypePerCore=true it needs at least 1152 GiB of TLC") ||
+		!strings.Contains(plan.Infeasible, "Fix: raise the TLC share") {
+		t.Fatalf("enforced: unexpected infeasible %q", plan.Infeasible)
+	}
+	if r := plan.Infeasibility; r == nil || len(r.Fixes) != 3 || !strings.Contains(r.Fixes[0], "TLC share of this cluster's driveTypesRatio") ||
+		!strings.Contains(r.Fixes[1], "enforceMinDrivesPerTypePerCore=false") || !strings.Contains(r.Fixes[2], "raise clusterCapacity") {
+		t.Fatalf("enforced: unexpected report %+v", plan.Infeasibility)
+	}
+	if plan = build(false); plan.Infeasible != "" {
+		t.Fatalf("combined: unexpected infeasible: %s", plan.Infeasible)
+	}
+}
+
+// driveCores=4 pinned above the derived 3 leaves 1194 GiB TLC per container short of 4 × 384 GiB.
+func Test_Mixed_DriveCoresPinned_PerTypeMinimum(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	desired := DesiredCapacity{TlcRawGiB: 6 * 1194, QlcRawGiB: 6 * 71625, DriveCores: 4}
+	plan := planCap(desired, s, nil, nodes(6, 10*tib, 100*tib, 64, "n"), testCons())
+	r := plan.Infeasibility
+	if r == nil || r.Binding != "driveCores" || len(r.Fixes) != 4 {
+		t.Fatalf("want driveCores binding with 4 fixes, got %+v", r)
+	}
+	if r.Reason != plan.Infeasible {
+		t.Fatalf("reason %q differs from plan.Infeasible %q", r.Reason, plan.Infeasible)
+	}
+	if !strings.Contains(r.Fixes[0], "lower driveCores") || !strings.Contains(r.Fixes[1], "TLC share") ||
+		!strings.Contains(r.Fixes[2], "enforceMinDrivesPerTypePerCore=false") || !strings.Contains(r.Fixes[3], "raise clusterCapacity") {
+		t.Fatalf("unexpected fixes: %q", r.Fixes)
+	}
+}
+
+// Each active type contributes at least one core, so a small mixed container keeps 2 cores while it grows:
+// 700 GiB TLC is short of 2 × 384 GiB, and doubling the capacity at the same ratio clears it.
+func Test_Mixed_SmallContainer_RaisingCapacityClearsPerTypeMinimum(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	plan := planCap(DesiredCapacity{TlcRawGiB: 6 * 700, QlcRawGiB: 6 * 10000}, s, nil, nodes(6, 10*tib, 100*tib, 64, "n"), testCons())
+	if r := plan.Infeasibility; r == nil || !strings.Contains(r.Reason, "needs at least 768 GiB of TLC") ||
+		!strings.Contains(r.Fixes[len(r.Fixes)-1], "raise clusterCapacity") {
+		t.Fatalf("want a TLC shortfall offering raise clusterCapacity, got %+v", plan.Infeasibility)
+	}
+	if plan = planCap(DesiredCapacity{TlcRawGiB: 6 * 1400, QlcRawGiB: 6 * 20000}, s, nil, nodes(6, 10*tib, 100*tib, 64, "n"), testCons()); plan.Infeasible != "" {
+		t.Fatalf("doubled capacity: unexpected infeasible: %s", plan.Infeasible)
+	}
+}
+
+// 1194 GiB TLC + 71625 GiB QLC per FD at 3 cores holds 3 drives of each type.
+func Test_Mixed_TlcAboveCoresMinimum_Feasible(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	desired := DesiredCapacity{TlcRawGiB: 6 * 1194, QlcRawGiB: 6 * 71625}
+	plan := planCap(desired, s, nil, nodes(6, 10*tib, 100*tib, 64, "n"), testCons())
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Create) != 6 {
+		t.Fatalf("got %d creates, want 6", len(plan.Create))
+	}
+	for _, c := range plan.Create {
+		if c.TlcGiB != 1194 || c.QlcGiB != 71625 || c.NumCores != 3 {
+			t.Fatalf("got container TLC %d + QLC %d with %d cores, want 1194 + 71625 with 3", c.TlcGiB, c.QlcGiB, c.NumCores)
+		}
 	}
 }
 
@@ -3637,5 +3720,20 @@ func Test_CountPoolCapableNodes_IneligibleNode(t *testing.T) {
 	// Without any poolUsed credit, the ineligible-hosting node drops out too.
 	if got := countPoolCapableNodes(states, nil, poolTLC); got != 1 {
 		t.Fatalf("countPoolCapableNodes with no poolUsed = %d, want 1 (only the plain eligible node)", got)
+	}
+}
+
+// With enforceMinDrivesPerTypePerCore=false the total is enough (1200 >= 3 × 384), but 500 GiB TLC and 700 GiB
+// QLC each split into one 384 GiB drive, so pinned driveCores=3 cannot get three drives.
+func Test_Combined_DriveCoresPinned_DriveCountShortfall(t *testing.T) {
+	cons := testCons()
+	cons.EnforceMinDrivesPerTypePerCore = false
+	plan := planCap(DesiredCapacity{TlcRawGiB: 6 * 500, QlcRawGiB: 6 * 700, DriveCores: 3}, testScheme(), nil, nodes(6, 10*tib, 100*tib, 64, "n"), cons)
+	r := plan.Infeasibility
+	if r == nil || r.Binding != "driveCores" || !strings.Contains(r.Reason, "it needs 3 virtual drives of 384 GiB each, but its TLC and QLC split into only 2") {
+		t.Fatalf("want a drive-count shortfall bound by driveCores, got %+v", r)
+	}
+	if len(r.Fixes) != 2 || !strings.Contains(r.Fixes[0], "lower driveCores") || !strings.Contains(r.Fixes[1], "raise clusterCapacity") {
+		t.Fatalf("unexpected fixes: %q", r.Fixes)
 	}
 }

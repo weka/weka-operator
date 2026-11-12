@@ -57,6 +57,8 @@ type CapacityConstraints struct {
 	TlcCapacityPerCoreGiB int
 	QlcCapacityPerCoreGiB int
 	MinChunkSizeGiB       int
+	// EnforceMinDrivesPerTypePerCore mirrors the allocator's per-type minimum (see MinCapacityShortfall).
+	EnforceMinDrivesPerTypePerCore bool
 	// ImbalanceFactor gates the heterogeneous "balanced fresh" growth fallback (detectImbalance): when a
 	// fresh per-FD chunk would be >= ImbalanceFactor × the existing per-FD average, abandon the dwarfed
 	// existing FDs for a fresh uniform layout instead. <= 0 disables the fallback.
@@ -499,6 +501,39 @@ func PlanCapacity(
 		cores, derived, reason, fixes := pinCores(n.TlcGiB, n.QlcGiB)
 		if reason != "" {
 			setInfeasible(&plan, &InfeasibilityReport{Reason: reason, Binding: "driveCores", Fixes: fixes})
+			return plan
+		}
+		// The allocator would refuse this container. Grown containers are not checked: the allocator skips
+		// its minimum on reallocation.
+		if binding, needed := MinCapacityShortfall(n.TlcGiB, n.QlcGiB, cores, cons); binding != "" {
+			binds, fixes := "drive capacity", []string(nil)
+			if desired.DriveCores > derived {
+				binds, fixes = "driveCores", []string{"lower driveCores or unset it to auto-size from capacity"}
+			}
+			if (binding == "TLC" || binding == "QLC") && n.TlcGiB > 0 && n.QlcGiB > 0 {
+				fixes = append(fixes,
+					fmt.Sprintf("raise the %s share of this cluster's driveTypesRatio", binding),
+					"set the helm value driveSharing.enforceMinDrivesPerTypePerCore=false (applies to all clusters)")
+			}
+			fixes = append(fixes, "raise clusterCapacity so each drive container holds more")
+			drives := fmt.Sprintf("%d virtual drives of %d GiB each", cores, cons.MinChunkSizeGiB)
+			var need string
+			switch binding {
+			case "total":
+				need = fmt.Sprintf("it needs at least %d GiB in total (%s)", needed, drives)
+			case "drives":
+				need = fmt.Sprintf("it needs %s, but its TLC and QLC split into only %d",
+					drives, n.TlcGiB/cons.MinChunkSizeGiB+n.QlcGiB/cons.MinChunkSizeGiB)
+			default:
+				need = fmt.Sprintf("with enforceMinDrivesPerTypePerCore=true it needs at least %d GiB of %s (%s)", needed, binding, drives)
+			}
+			setInfeasible(&plan, &InfeasibilityReport{
+				Reason: fmt.Sprintf(
+					"each new drive container would get %d GiB TLC + %d GiB QLC and %d drive cores; %s. Fix: %s",
+					n.TlcGiB, n.QlcGiB, cores, need, strings.Join(fixes, "; or ")),
+				Binding: binds,
+				Fixes:   fixes,
+			})
 			return plan
 		}
 		// When driveCores is pinned ABOVE the capacity-derived count, the extra cores (and their

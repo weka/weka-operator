@@ -957,6 +957,7 @@ clusterCapacity planning.
 | a container's derived cores exceed `capacityPlannerConstraints.maxCoresPerContainer` (**19**) — raise `driveContainers` or lower `clusterCapacity` |
 | explicit `driveContainers < minFdNum`, `> available FDs`, or per-container share `< 384 GiB`; for mixed pools, the raw-ratio split drops a pool below `minFdNum` |
 | explicit `driveCores` smaller than a container's capacity needs, or a node cannot host the pinned `driveCores` |
+| a new drive container's TLC (or QLC) is below its drive cores × 384 GiB while `enforceMinDrivesPerTypePerCore=true` (the default; with `false` only the total number of drives counts, each type split into drives of at least 384 GiB) — raise the TLC (or QLC) share of this cluster's `driveTypesRatio`, set the Helm value `driveSharing.enforceMinDrivesPerTypePerCore=false` (applies to all clusters), or raise `clusterCapacity`; see [Drive Sharing](../operations/drive-sharing.md#enforcemindrivespertypepercore) |
 | `stripeWidth < 3` or `redundancyLevel < 2`; `clusterCapacity <= 0` (hot spare is optional, `hotSpare >= 0`) |
 
 The event names the binding constraint (e.g. "QLC: only 4 of 6 required FDs have capacity",

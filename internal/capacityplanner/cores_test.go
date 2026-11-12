@@ -67,3 +67,36 @@ func TestDriveCoresForContainer_UnassignedFallsBackToCapacityDerived(t *testing.
 		t.Errorf("tlc/qlc = %d/%d, want 2/1 (capacity-derived on both sides)", gotTlc, gotQlc)
 	}
 }
+
+func TestMinCapacityShortfall(t *testing.T) {
+	enforced := testCons() // MinChunkSizeGiB=384
+	combined := testCons()
+	combined.EnforceMinDrivesPerTypePerCore = false
+
+	tests := []struct {
+		name                     string
+		tlcGiB, qlcGiB, numCores int
+		cons                     *CapacityConstraints
+		wantBinding              string
+		wantNeeded               int
+	}{
+		{"mixed, TLC below numCores drives", 914, 54860, 3, enforced, "TLC", 1152},
+		{"mixed, QLC below numCores drives", 54860, 914, 3, enforced, "QLC", 1152},
+		{"mixed, both types hold numCores drives", 1194, 71625, 3, enforced, "", 0},
+		{"mixed, combined mode only needs the total", 914, 54860, 3, combined, "", 0},
+		{"mixed, combined mode total short", 400, 400, 3, combined, "total", 1152},
+		{"mixed, combined mode total enough but per-type split has 2 drives for 3 cores", 500, 700, 3, combined, "drives", 1152},
+		{"single type, enforced", 1000, 0, 3, enforced, "TLC", 1152},
+		{"single type, combined mode reports the total", 1000, 0, 3, combined, "total", 1152},
+		{"empty container, enforced", 0, 0, 3, enforced, "", 0},
+		{"empty container, combined mode", 0, 0, 3, combined, "total", 1152},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binding, needed := MinCapacityShortfall(tt.tlcGiB, tt.qlcGiB, tt.numCores, tt.cons)
+			if binding != tt.wantBinding || needed != tt.wantNeeded {
+				t.Fatalf("got (%q, %d), want (%q, %d)", binding, needed, tt.wantBinding, tt.wantNeeded)
+			}
+		})
+	}
+}
