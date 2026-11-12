@@ -110,6 +110,23 @@ spec:
                     description: 'ConfigurationPayload defines the parameters for
                       the configuration policy: operator-wide settings'
                     properties:
+                      containerHealth:
+                        description: ContainerHealth configures how the operator reports
+                          WekaContainers it cannot reach.
+                        properties:
+                          unreachableTimeout:
+                            description: |-
+                              UnreachableTimeout is how old the last successful weka local ps of a container may be when the operator
+                              hits an API server / exec channel failure (an exec that runs past its own timeout is not one), before the
+                              status is set to Unknown.
+                              Applies only to containers running WEKA processes. A healthy container is read about every 30s, so the
+                              minimum leaves room for several reads. Default is 5m.
+                            pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                            type: string
+                            x-kubernetes-validations:
+                            - message: must be at least 2m
+                              rule: duration(self) >= duration('2m')
+                        type: object
                       csi:
                         description: Csi configures the embedded CSI deployment.
                         properties:

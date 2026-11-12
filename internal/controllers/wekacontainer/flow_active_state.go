@@ -352,7 +352,8 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
-			Run: r.ensurePod,
+			Name: "EnsurePod",
+			Run:  r.ensurePod,
 			Predicates: lifecycle.Predicates{
 				r.PodNotSet,
 			},

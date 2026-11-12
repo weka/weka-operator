@@ -39,6 +39,9 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	localContainers, err := wekaService.ListLocalContainers(ctx)
 	if err != nil {
 		logger.Error(err, "Error getting weka local ps")
+		if r.isChannelFailure(err) {
+			return lifecycle.NewWaitError(err)
+		}
 		// TODO: Validate agent-specific errors, but should not be very important
 
 		// check if drivers should be force-reloaded
@@ -68,6 +71,8 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 		}
 		return lifecycle.NewWaitError(err)
 	}
+
+	lastLocalPsRead.Store(container.GetUID(), time.Now())
 
 	err = r.checkContainerNotFound(localContainers, err)
 	if err != nil {

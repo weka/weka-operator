@@ -25,6 +25,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/reconcilerun"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -253,7 +254,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		Steps: steps,
 	}
 
-	result, err := stepsEngine.RunAsReconcilerResponse(ctx)
+	result, err := reconcilerun.Run(ctx, &stepsEngine)
 	if err != nil {
 		logger.Error(err, "Error processing policy")
 		return result, err

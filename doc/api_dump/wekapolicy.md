@@ -29,6 +29,7 @@
 - [PodRotationSpec](#podrotationspec)
 - [NodeAgentSpec](#nodeagentspec)
 - [LeaderElectionSpec](#leaderelectionspec)
+- [ContainerHealthSpec](#containerhealthspec)
 - [DriveTypeOverrideRule](#drivetypeoverriderule)
 - [DriveExclusionRule](#driveexclusionrule)
 - [PodResources](#podresources)
@@ -192,6 +193,7 @@
 | podRotation | *PodRotationSpec | PodRotation sets the operator-wide default for replacing pods whose pod-affecting spec changed. |
 | nodeAgent | *NodeAgentSpec | NodeAgent configures the node-agent DaemonSet the operator deploys on every node. |
 | leaderElection | *LeaderElectionSpec | LeaderElection configures the leader-election lease timings of the operator manager. |
+| containerHealth | *ContainerHealthSpec | ContainerHealth configures how the operator reports WekaContainers it cannot reach. |
 
 ---
 
@@ -317,6 +319,14 @@
 | leaseDuration | *metav1.Duration | LeaseDuration is how long non-leaders wait before trying to take over the lease. Default is 15s. |
 | renewDeadline | *metav1.Duration | RenewDeadline is how long the leader keeps retrying to renew the lease before giving up leadership<br>and exiting. Default is 10s. |
 | retryPeriod | *metav1.Duration | RetryPeriod is how long clients wait between lease acquire and renew attempts. Default is 2s. |
+
+---
+
+## ContainerHealthSpec
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| unreachableTimeout | *metav1.Duration | UnreachableTimeout is how old the last successful weka local ps of a container may be when the operator<br>hits an API server / exec channel failure (an exec that runs past its own timeout is not one), before the<br>status is set to Unknown.<br>Applies only to containers running WEKA processes. A healthy container is read about every 30s, so the<br>minimum leaves room for several reads. Default is 5m. |
 
 ---
 

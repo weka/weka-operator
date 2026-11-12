@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/reconcilerun"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
@@ -124,8 +125,12 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	logger.SetValues("mode", container.Spec.Mode, "uuid", string(container.GetUID()))
+	if container.DeletionTimestamp != nil {
+		// after the steps: ReconcileWekaLocalStatusOnDeletion stores a read during deletion
+		defer lastLocalPsRead.Delete(container.GetUID())
+	}
 	steps := ContainerReconcileSteps(r, container)
-	return steps.RunAsReconcilerResponse(ctx)
+	return reconcilerun.Run(ctx, &steps)
 }
 
 func (r *ContainerController) refreshContainer(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaContainer, error) {

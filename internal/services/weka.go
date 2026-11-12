@@ -1867,7 +1867,7 @@ func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name stri
 
 	output, stderr, err := executor.ExecNamed(ctx, name, cmd)
 	if err != nil {
-		err = fmt.Errorf("failed to run command %s: %v - %s", strings.Join(cmd, " "), err, stderr.String())
+		err = fmt.Errorf("failed to run command %s: %w - %s", strings.Join(cmd, " "), err, stderr.String())
 		return err
 	}
 

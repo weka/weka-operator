@@ -20,6 +20,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
+	"github.com/weka/weka-operator/pkg/util/channelerr"
 )
 
 type Exec interface {
@@ -131,7 +132,13 @@ func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command
 			return stdout, stderr, errors.Wrap(err, fmt.Sprintf("command %s failed", name))
 		}
 		logger.SetError(err, "Exec failed to stream")
-		return stdout, stderr, errors.Wrap(err, "Exec failed to stream")
+		err = errors.Wrap(err, "Exec failed to stream")
+		// An expired exec context is a hung command (e.g. a stuck agent), not a broken channel: callers must still run their container-side recovery.
+		if ctx.Err() != nil {
+			return stdout, stderr, err
+		}
+		// client-go flattens upgrade (HTTP 5xx) and dial failures into plain strings, so the transport type is only known here.
+		return stdout, stderr, channelerr.Wrap(err)
 	}
 	logger.SetValues("exit_code", 0)
 	logger.SetStatus(codes.Ok, "Exec success")
