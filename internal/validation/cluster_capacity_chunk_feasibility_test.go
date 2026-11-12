@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
@@ -111,5 +112,19 @@ func TestClusterCapacityChunkFeasibility(t *testing.T) {
 				t.Errorf("expected no error, got %v", errs)
 			}
 		})
+	}
+}
+
+// Without a driveTypesRatio the helm default splits the target, so the QLC-heavy helm ratio starves the
+// TLC pool below the per-FD floor where an all-TLC split would pass.
+func TestClusterCapacityChunkFeasibility_NilRatioUsesHelmDefault(t *testing.T) {
+	prev := globalconfig.Config.DriveSharing.DriveTypesRatio
+	t.Cleanup(func() { globalconfig.Config.DriveSharing.DriveTypesRatio = prev })
+	v := &clusterCapacityChunkFeasibility{}
+	c := fakeClientWithDriveContainer(t, "", nil)
+
+	globalconfig.Config.DriveSharing.DriveTypesRatio = weka.DriveTypesRatio{Tlc: 1, Qlc: 290}
+	if errs := v.Validate(context.Background(), c, ccCluster("u7", "300TiB", 16, 4, 1, nil)); len(errs) == 0 {
+		t.Errorf("helm 1:290: expected the TLC share to be rejected, got no error")
 	}
 }

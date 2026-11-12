@@ -33,7 +33,7 @@ If no drive container with fully allocated drives exists yet, the function retur
 
 ## Step 2: Compute hugepages from capacity (`ComputeCapacityBasedHugepages`)
 
-Capacity is split into TLC and QLC portions via `.spec.dynamicTemplate.driveTypesRatio` (defaults to 100% TLC).
+Capacity is split into TLC and QLC portions via `.spec.dynamicTemplate.driveTypesRatio` (unset with `containerCapacity` or `clusterCapacity`: the Helm `driveSharing.driveTypesRatio`; otherwise, or when the Helm TLC part is 0, 100% TLC).
 
 ```
 clusterHugepagesMiB = tlcCapGiB × 1024 / tlcRatio

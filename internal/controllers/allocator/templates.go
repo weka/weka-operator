@@ -126,6 +126,28 @@ func GetWekaContainerCores(config *weka.WekaClusterTemplate) IntPerWekaRole {
 	}
 }
 
+// DriveTypesRatioOrDefault returns the template's driveTypesRatio, or for containerCapacity/clusterCapacity
+// templates without one the helm driveSharing.driveTypesRatio (nil if the helm tlc part is 0). Every reader
+// of a cluster's ratio must go through it, or a cluster without a ratio is sized as all-TLC by that reader
+// while its drive containers are created mixed. driveCapacity mode gets no default: WekaContainer CEL
+// rejects driveCapacity together with driveTypesRatio.
+func DriveTypesRatioOrDefault(config *weka.WekaClusterTemplate) *weka.DriveTypesRatio {
+	if config == nil {
+		return nil
+	}
+	if config.DriveTypesRatio != nil {
+		return config.DriveTypesRatio
+	}
+	if config.ContainerCapacity <= 0 && !config.UsesClusterCapacity() {
+		return nil
+	}
+	def := globalconfig.Config.DriveSharing.DriveTypesRatio
+	if def.Tlc == 0 {
+		return nil
+	}
+	return &def
+}
+
 // getDriveCores returns the drive-core count. An explicit config.DriveCores always wins outright and is
 // never raised, lowered, or clamped by capacity-based derivation — a value below capacity now surfaces
 // as an admission warning (clusterDriveCoresBelowCapacity) instead of being silently overridden. When
@@ -149,7 +171,7 @@ func RequiredDriveCoresForTemplate(config *weka.WekaClusterTemplate) (cores int,
 		return 0, false
 	}
 	if config.ContainerCapacity > 0 {
-		tlcGiB, qlcGiB := weka.GetTlcQlcCapacity(config.ContainerCapacity, config.DriveTypesRatio)
+		tlcGiB, qlcGiB := weka.GetTlcQlcCapacity(config.ContainerCapacity, DriveTypesRatioOrDefault(config))
 		return capacityplanner.RequiredDriveCores(tlcGiB, qlcGiB, CapacityConstraintsFromConfig()), true
 	}
 	if config.NumDrives > 0 && config.DriveCapacity > 0 {
@@ -234,7 +256,7 @@ func GetWekaClusterTemplate(config *weka.WekaClusterTemplate) ClusterTemplate {
 		NumDrives:         config.NumDrives,
 		DriveCapacity:     config.DriveCapacity,
 		ContainerCapacity: config.ContainerCapacity,
-		DriveTypesRatio:   config.DriveTypesRatio,
+		DriveTypesRatio:   DriveTypesRatioOrDefault(config),
 	}
 }
 

@@ -175,7 +175,7 @@ value, with `--new-cluster` they **define** the synthetic spec from scratch — 
 | Flag | Overrides / defines |
 |---|---|
 | `--cluster-capacity` | `dynamicTemplate.clusterCapacity` (e.g. `11022TiB`) — **required** with `--new-cluster` |
-| `--drive-types-ratio` | `driveTypesRatio`, as `tlc:qlc` (e.g. `1:90`) |
+| `--drive-types-ratio` | `driveTypesRatio`, as `tlc:qlc` (e.g. `1:90`). Unset on the cluster and the flag ⇒ the operator's `DRIVE_TYPES_RATIO_TLC`/`_QLC` (Helm `driveSharing.driveTypesRatio`), as the operator does |
 | `--stripe-width`, `--redundancy`, `--hot-spare` | `stripeWidth` / `redundancyLevel` / `hotSpare` |
 | `--drive-containers`, `--drive-cores` | explicit drive sizing. Outside a capacity mode `--drive-containers` must be set together with `--compute-containers`, mirroring the CRD's both-or-neither rule |
 | `--compute-containers`, `--compute-cores` | explicit compute sizing |
@@ -606,7 +606,7 @@ CLUSTER new-cluster
 
 TARGET
   usable capacity  20TiB
-  drive ratio      1:0 (TLC-only default)
+  drive ratio      1:0
   protection       3+2+1  (stripe+redundancy+hotSpare → minFdNum 6)
   min chunk        384.0GiB
 
