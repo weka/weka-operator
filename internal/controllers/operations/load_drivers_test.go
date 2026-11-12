@@ -21,7 +21,6 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/internal/drivers"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -97,12 +96,6 @@ var _ = Describe("LoadDrivers CreateContainer", func() {
 		}
 		err := services.SetFeatureFlags(ctx, clusterImage, flags)
 		Expect(err).NotTo(HaveOccurred())
-
-		// Verify GetLoaderImageForNode returns the cluster image
-		loaderImage, err := drivers.GetLoaderImageForNode(ctx, node, clusterImage, false)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(loaderImage).To(Equal(clusterImage),
-			"When WekaGetCopyLocalDriverFiles is true, loader image should be the cluster image")
 
 		// Create a fake client to verify the container spec
 		fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -202,15 +195,9 @@ var _ = Describe("LoadDrivers CreateContainer", func() {
 	})
 
 	It("should set DriversLoaderImage to builder image and set Instructions when images differ", func() {
-		// Use a different image that is NOT in the feature flags cache
-		uncachedImage := "quay.io/weka.io/weka-in-container:4.4.0.50-uncached-for-test"
-
-		// Verify GetLoaderImageForNode returns the builder image (not the cluster image)
-		loaderImage, err := drivers.GetLoaderImageForNode(ctx, node, uncachedImage, false)
-		Expect(err).NotTo(HaveOccurred())
+		flagOffImage := "quay.io/weka.io/weka-in-container:4.4.0.50-flag-off-for-test"
+		Expect(services.SetFeatureFlags(ctx, flagOffImage, &domain.FeatureFlags{})).To(Succeed())
 		expectedBuilderImage := "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
-		Expect(loaderImage).To(Equal(expectedBuilderImage),
-			"When feature flags are not cached, loader image should be the builder image")
 
 		// Create a fake client
 		fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -222,17 +209,16 @@ var _ = Describe("LoadDrivers CreateContainer", func() {
 			node:      node,
 			namespace: "default",
 			containerDetails: weka.WekaOwnerDetails{
-				Image: uncachedImage,
+				Image: flagOffImage,
 			},
 		}
 
 		// Execute CreateContainer
-		err = loadDrivers.CreateContainer(ctx)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(loadDrivers.CreateContainer(ctx)).To(Succeed())
 
 		// Verify the created container specs
 		Expect(loadDrivers.container).NotTo(BeNil())
-		Expect(loadDrivers.container.Spec.Image).To(Equal(uncachedImage),
+		Expect(loadDrivers.container.Spec.Image).To(Equal(flagOffImage),
 			"Spec.Image should always be the cluster image")
 		Expect(loadDrivers.container.Spec.DriversLoaderImage).To(Equal(expectedBuilderImage),
 			"DriversLoaderImage should be the builder image when feature flag is not set")
@@ -245,7 +231,7 @@ var _ = Describe("LoadDrivers CreateContainer", func() {
 		var payload map[string]string
 		Expect(json.Unmarshal([]byte(loadDrivers.container.Spec.Instructions.Payload), &payload)).To(Succeed(),
 			"Instructions.Payload should be valid JSON")
-		Expect(payload["targetImage"]).To(Equal(uncachedImage),
+		Expect(payload["targetImage"]).To(Equal(flagOffImage),
 			"Instructions.Payload targetImage should be the cluster image")
 		Expect(payload["cliImage"]).To(Equal(expectedBuilderImage),
 			"Instructions.Payload cliImage should be the loader image")
