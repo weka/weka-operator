@@ -1348,14 +1348,16 @@ func planPoolUniformIncrease(
 	// Preferred: cover delta with k new FDs sized to CeilDiv(delta, k). Iterate k ascending from kMin
 	// (fewest FDs within maxPerFdCap) so as few, as-large FDs as possible are used. kMax caps the count at
 	// what T0-cloning would use. detectImbalance/freshCountAtLeast push k up rather than failing outright.
+	// Ceil, as existing FDs were sized: floor would cap a replacement 1 GiB below the FD it replaces.
 	maxPerFdCap := 0
 	if minFd > 0 {
-		maxPerFdCap = desiredRaw / minFd
+		maxPerFdCap = util.CeilDiv(desiredRaw, minFd)
 	}
 	if maxPerFdCap > 0 {
 		existingAvg := poolAvg(existingDrives, p)
-		kMin := max(1, util.CeilDiv(delta, maxPerFdCap))       // fewest FDs (largest per-FD within the ceiling)
-		kMax := min(util.CeilDiv(delta, T0), len(freshGroups)) // count cap: no more FDs than T0-cloning would use
+		kMin := max(1, minFd-numExisting, util.CeilDiv(delta, maxPerFdCap)) // fewest FDs, but enough to restore minFd
+		// count cap: no more FDs than T0-cloning would use, unless more are needed to restore minFd
+		kMax := min(max(util.CeilDiv(delta, T0), minFd-numExisting), len(freshGroups))
 		for k := kMin; k <= kMax; k++ {
 			perFd := util.CeilDiv(delta, k)
 			if perFd < cons.MinChunkSizeGiB {
@@ -1447,7 +1449,7 @@ func planPoolUniformIncrease(
 		// just to describe WHY the frozen layout cannot reach the target.
 		maxPerFdCap := 0
 		if minFd > 0 {
-			maxPerFdCap = desiredRaw / minFd
+			maxPerFdCap = util.CeilDiv(desiredRaw, minFd)
 		}
 		kNeeded := util.CeilDiv(delta, T0)
 		kAvail := freshCountAtLeast(T0)
