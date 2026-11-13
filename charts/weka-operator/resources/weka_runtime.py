@@ -1,4 +1,5 @@
 import base64
+import errno
 import fcntl
 import glob
 import ipaddress
@@ -72,6 +73,7 @@ DRIVERS_BUILD_ID = os.environ.get("DRIVERS_BUILD_ID", "")
 OS_DISTRO = ""
 OS_BUILD_ID = ""
 DISCOVERY_SCHEMA = 1
+WEKAFS_SELINUX_CONTEXT = "system_u:object_r:wekafs_csi_volume_t:s0"
 INSTRUCTIONS = os.environ.get("INSTRUCTIONS", "")
 NODE_NAME = os.environ["NODE_NAME"]
 POD_ID = os.environ.get("POD_ID", "")
@@ -3689,6 +3691,21 @@ def write_results(results):
     os.rename("/weka-runtime/results.json.tmp", "/weka-runtime/results.json")
 
 
+def wekafs_selinux_label_valid():
+    # Writing a context to selinuxfs makes the kernel validate it: EINVAL means the type is unknown, i.e. the
+    # Weka SELinux policy is not loaded, and the CSI fscontext= mount would be rejected.
+    try:
+        with open("/sys/fs/selinux/context", "w") as f:
+            f.write(WEKAFS_SELINUX_CONTEXT)
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError as e:
+        if e.errno != errno.EINVAL:
+            logging.error(f"[discovery] failed to validate SELinux context {WEKAFS_SELINUX_CONTEXT}: {e}")
+        return False
+
+
 async def discovery():
     # TODO: We should move here everything else we need to discover per node
     # This might be a good place to discover drives as well, as long we have some selector to discover by
@@ -3713,6 +3730,7 @@ async def discovery():
         os=host_info.os,
         os_build_id=host_info.os_build_id,
         proc_version=proc_version,
+        selinux_wekafs_policy=wekafs_selinux_label_valid(),
         schema=DISCOVERY_SCHEMA,
     )
     write_results(data)

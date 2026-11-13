@@ -97,12 +97,12 @@ func TestGetCsiNodeDaemonSetHash_StableAcrossIterations(t *testing.T) {
 		"kubernetes.io/arch":       "amd64",
 	})
 
-	first, err := GetCsiNodeDaemonSetHash("csi", wekaClient, "clients", "default", services.DefaultConfigurationSettings().Csi)
+	first, err := GetCsiNodeDaemonSetHash("csi", wekaClient, "clients", "default", false, services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	for i := 0; i < 200; i++ {
-		got, err := GetCsiNodeDaemonSetHash("csi", wekaClient, "clients", "default", services.DefaultConfigurationSettings().Csi)
+		got, err := GetCsiNodeDaemonSetHash("csi", wekaClient, "clients", "default", false, services.DefaultConfigurationSettings().Csi)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -115,11 +115,11 @@ func TestGetCsiNodeDaemonSetHash_StableAcrossIterations(t *testing.T) {
 func TestGetCsiNodeDaemonSetHash_ChangesWithSelector(t *testing.T) {
 	config.Config.Csi.WekafsImage = "test-csi-image"
 
-	withSelector, err := GetCsiNodeDaemonSetHash("csi", testWekaClient(map[string]string{"weka.io/supports-clients": "true"}), "clients", "default", services.DefaultConfigurationSettings().Csi)
+	withSelector, err := GetCsiNodeDaemonSetHash("csi", testWekaClient(map[string]string{"weka.io/supports-clients": "true"}), "clients", "default", false, services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	empty, err := GetCsiNodeDaemonSetHash("csi", testWekaClient(nil), "clients", "default", services.DefaultConfigurationSettings().Csi)
+	empty, err := GetCsiNodeDaemonSetHash("csi", testWekaClient(nil), "clients", "default", false, services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -172,5 +172,27 @@ func TestGetCsiNodeRetainLabel_PerClientAndBounded(t *testing.T) {
 	}
 	if GetCsiNodeRetainLabel(strings.Repeat("n", 40), strings.Repeat("c", 41)) == long {
 		t.Error("truncated keys must stay unique across different clients")
+	}
+}
+
+func TestGetCsiNodeDaemonSetHash_Selinux(t *testing.T) {
+	config.Config.Csi.WekafsImage = "test-csi-image"
+	old := config.Config.Csi.SelinuxSupport
+	t.Cleanup(func() { config.Config.Csi.SelinuxSupport = old })
+	settings := services.DefaultConfigurationSettings().Csi
+	hash := func(mode string, enabled bool) string {
+		config.Config.Csi.SelinuxSupport = mode
+		h, err := GetCsiNodeDaemonSetHash("csi", testWekaClient(nil), "clients", "default", enabled, settings)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		return h
+	}
+
+	if hash("auto", true) == hash("auto", false) {
+		t.Error("auto resolving to enabled must change the hash")
+	}
+	if hash("auto", true) == hash("enforced", true) {
+		t.Error("auto-enabled and enforced must hash differently")
 	}
 }

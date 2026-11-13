@@ -24,7 +24,7 @@ import (
 const (
 	DiscoveryAnnotation            = "weka.io/discovery.json"
 	PodDiscoverySnapshotAnnotation = "weka.io/discovery-snapshot"
-	DiscoveryTargetSchema          = 4
+	DiscoveryTargetSchema          = 5
 	ocpDriverToolkitMapName        = "ocp-driver-toolkit-images"
 )
 
@@ -119,6 +119,9 @@ type DiscoveryNodeInfo struct {
 	Provider           Provider `json:"provider,omitempty"`
 	Arch               string   `json:"arch,omitempty"`            // k8s-normalized, e.g. "amd64", "arm64"; set by Enrich()
 	NodeFullPcpusOnly  *bool    `json:"full_pcpus_only,omitempty"` // kubelet cpuManagerPolicyOptions full-pcpus-only; set by Enrich, nil when unknown
+	// SelinuxWekafsPolicy is whether the kernel accepts the Weka CSI volume SELinux label (SELinux enabled and
+	// the Weka policy loaded); nil when not reported.
+	SelinuxWekafsPolicy *bool `json:"selinux_wekafs_policy,omitempty"`
 	// this field is for internal use only, is populated by DiscoverNodeOperation.Enrich
 	// Node *corev1.Node `json:"-"` // this is not necessarily aligned with a node
 }
@@ -176,11 +179,21 @@ func ParseNodeInfo(annotation string) (info *DiscoveryNodeInfo, ok bool) {
 	return info, true
 }
 
-// AnyNodeHasSelinux reports whether any node is RHCOS/OpenShift (which enforces SELinux by default);
-// nodes with a missing/unparsable discovery annotation are skipped.
+// AnyNodeHasSelinux reports whether any node with a parsable discovery annotation can apply the Weka CSI
+// volume SELinux label; nodes that don't report it fall back to RHCOS detection.
 func AnyNodeHasSelinux(nodes []corev1.Node) bool {
 	for i := range nodes {
-		if info, ok := NodeInfoFromAnnotation(&nodes[i]); ok && info.IsRhCos() {
+		info, ok := NodeInfoFromAnnotation(&nodes[i])
+		if !ok {
+			continue
+		}
+		if info.SelinuxWekafsPolicy != nil {
+			if *info.SelinuxWekafsPolicy {
+				return true
+			}
+			continue
+		}
+		if info.IsRhCos() {
 			return true
 		}
 	}

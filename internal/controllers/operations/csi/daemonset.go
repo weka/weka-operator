@@ -54,7 +54,7 @@ const csiNodePlacementScheme = "node-affinity-with-retain-v1"
 
 // GetCsiNodeDaemonSetHash generates a hash for the CSI Node DaemonSet
 // that includes only the fields that are relevant for updates
-func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, clientName, clientNamespace string, settings services.CsiSettings) (string, error) {
+func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, clientName, clientNamespace string, selinuxEnabled bool, settings services.CsiSettings) (string, error) {
 	csiDriverName := GetCsiDriverName(csiGroupName)
 	// CSI node plugins are infrastructure components and must run on all nodes
 	tolerations := []corev1.Toleration{
@@ -104,6 +104,11 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, c
 		NodeResources:             config.Config.Csi.NodeResources,
 	}
 
+	// auto's resolved value must change the hash so the DaemonSet rolls when detection flips; "enforced" keeps its hash.
+	if selinuxEnabled && spec.SelinuxSupport != "enforced" {
+		spec.SelinuxSupport = "auto-enabled"
+	}
+
 	if wekaClient.Spec.UseNfs && settings.ManageNfsPermissions {
 		// Hashed outside the spec struct so installations without it keep their hash.
 		return util2.HashStruct(struct {
@@ -112,6 +117,17 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient, c
 		}{spec, true})
 	}
 	return util2.HashStruct(spec)
+}
+
+func resolveSelinuxEnabled(nodes []corev1.Node) bool {
+	switch config.Config.Csi.SelinuxSupport {
+	case "enforced":
+		return true
+	case "off":
+		return false
+	default: // "auto"
+		return discovery.AnyNodeHasSelinux(nodes)
+	}
 }
 
 func GetCSINodeDaemonSetName(csiGroupName string) string {
@@ -211,7 +227,9 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 	}
 	labels := GetCsiLabels(csiDriverName, CSINode, wekaClient.Labels, csiLabels)
 
-	targetHash, err := GetCsiNodeDaemonSetHash(csiGroupName, wekaClient, clientName, clientNamespace, settings)
+	selinuxEnabled := resolveSelinuxEnabled(nodes)
+
+	targetHash, err := GetCsiNodeDaemonSetHash(csiGroupName, wekaClient, clientName, clientNamespace, selinuxEnabled, settings)
 	if err != nil {
 		logger.Error(err, "Failed to get CSI node daemonset hash")
 		return nil, fmt.Errorf("failed to get CSI node daemonset hash: %w", err)
@@ -287,16 +305,6 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 	tracingFlag := GetTracingFlag()
 	if tracingFlag != "" {
 		args = append(args, tracingFlag)
-	}
-
-	var selinuxEnabled bool
-	switch config.Config.Csi.SelinuxSupport {
-	case "enforced":
-		selinuxEnabled = true
-	case "off":
-		selinuxEnabled = false
-	default: // "auto"
-		selinuxEnabled = discovery.AnyNodeHasSelinux(nodes)
 	}
 
 	if selinuxEnabled {
