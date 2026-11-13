@@ -92,7 +92,7 @@ jobs:
       #      a layer skippable on its own merits (skip label, or its own commits are chore/docs/ci)
       #        is greened right away under either verdict; a skip verdict leaves others untouched.
       #      verdict = test: cancel the remaining layers' in-progress runs (redundant, this run
-      #        covers them), post `pending` unless one already has its own green result, and
+      #        covers them), post `pending` unless one already has a green from a passed test, and
       #        remember its SHA in `held_layers` so report_status can mirror the pass onto exactly
       #        that SHA. A layer carrying run_ci_gate is left alone: its own run is wanted.
       #    Statuses go on head SHAs, so a layer pushed later gets nothing and stays blocked.
@@ -198,10 +198,11 @@ jobs:
             while read -r sha num; do
               [[ -z "$sha" ]] && continue
               lay_labels=$(labels "$num")
-              # Combined status: newest per context. `gh api --jq` takes no --arg, so the PR
-              # number goes through a real jq call instead of being spliced into the filter.
-              own_green=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/status" |
-                jq -r --arg num "$num" '.statuses[]|select(.context=="ci-gate" and .state=="success" and ((.description // "")|endswith("on PR #" + $num)))|.state')
+              # Combined status: newest per context. A pass mirrored by a higher layer counts too:
+              # it tested this exact SHA, and a later top re-holding it would block a merge-ready
+              # layer until that top's own run reports.
+              tested_green=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/status" \
+                --jq '.statuses[]|select(.context=="ci-gate" and .state=="success" and ((.description // "")|contains(" passed on PR #")))|.state')
               # A layer skippable on its own merits is greened here under either verdict, so its
               # self-skip does not depend on which run finishes first. Its own run is cancelled
               # first: it may be a real test from when that layer was briefly the stack top, and
@@ -220,7 +221,7 @@ jobs:
                 # Its own in-progress run (typically the first round after `gh stack submit`) is
                 # redundant: this run covers it. Its cancelled jobs stop their remote executions.
                 cancel_runs "$sha" "$num"
-                if [[ -n "$own_green" ]]; then echo "#$num keeps its own green ci-gate"
+                if [[ -n "$tested_green" ]]; then echo "#$num keeps its tested green ci-gate"
                 else post "$sha" pending "waiting for the upgrade test on PR #$PR"; fi
                 held="$held $sha"
               fi
