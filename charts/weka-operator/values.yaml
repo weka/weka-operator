@@ -151,6 +151,9 @@ nodeAgentMetricsBindAddress: ":8090"
 # -- Bind address of the operator health probe endpoint.
 # @section -- Networking & ports
 healthProbeBindAddress: ":8081"
+# -- Port of the kube-rbac-proxy sidecar, which serves the operator metrics over HTTPS.
+# @section -- Networking & ports
+kubeRbacProxyPort: 8443
 
 # -- OpenShift (OCP) settings: driver toolkit access, hugepages provisioning through a Tuned profile,
 # and CSI SELinux policy placement.
@@ -203,6 +206,12 @@ manager:
   # -- nodeSelector of the operator pod.
   # @section -- Operator runtime & logging
   nodeSelector: {}
+  # -- Run the operator pod with hostNetwork, for clusters where the control plane can't reach pod IPs. Its ports
+  # (`webhookPort`, `kubeRbacProxyPort`, and the health and metrics bind addresses) then bind on the node and must be
+  # free there; a rollout needs a second eligible node. Sets dnsPolicy to ClusterFirstWithHostNet. Can't be combined
+  # with `enableClusterApi`.
+  # @section -- Networking & ports
+  hostNetwork: false
   # -- Tolerations of the operator pod. When empty, the top-level `tolerations` are used.
   # @section -- Tolerations
   tolerations: []
@@ -804,6 +813,10 @@ csi:
 # `kubectl delete validatingwebhookconfiguration weka-operator-validating-webhook-configuration`.
 # @section -- Admission control
 enableAdmissionControl: true
+
+# -- Port of the operator admission webhook server.
+# @section -- Admission control
+webhookPort: 9443
 
 # -- Admission policies. `mode` is the default mode applied to all policies: `relaxed` uses the "relaxed" column
 # of the per-policy mapping, `strict` the "strict" column. Per-policy overrides (`policies`, a map of policy name to
