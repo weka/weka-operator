@@ -3,6 +3,7 @@ package allocator
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
@@ -11,6 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/weka/weka-operator/internal/capacityplanner"
+	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
@@ -186,6 +189,67 @@ func TestAllocateSharedDrives_LabelAndVID(t *testing.T) {
 			}
 			if !labelAdd && vd.VirtualUUID != vd.Label {
 				t.Errorf("legacy: VID %q must equal label %q", vd.VirtualUUID, vd.Label)
+			}
+		}
+	}
+}
+
+// The allocator's minimum-capacity pre-check and the planner's MinCapacityShortfall must refuse exactly the
+// same new containers, or the planner plans containers the allocator then rejects.
+func TestAllocatorMinCapacityMatchesPlanner(t *testing.T) {
+	cases := []struct {
+		tlc, qlc, cores            int
+		wantEnforced, wantCombined string // "" = no pre-check error, else the binding
+	}{
+		{914, 54838, 3, "TLC", ""},
+		{1194, 71625, 3, "", ""},
+		{0, 2000, 3, "", ""},
+		{500, 0, 3, "TLC", "total"},
+		{0, 0, 3, "", "total"},
+		{300, 500, 2, "TLC", "drives"},
+		{500, 700, 3, "TLC", "drives"},
+	}
+	errPrefix := map[string]string{
+		"TLC":    "insufficient TLC capacity:",
+		"QLC":    "insufficient QLC capacity:",
+		"total":  "insufficient total capacity:",
+		"drives": "insufficient drive count:",
+	}
+	origEnforce := globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore
+	origMaxVirtualDrives := globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore
+	t.Cleanup(func() {
+		globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore = origEnforce
+		globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore = origMaxVirtualDrives
+	})
+	globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore = 8
+
+	for _, enforce := range []bool{true, false} {
+		globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore = enforce
+		for _, c := range cases {
+			want := c.wantCombined
+			if enforce {
+				want = c.wantEnforced
+			}
+			binding, _ := capacityplanner.MinCapacityShortfall(c.tlc, c.qlc, c.cores, CapacityConstraintsFromConfig())
+			if binding != want {
+				t.Errorf("enforce=%v %d/%d@%d: planner binding %q, want %q", enforce, c.tlc, c.qlc, c.cores, binding, want)
+			}
+			req := &AllocationRequest{
+				Container: &weka.WekaContainer{Spec: weka.WekaContainerSpec{
+					NumCores:          c.cores,
+					ContainerCapacity: c.tlc + c.qlc,
+					DriveTypesRatio:   &weka.DriveTypesRatio{Tlc: c.tlc, Qlc: c.qlc},
+				}},
+				CapacityGiB: c.tlc + c.qlc,
+			}
+			drives := makeDrives(driveSetup{tlcCount: 1, tlcCapacity: 100000, qlcCount: 1, qlcCapacity: 100000})
+			_, err := NewContainerResourceAllocator(nil).allocateSharedDrivesByCapacityWithTypes(context.Background(), req, nil, drives)
+			gotPreCheck := err != nil && strings.HasPrefix(err.Error(), "insufficient ")
+			switch {
+			case want == "" && gotPreCheck:
+				t.Errorf("enforce=%v %d/%d@%d: unexpected pre-check error: %v", enforce, c.tlc, c.qlc, c.cores, err)
+			case want != "" && (err == nil || !strings.HasPrefix(err.Error(), errPrefix[want])):
+				t.Errorf("enforce=%v %d/%d@%d: want error %q..., got %v", enforce, c.tlc, c.qlc, c.cores, errPrefix[want], err)
 			}
 		}
 	}

@@ -248,18 +248,22 @@ planPool(pool, desiredRaw, inventory):                 # pool is TLC or QLC, pla
 ```
 
 **Uniform-increase policy** (pool already has ≥1 FD, count not pinned). To avoid resizing existing
-containers, the planner pins the uniform chunk to the **smallest existing per-FD capacity `T0`** (floored
-at MinChunk; over-sized anchors don't raise it) and prefers **creating whole new FDs at `T0`** over
-growing. New FDs are always sized at the uniform level — never sub-`T`.
+containers, the planner prefers **creating `k` equal new FDs** over growing, using as few as possible but
+never fewer than needed to restore `minFdNum`. A new FD may be as large as `ceil(desiredRaw / minFdNum)`, the
+size the planner creates FDs at, so a lost FD is recreated at its original size.
 
 ```
 planPoolUniformIncrease(pool, desiredRaw, existingDrives, cons):
     T0 = max(MinChunk, smallest existing per-FD capacity)
 
-    # --- Step A: create-new-at-T0 (preferred, no spec edits) ---
-    kNeeded = ceil(delta / T0)
-    if kNeeded spare nodes each hold T0 AND kNeeded*T0 - delta <= maxOverProvisionFraction*desiredRaw:
-        create kNeeded new FDs at T0; emit ClusterCapacityOverProvisioned if kNeeded*T0 > delta; return
+    # --- Step A: create k new FDs of ceil(delta / k) each (preferred, no spec edits) ---
+    ceiling = ceil(desiredRaw / minFdNum)
+    missing = minFdNum - numExisting
+    for k in max(1, missing, ceil(delta / ceiling)) .. min(max(ceil(delta / T0), missing), spare nodes):
+        size = max(MinChunk, ceil(delta / k))
+        if size <= ceiling AND k spare nodes each hold size AND k*size - delta <= maxOverProvisionFraction*desiredRaw
+           AND (size <= largest existing FD OR no imbalance):
+            create k new FDs at size; emit ClusterCapacityOverProvisioned if k*size > delta; return
 
     # --- Step B: raise the uniform level (ONLY when enableDynamicDriveScalingForSharedDrives is ON) ---
     # smallest N >= max(minFdNum, numExisting) and level L >= T0 where: kFresh = N-numExisting spare nodes
@@ -275,7 +279,7 @@ planPoolUniformIncrease(pool, desiredRaw, existingDrives, cons):
 Existing FDs are never shrunk; over-sized anchors stay at their current level (only below-`L` FDs are
 raised in Step B). The grow step edits container specs — see [§Rules](#rules-that-apply-everywhere) for
 live-vs-deferred mechanics. With `enableDynamicDriveScalingForSharedDrives: false` (the default) Step B is
-unavailable, so a raise is met entirely by Step A (new FDs at `T0`) or is infeasible.
+unavailable, so a raise is met entirely by Step A (new FDs) or is infeasible.
 
 ### Node feasibility (the fit gate)
 
@@ -957,6 +961,7 @@ clusterCapacity planning.
 | a container's derived cores exceed `capacityPlannerConstraints.maxCoresPerContainer` (**19**) — raise `driveContainers` or lower `clusterCapacity` |
 | explicit `driveContainers < minFdNum`, `> available FDs`, or per-container share `< 384 GiB`; for mixed pools, the raw-ratio split drops a pool below `minFdNum` |
 | explicit `driveCores` smaller than a container's capacity needs, or a node cannot host the pinned `driveCores` |
+| a new drive container's TLC (or QLC) is below its drive cores × 384 GiB while `enforceMinDrivesPerTypePerCore=true` (the default; with `false` only the total number of drives counts, each type split into drives of at least 384 GiB) — raise the TLC (or QLC) share of this cluster's `driveTypesRatio`, set the Helm value `driveSharing.enforceMinDrivesPerTypePerCore=false` (applies to all clusters), or raise `clusterCapacity`; see [Drive Sharing](../operations/drive-sharing.md#enforcemindrivespertypepercore) |
 | `stripeWidth < 3` or `redundancyLevel < 2`; `clusterCapacity <= 0` (hot spare is optional, `hotSpare >= 0`) |
 
 The event names the binding constraint (e.g. "QLC: only 4 of 6 required FDs have capacity",

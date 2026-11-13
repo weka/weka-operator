@@ -24,10 +24,12 @@ func testCons() *CapacityConstraints {
 		TlcCapacityPerCoreGiB: 5 * tib,
 		QlcCapacityPerCoreGiB: 50 * tib,
 		MinChunkSizeGiB:       384,
-		ImbalanceFactor:       2.0,
-		HugepagesPerCoreMiB:   1600,
-		MemoryBaseMiB:         8000,
-		MemoryPerCoreMiB:      3000,
+		// Mirrors the production default (helm driveSharing.enforceMinDrivesPerTypePerCore=true).
+		EnforceMinDrivesPerTypePerCore: true,
+		ImbalanceFactor:                2.0,
+		HugepagesPerCoreMiB:            1600,
+		MemoryBaseMiB:                  8000,
+		MemoryPerCoreMiB:               3000,
 		// Default matches enableDynamicDriveScalingForSharedDrives=true; disabled-flag scenarios override to false.
 		AllowInPlaceGrowth: true,
 		// Mirrors helm/config production defaults so the uniform-increase path exercises real fractions/ratios.
@@ -1027,6 +1029,87 @@ func Test_DriveCores_NodeLacksCores_Infeasible(t *testing.T) {
 	plan := planCap(desiredDrive(90*tib, s, ratio(1, 0), 0, 10), s, nil, nodes(6, 100*tib, 0, 8, "n"), testCons())
 	if plan.Infeasible == "" {
 		t.Fatalf("want infeasible: node cannot host the pinned driveCores")
+	}
+}
+
+func Test_DriveCores_AboveVirtualDriveMinimum_Infeasible(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	// raw 13653 GiB over 6 FDs -> 2276 GiB/container; driveCores=8 needs 8 × 384 = 3072 GiB of virtual drives.
+	plan := planCap(desiredDrive(6*tib, s, ratio(1, 0), 0, 8), s, nil, nodes(6, 100*tib, 0, 64, "n"), testCons())
+	if !strings.Contains(plan.Infeasible, "virtual drives") {
+		t.Fatalf("want infeasible on the virtual-drive minimum, got %q", plan.Infeasible)
+	}
+}
+
+// 147 TiB at 1:60 over 6 FDs gives each mixed container 3 cores but less than 3 × 384 GiB of TLC.
+func Test_Mixed_SmallTlcShare_PerTypeMinimum(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	build := func(enforce bool) CapacityPlan {
+		cons := testCons()
+		cons.EnforceMinDrivesPerTypePerCore = enforce
+		return planCap(desiredFrom(147*tib, s, ratio(1, 60)), s, nil, nodes(6, 10*tib, 100*tib, 64, "n"), cons)
+	}
+	plan := build(true)
+	if !strings.Contains(plan.Infeasible, "each new drive container would get 914 GiB TLC + 54838 GiB QLC and 3 drive cores; with enforceMinDrivesPerTypePerCore=true it needs at least 1152 GiB of TLC") ||
+		!strings.Contains(plan.Infeasible, "Fix: raise the TLC share") {
+		t.Fatalf("enforced: unexpected infeasible %q", plan.Infeasible)
+	}
+	if r := plan.Infeasibility; r == nil || len(r.Fixes) != 3 || !strings.Contains(r.Fixes[0], "TLC share of this cluster's driveTypesRatio") ||
+		!strings.Contains(r.Fixes[1], "enforceMinDrivesPerTypePerCore=false") || !strings.Contains(r.Fixes[2], "raise clusterCapacity") {
+		t.Fatalf("enforced: unexpected report %+v", plan.Infeasibility)
+	}
+	if plan = build(false); plan.Infeasible != "" {
+		t.Fatalf("combined: unexpected infeasible: %s", plan.Infeasible)
+	}
+}
+
+// driveCores=4 pinned above the derived 3 leaves 1194 GiB TLC per container short of 4 × 384 GiB.
+func Test_Mixed_DriveCoresPinned_PerTypeMinimum(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	desired := DesiredCapacity{TlcRawGiB: 6 * 1194, QlcRawGiB: 6 * 71625, DriveCores: 4}
+	plan := planCap(desired, s, nil, nodes(6, 10*tib, 100*tib, 64, "n"), testCons())
+	r := plan.Infeasibility
+	if r == nil || r.Binding != "driveCores" || len(r.Fixes) != 4 {
+		t.Fatalf("want driveCores binding with 4 fixes, got %+v", r)
+	}
+	if r.Reason != plan.Infeasible {
+		t.Fatalf("reason %q differs from plan.Infeasible %q", r.Reason, plan.Infeasible)
+	}
+	if !strings.Contains(r.Fixes[0], "lower driveCores") || !strings.Contains(r.Fixes[1], "TLC share") ||
+		!strings.Contains(r.Fixes[2], "enforceMinDrivesPerTypePerCore=false") || !strings.Contains(r.Fixes[3], "raise clusterCapacity") {
+		t.Fatalf("unexpected fixes: %q", r.Fixes)
+	}
+}
+
+// Each active type contributes at least one core, so a small mixed container keeps 2 cores while it grows:
+// 700 GiB TLC is short of 2 × 384 GiB, and doubling the capacity at the same ratio clears it.
+func Test_Mixed_SmallContainer_RaisingCapacityClearsPerTypeMinimum(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	plan := planCap(DesiredCapacity{TlcRawGiB: 6 * 700, QlcRawGiB: 6 * 10000}, s, nil, nodes(6, 10*tib, 100*tib, 64, "n"), testCons())
+	if r := plan.Infeasibility; r == nil || !strings.Contains(r.Reason, "needs at least 768 GiB of TLC") ||
+		!strings.Contains(r.Fixes[len(r.Fixes)-1], "raise clusterCapacity") {
+		t.Fatalf("want a TLC shortfall offering raise clusterCapacity, got %+v", plan.Infeasibility)
+	}
+	if plan = planCap(DesiredCapacity{TlcRawGiB: 6 * 1400, QlcRawGiB: 6 * 20000}, s, nil, nodes(6, 10*tib, 100*tib, 64, "n"), testCons()); plan.Infeasible != "" {
+		t.Fatalf("doubled capacity: unexpected infeasible: %s", plan.Infeasible)
+	}
+}
+
+// 1194 GiB TLC + 71625 GiB QLC per FD at 3 cores holds 3 drives of each type.
+func Test_Mixed_TlcAboveCoresMinimum_Feasible(t *testing.T) {
+	s := testScheme() // minFdNum = 6
+	desired := DesiredCapacity{TlcRawGiB: 6 * 1194, QlcRawGiB: 6 * 71625}
+	plan := planCap(desired, s, nil, nodes(6, 10*tib, 100*tib, 64, "n"), testCons())
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Create) != 6 {
+		t.Fatalf("got %d creates, want 6", len(plan.Create))
+	}
+	for _, c := range plan.Create {
+		if c.TlcGiB != 1194 || c.QlcGiB != 71625 || c.NumCores != 3 {
+			t.Fatalf("got container TLC %d + QLC %d with %d cores, want 1194 + 71625 with 3", c.TlcGiB, c.QlcGiB, c.NumCores)
+		}
 	}
 }
 
@@ -3637,5 +3720,171 @@ func Test_CountPoolCapableNodes_IneligibleNode(t *testing.T) {
 	// Without any poolUsed credit, the ineligible-hosting node drops out too.
 	if got := countPoolCapableNodes(states, nil, poolTLC); got != 1 {
 		t.Fatalf("countPoolCapableNodes with no poolUsed = %d, want 1 (only the plain eligible node)", got)
+	}
+}
+
+func Test_UniformIncrease_Mixed_ReplacementMatchesExistingPerFdSize(t *testing.T) {
+	cases := []struct {
+		name         string
+		scheme       ProtectionScheme
+		desiredTlc   int
+		desiredQlc   int
+		existingTlc  []int // one entry per existing FD
+		existingQlc  []int
+		wantNew      int
+		wantQlcFloor int
+		wantTlcFloor int
+	}{
+		{
+			name:         "minFd 6, ratio 1:40",
+			scheme:       testScheme(),
+			desiredTlc:   8214,
+			desiredQlc:   328568,
+			existingTlc:  []int{1369, 1369, 1369, 1369},
+			existingQlc:  []int{54762, 54762, 54760, 54760},
+			wantNew:      2,
+			wantQlcFloor: 54760,
+			wantTlcFloor: 1,
+		},
+		{
+			name:         "minFd 19, 1 PiB, ratio 1:60",
+			scheme:       ProtectionScheme{StripeWidth: 16, RedundancyLevel: 2, HotSpare: 1},
+			desiredTlc:   22680,
+			desiredQlc:   1360857,
+			existingTlc:  append(repeat(1194, 11), repeat(1193, 6)...),
+			existingQlc:  append(repeat(71625, 11), repeat(71624, 6)...),
+			wantNew:      2,
+			wantQlcFloor: 71600,
+			wantTlcFloor: 1193,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var existing []ExistingContainer
+			var inv []NodeCapacity
+			for i := range tc.existingTlc {
+				n := "old" + itoa(i+1)
+				existing = append(existing, ExistingContainer{Name: "c" + itoa(i+1), Node: n, FDValue: n, TlcGiB: tc.existingTlc[i], QlcGiB: tc.existingQlc[i], NumCores: 1})
+				inv = append(inv, node(n, 0, 0, 64)) // drive-full
+			}
+			inv = append(inv, nodes(2, 100*tib, 10000*tib, 64, "new")...)
+			for _, n := range nodes(2, 100*tib, 10000*tib, 64, "del") {
+				n.HasDeletingDriveContainer = true
+				inv = append(inv, n)
+			}
+
+			plan := planCap(DesiredCapacity{TlcRawGiB: tc.desiredTlc, QlcRawGiB: tc.desiredQlc}, tc.scheme, existing, inv, testCons())
+
+			if plan.Infeasible != "" {
+				t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+			}
+			if len(plan.Create) != tc.wantNew {
+				t.Fatalf("want %d new FDs, got %d: %+v", tc.wantNew, len(plan.Create), plan.Create)
+			}
+			for _, c := range plan.Create {
+				if c.TlcGiB < tc.wantTlcFloor || c.QlcGiB < tc.wantQlcFloor {
+					t.Fatalf("want mixed container with QLC >= %d, got %+v", tc.wantQlcFloor, c)
+				}
+			}
+		})
+	}
+}
+
+func repeat(v, n int) []int {
+	out := make([]int, n)
+	for i := range out {
+		out[i] = v
+	}
+	return out
+}
+
+// Restoring capacity with fewer, larger failure domains must not leave the pool below minFd: 4 survivors and
+// minFd 6 need 2 replacements even when one at the largest existing size would cover the delta.
+func Test_UniformIncrease_ReplacementRestoresMinFd(t *testing.T) {
+	var existing []ExistingContainer
+	var inv []NodeCapacity
+	for i, tlc := range []int{1500, 1000, 1000, 1000} {
+		n := "old" + itoa(i+1)
+		existing = append(existing, ExistingContainer{Name: "c" + itoa(i+1), Node: n, FDValue: n, TlcGiB: tlc, NumCores: 1})
+		inv = append(inv, node(n, 0, 0, 64))
+	}
+	inv = append(inv, nodes(2, 100*tib, 0, 64, "new")...)
+	plan := planCap(DesiredCapacity{TlcRawGiB: 5900}, testScheme(), existing, inv, testCons())
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Create) != 2 {
+		t.Fatalf("want 2 replacements, got %d: %+v", len(plan.Create), plan.Create)
+	}
+	for _, c := range plan.Create {
+		if c.TlcGiB != 700 {
+			t.Fatalf("want 700 GiB TLC per replacement, got %+v", c)
+		}
+	}
+}
+
+// A small delta keeps T0-cloning at one FD, but 4 survivors and minFd 6 still need 2 replacements: 800 GiB
+// missing becomes 2 × 400 GiB, not a refused plan.
+func Test_UniformIncrease_SmallDeltaRestoresMinFd(t *testing.T) {
+	var existing []ExistingContainer
+	var inv []NodeCapacity
+	for i, tlc := range []int{1500, 1000, 1000, 1000} {
+		n := "old" + itoa(i+1)
+		existing = append(existing, ExistingContainer{Name: "c" + itoa(i+1), Node: n, FDValue: n, TlcGiB: tlc, NumCores: 1})
+		inv = append(inv, node(n, 0, 0, 64))
+	}
+	inv = append(inv, nodes(2, 100*tib, 0, 64, "new")...)
+	plan := planCap(DesiredCapacity{TlcRawGiB: 5300}, testScheme(), existing, inv, testCons())
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	if len(plan.Create) != 2 {
+		t.Fatalf("want 2 replacements, got %d: %+v", len(plan.Create), plan.Create)
+	}
+	for _, c := range plan.Create {
+		if c.TlcGiB != 400 {
+			t.Fatalf("want 400 GiB TLC per replacement, got %+v", c)
+		}
+	}
+}
+
+// With enforceMinDrivesPerTypePerCore=false the total is enough (1200 >= 3 × 384), but 500 GiB TLC and 700 GiB
+// QLC each split into one 384 GiB drive, so pinned driveCores=3 cannot get three drives.
+func Test_Combined_DriveCoresPinned_DriveCountShortfall(t *testing.T) {
+	cons := testCons()
+	cons.EnforceMinDrivesPerTypePerCore = false
+	plan := planCap(DesiredCapacity{TlcRawGiB: 6 * 500, QlcRawGiB: 6 * 700, DriveCores: 3}, testScheme(), nil, nodes(6, 10*tib, 100*tib, 64, "n"), cons)
+	r := plan.Infeasibility
+	if r == nil || r.Binding != "driveCores" || !strings.Contains(r.Reason, "it needs 3 virtual drives of 384 GiB each, but its TLC and QLC split into only 2") {
+		t.Fatalf("want a drive-count shortfall bound by driveCores, got %+v", r)
+	}
+	if len(r.Fixes) != 2 || !strings.Contains(r.Fixes[0], "lower driveCores") || !strings.Contains(r.Fixes[1], "raise clusterCapacity") {
+		t.Fatalf("unexpected fixes: %q", r.Fixes)
+	}
+}
+
+// A replacement is capped at ceil(desired / minFd) (1434 here), not at the largest existing FD (2000): one
+// 1600 GiB FD on a two-host FD with 1000/600 GiB headroom would fail its 800/800 split, two 800 GiB FDs fit.
+func Test_UniformIncrease_ReplacementCappedAtCeilShare(t *testing.T) {
+	var existing []ExistingContainer
+	var inv []NodeCapacity
+	for i, tlc := range []int{2000, 1000, 1000, 1000, 1000, 1000} {
+		n := "old" + itoa(i+1)
+		existing = append(existing, ExistingContainer{Name: "c" + itoa(i+1), Node: n, FDValue: n, TlcGiB: tlc, NumCores: 1})
+		inv = append(inv, node(n, 0, 0, 64))
+	}
+	a1, a2, b1 := node("a1", 1000, 0, 64), node("a2", 600, 0, 64), node("b1", 900, 0, 64)
+	a1.FDValue, a2.FDValue, b1.FDValue = "A", "A", "B"
+	inv = append(inv, a1, a2, b1)
+	plan := planCap(DesiredCapacity{TlcRawGiB: 8600}, testScheme(), existing, inv, testCons())
+	if plan.Infeasible != "" {
+		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
+	}
+	total := 0
+	for _, c := range plan.Create {
+		total += c.TlcGiB
+	}
+	if total != 1600 {
+		t.Fatalf("want 1600 GiB TLC across the replacements, got %d: %+v", total, plan.Create)
 	}
 }

@@ -45,6 +45,7 @@ func CapacityConstraintsFromConfig() *capacityplanner.CapacityConstraints {
 		TlcCapacityPerCoreGiB:             cfg.TlcCapacityPerCoreGiB,
 		QlcCapacityPerCoreGiB:             cfg.QlcCapacityPerCoreGiB,
 		MinChunkSizeGiB:                   MinChunkSizeGiB,
+		EnforceMinDrivesPerTypePerCore:    globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore,
 		ImbalanceFactor:                   cfg.ImbalanceFactor, // env defaults to 8.0; <= 0 disables the heterogeneous fallback
 		HugepagesPerCoreMiB:               capacityplanner.HugepagesPerCoreMiB,
 		MemoryBaseMiB:                     capacityplanner.MemoryBaseMiB,
