@@ -2955,7 +2955,19 @@ async def ensure_nics(num: int, exclude_macs: list):
 
     stdout, stderr, ec = await run_command(command)
     if ec != 0:
-        raise Exception(f"Failed to ensure NICs: {stderr}")
+        out = stdout.decode('utf-8', errors='replace').strip()
+        err = out or stderr.decode('utf-8', errors='replace').strip()
+        logging.error("ensure_nics failed: %s", err)
+        result = dict(err=err or f"cloud-helper ensure-nics exited with code {ec}", ensured=False, nics=[])
+        try:
+            detail = json.loads(out.splitlines()[-1])
+            result["err"] = f"{detail['error_code']}: {detail['error']}"
+            if "retryable" in detail:
+                result["retryable"] = bool(detail["retryable"])
+        except (IndexError, ValueError, KeyError, TypeError):
+            pass  # cloud-helper printed raw text, not its JSON error line
+        write_results(result)
+        return
     logging.info("Ensured NICs successfully")
     vnics = json.loads(stdout.decode('utf-8').strip())['metadata']['vnics']
     write_results(
@@ -4955,7 +4967,8 @@ async def main():
                 await ensure_nics(payload['dataNICsNumber'], payload.get('excludeMACs', []))
                 return
             else:
-                raise ValueError(f"Ensure NICs instruction type not supported: {payload.get('type')}")
+                write_results(dict(err=f"Ensure NICs instruction type not supported: {payload.get('type')}", ensured=False, nics=[]))
+                return
         elif instruction.get('type') == 'feature-flags-update':
             # The operator reads the flags off the image's release .spec itself. This result only
             # completes the one-off handshake: without a non-empty results.json the container never

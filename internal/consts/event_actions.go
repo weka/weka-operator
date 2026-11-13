@@ -43,4 +43,5 @@ const (
 	ActionCleanStaleVirtualDrives = "CleanStaleVirtualDrives"
 	ActionMigrateToDriveSharing   = "MigrateToDriveSharing"
 	ActionKernelize               = "Kernelize"
+	ActionEnsureNICs              = "EnsureNICs"
 )
