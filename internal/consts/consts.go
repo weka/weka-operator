@@ -80,7 +80,7 @@ const (
 const PodConfigHashAnnotation = "weka.io/pod-config-hash"
 
 // PodConfigCodeVersion: bump when weka_runtime.py changes or a name stops being compared (an env name removed from pod.go, a volume name dropped from ReservedVolumeNames) — changes the pod compare cannot see; compared only with ENABLE_POD_CONFIG_CODE_VERSION_ROTATION.
-const PodConfigCodeVersion = "1"
+const PodConfigCodeVersion = "2"
 
 // Kubernetes extended resource names
 const (
