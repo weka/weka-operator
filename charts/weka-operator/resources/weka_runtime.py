@@ -1656,7 +1656,8 @@ import asyncio
 import os
 import signal
 
-loop = asyncio.get_event_loop()
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
 
 async def get_weka_version():
