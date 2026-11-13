@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,10 +53,7 @@ func newConfigurationPolicy() *weka.WekaPolicy {
 	}
 }
 
-// The CRD marks status.lastRunTime required, and a zero metav1.Time marshals to null. Leaving it
-// unset makes the API server reject the status update, which returns an error from Reconcile and
-// puts the policy in a permanent retry loop.
-func TestReconcileConfigurationSetsRequiredStatusFields(t *testing.T) {
+func TestReconcileConfigurationLeavesLastRunTimeUnset(t *testing.T) {
 	previous := config.Config.OperatorPodNamespace
 	config.Config.OperatorPodNamespace = "weka-operator-system"
 	t.Cleanup(func() { config.Config.OperatorPodNamespace = previous })
@@ -79,8 +75,8 @@ func TestReconcileConfigurationSetsRequiredStatusFields(t *testing.T) {
 	if stored.Status.Status != configurationPolicyStatus {
 		t.Errorf("status = %q, want %q", stored.Status.Status, configurationPolicyStatus)
 	}
-	if stored.Status.LastRunTime.IsZero() {
-		t.Error("lastRunTime is zero; it is required by the CRD and null is rejected by the API server")
+	if !stored.Status.LastRunTime.IsZero() {
+		t.Errorf("lastRunTime = %v, want unset: a configuration policy never runs", stored.Status.LastRunTime)
 	}
 }
 
@@ -207,8 +203,8 @@ func TestReconcileReportsTypeResolutionFailure(t *testing.T) {
 	if stored.Status.LastResult != typeErr.Error() {
 		t.Errorf("lastResult = %q, want the resolver error", stored.Status.LastResult)
 	}
-	if stored.Status.LastRunTime.IsZero() {
-		t.Error("lastRunTime is zero; the CRD requires it and rejects null")
+	if !stored.Status.LastRunTime.IsZero() {
+		t.Errorf("lastRunTime = %v, want unset: a configuration policy never runs", stored.Status.LastRunTime)
 	}
 
 	// a repeat pass with the same cause must not rewrite status and re-trigger the watch
@@ -252,8 +248,8 @@ func TestReconcileConfigurationIgnoresForeignNamespace(t *testing.T) {
 	if !strings.Contains(stored.Status.LastResult, "weka-operator-system") {
 		t.Errorf("lastResult = %q, want it to name the operator namespace", stored.Status.LastResult)
 	}
-	if stored.Status.LastRunTime.IsZero() {
-		t.Error("lastRunTime is zero; the CRD requires it and rejects null")
+	if !stored.Status.LastRunTime.IsZero() {
+		t.Errorf("lastRunTime = %v, want unset: a configuration policy never runs", stored.Status.LastRunTime)
 	}
 
 	// repeat passes must not rewrite status and re-trigger the watch
@@ -297,7 +293,6 @@ func TestReconcileConfigurationClearsStaleResultOnRecovery(t *testing.T) {
 	policy := newConfigurationPolicy()
 	policy.Status.Status = policyFailedStatus
 	policy.Status.LastResult = "configurationPayload cannot be combined with spec.type \"sign-drives\""
-	policy.Status.LastRunTime = metav1.NewTime(time.Now().Add(-time.Hour))
 
 	r := configurationReconciler(t, policy)
 	ctx := context.Background()
