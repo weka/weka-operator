@@ -555,6 +555,13 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		},
 	}
 
+	if f.nodeInfo != nil && f.nodeInfo.Provider == discovery.ProviderAzure {
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "CLOUD_PROVIDER",
+			Value: string(discovery.ProviderAzure),
+		})
+	}
+
 	if f.container.Spec.GetOverrides().PreRunScript != "" {
 		base64str := base64.StdEncoding.EncodeToString([]byte(f.container.Spec.GetOverrides().PreRunScript))
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{

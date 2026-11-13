@@ -26,6 +26,7 @@ const (
 	SignDrivesTypeAllNotRoot        = "all-not-root"       // every non-root block device on the node
 	SignDrivesTypeAwsAll            = "aws-all"            // AWS NVMe instance store by PCI vendor/device id
 	SignDrivesTypeGcpAll            = "gcp-all"            // GCP local SSD by PCI vendor/device id
+	SignDrivesTypeAzureAll          = "azure-all"          // Azure local NVMe by PCI vendor/device id
 	SignDrivesTypeDevicePaths       = "device-paths"       // SignDrivesPayload.DevicePaths
 	SignDrivesTypeDeviceIdentifiers = "device-identifiers" // SignDrivesPayload.PCIDevices (a PCI model, not a drive)
 	// SignDrivesTypeDeviceSerials is the only selector stable across reboots, since device paths move.
@@ -118,7 +119,7 @@ type EnsureNICsPayload struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypeOverrides) || (has(self.shared) && self.shared)",message="driveTypeOverrides is only supported when shared is true"
 type SignDrivesPayload struct {
-	// +kubebuilder:validation:Enum=aws-all;gcp-all;device-identifiers;device-paths;device-serials;all-not-root
+	// +kubebuilder:validation:Enum=aws-all;gcp-all;azure-all;device-identifiers;device-paths;device-serials;all-not-root
 	Type         string            `json:"type"`
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	DevicePaths  []string          `json:"devicePaths,omitempty"`

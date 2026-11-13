@@ -34,6 +34,7 @@ type Provider string
 const (
 	ProviderAWS     Provider = "aws"
 	ProviderOCI     Provider = "oci"
+	ProviderAzure   Provider = "azure"
 	ProviderUnknown Provider = ""
 )
 
@@ -45,12 +46,20 @@ func ProviderFromID(providerID string) Provider {
 	if strings.HasPrefix(providerID, "ocid1.") {
 		return ProviderOCI
 	}
+	if strings.HasPrefix(providerID, "azure://") {
+		return ProviderAzure
+	}
 	return ProviderUnknown
+}
+
+// isSupportedCloudProvider excludes Azure: the cloud paths it gates (NIC allocation, node termination handling) are not implemented or validated for it.
+func isSupportedCloudProvider(p Provider) bool {
+	return p == ProviderAWS || p == ProviderOCI
 }
 
 // IsSupportedCloudProvider returns true if the node's ProviderID indicates a supported managed Kubernetes provider.
 func IsSupportedCloudProvider(providerID string) bool {
-	return ProviderFromID(providerID) != ProviderUnknown
+	return isSupportedCloudProvider(ProviderFromID(providerID))
 }
 
 // InstanceIDAndRegionFromProviderID parses an AWS node ProviderID of the form
@@ -142,7 +151,7 @@ func (n *DiscoveryNodeInfo) ToSnapshot() *PodDiscoverySnapshot {
 }
 
 func (nodeInfo *DiscoveryNodeInfo) HasSupportedCloudProvider() bool {
-	return nodeInfo.Provider != ProviderUnknown
+	return isSupportedCloudProvider(nodeInfo.Provider)
 }
 
 func (nodeInfo *DiscoveryNodeInfo) IsRhCos() bool {

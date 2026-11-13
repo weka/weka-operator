@@ -30,7 +30,7 @@ var comparedEnvNames = map[string]struct{}{
 	"NAME": {}, "MODE": {}, "WEKA_CONTAINER_ID": {}, "MACHINE_IDENTIFIER": {}, "NO_RESERVE_SPACE": {},
 	"WEKA_OPERATOR_DEBUG_SLEEP": {}, "WEKA_PERSISTENCE_MODE": {}, "SYSLOG_PACKAGE": {},
 	"OTEL_EXPORTER_OTLP_ENDPOINT": {}, "OTEL_SERVICE_NAME": {}, "OTEL_LOGS_ENABLED": {}, "WEKA_CLI_DEBUG": {},
-	"PYTHONPATH": {}, "NODE_NAME": {}, "MANAGEMENT_IP": {}, "POD_ID": {}, "POD_NAME": {}, "POD_NAMESPACE": {},
+	"PYTHONPATH": {}, "NODE_NAME": {}, "CLOUD_PROVIDER": {}, "MANAGEMENT_IP": {}, "POD_ID": {}, "POD_NAME": {}, "POD_NAMESPACE": {},
 }
 
 // comparedInitResourceNames are the init container resource names DiffPods compares, per side.
