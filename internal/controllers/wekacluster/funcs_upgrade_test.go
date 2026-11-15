@@ -794,3 +794,22 @@ func TestFrontendRollOrder_UnpairedForwardersRollLast(t *testing.T) {
 		t.Errorf("roll order = %v, want %v", got, want)
 	}
 }
+
+func TestFrontendRollOrder_PairStaysTogetherAcrossListOrders(t *testing.T) {
+	s3 := []*weka.WekaContainer{
+		rollOrderContainer("s3-c", "n3"),
+		rollOrderContainer("s3-b", "n2"),
+		rollOrderContainer("s3-a", "n1"),
+	}
+	forwarders := []*weka.WekaContainer{
+		rollOrderContainer("fwd-c", "n3"),
+		rollOrderContainer("fwd-b", "n2"),
+		rollOrderContainer("fwd-a", "n1"),
+	}
+
+	got := rollOrderNames(frontendRollOrder(s3, forwarders, nil, nil))
+	want := []string{"s3-a", "fwd-a", "s3-b", "fwd-b", "s3-c", "fwd-c"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("roll order = %v, want %v", got, want)
+	}
+}
