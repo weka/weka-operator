@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -875,6 +876,10 @@ func (r *wekaClusterReconcilerLoop) handleImageUpgrade(ctx context.Context) erro
 // Forwarders left without an S3 neighbour roll last. Envoy, the other off-path sidecar, is a standalone
 // proxy with no such coupling and is deliberately left on the image it came up with.
 func frontendRollOrder(s3, forwarders, nfs, smbw []*weka.WekaContainer) []*weka.WekaContainer {
+	// The cached list order changes per reconcile; unsorted, the next S3 overtakes a half-rolled pair's forwarder.
+	s3 = slices.SortedFunc(slices.Values(s3), func(a, b *weka.WekaContainer) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 	byNode := make(map[weka.NodeName]*weka.WekaContainer, len(forwarders))
 	for _, forwarder := range forwarders {
 		if node := forwarder.GetNodeAffinity(); node != "" {
