@@ -672,7 +672,7 @@ csi:
   # -- Install the embedded CSI driver.
   # @section -- CSI
   installationEnabled: true
-  # -- SELinux support mode for the embedded CSI driver: "auto" (auto-detect from host /etc/selinux/config),
+  # -- SELinux support mode for the embedded CSI driver: "auto" (enabled when node discovery finds a node with SELinux enabled; those nodes need the Weka SELinux policy, which the chart installs on OpenShift, otherwise mounts fail; clients spanning SELinux and non-SELinux nodes should set "enforced" or "off" explicitly),
   # "enforced" (always apply SELinux contexts to volume mounts) or "off" (never apply SELinux contexts).
   # @section -- CSI
   selinuxSupport: "auto"

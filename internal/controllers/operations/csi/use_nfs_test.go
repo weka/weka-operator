@@ -180,11 +180,11 @@ func TestUseNfs_NoRetainAffinityTerm(t *testing.T) {
 func TestUseNfsFlagChangesHash(t *testing.T) {
 	settings := services.DefaultConfigurationSettings().Csi
 
-	a, err := GetCsiNodeDaemonSetHash("csi", testWekaClient(nil), "clients", "default", settings)
+	a, err := GetCsiNodeDaemonSetHash("csi", testWekaClient(nil), "clients", "default", false, settings)
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
-	b, err := GetCsiNodeDaemonSetHash("csi", nfsWekaClient(), "clients", "default", settings)
+	b, err := GetCsiNodeDaemonSetHash("csi", nfsWekaClient(), "clients", "default", false, settings)
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
@@ -214,11 +214,11 @@ func TestUseNfsFalse_HashUnchanged(t *testing.T) {
 	explicitFalse := testWekaClient(nil)
 	explicitFalse.Spec.UseNfs = false
 
-	a, err := GetCsiNodeDaemonSetHash("csi", plain, "clients", "default", settings)
+	a, err := GetCsiNodeDaemonSetHash("csi", plain, "clients", "default", false, settings)
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
-	b, err := GetCsiNodeDaemonSetHash("csi", explicitFalse, "clients", "default", settings)
+	b, err := GetCsiNodeDaemonSetHash("csi", explicitFalse, "clients", "default", false, settings)
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestManageNfsPermissions_Hash(t *testing.T) {
 	off := services.DefaultConfigurationSettings().Csi
 
 	hashes := func(wc *weka.WekaClient, s services.CsiSettings) (string, string) {
-		node, err := GetCsiNodeDaemonSetHash("csi", wc, "clients", "default", s)
+		node, err := GetCsiNodeDaemonSetHash("csi", wc, "clients", "default", false, s)
 		if err != nil {
 			t.Fatalf("hash: %v", err)
 		}
@@ -355,7 +355,7 @@ func TestManageNfsPermissions_Hash(t *testing.T) {
 		t.Error("native client hash must not depend on ManageNfsPermissions")
 	}
 
-	plainNode, err := GetCsiNodeDaemonSetHash("csi", nfsWekaClient(), "clients", "default", services.DefaultConfigurationSettings().Csi)
+	plainNode, err := GetCsiNodeDaemonSetHash("csi", nfsWekaClient(), "clients", "default", false, services.DefaultConfigurationSettings().Csi)
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}

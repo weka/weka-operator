@@ -3713,6 +3713,7 @@ async def discovery():
         os=host_info.os,
         os_build_id=host_info.os_build_id,
         proc_version=proc_version,
+        selinuxfs=os.path.isdir("/sys/fs/selinux"),
         schema=DISCOVERY_SCHEMA,
     )
     write_results(data)
