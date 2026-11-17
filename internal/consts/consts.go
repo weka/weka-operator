@@ -21,6 +21,25 @@ const (
 // containers or any injected sidecars). Resource requests must be read from this container by name.
 const WekaContainerName = "weka-container"
 
+// InternalAnnotationPrefix marks operator-written annotations on WekaContainers; the cluster's spec sync
+// replaces a container's annotations with the cluster-derived set but keeps these.
+const InternalAnnotationPrefix = "weka.io/internal-"
+
+// AnnotationEnvoyDrainStarted marks, on an envoy WekaContainer, when the upgrade began draining it (RFC3339).
+const AnnotationEnvoyDrainStarted = InternalAnnotationPrefix + "envoy-drain-started"
+
+// AnnotationEnvoyHandoverStarted marks, on an envoy WekaContainer, when the upgrade began waiting for wekas3 to listen beside it (RFC3339).
+const AnnotationEnvoyHandoverStarted = InternalAnnotationPrefix + "envoy-handover-started"
+
+// AnnotationEnvoyHotRestartStarted marks, on an envoy WekaContainer, when the immediate-drain hot restart was issued (RFC3339).
+const AnnotationEnvoyHotRestartStarted = InternalAnnotationPrefix + "envoy-hotrestart-started"
+
+// AnnotationEnvoyForwarder records, on an envoy WekaContainer, that the forwarder on its node is wanted or ready while the envoy still runs.
+const AnnotationEnvoyForwarder = InternalAnnotationPrefix + "envoy-forwarder"
+
+// AnnotationEnvoyFastDrain records, on an envoy WekaContainer, whether the hot restart took effect ("immediate") or timed out ("fallback").
+const AnnotationEnvoyFastDrain = InternalAnnotationPrefix + "envoy-fast-drain"
+
 // Node annotation keys for drive management
 const (
 	// AnnotationWekaDrives stores drive serial IDs for non-proxy mode: ["SERIAL1", "SERIAL2", ...].

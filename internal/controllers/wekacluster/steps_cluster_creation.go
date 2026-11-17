@@ -521,6 +521,12 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 
 	want := r.desiredRoleCounts(nums, offPathForwarder)
 
+	// While envoys remain (upgrade to a forwarder image) a forwarder is only wanted for a node whose envoy the
+	// upgrade has reached.
+	envoys := envoysWithoutForwarder(discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeEnvoy))
+	if offPathForwarder {
+		want["forwarder"] = max(want["forwarder"]-len(envoys), 0)
+	}
 	for _, role := range wekaContainerRoles {
 		if (role == weka.WekaContainerModeDrive && (daemonset || capacity)) || (role == weka.WekaContainerModeCompute && daemonset) ||
 			(role == weka.WekaContainerModeS3 && cluster.Spec.S3ActsAsDaemonset()) {
@@ -552,6 +558,11 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 				template.Containers.Compute = nums.Compute // planner-derived count, not the min-default
 			}
 			nodePins = unusedComputeNodes(r.containers, derivedComputeNodes)
+		}
+
+		if role == weka.WekaContainerModeForwarder && len(envoys) > 0 {
+			sidecars := append(discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeForwarder), envoys...)
+			nodePins = forwarderPinNodes(discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeS3), sidecars)
 		}
 
 		built, skipped, err := r.buildRoleContainers(ctx, role, have, want[role], template, nodePins)

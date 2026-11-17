@@ -13,7 +13,7 @@ and management access. Source: `internal/controllers/wekacluster/`.
 | `planner_events.go` | Event reasons, severity and throttling: `plannerEventSpecs`, `emitPlannerEvent` |
 | `funcs_clusterization.go` | Formation |
 | `funcs_credentials.go`, `funcs_helpers.go` | Credentials, helpers |
-| `funcs_upgrade.go` | `handleUpgrade` dispatches to `handleImageUpgrade` (image roll) or `handlePodRotation`; per-role spec propagation in `HandleSpecUpdates` |
+| `funcs_upgrade*.go`, `envoy_hotrestart.sh` | `handleImageUpgrade` (roll, envoy→forwarder `retireEnvoysForForwarder`) or `handlePodRotation`; `HandleSpecUpdates` |
 | `funcs_pod_rotation.go` | `podRotationEnabled`, `handlePodRotation`, `clearFinishedRotations`, `rotationContainers`; health gate = `operations.EvaluateClusterHealth` |
 | `funcs_nfs.go`, `funcs_s3.go` | NFS interface groups and S3 configuration |
 | `steps_post_cluster.go` | Post-creation operations, including `configureWekaHome` |

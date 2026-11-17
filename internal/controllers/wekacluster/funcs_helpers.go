@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
+	"strings"
 	"time"
 
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -145,4 +148,34 @@ func (r *wekaClusterReconcilerLoop) HasPausedContainers() bool {
 		}
 	}
 	return false
+}
+
+func sortedByName(containers []*weka.WekaContainer) []*weka.WekaContainer {
+	return slices.SortedFunc(slices.Values(containers), func(a, b *weka.WekaContainer) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+}
+
+func containersByNode(containers []*weka.WekaContainer) map[weka.NodeName]*weka.WekaContainer {
+	byNode := make(map[weka.NodeName]*weka.WekaContainer, len(containers))
+	for _, c := range containers {
+		if node := c.GetNodeAffinity(); node != "" {
+			byNode[node] = c
+		}
+	}
+	return byNode
+}
+
+func withInternalAnnotations(desired, existing map[string]string) map[string]string {
+	result := desired
+	for k, v := range existing {
+		if !strings.HasPrefix(k, consts.InternalAnnotationPrefix) {
+			continue
+		}
+		if result == nil {
+			result = map[string]string{}
+		}
+		result[k] = v
+	}
+	return result
 }

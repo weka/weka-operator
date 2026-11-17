@@ -700,6 +700,7 @@ type WekaService interface {
 	ListS3ClusterContainers(ctx context.Context) ([]int, error)
 	DeleteS3Cluster(ctx context.Context) error
 	JoinS3Cluster(ctx context.Context, containerId int) error
+	SetS3FwdEra(ctx context.Context, hostId int) error
 	RemoveFromS3Cluster(ctx context.Context, containerId int) error
 	GetSmbwCluster(ctx context.Context) (*SmbwCluster, error)
 	CreateSmbwCluster(ctx context.Context, params *SmbwParams) error
@@ -1019,6 +1020,21 @@ func (c *CliWekaService) GenerateJoinSecret(ctx context.Context) (string, error)
 		return "", err
 	}
 	return data, nil
+}
+
+func (c *CliWekaService) SetS3FwdEra(ctx context.Context, hostId int) error {
+	var resp struct {
+		State  string `json:"state"`
+		Detail string `json:"detail"`
+	}
+	cmd := []string{"wekaauthcli", "debug", "jrpc", "s3_fwd_set_era", fmt.Sprintf("hostId=%d", hostId), "on=true"}
+	if err := c.RunJsonCmd(ctx, cmd, "SetS3FwdEra", &resp); err != nil {
+		return err
+	}
+	if resp.State != "done" {
+		return fmt.Errorf("s3_fwd_set_era returned state %q (%s)", resp.State, resp.Detail)
+	}
+	return nil
 }
 
 func (c *CliWekaService) JoinS3Cluster(ctx context.Context, containerId int) error {
