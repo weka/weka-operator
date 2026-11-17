@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -661,8 +660,30 @@ func (r *wekaClusterReconcilerLoop) handleImageUpgrade(ctx context.Context) erro
 		}
 	}
 
+	envoyContainers := discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeEnvoy)
+	replaceEnvoy := func() (bool, error) {
+		if len(envoyContainers) == 0 {
+			return false, nil
+		}
+		featureFlags, err := r.GetFeatureFlags(ctx)
+		if err != nil {
+			return false, err
+		}
+		return featureFlags.S3OffPathForwarder, nil
+	}
+
 	if cluster.Spec.GetOverrides().UpgradeAllAtOnce {
-		err := workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
+		replace, replaceErr := replaceEnvoy()
+		if replaceErr != nil {
+			return replaceErr
+		}
+		toRoll := r.containers
+		if replace {
+			toRoll = slices.DeleteFunc(slices.Clone(r.containers), func(c *weka.WekaContainer) bool {
+				return c.Spec.Mode == weka.WekaContainerModeEnvoy
+			})
+		}
+		err := workers.ProcessConcurrently(ctx, toRoll, 32, func(ctx context.Context, container *weka.WekaContainer) error {
 			if container.Spec.Image == cluster.Spec.Image {
 				return nil
 			}
@@ -683,7 +704,13 @@ func (r *wekaClusterReconcilerLoop) handleImageUpgrade(ctx context.Context) erro
 		if err != nil {
 			return err
 		}
-		if !upgrade.NewUpgradeController(r.getClient(), r.containers, cluster.Spec.Image).AreUpgraded() {
+		if replace {
+			s3 := discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeS3)
+			if retireErr := r.retireEnvoysAtOnce(ctx, s3, envoyContainers, cluster.Spec.Image); retireErr != nil {
+				return retireErr
+			}
+		}
+		if !upgrade.NewUpgradeController(r.getClient(), toRoll, cluster.Spec.Image).AreUpgraded() {
 			return lifecycle.NewWaitError(errors.New("waiting for all containers to apply the new image"))
 		}
 		cluster.Status.LastAppliedImage = cluster.Spec.Image
@@ -842,6 +869,16 @@ func (r *wekaClusterReconcilerLoop) handleImageUpgrade(ctx context.Context) erro
 		}
 	}
 
+	replace, err := replaceEnvoy()
+	if err != nil {
+		return err
+	}
+	if replace {
+		if retireErr := r.retireEnvoysForForwarder(ctx, s3Containers, envoyContainers, forwarderContainers, targetImage); retireErr != nil {
+			return retireErr
+		}
+	}
+
 	feRollOrder := frontendRollOrder(s3Containers, forwarderContainers, nfsContainers, smbwContainers)
 
 	uController = upgrade.NewUpgradeController(r.getClient(), feRollOrder, targetImage)
@@ -877,15 +914,8 @@ func (r *wekaClusterReconcilerLoop) handleImageUpgrade(ctx context.Context) erro
 // proxy with no such coupling and is deliberately left on the image it came up with.
 func frontendRollOrder(s3, forwarders, nfs, smbw []*weka.WekaContainer) []*weka.WekaContainer {
 	// The cached list order changes per reconcile; unsorted, the next S3 overtakes a half-rolled pair's forwarder.
-	s3 = slices.SortedFunc(slices.Values(s3), func(a, b *weka.WekaContainer) int {
-		return strings.Compare(a.Name, b.Name)
-	})
-	byNode := make(map[weka.NodeName]*weka.WekaContainer, len(forwarders))
-	for _, forwarder := range forwarders {
-		if node := forwarder.GetNodeAffinity(); node != "" {
-			byNode[node] = forwarder
-		}
-	}
+	s3 = sortedByName(s3)
+	byNode := containersByNode(forwarders)
 
 	paired := make(map[*weka.WekaContainer]bool, len(forwarders))
 	order := make([]*weka.WekaContainer, 0, len(s3)+len(forwarders)+len(nfs)+len(smbw))

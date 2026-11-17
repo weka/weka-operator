@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -521,6 +522,27 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 
 	want := r.desiredRoleCounts(nums, offPathForwarder)
 
+	// While envoys remain (upgrade to a forwarder image) a forwarder is only wanted on a node whose S3 already runs
+	// the target image; elsewhere the envoy still serves.
+	envoys := discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeEnvoy)
+	replacingEnvoys := offPathForwarder && len(envoys) > 0
+	var rolledS3 []*weka.WekaContainer
+	if replacingEnvoys {
+		var unrolledS3 []*weka.WekaContainer
+		var err error
+		rolledS3, unrolledS3, err = r.s3ByRoll(ctx, discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeS3), cluster.Spec.Image)
+		if err != nil {
+			return nil, err
+		}
+		unrolledByNode := containersByNode(unrolledS3)
+		held := 0
+		for node := range containersByNode(envoys) {
+			if _, ok := unrolledByNode[node]; ok {
+				held++
+			}
+		}
+		want["forwarder"] = max(want["forwarder"]-held, 0)
+	}
 	for _, role := range wekaContainerRoles {
 		if (role == weka.WekaContainerModeDrive && (daemonset || capacity)) || (role == weka.WekaContainerModeCompute && daemonset) ||
 			(role == weka.WekaContainerModeS3 && cluster.Spec.S3ActsAsDaemonset()) {
@@ -554,7 +576,17 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 			nodePins = unusedComputeNodes(r.containers, derivedComputeNodes)
 		}
 
-		built, skipped, err := r.buildRoleContainers(ctx, role, have, want[role], template, nodePins)
+		target := want[role]
+		if role == weka.WekaContainerModeForwarder && replacingEnvoys {
+			// A forwarder being deleted no longer holds its node. Past the pins a forwarder would be unpinned and could
+			// land on a node other than the one whose envoy waits for it.
+			liveForwarders := slices.DeleteFunc(discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeForwarder),
+				(*weka.WekaContainer).IsMarkedForDeletion)
+			nodePins = forwarderPinNodes(rolledS3, liveForwarders)
+			target = min(target, have+len(nodePins))
+		}
+
+		built, skipped, err := r.buildRoleContainers(ctx, role, have, target, template, nodePins)
 		if err != nil {
 			return nil, err
 		}

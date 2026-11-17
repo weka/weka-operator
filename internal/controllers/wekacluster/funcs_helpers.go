@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
+	"strings"
 	"time"
 
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
@@ -145,4 +147,20 @@ func (r *wekaClusterReconcilerLoop) HasPausedContainers() bool {
 		}
 	}
 	return false
+}
+
+func sortedByName(containers []*weka.WekaContainer) []*weka.WekaContainer {
+	return slices.SortedFunc(slices.Values(containers), func(a, b *weka.WekaContainer) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+}
+
+func containersByNode(containers []*weka.WekaContainer) map[weka.NodeName]*weka.WekaContainer {
+	byNode := make(map[weka.NodeName]*weka.WekaContainer, len(containers))
+	for _, c := range containers {
+		if node := c.GetNodeAffinity(); node != "" {
+			byNode[node] = c
+		}
+	}
+	return byNode
 }
