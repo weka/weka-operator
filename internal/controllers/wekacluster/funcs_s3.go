@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -24,10 +25,14 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 	cluster := r.cluster
 
 	execInContainer := discovery.SelectActiveContainer(r.containers)
+	if execInContainer == nil {
+		return errors.New("no container to run s3 commands in")
+	}
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)
 
-	// the CLI generation determines the S3 payload schema
-	featureFlags, err := r.GetFeatureFlags(ctx)
+	// Mid-upgrade the executor may still run the old image, so its CLI, not cluster.Spec.Image,
+	// decides the S3 payload schema and create arguments.
+	featureFlags, err := operations.GetFeatureFlagsForContainer(ctx, r.Manager, r.RestClient, execInContainer)
 	if err != nil {
 		return err // Propagate error (including WaitError if ad-hoc container still running)
 	}
@@ -80,7 +85,7 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 		S3Port:            cluster.Status.Ports.S3Port,
 		ContainerIds:      containerIds,
 		ClusterCreateArgs: clusterCreateArgs,
-	})
+	}, featureFlags)
 	if err != nil {
 		var s3ClusterExists *services.S3ClusterExists
 		if !errors.As(err, &s3ClusterExists) {
