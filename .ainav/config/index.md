@@ -14,13 +14,13 @@ Use this map for operator settings, deployment templates and CRD definitions.
 
 ## Focused routes
 
-- Capacity constraints: `CapacityPlannerConfig` is shared by both planners; `ClusterCapacityConfig` applies to clusterCapacity. `allocator.CapacityConstraintsFromConfig` wires them to the planner. See the [Helm constraints table](../../doc/operator/deployment/cluster-capacity.md) and [planner map](../controllers/wekacluster-drive-planning.md). `capacityPlannerConstraints` configures the algorithm; `capacityPlanner` configures the optional toolbox pod.
-- Pod security: `resources/security_context.go` (`ApplySecurityProfile`, `mergePodSecurityContext`) applies `WEKA_POD_SECURITY_CONTEXT` / Helm `podSecurityContext`; only supported fields merge.
+- Capacity constraints: `CapacityPlannerConfig` (both planners), `ClusterCapacityConfig` (clusterCapacity), wired by `allocator.CapacityConstraintsFromConfig`; Helm `capacityPlannerConstraints` (algorithm), `capacityPlanner` (toolbox pod). See the [Helm constraints table](../../doc/operator/deployment/cluster-capacity.md) and [planner map](../controllers/wekacluster-drive-planning.md).
+- Pod security: `resources/security_context.go` (`ApplySecurityProfile`, `mergePodSecurityContext`) applies `WEKA_POD_SECURITY_CONTEXT` / Helm `podSecurityContext`.
 - Management proxy: [management-proxy.md](../controllers/management-proxy.md).
 - Operator pod network: `manager.hostNetwork`, `webhookPort`, `kubeRbacProxyPort` and the health/metrics bind addresses → `templates/manager.yaml` (`weka-operator.addressPort`); `WEBHOOK_PORT` in `env.go`.
 - Generated API reference: `doc/api_dump/` (do not edit); shared conditions: `api/v1alpha1/condition/conditions.go`.
-- Extra volumes: Helm `manager.extraVolumes`/`extraVolumeMounts` for the operator pod (`tmpdir` / `/tmp` reserved); WekaCluster `spec.podConfig`, WekaClient and WekaContainer `spec` carry their own. See [extra-volumes.md](../../doc/operator/deployment/extra-volumes.md).
-- Removed-node backend cleanup: `CLEANUP_REMOVED_NODES` / Helm `cleanupRemovedNodes`, tri-state `false`/`true`/`auto` (default `auto`), grace-period logic in `wekacontainer/funcs_handle_node_statuses.go`. See [helm-install.md](../../doc/operator/deployment/helm-install.md).
+- Extra volumes: Helm `manager.extraVolumes`/`extraVolumeMounts` (operator pod); WekaCluster `spec.podConfig`, WekaClient and WekaContainer `spec`. See [extra-volumes.md](../../doc/operator/deployment/extra-volumes.md).
+- Removed-node backend cleanup: `CLEANUP_REMOVED_NODES` / Helm `cleanupRemovedNodes`, logic in `wekacontainer/funcs_handle_node_statuses.go`. See [helm-install.md](../../doc/operator/deployment/helm-install.md).
 - Node-agent DaemonSet: built by `internal/node_agent/daemonset.go` from `NodeAgentSettings` (`internal/services/configuration_settings.go`); see [node-agent.md](../../doc/operator/deployment/node-agent.md).
 - CSI accessible label settings: `CsiSettings` in `internal/services/configuration_settings.go`; see [embedded-csi.md](../../doc/operator/deployment/embedded-csi.md).
 
