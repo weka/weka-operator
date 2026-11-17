@@ -15,10 +15,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/drivers"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -219,6 +221,7 @@ func (e *DriversNotLoadedError) Error() string {
 type LoadDrivers struct {
 	mgr                 ctrl.Manager
 	client              client.Client
+	recorder            events.EventRecorder
 	kubeService         kubernetes.KubeService
 	scheme              *runtime.Scheme
 	containerDetails    weka.WekaOwnerDetails
@@ -261,6 +264,7 @@ func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwner
 	return &LoadDrivers{
 		mgr:                 mgr,
 		client:              kclient,
+		recorder:            util.WrapEventRecorder(mgr.GetEventRecorder("wekaContainer-controller"), mgr.GetScheme()),
 		kubeService:         kubernetes.NewKubeService(kclient),
 		scheme:              mgr.GetScheme(),
 		containerDetails:    ownerDetails,
@@ -360,6 +364,8 @@ func (o *LoadDrivers) RemoveCsiAccessibleLabelsOnBootChange(ctx context.Context)
 	if err := o.client.Patch(ctx, o.node, patch); err != nil {
 		return lifecycle.NewWaitError(errors.Wrap(err, "failed to remove csi accessible labels from node"))
 	}
+	util.RecordEvent(o.recorder, o.node, v1.EventTypeWarning, "CsiAccessibleRemoved", consts.ActionManageDrivers,
+		"node rebooted since the drivers were loaded")
 	return nil
 }
 
