@@ -15,7 +15,7 @@ import (
 
 func TestPlugin_ServeAllocateListAndWatch(t *testing.T) {
 	dir := shortTempDir(t)
-	socketPath := filepath.Join(dir, SocketName(2))
+	socketPath := filepath.Join(dir, SocketName(2, ""))
 
 	plugin := NewPlugin(2, socketPath, logr.Discard())
 	if err := plugin.Serve(); err != nil {
@@ -84,7 +84,7 @@ func TestPlugin_ServeAllocateListAndWatch(t *testing.T) {
 
 func TestPlugin_StopRemovesSocket(t *testing.T) {
 	dir := shortTempDir(t)
-	socketPath := filepath.Join(dir, SocketName(0))
+	socketPath := filepath.Join(dir, SocketName(0, ""))
 
 	plugin := NewPlugin(0, socketPath, logr.Discard())
 	if err := plugin.Serve(); err != nil {
@@ -104,7 +104,7 @@ func TestPlugin_StopRemovesSocket(t *testing.T) {
 
 func TestPlugin_ServeRemovesStaleSocket(t *testing.T) {
 	dir := shortTempDir(t)
-	socketPath := filepath.Join(dir, SocketName(1))
+	socketPath := filepath.Join(dir, SocketName(1, ""))
 
 	// Simulate a stale socket file left behind by a previous, uncleanly-stopped run.
 	if err := os.WriteFile(socketPath, []byte{}, 0644); err != nil {

@@ -18,8 +18,12 @@ func ResourceName(region int) string {
 }
 
 // SocketName returns the unix socket file name (relative to the kubelet device-plugins
-// directory) used by the plugin instance serving the given NUMA region.
-func SocketName(region int) string {
+// directory) used by the plugin instance serving the given NUMA region. A non-empty
+// instanceID is embedded in the name so overlapping agents never share a socket path.
+func SocketName(region int, instanceID string) string {
+	if instanceID != "" {
+		return fmt.Sprintf("weka-numa-region-%d-%s.sock", region, instanceID)
+	}
 	return fmt.Sprintf("weka-numa-region-%d.sock", region)
 }
 

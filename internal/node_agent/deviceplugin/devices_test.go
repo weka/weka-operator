@@ -16,8 +16,18 @@ func TestResourceName(t *testing.T) {
 }
 
 func TestSocketName(t *testing.T) {
-	if got, want := SocketName(2), "weka-numa-region-2.sock"; got != want {
-		t.Errorf("SocketName(2) = %q, want %q", got, want)
+	tests := []struct {
+		region     int
+		instanceID string
+		want       string
+	}{
+		{2, "", "weka-numa-region-2.sock"},
+		{2, "abc-123", "weka-numa-region-2-abc-123.sock"},
+	}
+	for _, tt := range tests {
+		if got := SocketName(tt.region, tt.instanceID); got != tt.want {
+			t.Errorf("SocketName(%d, %q) = %q, want %q", tt.region, tt.instanceID, got, tt.want)
+		}
 	}
 }
 

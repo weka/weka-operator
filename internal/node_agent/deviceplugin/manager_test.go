@@ -36,6 +36,21 @@ func (f *fakeRegistrationServer) recordedCalls() []*pluginapi.RegisterRequest {
 	return append([]*pluginapi.RegisterRequest(nil), f.calls...)
 }
 
+// startFakeKubelet serves a fakeRegistrationServer on kubelet.sock in dir until the test ends.
+func startFakeKubelet(t *testing.T, dir string) *fakeRegistrationServer {
+	t.Helper()
+	listener, err := net.Listen("unix", filepath.Join(dir, kubeletSocketName))
+	if err != nil {
+		t.Fatalf("failed to listen on fake kubelet socket: %v", err)
+	}
+	fakeServer := &fakeRegistrationServer{}
+	grpcServer := grpc.NewServer()
+	pluginapi.RegisterRegistrationServer(grpcServer, fakeServer)
+	go grpcServer.Serve(listener) //nolint:errcheck // test server, shut down via Stop() in cleanup
+	t.Cleanup(grpcServer.Stop)
+	return fakeServer
+}
+
 func TestManager_RegistersAllRegionPluginsWithKubelet(t *testing.T) {
 	sysfsRoot := t.TempDir()
 	nodeDir := filepath.Join(sysfsRoot, "devices", "system", "node")
@@ -46,18 +61,7 @@ func TestManager_RegistersAllRegionPluginsWithKubelet(t *testing.T) {
 	}
 
 	devicePluginDir := shortTempDir(t)
-	kubeletSocketPath := filepath.Join(devicePluginDir, kubeletSocketName)
-
-	listener, err := net.Listen("unix", kubeletSocketPath)
-	if err != nil {
-		t.Fatalf("failed to listen on fake kubelet socket: %v", err)
-	}
-
-	fakeServer := &fakeRegistrationServer{}
-	grpcServer := grpc.NewServer()
-	pluginapi.RegisterRegistrationServer(grpcServer, fakeServer)
-	go grpcServer.Serve(listener) //nolint:errcheck // test server, shut down via Stop() below
-	defer grpcServer.Stop()
+	fakeServer := startFakeKubelet(t, devicePluginDir)
 
 	manager := NewManager(ManagerConfig{
 		DevicePluginDir: devicePluginDir,
@@ -71,17 +75,7 @@ func TestManager_RegistersAllRegionPluginsWithKubelet(t *testing.T) {
 	go manager.Run(ctx)
 	defer manager.Stop()
 
-	deadline := time.After(5 * time.Second)
-	for {
-		if len(fakeServer.recordedCalls()) >= 2 {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("timed out waiting for registrations, got %d", len(fakeServer.recordedCalls()))
-		case <-time.After(20 * time.Millisecond):
-		}
-	}
+	waitUntil(t, "2 registrations", func() bool { return len(fakeServer.recordedCalls()) >= 2 })
 
 	calls := fakeServer.recordedCalls()
 	if len(calls) != 2 {
@@ -98,13 +92,14 @@ func TestManager_RegistersAllRegionPluginsWithKubelet(t *testing.T) {
 		if !ok {
 			t.Fatalf("no registration found for %s", ResourceName(region))
 		}
-		if req.Endpoint != SocketName(region) {
-			t.Errorf("region %d endpoint = %q, want %q", region, req.Endpoint, SocketName(region))
+		wantSocket := SocketName(region, "")
+		if req.Endpoint != wantSocket {
+			t.Errorf("region %d endpoint = %q, want %q", region, req.Endpoint, wantSocket)
 		}
 		if req.Version != pluginapi.Version {
 			t.Errorf("region %d version = %q, want %q", region, req.Version, pluginapi.Version)
 		}
-		if _, err := os.Stat(filepath.Join(devicePluginDir, SocketName(region))); err != nil {
+		if _, err := os.Stat(filepath.Join(devicePluginDir, wantSocket)); err != nil {
 			t.Errorf("expected device plugin socket for region %d to exist: %v", region, err)
 		}
 	}
@@ -134,5 +129,46 @@ func TestManager_StopIsIdempotent(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Stop() did not return")
+	}
+}
+
+func TestManager_DistinctInstanceIDsKeepSocketsApart(t *testing.T) {
+	sysfsRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(sysfsRoot, "devices", "system", "node", "node0"), 0755); err != nil {
+		t.Fatalf("failed to create node0: %v", err)
+	}
+
+	devicePluginDir := shortTempDir(t)
+	fakeServer := startFakeKubelet(t, devicePluginDir)
+
+	start := func(instanceID string, wantCalls int) *Manager {
+		manager := NewManager(ManagerConfig{
+			DevicePluginDir: devicePluginDir,
+			SysfsRoot:       sysfsRoot,
+			InstanceID:      instanceID,
+			RetryBackoff:    50 * time.Millisecond,
+		}, logr.Discard())
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		go manager.Run(ctx)
+
+		waitUntil(t, "registration of "+instanceID, func() bool { return len(fakeServer.recordedCalls()) >= wantCalls })
+		return manager
+	}
+
+	oldManager := start("old", 1)
+	newManager := start("new", 2)
+	defer newManager.Stop()
+
+	oldSocket := filepath.Join(devicePluginDir, SocketName(0, "old"))
+	newSocket := filepath.Join(devicePluginDir, SocketName(0, "new"))
+	for _, p := range []string{oldSocket, newSocket} {
+		waitUntil(t, "socket "+p, func() bool { _, err := os.Stat(p); return err == nil })
+	}
+
+	oldManager.Stop()
+
+	if _, err := os.Stat(newSocket); err != nil {
+		t.Errorf("stopping the old manager removed the new manager's socket: %v", err)
 	}
 }
