@@ -1,8 +1,11 @@
 package resources
 
 import (
+	"context"
+	"slices"
 	"testing"
 
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -61,5 +64,42 @@ func TestRequireOnEveryTermKeepsEmptyTermsEmpty(t *testing.T) {
 	}
 	if !isEmptyNodeSelectorTerm(terms[1]) {
 		t.Fatalf("term 1 = %v; want it left empty (matches no node)", terms[1])
+	}
+}
+
+// TestSetAffinitiesPinnedIgnoresNodeSelector covers the spec-pinned vs status-bound rule in setAffinities.
+func TestSetAffinitiesPinnedIgnoresNodeSelector(t *testing.T) {
+	selector := map[string]string{"role": "x"}
+	for _, tc := range []struct {
+		name       string
+		mode       string
+		node       weka.NodeName
+		statusNode weka.NodeName
+		wantKeys   []string
+	}{
+		{"pinned client", weka.WekaContainerModeClient, "n1", "", []string{"kubernetes.io/hostname"}},
+		{"pinned backend", weka.WekaContainerModeCompute, "n1", "", []string{"kubernetes.io/hostname"}},
+		{"unbound client", weka.WekaContainerModeClient, "", "", []string{"role"}},
+		{"status-bound builder", weka.WekaContainerModeDriversBuilder, "", "n1", []string{"kubernetes.io/hostname", "role"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &PodFactory{container: &weka.WekaContainer{
+				Spec: weka.WekaContainerSpec{
+					Mode: tc.mode, NodeAffinity: tc.node, NodeSelector: selector, NoAffinityConstraints: true,
+				},
+				Status: weka.WekaContainerStatus{NodeAffinity: tc.statusNode},
+			}}
+			pod := &corev1.Pod{Spec: corev1.PodSpec{Affinity: &corev1.Affinity{}, Containers: []corev1.Container{{}}}}
+			if err := f.setAffinities(context.Background(), pod); err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, e := range pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions {
+				got = append(got, e.Key)
+			}
+			if !slices.Equal(got, tc.wantKeys) {
+				t.Fatalf("required keys = %v, want %v", got, tc.wantKeys)
+			}
+		})
 	}
 }

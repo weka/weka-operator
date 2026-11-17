@@ -1935,12 +1935,18 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 			Values:   []string{string(f.container.GetNodeAffinity())},
 		})
 	}
-	for k, v := range f.container.Spec.NodeSelector {
-		required = append(required, corev1.NodeSelectorRequirement{
-			Key:      k,
-			Operator: corev1.NodeSelectorOpIn,
-			Values:   []string{v},
-		})
+	// A container pinned in spec is matched by hostname only: its nodeSelector was applied when the node was
+	// chosen, and requiring it again leaves the pod Pending forever once a label is removed, since
+	// deletePodIfUnschedulable skips pinned pods. deleteIfNodeSelectorMismatch retires it on a mismatch.
+	// Status-bound containers keep the selector: it holds a drivers builder to a node with its kernel.
+	if f.container.Spec.NodeAffinity == "" {
+		for k, v := range f.container.Spec.NodeSelector {
+			required = append(required, corev1.NodeSelectorRequirement{
+				Key:      k,
+				Operator: corev1.NodeSelectorOpIn,
+				Values:   []string{v},
+			})
+		}
 	}
 	requireOnEveryTerm(pod.Spec.Affinity, required...)
 
