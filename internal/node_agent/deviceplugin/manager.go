@@ -36,6 +36,9 @@ type ManagerConfig struct {
 	// where this manager creates one socket per NUMA region. Defaults to
 	// DefaultKubeletDevicePluginsDir.
 	DevicePluginDir string
+	// InstanceID makes socket names unique per agent instance, so overlapping agents on a
+	// node don't delete each other's sockets.
+	InstanceID string
 	// SysfsRoot is the sysfs mount point NUMA topology is discovered under (sysfsRoot +
 	// "/devices/system/node"). Defaults to DefaultSysfsRoot.
 	SysfsRoot string
@@ -140,7 +143,7 @@ func (m *Manager) runCycle(ctx context.Context) error {
 	}()
 
 	for _, region := range regions {
-		plugin := NewPlugin(region, filepath.Join(m.cfg.DevicePluginDir, SocketName(region)), m.logger)
+		plugin := NewPlugin(region, filepath.Join(m.cfg.DevicePluginDir, SocketName(region, m.cfg.InstanceID)), m.logger)
 		if err := plugin.Serve(); err != nil {
 			return errors.Wrapf(err, "failed to serve device plugin for region %d", region)
 		}

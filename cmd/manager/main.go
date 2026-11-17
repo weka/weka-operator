@@ -151,6 +151,7 @@ func startAsNodeAgent(ctx context.Context, logger logr.Logger) {
 	if config.Config.NodeAgentDevicePlugin.Enabled {
 		dpManager = deviceplugin.NewManager(deviceplugin.ManagerConfig{
 			DevicePluginDir: filepath.Join(config.Config.NodeAgentDevicePlugin.KubeletPath, "device-plugins"),
+			InstanceID:      config.Config.OperatorPodUID,
 		}, logger)
 
 		// Best-effort: the device plugin manager logs its own errors and retries with
