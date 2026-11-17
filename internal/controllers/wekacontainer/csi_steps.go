@@ -13,6 +13,7 @@ import (
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"github.com/weka/weka-operator/internal/services"
@@ -55,7 +56,7 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 		return errors.New("node affinity is not set")
 	}
 
-	accessible, err := r.csiAccessible(ctx, csiDriverName)
+	accessible, reason, err := r.csiAccessible(ctx, csiDriverName)
 	if err != nil {
 		return err
 	}
@@ -69,19 +70,31 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 		expectedLabels := csiTopologyLabelsService.GetExpectedCsiTopologyLabels()
 		logger.Info("Updating node with CSI topology labels", "labels", expectedLabels)
 
+		wasAccessible := r.node.Labels[operations.CsiAccessibleLabelKey(csiDriverName)] == "true"
 		node := csiTopologyLabelsService.UpdateNodeLabels(r.node, expectedLabels)
 
 		err := r.Update(ctx, node)
 		if err != nil {
 			return errors.Wrap(err, "failed to update node with CSI topology labels")
 		}
+		return r.recordCsiAccessibleChange(wasAccessible, accessible, reason)
 	}
 
 	return nil
 }
 
+func (r *containerReconcilerLoop) recordCsiAccessibleChange(was, now bool, reason string) error {
+	switch {
+	case was && !now:
+		return r.RecordEvent(v1.EventTypeWarning, "CsiAccessibleRemoved", consts.ActionMonitorContainerHealth, reason)
+	case !was && now:
+		return r.RecordEvent(v1.EventTypeNormal, "CsiAccessibleAdded", consts.ActionMonitorContainerHealth, reason)
+	}
+	return nil
+}
+
 // csiAccessible resolves whether the node should carry the accessible label; see decideCsiAccessible for the signal order.
-func (r *containerReconcilerLoop) csiAccessible(ctx context.Context, csiDriverName string) (bool, error) {
+func (r *containerReconcilerLoop) csiAccessible(ctx context.Context, csiDriverName string) (accessible bool, reason string, err error) {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "csiAccessible")
 	defer logger.End()
 
@@ -93,7 +106,7 @@ func (r *containerReconcilerLoop) csiAccessible(ctx context.Context, csiDriverNa
 	if r.wekaClient != nil {
 		namespace, err := util.GetPodNamespace()
 		if err != nil {
-			return false, errors.Wrap(err, "failed to get operator namespace")
+			return false, "", errors.Wrap(err, "failed to get operator namespace")
 		}
 		dsName := csi.GetCSINodeDaemonSetNameForClient(r.GetCSIGroup(), r.wekaClient.Name, r.wekaClient.Namespace)
 		// served from the operator's pod cache: no API call
@@ -138,11 +151,11 @@ func (r *containerReconcilerLoop) csiAccessible(ctx context.Context, csiDriverNa
 
 	switch decision {
 	case accessibleSet:
-		return true, nil
+		return true, reason, nil
 	case accessibleKeep:
-		return r.node.Labels[operations.CsiAccessibleLabelKey(csiDriverName)] == "true", nil
+		return r.node.Labels[operations.CsiAccessibleLabelKey(csiDriverName)] == "true", reason, nil
 	}
-	return false, nil
+	return false, reason, nil
 }
 
 // csiTrackerKey is the WekaClient, or the container itself when it has none (no correlation then).

@@ -99,6 +99,10 @@ For each client WekaContainer, the container reconciler:
 2. Manages CSI topology labels on the node to control volume scheduling
 3. Updates labels based on container health and mount state
 
+When the label value changes, the operator records one event on the client WekaContainer: Warning
+`CsiAccessibleRemoved` with the deciding reason, or Normal `CsiAccessibleAdded`. When driver loading
+removes the label after a node reboot (see below), the Warning `CsiAccessibleRemoved` is recorded on the Node instead.
+
 The `topology.<csi-driver>/accessible` label is evaluated for every client container on each reconcile. The
 first matching row decides:
 

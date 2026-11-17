@@ -16,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -373,6 +374,20 @@ var _ = Describe("RemoveCsiAccessibleLabelsOnBootChange", func() {
 		stored := &corev1.Node{}
 		Expect(op.client.Get(ctx, client.ObjectKeyFromObject(node), stored)).To(Succeed())
 		Expect(stored.Labels).NotTo(HaveKey("topology.csi.weka.io/accessible"))
+	})
+
+	It("records one CsiAccessibleRemoved event on the node when it removes the label", func() {
+		recorder := events.NewFakeRecorder(10)
+		scheme := runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		node.Annotations = map[string]string{driversLoadedAnnotation: record("boot-previous", "img:1")}
+		op := &LoadDrivers{client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build(), node: node, recorder: recorder}
+		Expect(op.RemoveCsiAccessibleLabelsOnBootChange(ctx)).To(Succeed())
+		Expect(recorder.Events).To(HaveLen(1))
+		Expect(<-recorder.Events).To(Equal("Warning CsiAccessibleRemoved node rebooted since the drivers were loaded"))
+
+		Expect(op.RemoveCsiAccessibleLabelsOnBootChange(ctx)).To(Succeed())
+		Expect(recorder.Events).To(BeEmpty())
 	})
 
 	It("does not strip labels from a stale node view: the patch conflicts and is retried", func() {
