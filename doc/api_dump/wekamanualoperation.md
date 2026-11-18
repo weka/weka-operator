@@ -236,6 +236,7 @@
 |------------|------|-------------|
 | model | string | Model matches the device model exactly, case-insensitively, ignoring surrounding<br>whitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1<br>Empty means "do not match on model". |
 | capacityGiB | int | CapacityGiB matches the drive capacity in GiB exactly, as reported in the<br>weka.io/weka-shared-drives annotation. 0 means "do not match on capacity". |
+| serial | string | Serial matches the drive serial exactly, as reported in the weka.io/weka-shared-drives<br>annotation. Empty means "do not match on serial". |
 | type | string | Type is the drive type to report for matching drives. |
 
 ---
