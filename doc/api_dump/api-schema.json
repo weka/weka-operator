@@ -2003,7 +2003,8 @@
     "NICType": {
       "kind": "enum",
       "enumValues": [
-        "aws"
+        "aws",
+        "azure"
       ],
       "baseType": "string",
       "usedBy": [

@@ -106,7 +106,8 @@ type PCIDevices struct {
 type NICType string
 
 const (
-	AWS NICType = "aws"
+	AWS   NICType = "aws"
+	Azure NICType = "azure"
 )
 
 type EnsureNICsPayload struct {
