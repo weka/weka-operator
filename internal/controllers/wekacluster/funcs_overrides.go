@@ -2,21 +2,19 @@ package wekacluster
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 
-	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
-// EnsureWekaOverrides reconciles weka debug overrides that the operator manages.
-// It is gated by the IsDriveSharing predicate so it only runs on drive-sharing clusters.
-// Additional overrides can be appended here following the same ensureOverride pattern.
+// EnsureWekaOverrides keeps the drive-size ratio override in step with the helm value on a running
+// drive-sharing cluster. The other creation overrides only matter before the stripe is applied and
+// containers join, so they are set once by FormCluster and not reconciled.
 func (r *wekaClusterReconcilerLoop) EnsureWekaOverrides(ctx context.Context) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "EnsureWekaOverrides")
 	defer logger.End()
@@ -28,14 +26,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaOverrides(ctx context.Context) err
 	}
 
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)
-
-	key := "small_big_disk_sizes_max_proportion_factor"
-	val := strconv.Itoa(config.Config.DriveSharing.SmallBigDiskSizesMaxProportionFactor)
-	if err := r.ensureOverride(ctx, wekaService, key, val, "weka-operator: drive-sharing small/big disk size proportion"); err != nil {
-		return errors.Wrapf(err, "failed to ensure override %s", key)
-	}
-
-	return nil
+	return services.ApplyOverrides(ctx, wekaService, []services.OperatorOverride{services.DriveSizeRatioOverride()})
 }
 
 // EnsureWekaHomeCacertOverride keeps the cluster-wide weka_cloud_ca_cert_path override in step
@@ -80,7 +71,7 @@ func (r *wekaClusterReconcilerLoop) reconcileWekaHomeCacertOverride(ctx context.
 
 	const key = "weka_cloud_ca_cert_path"
 	if cacertSecret != "" {
-		return r.ensureOverride(ctx, wekaService, key, domain.WekaHomeCacertPath, "weka-operator: Weka Home CA bundle staged from wekaHome.cacertSecret")
+		return services.EnsureOverride(ctx, wekaService, key, domain.WekaHomeCacertPath, "weka-operator: Weka Home CA bundle staged from wekaHome.cacertSecret")
 	}
 
 	entries, err := wekaService.ListOverridesByKey(ctx, key)
@@ -99,32 +90,5 @@ func (r *wekaClusterReconcilerLoop) reconcileWekaHomeCacertOverride(ctx context.
 			return errors.Wrapf(err, "failed to remove override %s", e.OverrideID)
 		}
 	}
-	return nil
-}
-
-// ensureOverride sets a weka debug override unless the current tail row already carries the wanted
-// value and is enabled. weka debug override add --force always inserts a new row (not an upsert),
-// so we check the last entry before writing to keep the override table tidy. A disabled row does
-// not count as set: its value is inert, so skipping on it would report success over a setting that
-// is not in effect.
-func (r *wekaClusterReconcilerLoop) ensureOverride(ctx context.Context, svc services.WekaService, key, val, comment string) error {
-	ctx, logger := instrumentation.CreateLogSpan(ctx, "ensureOverride", "key", key)
-	defer logger.End()
-
-	entries, err := svc.ListOverridesByKey(ctx, key)
-	if err != nil {
-		return errors.Wrapf(err, "failed to list overrides for key %s", key)
-	}
-
-	if last := len(entries) - 1; last >= 0 && entries[last].Value == val && entries[last].Enabled {
-		logger.Info("Override already set, skipping", "key", key, "value", val)
-		return nil
-	}
-
-	logger.Info("Setting override", "key", key, "value", val)
-	if err := svc.AddOverride(ctx, key, val, comment, true); err != nil {
-		return errors.Wrapf(err, "failed to add override %s=%s", key, val)
-	}
-
 	return nil
 }
