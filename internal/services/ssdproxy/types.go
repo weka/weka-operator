@@ -23,16 +23,3 @@ type VirtualDrive struct {
 	ClusterGUID  string `json:"clusterGuid"`
 	SizeGB       int    `json:"sizeGB"`
 }
-
-// physicalDrivesResponse is the response from ssd_proxy_list_physical_drives.
-type physicalDrivesResponse struct {
-	Result  []PhysicalDrive `json:"result"`
-	ID      int             `json:"id"`
-	JSONRPC string          `json:"jsonrpc"`
-}
-
-// virtualDrivesResponse is the node-agent wrapper response for ssd_proxy_list_virtual_drives.
-type virtualDrivesResponse struct {
-	Message string         `json:"message"`
-	Result  []VirtualDrive `json:"result"`
-}
