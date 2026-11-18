@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/capacityplanner"
 	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -599,12 +600,9 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 	// Validate minimum drive count constraint based on configuration
 	// Each drive must be at least MinChunkSizeGiB (384 GiB)
 	// Skip validation for reallocation - the initial allocation already validated the full capacity
-	totalCapacity := tlcCapacityNeeded + qlcCapacityNeeded
-	minCapacityPerType := numCores * MinChunkSizeGiB
-
-	if !isReallocation && globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore {
-		// Per-type constraint: each active type must have at least numCores drives
-		if tlcCapacityNeeded > 0 && tlcCapacityNeeded < minCapacityPerType {
+	if !isReallocation {
+		switch binding, minCapacityPerType := capacityplanner.MinCapacityShortfall(tlcCapacityNeeded, qlcCapacityNeeded, numCores, CapacityConstraintsFromConfig()); binding {
+		case "TLC":
 			return nil, fmt.Errorf(
 				"insufficient TLC capacity: with %d drive cores and enforceMinDrivesPerTypePerCore=true, need at least %d GiB TLC (minimum %d drives × %d GiB each), but only %d GiB configured. "+
 					"Increase containerCapacity or adjust driveTypesRatio, or set enforceMinDrivesPerTypePerCore=false",
@@ -614,8 +612,7 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 				MinChunkSizeGiB,
 				tlcCapacityNeeded,
 			)
-		}
-		if qlcCapacityNeeded > 0 && qlcCapacityNeeded < minCapacityPerType {
+		case "QLC":
 			return nil, fmt.Errorf(
 				"insufficient QLC capacity: with %d drive cores and enforceMinDrivesPerTypePerCore=true, need at least %d GiB QLC (minimum %d drives × %d GiB each), but only %d GiB configured. "+
 					"Increase containerCapacity or adjust driveTypesRatio, or set enforceMinDrivesPerTypePerCore=false",
@@ -625,10 +622,7 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 				MinChunkSizeGiB,
 				qlcCapacityNeeded,
 			)
-		}
-	} else if !isReallocation {
-		// Combined constraint: total drives (TLC + QLC) must be at least numCores
-		if totalCapacity < minCapacityPerType {
+		case "total":
 			return nil, fmt.Errorf(
 				"insufficient total capacity: with %d drive cores, need at least %d GiB total (minimum %d drives × %d GiB each), but only %d GiB available. "+
 					"Increase containerCapacity",
@@ -636,7 +630,18 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 				minCapacityPerType,
 				numCores,
 				MinChunkSizeGiB,
-				totalCapacity,
+				tlcCapacityNeeded+qlcCapacityNeeded,
+			)
+		case "drives":
+			return nil, fmt.Errorf(
+				"insufficient drive count: with %d drive cores, need at least %d drives × %d GiB, but %d GiB TLC and %d GiB QLC split into only %d. "+
+					"Increase containerCapacity or lower driveCores",
+				numCores,
+				numCores,
+				MinChunkSizeGiB,
+				tlcCapacityNeeded,
+				qlcCapacityNeeded,
+				tlcCapacityNeeded/MinChunkSizeGiB+qlcCapacityNeeded/MinChunkSizeGiB,
 			)
 		}
 	}

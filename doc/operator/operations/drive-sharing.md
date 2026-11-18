@@ -627,6 +627,8 @@ Controls the minimum drive count constraint when using mixed TLC/QLC configurati
 
 **Note:** This setting only affects mixed TLC/QLC configurations. Single-type allocations (TLC-only) behave identically in both modes.
 
+With `clusterCapacity`, the planner applies the same rule to new drive containers and reports the plan as infeasible instead of creating containers the allocator would reject (see [Cluster Capacity](../deployment/cluster-capacity.md)).
+
 #### enableDynamicDriveScalingForSharedDrives
 
 **Helm values.yaml:**
