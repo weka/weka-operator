@@ -13,6 +13,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/internal/services"
 )
 
@@ -33,64 +34,18 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 
 	container := r.container
 
-	wekaLocalPsTimeout := 10 * time.Second
-	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &wekaLocalPsTimeout)
-
-	localContainers, err := wekaService.ListLocalContainers(ctx)
-	if err != nil {
-		logger.Error(err, "Error getting weka local ps")
-		if r.isChannelFailure(err) {
-			return lifecycle.NewWaitError(err)
-		}
-		// TODO: Validate agent-specific errors, but should not be very important
-
-		// check if drivers should be force-reloaded
-		loaded, driversErr := r.driversLoaded(ctx)
-		if driversErr != nil {
-			return driversErr
-		}
-
-		if !loaded {
-			err = r.updateStatusWaitForDrivers(ctx)
-			if err != nil {
-				return err
-			}
-
-			details := r.container.ToOwnerDetails()
-			driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversLoaderImage,
-				r.container.Spec.DriversBuildId, r.container.Spec.DriversDistService,
-				operations.LoadDriversOptions{Priority: driverPriority(r.container), Force: true})
-			loaderErr := operations.ExecuteOperation(ctx, driversLoader)
-			if loaderErr != nil {
-				driversLoadErr := fmt.Errorf("drivers are not loaded: %v; %v", driversErr, loaderErr)
-				return lifecycle.NewWaitError(driversLoadErr)
-			}
-
-			err = fmt.Errorf("weka local ps failed: %v", err)
-			return lifecycle.NewWaitError(err)
-		}
-		return lifecycle.NewWaitError(err)
-	}
-
-	lastLocalPsRead.Store(container.GetUID(), time.Now())
-
-	err = r.checkContainerNotFound(localContainers, err)
-	if err != nil {
-		if statusErr := r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy); statusErr != nil {
-			return statusErr
-		}
-		return lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
-	}
-
+	// envoy, forwarder and telemetry do not serve the `status` method on a container socket
 	var localContainer services.WekaLocalContainer
-	for i := range localContainers {
-		if localContainers[i].Name == container.Spec.WekaContainerName {
-			localContainer = localContainers[i]
-			break
-		}
+	ok := false
+	if !container.IsServiceContainer() && !container.IsTelemetry() {
+		localContainer, ok = r.localContainerViaSocket(ctx)
 	}
-	if localContainer.Name == "" {
-		localContainer = localContainers[0]
+	if !ok {
+		var err error
+		localContainer, err = r.localContainerViaExec(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
 	r.localContainer = &localContainer
@@ -98,12 +53,19 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 
 	// check local container status and propagate failure message (if any) as event
 	internalStatus := localContainer.InternalStatus.DisplayStatus
-	if internalStatus != "READY" && localContainer.LastFailure != "" && !container.IsDistMode() {
-		msg := fmt.Sprintf(
-			"Container is not ready, status: %s, last failure: %s (%s)",
-			internalStatus, localContainer.LastFailure, localContainer.LastFailureTime,
-		)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "WekaLocalStatus", consts.ActionMonitorContainerHealth, msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+	if internalStatus != "READY" && !container.IsDistMode() {
+		var msg string
+		switch state := localContainer.InternalStatus.State; {
+		case localContainer.LastFailure != "":
+			msg = fmt.Sprintf("Container is not ready, status: %s, last failure: %s (%s)",
+				internalStatus, localContainer.LastFailure, localContainer.LastFailureTime)
+		case state == "ERROR" || state == "RESTART":
+			// the container socket has no last failure; its message carries the error
+			msg = fmt.Sprintf("Container is not ready, status: %s, message: %s", internalStatus, localContainer.InternalStatus.Message)
+		}
+		if msg != "" {
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "WekaLocalStatus", consts.ActionMonitorContainerHealth, msg, time.Minute) //nolint:errcheck // error return value intentionally not checked
+		}
 	}
 
 	// skip status update for DrivesAdding (if still adding drives)
@@ -133,6 +95,96 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	}
 
 	return nil
+}
+
+func (r *containerReconcilerLoop) localContainerViaExec(ctx context.Context) (services.WekaLocalContainer, error) {
+	logger := instrumentation.CurrentSpanLogger(ctx)
+	container := r.container
+
+	wekaLocalPsTimeout := 10 * time.Second
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &wekaLocalPsTimeout)
+
+	localContainers, err := wekaService.ListLocalContainers(ctx)
+	if err != nil {
+		logger.Error(err, "Error getting weka local ps")
+		if r.isChannelFailure(err) {
+			return services.WekaLocalContainer{}, lifecycle.NewWaitError(err)
+		}
+		// TODO: Validate agent-specific errors, but should not be very important
+
+		// check if drivers should be force-reloaded
+		loaded, driversErr := r.driversLoaded(ctx)
+		if driversErr != nil {
+			return services.WekaLocalContainer{}, driversErr
+		}
+
+		if !loaded {
+			err = r.updateStatusWaitForDrivers(ctx)
+			if err != nil {
+				return services.WekaLocalContainer{}, err
+			}
+
+			details := r.container.ToOwnerDetails()
+			driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversLoaderImage,
+				r.container.Spec.DriversBuildId, r.container.Spec.DriversDistService,
+				operations.LoadDriversOptions{Priority: driverPriority(r.container), Force: true})
+			loaderErr := operations.ExecuteOperation(ctx, driversLoader)
+			if loaderErr != nil {
+				driversLoadErr := fmt.Errorf("drivers are not loaded: %v; %v", driversErr, loaderErr)
+				return services.WekaLocalContainer{}, lifecycle.NewWaitError(driversLoadErr)
+			}
+
+			err = fmt.Errorf("weka local ps failed: %v", err)
+			return services.WekaLocalContainer{}, lifecycle.NewWaitError(err)
+		}
+		return services.WekaLocalContainer{}, lifecycle.NewWaitError(err)
+	}
+
+	lastLocalPsRead.Store(container.GetUID(), time.Now())
+
+	err = r.checkContainerNotFound(localContainers, err)
+	if err != nil {
+		if statusErr := r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy); statusErr != nil {
+			return services.WekaLocalContainer{}, statusErr
+		}
+		return services.WekaLocalContainer{}, lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
+	}
+
+	for i := range localContainers {
+		if localContainers[i].Name == container.Spec.WekaContainerName {
+			return localContainers[i], nil
+		}
+	}
+	return localContainers[0], nil
+}
+
+// localContainerViaSocket reads the container's status over its unix socket through node-agent; false means
+// no usable reply, and the caller falls back to weka local ps.
+func (r *containerReconcilerLoop) localContainerViaSocket(ctx context.Context) (services.WekaLocalContainer, bool) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	container := r.container
+	var reply services.WekaLocalInternalStatus
+	agentPod, err := r.GetNodeAgentPod(ctx, container.GetNodeAffinity())
+	if err == nil {
+		var token string
+		if token, err = r.getNodeAgentToken(ctx); err == nil {
+			err = node_agent.ProxyJSONRPC(ctx, agentPod, token, node_agent.JSONRPCProxyPayload{
+				ContainerId:       string(container.GetUID()),
+				WekaContainerName: container.Spec.WekaContainerName,
+				Method:            "status",
+				Params:            map[string]any{},
+			}, &reply)
+		}
+	}
+	if err != nil || reply.DisplayStatus == "" {
+		instrumentation.CurrentSpanLogger(ctx).Debug("Container socket status unavailable, falling back to weka local ps", "error", err)
+		return services.WekaLocalContainer{}, false
+	}
+
+	lastLocalPsRead.Store(container.GetUID(), time.Now())
+	return services.WekaLocalContainer{Name: container.Spec.WekaContainerName, RunStatus: string(weka.Running), InternalStatus: reply}, true
 }
 
 func (r *containerReconcilerLoop) checkContainerNotFound(localPsResponse []services.WekaLocalContainer, psErr error) error {
