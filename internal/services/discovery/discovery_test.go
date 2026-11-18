@@ -9,6 +9,33 @@ import (
 	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
+func TestProviderFromID(t *testing.T) {
+	cases := []struct {
+		providerID    string
+		wantProvider  Provider
+		wantSupported bool
+	}{
+		{"aws:///eu-west-1a/i-0123456789abcdef0", ProviderAWS, true},
+		{"ocid1.instance.oc1.iad.abc", ProviderOCI, true},
+		{"azure:///subscriptions/s/resourceGroups/rg/providers/Microsoft.Compute/virtualMachineScaleSets/vmss/virtualMachines/0", ProviderAzure, true},
+		{"gce://project/zone/instance", ProviderUnknown, false},
+		{"", ProviderUnknown, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.providerID, func(t *testing.T) {
+			if got := ProviderFromID(tc.providerID); got != tc.wantProvider {
+				t.Errorf("ProviderFromID(%q) = %q, want %q", tc.providerID, got, tc.wantProvider)
+			}
+			if got := IsSupportedCloudProvider(tc.providerID); got != tc.wantSupported {
+				t.Errorf("IsSupportedCloudProvider(%q) = %v, want %v", tc.providerID, got, tc.wantSupported)
+			}
+			if got := (&DiscoveryNodeInfo{Provider: tc.wantProvider}).HasSupportedCloudProvider(); got != tc.wantSupported {
+				t.Errorf("HasSupportedCloudProvider(%q) = %v, want %v", tc.wantProvider, got, tc.wantSupported)
+			}
+		})
+	}
+}
+
 func TestInstanceIDAndRegionFromProviderID(t *testing.T) {
 	cases := []struct {
 		name           string

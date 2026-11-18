@@ -34,6 +34,7 @@ type Provider string
 const (
 	ProviderAWS     Provider = "aws"
 	ProviderOCI     Provider = "oci"
+	ProviderAzure   Provider = "azure"
 	ProviderUnknown Provider = ""
 )
 
@@ -44,6 +45,9 @@ func ProviderFromID(providerID string) Provider {
 	}
 	if strings.HasPrefix(providerID, "ocid1.") {
 		return ProviderOCI
+	}
+	if strings.HasPrefix(providerID, "azure://") {
+		return ProviderAzure
 	}
 	return ProviderUnknown
 }

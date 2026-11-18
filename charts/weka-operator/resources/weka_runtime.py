@@ -2972,8 +2972,13 @@ async def ensure_nics(num: int, exclude_macs: list):
         raise Exception(f"Failed to ensure NICs: {stderr}")
     logging.info("Ensured NICs successfully")
     vnics = json.loads(stdout.decode('utf-8').strip())['metadata']['vnics']
+    # cloud-helper builds without is_primary list the primary NIC first
+    if any(v.get('is_primary') for v in vnics):
+        data_vnics = [v for v in vnics if not v.get('is_primary')]
+    else:
+        data_vnics = vnics[1:]
     write_results(
-        dict(err=None, ensured=True, nics=[v for v in vnics[1:] if v['mac_address'].lower() not in exclude]))
+        dict(err=None, ensured=True, nics=[v for v in data_vnics if v['mac_address'].lower() not in exclude]))
 
 
 async def get_containers():
@@ -5007,7 +5012,7 @@ async def main():
         logging.info(f"adhoc-op-with-container instruction: {instruction}")
         if instruction.get('type') == 'ensure-nics':
             payload = json.loads(instruction['payload'])
-            if payload.get('type') in ["aws", "oci"]:
+            if payload.get('type') in ["aws", "oci", "azure"]:
                 await ensure_nics(payload['dataNICsNumber'], payload.get('excludeMACs', []))
                 return
             else:
