@@ -182,21 +182,11 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		return errors.Wrapf(err, "Failed to set hot spare: %s", stderr.String())
 	}
 
-	// Single-parity (parity==1) requires the allow_1_parity override to be present on the freshly
-	// created, uninitialised cluster BEFORE the stripe is applied — weka rejects `--parity-drives 1`
-	// with ProtectionNotAllowed otherwise. EnsureWekaOverrides runs post start-io (too late), so the
-	// override is set here, between hot-spare and parity. Operator-gated by AllowSingleParity; QA/test
-	// only (a single parity chunk leaves a stripe unprotected during rebuild).
-	if globalconfig.Config.DriveSharing.AllowSingleParity && rl > 0 && rl < 2 {
-		wekaSvc := NewWekaService(r.ExecService, containers[0])
-		existing, lerr := wekaSvc.ListOverridesByKey(ctx, "allow_1_parity")
-		if lerr != nil || len(existing) == 0 {
-			logger.Info("Setting allow_1_parity override (single-parity protection)", "redundancyLevel", rl)
-			comment := fmt.Sprintf("weka-operator AllowSingleParity: enable single parity for cluster %s (parity=%d)", r.Cluster.Name, rl)
-			if err = wekaSvc.AddOverride(ctx, "allow_1_parity", "true", comment, true); err != nil {
-				return errors.Wrapf(err, "Failed to set allow_1_parity override: %s", err.Error())
-			}
-		}
+	// Applied before the stripe: weka rejects `--parity-drives 1` without allow_1_parity (ProtectionNotAllowed),
+	// and the post start-io reconcile is too late for limits weka enforces while drives are added.
+	err = ApplyOverrides(ctx, NewWekaService(r.ExecService, containers[0]), CreationOverrides(r.Cluster))
+	if err != nil {
+		return err
 	}
 
 	// applyFrozenTolerantUpdate applies one `weka cluster update <flag> <value>` that weka only accepts
@@ -250,12 +240,6 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		if err != nil {
 			return errors.Wrapf(err, "Failed to set force aio: %s", stderr.String())
 		}
-	}
-
-	cmd = "weka debug override list | grep authenticate_client_join || weka debug override add --key authenticate_client_join || weka debug override add --key authenticate_client_join --force" //
-	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetAuthenticateClientJoin", []string{"bash", "-ce", cmd})
-	if err != nil {
-		return errors.Wrapf(err, "Failed to set authenticate client join: %s", stderr.String())
 	}
 
 	if err := r.Client.Status().Update(ctx, r.Cluster); err != nil {

@@ -2298,7 +2298,10 @@ func (c *CliWekaService) AddOverride(ctx context.Context, key, value, comment st
 	if err != nil {
 		return err
 	}
-	cmd := []string{"weka", "debug", "override", "add", "--key", key, "--value", value}
+	cmd := []string{"weka", "debug", "override", "add", "--key", key}
+	if value != "" {
+		cmd = append(cmd, "--value", value)
+	}
 	if comment != "" {
 		cmd = append(cmd, "--comment", comment)
 	}

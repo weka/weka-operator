@@ -540,7 +540,8 @@ driveSharing:
 
   # -- Max allowed ratio between the largest and smallest drive in the IndirectionUnitBig
   # pool. Overrides weka's built-in limit (MAX_DRIVE_CAPACITY_RATIO=8). Relevant for
-  # drive-sharing clusters that mix very differently sized drives.
+  # drive-sharing clusters that mix very differently sized drives. Set at cluster creation and
+  # reconciled afterwards.
   # @section -- Drives & capacity
   smallBigDiskSizesMaxProportionFactor: 100
 
