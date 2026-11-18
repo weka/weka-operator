@@ -704,7 +704,7 @@ func (a *NodeAgent) jsonrpcHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Both values are formatted into socket and symlink paths.
-		if uuid.Validate(payload.ContainerId) != nil || payload.WekaContainerName != filepath.Base(payload.WekaContainerName) || payload.WekaContainerName == ".." {
+		if uuid.Validate(payload.ContainerId) != nil || payload.WekaContainerName != filepath.Base(payload.WekaContainerName) || payload.WekaContainerName == ".." || payload.WekaContainerName == "." {
 			http.Error(w, "Invalid container_id or weka_container_name", http.StatusBadRequest)
 			return
 		}
@@ -772,7 +772,10 @@ type JSONRPCError struct {
 }
 
 func (e *JSONRPCError) Error() string {
-	return fmt.Sprintf("JSONRPC error %d: %s", e.Code, e.Message)
+	if len(e.Data) == 0 {
+		return fmt.Sprintf("JSONRPC error %d: %s", e.Code, e.Message)
+	}
+	return fmt.Sprintf("JSONRPC error %d: %s, data: %s", e.Code, e.Message, e.Data)
 }
 
 // IsException reports whether the container threw the named weka exception; data.exceptionClass lists

@@ -3599,11 +3599,14 @@ async def configure_agent(agent_handle_drivers=False):
         {no_reserve_space_cmd}
         sed -i 's/cgroups_mode=auto/cgroups_mode=none/g' /etc/wekaio/service.conf || true
         sed -i 's/override_core_pattern=true/override_core_pattern=false/g' /etc/wekaio/service.conf || true
-        # Only for images older than WEKAPP-556628 (<= 5.1.2), which always listen on TCP (default 14100) and
+        # Only when the image ships a TCP port (WEKA images before 6.1), as those agents always listen on TCP and
         # would collide under host networking. Never touch port=0: that would reopen loopback JRPC.
         if sed -n "/^\\[agent\\]/,/^\\[/p" /etc/wekaio/service.conf | grep -qx "port=[1-9][0-9]*"; then
             sed -i "/^\\[agent\\]/,/^\\[/ s/^port=.*/port={AGENT_PORT}/" /etc/wekaio/service.conf
             echo '{{"agent": {{"port": \'{AGENT_PORT}\'}}}}' > /etc/wekaio/service.json
+            echo "agent port rewritten to {AGENT_PORT}"
+        else
+            echo "agent port left as-is"
         fi
         # sed -i "s/serve_static=false/serve_static=true/g" /etc/wekaio/service.conf || true
     """)

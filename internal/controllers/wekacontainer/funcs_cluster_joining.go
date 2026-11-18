@@ -2,9 +2,7 @@ package wekacontainer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/pkg/errors"
@@ -43,47 +41,32 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 		return lifecycle.NewWaitError(err)
 	}
 
-	body, status, err := node_agent.ProxyJSONRPC(ctx, agentPod, token, node_agent.JSONRPCProxyPayload{
+	var identity struct {
+		ClusterID   string `json:"cluster_guid"`
+		ContainerID int    `json:"host_id"`
+	}
+	err = node_agent.ProxyJSONRPC(ctx, agentPod, token, node_agent.JSONRPCProxyPayload{
 		ContainerId:       string(container.GetUID()),
 		WekaContainerName: container.Spec.WekaContainerName,
 		Method:            "cluster_identity",
 		Params:            map[string]any{},
-	})
+	}, &identity)
+	var jrpcErr *node_agent.JSONRPCError
+	if errors.As(err, &jrpcErr) && jrpcErr.IsException("NodeIsStemException") ||
+		err == nil && (identity.ClusterID == "" || identity.ClusterID == "00000000-0000-0000-0000-000000000000") {
+		return lifecycle.NewWaitErrorWithDuration(errNotJoined, waitDuration)
+	}
 	if err != nil {
 		return lifecycle.NewWaitError(err)
 	}
 
-	var reply struct {
-		Result *struct {
-			ClusterID   string `json:"cluster_guid"`
-			ContainerID int    `json:"host_id"`
-		} `json:"result"`
-		Error *node_agent.JSONRPCError `json:"error"`
-	}
-	parseErr := json.Unmarshal(body, &reply)
-	if reply.Error != nil && reply.Error.IsException("NodeIsStemException") {
-		return lifecycle.NewWaitErrorWithDuration(errNotJoined, waitDuration)
-	}
-	if status != http.StatusOK {
-		return lifecycle.NewWaitError(fmt.Errorf("node agent returned non-OK status: %d, body: %s", status, string(body)))
-	}
-	if parseErr != nil {
-		return lifecycle.NewWaitError(fmt.Errorf("failed to parse cluster_identity response: %w, body: %s", parseErr, string(body)))
-	}
-	if reply.Result == nil {
-		return lifecycle.NewWaitErrorWithDuration(errors.New("no result in cluster_identity response"), waitDuration)
-	}
-	if reply.Result.ClusterID == "" || reply.Result.ClusterID == "00000000-0000-0000-0000-000000000000" {
-		return lifecycle.NewWaitErrorWithDuration(errNotJoined, waitDuration)
-	}
-
-	container.Status.ClusterContainerID = &reply.Result.ContainerID
-	container.Status.ClusterID = reply.Result.ClusterID
+	container.Status.ClusterContainerID = &identity.ContainerID
+	container.Status.ClusterID = identity.ClusterID
 	logger.InfoWithStatus(
 		codes.Ok,
 		"Cluster GUID and container ID are updated in WekaContainer status",
-		"cluster_guid", reply.Result.ClusterID,
-		"container_id", reply.Result.ContainerID,
+		"cluster_guid", identity.ClusterID,
+		"container_id", identity.ContainerID,
 	)
 	if err := r.Status().Update(ctx, container); err != nil {
 		return err
