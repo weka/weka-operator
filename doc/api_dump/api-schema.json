@@ -1244,7 +1244,7 @@
     },
     "DriveTypeOverrideRule": {
       "kind": "struct",
-      "description": "DriveTypeOverrideRule forces the drive type for drives matching Model and/or CapacityGiB.\nWhen both Model and CapacityGiB are set, BOTH must match (AND semantics) — this lets you\ntarget one SKU shipped in several capacities where only some are QLC.",
+      "description": "DriveTypeOverrideRule forces the drive type for drives matching Model, CapacityGiB and/or Serial.\nAll set fields must match (AND semantics) — e.g. Model+CapacityGiB targets one SKU shipped in\nseveral capacities where only some are QLC.",
       "fields": [
         {
           "name": "Model",
@@ -1258,6 +1258,13 @@
           "jsonName": "capacityGiB",
           "type": "int",
           "description": "CapacityGiB matches the drive capacity in GiB exactly, as reported in the\nweka.io/weka-shared-drives annotation. 0 means \"do not match on capacity\".",
+          "optional": true
+        },
+        {
+          "name": "Serial",
+          "jsonName": "serial",
+          "type": "string",
+          "description": "Serial matches the drive serial exactly, as reported in the weka.io/weka-shared-drives\nannotation. Empty means \"do not match on serial\".",
           "optional": true
         },
         {

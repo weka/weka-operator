@@ -226,9 +226,9 @@ spec:
                               An empty list clears all previously persisted overrides on the node.
                             items:
                               description: |-
-                                DriveTypeOverrideRule forces the drive type for drives matching Model and/or CapacityGiB.
-                                When both Model and CapacityGiB are set, BOTH must match (AND semantics) — this lets you
-                                target one SKU shipped in several capacities where only some are QLC.
+                                DriveTypeOverrideRule forces the drive type for drives matching Model, CapacityGiB and/or Serial.
+                                All set fields must match (AND semantics) — e.g. Model+CapacityGiB targets one SKU shipped in
+                                several capacities where only some are QLC.
                               properties:
                                 capacityGiB:
                                   description: |-
@@ -242,6 +242,11 @@ spec:
                                     whitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1
                                     Empty means "do not match on model".
                                   type: string
+                                serial:
+                                  description: |-
+                                    Serial matches the drive serial exactly, as reported in the weka.io/weka-shared-drives
+                                    annotation. Empty means "do not match on serial".
+                                  type: string
                                 type:
                                   description: Type is the drive type to report for
                                     matching drives.
@@ -253,10 +258,11 @@ spec:
                               - type
                               type: object
                               x-kubernetes-validations:
-                              - message: at least one of model or capacityGiB must
-                                  be set
+                              - message: at least one of model, capacityGiB or serial
+                                  must be set
                                 rule: (has(self.model) && size(self.model) > 0) ||
                                   (has(self.capacityGiB) && self.capacityGiB != 0)
+                                  || (has(self.serial) && size(self.serial) > 0)
                             type: array
                         required:
                         - rules
@@ -414,9 +420,9 @@ spec:
                               An empty list clears all previously persisted overrides on the node.
                             items:
                               description: |-
-                                DriveTypeOverrideRule forces the drive type for drives matching Model and/or CapacityGiB.
-                                When both Model and CapacityGiB are set, BOTH must match (AND semantics) — this lets you
-                                target one SKU shipped in several capacities where only some are QLC.
+                                DriveTypeOverrideRule forces the drive type for drives matching Model, CapacityGiB and/or Serial.
+                                All set fields must match (AND semantics) — e.g. Model+CapacityGiB targets one SKU shipped in
+                                several capacities where only some are QLC.
                               properties:
                                 capacityGiB:
                                   description: |-
@@ -430,6 +436,11 @@ spec:
                                     whitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1
                                     Empty means "do not match on model".
                                   type: string
+                                serial:
+                                  description: |-
+                                    Serial matches the drive serial exactly, as reported in the weka.io/weka-shared-drives
+                                    annotation. Empty means "do not match on serial".
+                                  type: string
                                 type:
                                   description: Type is the drive type to report for
                                     matching drives.
@@ -441,10 +452,11 @@ spec:
                               - type
                               type: object
                               x-kubernetes-validations:
-                              - message: at least one of model or capacityGiB must
-                                  be set
+                              - message: at least one of model, capacityGiB or serial
+                                  must be set
                                 rule: (has(self.model) && size(self.model) > 0) ||
                                   (has(self.capacityGiB) && self.capacityGiB != 0)
+                                  || (has(self.serial) && size(self.serial) > 0)
                             type: array
                         required:
                         - rules

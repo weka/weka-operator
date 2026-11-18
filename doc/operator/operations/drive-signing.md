@@ -102,8 +102,8 @@ spec:
             type: TLC
 ```
 
-**Matching:** each rule must set `model`, `capacityGiB`, or both (the API rejects neither); rules are
-evaluated in order and the **first match wins**.
+**Matching:** each rule must set at least one of `model`, `capacityGiB`, `serial` (the API rejects a
+rule with none); rules are evaluated in order and the **first match wins**.
 - `model` is compared exactly, case-insensitively, whitespace-trimmed, against the model recorded in
   `weka.io/weka-shared-drives` — not against a live device query. Drives signed before that field
   existed have no model recorded, so model rules cannot match them until the node is re-signed. On
@@ -112,7 +112,11 @@ evaluated in order and the **first match wins**.
 - `capacityGiB` is compared **exactly** against the capacity recorded in the same annotation. That
   value is truncated (`int(size_bytes / 1024**3)`), so drives of one model can differ by a few GiB —
   an exact-capacity rule is unforgiving of that variance.
-- Both set ⇒ AND. Useful when one SKU ships in several capacities and only some of them are QLC.
+- `serial` is compared exactly against the serial recorded in the same annotation. It targets one
+  specific drive, e.g. to type exactly one drive per node when capacities vary. A serial rule in an op
+  selecting several nodes reports no-match (`DriveTypeOverrideNoMatch`) for every node without that
+  drive, so select only the drive's node.
+- Several set ⇒ AND. Useful when one SKU ships in several capacities and only some of them are QLC.
 - A rule matching zero drives emits one `DriveTypeOverrideNoMatch` Warning event for that rule,
   aggregated across nodes. A rule that is shadowed on every drive by an earlier rule counts as
   matched and is **not** reported.
@@ -132,6 +136,8 @@ clears such a node too, and does so without an Event: there is no forced type ye
 
 **Persistence:** rules are stored per-node in `weka.io/drive-type-overrides` and re-applied on every
 later sign-drives run against the full merged drive set, not just newly-discovered drives.
+An op that sets `driveTypeOverrides` replaces the node's whole rule set, so a per-node op (e.g. a
+serial rule) drops node-wide rules from that node unless it repeats them.
 **Omitting** `driveTypeOverrides` keeps whatever is already persisted on the node; clearing requires
 an explicit `driveTypeOverrides: {rules: []}`. This holds for `WekaPolicy` too — dropping the field
 from a recurring policy spec does not remove the rules from nodes.

@@ -462,7 +462,7 @@ func (o *SignDrivesOperation) applyDriveTypeOverridesToNode(ctx context.Context,
 	srcDrives := listedDrives
 	var unmatched []int
 	if signed {
-		// Matching is on Model/CapacityGiB, never Type, so re-running this over already-overridden
+		// Matching is on Model/CapacityGiB/Serial, never Type, so re-running this over already-overridden
 		// drives yields the same matched/unmatched set as running it fresh — valid even when no
 		// write happens this pass.
 		_, _, unmatched = domain.ApplyDriveTypeOverrides(listedDrives, newRules)
@@ -512,7 +512,7 @@ func (o *SignDrivesOperation) applyDriveTypeOverridesToNode(ctx context.Context,
 			continue
 		}
 		outcome.unmatchedRules = append(outcome.unmatchedRules, idx)
-		logger.Warn("Drive type override rule matched no drive", "node", nodeName, "ruleIndex", idx, "model", rule.Model, "capacityGiB", rule.CapacityGiB, "type", rule.Type)
+		logger.Warn("Drive type override rule matched no drive", "node", nodeName, "ruleIndex", idx, "model", rule.Model, "capacityGiB", rule.CapacityGiB, "serial", rule.Serial, "type", rule.Type)
 	}
 
 	return outcome, nil
@@ -592,7 +592,7 @@ func (o *SignDrivesOperation) ApplyDriveTypeOverrides(ctx context.Context) error
 		if nodeCount == 0 {
 			continue
 		}
-		msg := fmt.Sprintf("Drive type override rule (model=%q, capacityGiB=%d, type=%s) matched no drive on %d of %d evaluated nodes", rule.Model, rule.CapacityGiB, rule.Type, nodeCount, evaluatedNodes)
+		msg := fmt.Sprintf("Drive type override rule (model=%q, capacityGiB=%d, serial=%q, type=%s) matched no drive on %d of %d evaluated nodes", rule.Model, rule.CapacityGiB, rule.Serial, rule.Type, nodeCount, evaluatedNodes)
 		util.RecordEvent(o.recorder, o.ownerRef, v1.EventTypeWarning, "DriveTypeOverrideNoMatch", consts.ActionApplyDriveTypeOverrides, msg)
 	}
 

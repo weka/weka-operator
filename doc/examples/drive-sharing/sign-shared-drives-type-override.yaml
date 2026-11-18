@@ -22,3 +22,23 @@ spec:
           # capacityGiB matches exactly, so same-model drives a few GiB apart won't both match.
           - capacityGiB: 3500
             type: TLC
+---
+# Serial rules: select only the drive's node; see doc/operator/operations/drive-signing.md (Drive type overrides).
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: sign-shared-drives-override-serial
+  namespace: weka-operator-system
+spec:
+  action: sign-drives
+  payload:
+    signDrivesPayload:
+      type: all-not-root
+      nodeSelector:
+        kubernetes.io/hostname: <node>
+      shared: true
+      driveTypeOverrides:
+        rules:
+          # Force one specific drive (serial exactly as recorded in weka.io/weka-shared-drives) to QLC.
+          - serial: "S5XYNS0T123456"
+            type: QLC

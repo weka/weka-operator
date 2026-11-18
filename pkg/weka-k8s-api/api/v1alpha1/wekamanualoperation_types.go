@@ -170,10 +170,10 @@ type DriveTypeOverrides struct {
 	Rules []DriveTypeOverrideRule `json:"rules"`
 }
 
-// DriveTypeOverrideRule forces the drive type for drives matching Model and/or CapacityGiB.
-// When both Model and CapacityGiB are set, BOTH must match (AND semantics) — this lets you
-// target one SKU shipped in several capacities where only some are QLC.
-// +kubebuilder:validation:XValidation:rule="(has(self.model) && size(self.model) > 0) || (has(self.capacityGiB) && self.capacityGiB != 0)",message="at least one of model or capacityGiB must be set"
+// DriveTypeOverrideRule forces the drive type for drives matching Model, CapacityGiB and/or Serial.
+// All set fields must match (AND semantics) — e.g. Model+CapacityGiB targets one SKU shipped in
+// several capacities where only some are QLC.
+// +kubebuilder:validation:XValidation:rule="(has(self.model) && size(self.model) > 0) || (has(self.capacityGiB) && self.capacityGiB != 0) || (has(self.serial) && size(self.serial) > 0)",message="at least one of model, capacityGiB or serial must be set"
 type DriveTypeOverrideRule struct {
 	// Model matches the device model exactly, case-insensitively, ignoring surrounding
 	// whitespace. Find it with: lsblk -dno MODEL /dev/nvme0n1
@@ -183,6 +183,9 @@ type DriveTypeOverrideRule struct {
 	// weka.io/weka-shared-drives annotation. 0 means "do not match on capacity".
 	// +kubebuilder:validation:Minimum=1
 	CapacityGiB int `json:"capacityGiB,omitempty"`
+	// Serial matches the drive serial exactly, as reported in the weka.io/weka-shared-drives
+	// annotation. Empty means "do not match on serial".
+	Serial string `json:"serial,omitempty"`
 	// Type is the drive type to report for matching drives.
 	// +kubebuilder:validation:Enum=TLC;QLC
 	Type string `json:"type"`
