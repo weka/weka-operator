@@ -337,7 +337,7 @@ jobs:
         # One execution at a time on the lab cluster (operator-mq-ci), across all PRs. Newer runs
         # wait for older in-progress runs of this workflow; nothing is dropped. (A global
         # `concurrency` group would drop runs: GitHub keeps only one pending run per group.)
-        uses: softprops/turnstyle@3805450be63b8c80577dc253e8c17e9132036df4 # v3.3.3
+        uses: softprops/turnstyle@ec9869921df7799d5afea364f4026770f3760342 # v3.3.5
         with:
           same-branch-only: false
           poll-interval-seconds: 30
