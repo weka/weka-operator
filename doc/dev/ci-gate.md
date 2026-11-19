@@ -124,6 +124,36 @@ the plain GitHub login.
 
 Slack is best-effort throughout: every failure is a `::warning::`, never a job verdict.
 
+## Drive-sharing regression (optional)
+
+`.github/workflows/drive_sharing.yaml` runs the `drive-sharing-regression` flow on a k3s cluster of
+Scalar backend VMs that it requests for the run. It is not a required check: a failure shows on the PR
+but does not block the merge, and ci-gate ignores it. It does not use the ci-gate lab, so the two never
+wait for each other, and runs of different PRs run in parallel.
+
+- Runs on a ready, same-repo PR (drafts and forks are skipped, even with the label) that changes
+  `internal/capacityplanner/`, `internal/controllers/allocator/`, `internal/services/ssdproxy/`,
+  `wekacontainer/funcs_proxy.go`, `wekacontainer/funcs_virtual_drives*.go`,
+  `wekacluster/funcs_fd_planning*.go` or `wekacluster/steps_planner_apply*.go`. Changes to `*_test.go`
+  files alone don't trigger it.
+- Label `run_drive_sharing` runs it for any PR; while the label stays, every push runs it. Every run
+  starts a fresh execution.
+- After building the operator, `.github/scripts/vm_cluster.sh acquire` files a Port Machine Request for
+  `DRIVE_SHARING_VM_COUNT` (default 6) VMs under claim `ds-<run id>-<attempt>` with a 3 h TTL, run as
+  the author of the PR's head commit (Port's `run_as`), so the claim and kubeporter's Slack messages are
+  theirs; if Port has no user with that email, the CI service user owns it. A
+  rejected request (VM pool busy) is retried every 2 min for up to 1 h, then the run fails. Once Port
+  links the cluster's kubeconfig in Vault, the job registers it with the testing service as a kube
+  context of the same name and waits (up to 15 min) for all VMs to be Ready nodes.
+- The execution runs on that context with weka image `DRIVE_SHARING_WEKA_IMAGE`. Afterwards, whatever
+  the outcome, the job stops a still-running execution, unregisters the context and releases the claim;
+  the TTL frees the VMs if that fails. A Machine Request fulfilled after the job already released
+  (acquire timed out or was cancelled) keeps its VMs until that 3 h TTL. The job's limit is 5 h.
+- A new push cancels the PR's previous run, which stops its remote execution and releases its VMs.
+- Settings: secrets `PORT_CLIENT_ID`, `PORT_CLIENT_SECRET` (a Port service user); variables
+  `PORT_API_URL` (Port API base, ending in `/v1`), `DRIVE_SHARING_WEKA_IMAGE`, optional
+  `DRIVE_SHARING_VM_COUNT`, and `WEKA_TESTING_SERVICE_URL`.
+
 ## Known limits
 
 - A lower layer with code commits has no status of its own until the top's run greens it. That
