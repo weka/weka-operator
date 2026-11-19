@@ -22,7 +22,7 @@ Device allocation then populates `Status.Allocations.VirtualDrives`.
 | `internal/controllers/wekacluster/daemonset.go` | `planDaemonset`, `planDaemonsetS3`, `buildDaemonsetContainers`, `listFreeDrives` |
 | `internal/capacityplanner/inventory/collect.go` | `Collector`, `NodeInventory`, `ExistingDrives`, `ExistingCompute`, `DriveContainerCapacities` |
 | `internal/capacityplanner/planner.go` | `PlanCapacity` |
-| `internal/capacityplanner/cpu.go`, `cores.go`, `hugepages.go` | `CPURequestCores`, `RequiredComputeCores`, pod-resource formulas |
+| `internal/capacityplanner/cpu.go`, `cores.go`, `hugepages.go` | `CPURequestCores`, `RequiredComputeCores`, `MinCapacityShortfall`, pod-resource formulas |
 | `internal/capacityplanner/infeasibility.go` | `InfeasibilityReport`, diagnostic fixes reused by events and CLI |
 | `internal/controllers/allocator/container_allocator.go` | `allocateSharedDrivesByCapacityWithTypes`, `buildDriveCapacityMap` |
 | `internal/controllers/wekacontainer/funcs_getters.go`, `funcs_drives.go` | `NeedsDrivesToAllocate`, `checkDriveResourceFeasibility`, `deferIfFullDrivesShortfall` |
