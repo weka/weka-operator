@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Used by the ci_gate.yaml upgrade-extended job. Looks at earlier attempts of job $JOB on commit
-# $HEAD_SHA (all ci-gate runs and re-run attempts) and writes step outputs:
+# Used by the ci_gate.yaml upgrade-extended job and drive_sharing.yaml. Looks at earlier attempts of job $JOB on commit
+# $HEAD_SHA (all runs of workflow file ${WORKFLOW:-ci_gate.yaml} and re-run attempts) and writes step outputs:
 #   execution_id          - failed/interrupted execution to continue (empty: start from scratch;
 #                           always empty with FRESH=true)
 #   operator_image,
@@ -17,7 +17,7 @@ api() {  # path jq-filter
 }
 
 # Completed, non-skipped attempts of this job on this commit, newest first.
-runs=$(api "actions/workflows/ci_gate.yaml/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100" '.workflow_runs[].id')
+runs=$(api "actions/workflows/${WORKFLOW:-ci_gate.yaml}/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100" '.workflow_runs[].id')
 jobs=""
 for run in $runs; do
   j=$(api "actions/runs/$run/jobs?filter=all&per_page=100" \
