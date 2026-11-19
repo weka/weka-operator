@@ -135,6 +135,9 @@ topologyManagerPolicyOptions:
 - Changing the CPU manager policy or its options requires draining the node, stopping kubelet,
   removing `/var/lib/kubelet/cpu_manager_state`, then restarting kubelet. Otherwise kubelet
   crashloops on the checkpoint mismatch.
+- The operator reads kubelet's `full-pcpus-only` option once per node discovery and keeps it in the
+  node's `weka.io/discovery.json` annotation. Discovery reruns after a node reboot; to pick up a
+  change without a reboot, delete that annotation.
 - `strict-cpu-reservation` (GA since Kubernetes 1.35) prevents pods of every QoS class from running
   on the reserved CPUs. It does not influence where exclusive CPUs are placed.
 - The topology manager refuses to run on nodes with more than 8 NUMA nodes unless

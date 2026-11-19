@@ -106,9 +106,14 @@ func (o *DiscoverNodeOperation) GetNode(ctx context.Context) error {
 		err = json.Unmarshal([]byte(annotation), discoveryNodeInfo)
 		if err == nil && discoveryNodeInfo.IsCurrentFor(node) {
 			o.result = discoveryNodeInfo
+			wasUnknown := o.result.NodeFullPcpusOnly == nil
 			enrichErr := o.Enrich(ctx)
 			if enrichErr != nil {
 				return enrichErr
+			}
+			// persist a value detected on a cache hit, or every later read would ask kubelet again
+			if wasUnknown && o.result.NodeFullPcpusOnly != nil {
+				return o.UpdateNodes(ctx)
 			}
 			return nil
 		}
@@ -137,12 +142,15 @@ func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {
 	o.result.Provider = o.GetProvider()
 	o.result.Arch = o.node.Status.NodeInfo.Architecture
 
-	fp, err := discovery.DetectKubeletFullPcpusOnly(ctx, o.mgr.GetConfig(), o.node.Name)
-	if err != nil {
-		logger.Error(err, "failed to detect kubelet full-pcpus-only; leaving it unknown", "node", o.node.Name)
-		o.result.NodeFullPcpusOnly = nil
-	} else {
-		o.result.NodeFullPcpusOnly = &fp
+	// Read once per discovery (cached in discovery.json, refreshed on reboot): kubelet configz goes through the
+	// API server's nodes/proxy, and an error must not drop a value already known.
+	if o.result.NodeFullPcpusOnly == nil {
+		fp, err := discovery.DetectKubeletFullPcpusOnly(ctx, o.mgr.GetConfig(), o.node.Name)
+		if err != nil {
+			logger.Error(err, "failed to detect kubelet full-pcpus-only; leaving it unknown", "node", o.node.Name)
+		} else {
+			o.result.NodeFullPcpusOnly = &fp
+		}
 	}
 
 	if o.result.IsRhCos() {
