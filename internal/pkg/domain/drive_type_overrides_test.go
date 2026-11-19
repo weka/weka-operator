@@ -225,6 +225,18 @@ func TestApplyDriveTypeOverrides_CombinedAndEdgeCases(t *testing.T) {
 			wantUnmatched: []int{0},
 		},
 		{
+			name: "serial rule matches only that drive, exactly",
+			drives: []SharedDriveInfo{
+				{Serial: "SN1", CapacityGiB: 7000, Type: "TLC"},
+				{Serial: "SN2", CapacityGiB: 7000, Type: "TLC"},
+			},
+			rules: []v1alpha1.DriveTypeOverrideRule{
+				{Serial: "SN2", Type: "QLC"},
+			},
+			wantTypes:   []string{"TLC", "QLC"},
+			wantChanged: 1,
+		},
+		{
 			name: "matched rule that already equals drive type does not count as changed",
 			drives: []SharedDriveInfo{
 				{Serial: "SN1", Model: "Samsung PM1733", Type: "QLC"},

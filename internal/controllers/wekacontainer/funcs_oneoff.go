@@ -609,7 +609,7 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 		}
 		for _, idx := range unmatchedRules {
 			rule := rules[idx]
-			logger.Warn("Drive type override rule matched no drive", "ruleIndex", idx, "model", rule.Model, "capacityGiB", rule.CapacityGiB, "type", rule.Type)
+			logger.Warn("Drive type override rule matched no drive", "ruleIndex", idx, "model", rule.Model, "capacityGiB", rule.CapacityGiB, "serial", rule.Serial, "type", rule.Type)
 		}
 	}
 
