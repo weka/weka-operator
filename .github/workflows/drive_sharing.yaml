@@ -1,0 +1,247 @@
+# Optional (not a required check): runs the drive-sharing regression flow on its own k3s cluster of
+# Scalar backend VMs, requested through Port for the run and released after it.
+# Runs on a PR that touches drive-sharing code (see PATHS below), or that has the label
+# `run_drive_sharing`. Every run starts a fresh execution. See doc/dev/ci-gate.md.
+name: drive-sharing
+on:
+  pull_request:
+    # No native `paths:` filter: GitHub applies it to every activity type of the trigger, which
+    # would stop the `labeled` event for PRs that touch other files. The `check` job filters instead.
+    types: [opened, synchronize, labeled, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read    # the published operator build is found through job annotations
+  actions: read   # find_previous_execution.sh lists workflow runs
+
+# Re-pushing a PR cancels its stale run. A label event for any other label parks itself in its own
+# group: an unrelated label must not cancel a running test.
+concurrency:
+  group: drive-sharing-pr-${{ github.event.pull_request.number }}-${{ (!github.event.label.name || github.event.label.name == 'run_drive_sharing') && 'run' || github.event.label.name }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: |
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - name: Decide whether the drive-sharing code changed or the label is set
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_LABEL: ${{ github.event.label.name }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          run=false
+          if [[ "$EVENT_ACTION" == "labeled" ]]; then
+            # Any other label is a no-op.
+            [[ "$EVENT_LABEL" == "run_drive_sharing" ]] && run=true
+          elif [[ " $LABELS " == *" run_drive_sharing "* ]]; then
+            run=true
+          else
+            PATHS='^internal/(capacityplanner/|controllers/allocator/|services/ssdproxy/|controllers/wekacontainer/funcs_proxy\.go$|controllers/wekacontainer/funcs_virtual_drives[^/]*$|controllers/wekacluster/funcs_fd_planning[^/]*$|controllers/wekacluster/steps_planner_apply[^/]*$)'
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename' > files.txt
+            if grep -v '_test\.go$' files.txt | grep -Eq "$PATHS"; then run=true; fi
+          fi
+          echo "run=$run"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+  drive_sharing_test:
+    needs: [check]
+    if: needs.check.outputs.run == 'true'
+    timeout-minutes: 300
+    env:
+      GOPRIVATE: github.com/weka
+      WEKA_TESTING_SERVICE_URL: ${{ vars.WEKA_TESTING_SERVICE_URL }}
+      PORT_API_URL: ${{ vars.PORT_API_URL }}
+      CLUSTER_NAME: ds-${{ github.run_id }}-${{ github.run_attempt }}
+      VM_COUNT: ${{ vars.DRIVE_SHARING_VM_COUNT || '6' }}
+    runs-on: scalar-runners
+    steps:
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        with:
+          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
+          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout operator repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: operator
+          submodules: true
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Check Docker
+        # The dind sidecar of the ephemeral runner may still be starting up.
+        run: |
+          for i in $(seq 90); do docker info >/dev/null 2>&1 && break; sleep 2; done
+          docker version
+          docker info
+
+      - name: Validate required variables
+        run: |
+          for v in CI_OPERATOR_REPO CI_HELM_REPO WEKA_TESTING_SERVICE_URL PORT_API_URL DRIVE_SHARING_WEKA_IMAGE \
+                   PORT_CLIENT_ID PORT_CLIENT_SECRET; do
+            if [ -z "${!v}" ]; then
+              echo "::error::$v repository variable or secret is not set."
+              exit 1
+            fi
+          done
+        env:
+          CI_OPERATOR_REPO: ${{ vars.CI_OPERATOR_REPO }}
+          CI_HELM_REPO: ${{ vars.CI_HELM_REPO }}
+          DRIVE_SHARING_WEKA_IMAGE: ${{ vars.DRIVE_SHARING_WEKA_IMAGE }}
+          PORT_CLIENT_ID: ${{ secrets.PORT_CLIENT_ID }}
+          PORT_CLIENT_SECRET: ${{ secrets.PORT_CLIENT_SECRET }}
+
+      - name: Find operator build already published for this commit
+        id: prev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          JOB: drive_sharing_test
+          FRESH: "true"
+          WORKFLOW: drive_sharing.yaml
+        run: operator/.github/scripts/find_previous_execution.sh
+
+      - name: Publish Operator
+        if: steps.prev.outputs.operator_image == ''
+        uses: dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77 # v8.4.1
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HELM_USERNAME: ${{ secrets.CI_HELM_USERNAME }}
+          HELM_PASSWORD: ${{ secrets.CI_HELM_PASSWORD }}
+        with:
+          version: "0.21.8"
+          workdir: operator/.dagger/src
+          module: operator_flows
+          args: >-
+            publish-operator-and-get-versions
+            --operator=${{ github.workspace }}/operator
+            --gh-token="env://GH_TOKEN"
+            --sock=/var/run/docker.sock
+            --operator-repo=${{ vars.CI_OPERATOR_REPO }}
+            --helm-repo=${{ vars.CI_HELM_REPO }}
+            --helm-username="env://HELM_USERNAME"
+            --helm-password="env://HELM_PASSWORD"
+            --output ${{ github.workspace }}/versions
+
+      - name: Set Operator Versions
+        env:
+          PREV_OPERATOR_IMAGE: ${{ steps.prev.outputs.operator_image }}
+          PREV_OPERATOR_HELM_IMAGE: ${{ steps.prev.outputs.operator_helm_image }}
+        run: |
+          if [[ -n "$PREV_OPERATOR_IMAGE" ]]; then
+            operator_image=$PREV_OPERATOR_IMAGE
+            operator_helm_image=$PREV_OPERATOR_HELM_IMAGE
+          else
+            versions=$(cat "${{ github.workspace }}/versions")
+            operator_image=$(echo "$versions" | head -n 1)
+            operator_helm_image=$(echo "$versions" | tail -n 1)
+          fi
+          # Later runs on this commit reuse this operator image.
+          echo "::notice::Operator versions: $operator_image $operator_helm_image"
+          echo "operator_image=$operator_image" >> "$GITHUB_ENV"
+          echo "operator_helm_image=$operator_helm_image" >> "$GITHUB_ENV"
+
+      - name: Get a VM cluster
+        id: vms
+        env:
+          PORT_CLIENT_ID: ${{ secrets.PORT_CLIENT_ID }}
+          PORT_CLIENT_SECRET: ${{ secrets.PORT_CLIENT_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # The claim belongs to the author of the commit under test (Port runs the request as them).
+          PORT_RUN_AS=$(curl -sSf --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA" | jq -r '.commit.author.email // empty') || PORT_RUN_AS=""
+          export PORT_RUN_AS
+          operator/.github/scripts/vm_cluster.sh acquire "$CLUSTER_NAME" "$VM_COUNT" 3h
+
+      - name: Register the cluster with the testing service
+        id: register
+        env:
+          VAULT_PATH: ${{ steps.vms.outputs.vault_path }}
+        run: |
+          jq -n --arg c "$CLUSTER_NAME" --arg p "$VAULT_PATH" '{contextName: $c, vaultPath: $p, vaultKey: "kubeconfig"}' \
+            | curl --fail-with-body --retry 3 --retry-delay 5 --retry-all-errors -sS -X POST \
+                "$WEKA_TESTING_SERVICE_URL/api/vault-kubeconfigs" -H "Content-Type: application/json" -d @- \
+            || curl -sSf "$WEKA_TESTING_SERVICE_URL/api/vault-kubeconfigs/$CLUSTER_NAME" >/dev/null  # a retry after a lost reply gets 409
+          # The runner has no Vault or kubectl: the testing service reports the nodes.
+          for i in $(seq 45); do  # 15 min
+            ready=$(curl -sSf "$WEKA_TESTING_SERVICE_URL/api/kube-contexts/$CLUSTER_NAME/nodes" \
+              | jq '[.nodes[]|select(.ready)]|length') || ready=0
+            echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] nodes Ready: $ready/$VM_COUNT"
+            (( ready >= VM_COUNT )) && exit 0
+            sleep 20
+          done
+          echo "::error::$CLUSTER_NAME has fewer than $VM_COUNT Ready nodes after 15m"
+          exit 1
+
+      - name: Create drive-sharing-regression execution
+        id: create_execution
+        env:
+          WEKA_IMAGE: ${{ vars.DRIVE_SHARING_WEKA_IMAGE }}
+        run: |
+          BODY=$(jq -n \
+            --arg comment "PR #${{ github.event.pull_request.number }} ${{ github.event.pull_request.html_url }}" \
+            --arg operator_version "${operator_image##*:}" \
+            --arg operator_image_repo "${operator_image%:*}" \
+            --arg operator_helm_image_repo "${operator_helm_image%:*}" \
+            --arg weka_image "$WEKA_IMAGE" \
+            --arg kube_context "$CLUSTER_NAME" \
+            '{
+              "flowName": "drive-sharing-regression",
+              "kubeContext": $kube_context,
+              "comment": $comment,
+              "config": {
+                "flowName": "drive-sharing-regression",
+                "operator-version": $operator_version,
+                "operator-image": $operator_image_repo,
+                "operator-helm-image": $operator_helm_image_repo,
+                "weka-image": $weka_image,
+                "pre-clean-env": true,
+                "runs-in-lab": true
+              }
+            }')
+          export BODY
+          operator/.github/scripts/run_testing_flow.sh create
+
+      - name: Wait for drive-sharing-regression execution
+        env:
+          EXECUTION_ID: ${{ steps.create_execution.outputs.execution_id }}
+        run: operator/.github/scripts/run_testing_flow.sh wait
+
+      - name: Stop remote execution if this job was cancelled
+        # Cancelling or failing the GitHub job does not stop the execution on the testing service.
+        if: failure() || cancelled()
+        env:
+          EXECUTION_ID: ${{ steps.create_execution.outputs.execution_id }}
+        run: operator/.github/scripts/run_testing_flow.sh stop
+
+      - name: Unregister the cluster from the testing service
+        if: always() && steps.register.outcome != 'skipped'
+        # 409 while the stopped execution still holds the context.
+        run: |
+          for i in $(seq 10); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "$WEKA_TESTING_SERVICE_URL/api/vault-kubeconfigs/$CLUSTER_NAME") || code=000
+            case $code in 2??|404) exit 0 ;; esac
+            echo "DELETE returned HTTP $code, retrying"
+            sleep 30
+          done
+          echo "::warning::could not unregister $CLUSTER_NAME from the testing service"
+
+      - name: Release the VM cluster
+        if: always() && steps.vms.outcome != 'skipped'
+        env:
+          PORT_CLIENT_ID: ${{ secrets.PORT_CLIENT_ID }}
+          PORT_CLIENT_SECRET: ${{ secrets.PORT_CLIENT_SECRET }}
+        run: operator/.github/scripts/vm_cluster.sh release "$CLUSTER_NAME"
