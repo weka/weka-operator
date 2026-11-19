@@ -696,7 +696,7 @@ type WekaService interface {
 	DeleteNfsInterfaceGroup(ctx context.Context, interfaceGroupName string) error
 	EnsureNfsIpRanges(ctx context.Context, interfaceGroupName string, targetIpRanges []string) error
 	GetS3Cluster(ctx context.Context, featureFlags *domain.FeatureFlags) (*S3Cluster, error)
-	CreateS3Cluster(ctx context.Context, s3Params S3Params, featureFlags *domain.FeatureFlags) error
+	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
 	ListS3ClusterContainers(ctx context.Context) ([]int, error)
 	DeleteS3Cluster(ctx context.Context) error
 	JoinS3Cluster(ctx context.Context, containerId int) error
@@ -1455,7 +1455,7 @@ func (c *CliWekaService) EnsureNfsInterfaceGroupPorts(ctx context.Context, inter
 	return nil
 }
 
-func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params, featureFlags *domain.FeatureFlags) error {
+func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "CreateS3Cluster")
 	defer logger.End()
 	executor, err := c.getExecutor(ctx)
@@ -1463,11 +1463,8 @@ func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params,
 		return err
 	}
 
-	cmd := []string{"wekaauthcli", "s3", "cluster", "create", "default"}
-	if !featureFlags.S3ClusterCreateWithoutConfigFs {
-		cmd = append(cmd, ".config_fs")
-	}
-	cmd = append(cmd,
+	cmd := []string{
+		"wekaauthcli", "s3", "cluster", "create", "default", ".config_fs",
 		"--port", strconv.Itoa(s3Params.EnvoyPort),
 		// The off-path forwarder serves its admin surface on Envoy's admin port, so this one flag
 		// covers both modes. --slb-forwarder-admin-port only asserts equality against the configured
@@ -1477,7 +1474,7 @@ func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params,
 		"--container", commaSeparatedInts(s3Params.ContainerIds),
 		// "--container-name", s3Params.MinioContainerName,
 		// "--envoy-container-name", s3Params.EnvoyContainerName,
-	)
+	}
 
 	// Append additional cluster create args from S3Config
 	cmd = append(cmd, s3Params.ClusterCreateArgs...)

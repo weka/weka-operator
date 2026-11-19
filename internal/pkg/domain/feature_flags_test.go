@@ -17,15 +17,6 @@ func TestParseFeatureBitmap(t *testing.T) {
 		t.Errorf("bits 14 and 16 should be clear: %+v", flags)
 	}
 
-	// bytes 0x00,0x00,0x08 -> only bit 19 set
-	s3, err := parseFeatureBitmap("AAAI")
-	if err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if !s3.S3ClusterCreateWithoutConfigFs || s3.SsdProxyVidLabelAdd {
-		t.Errorf("only bit 19 should be set: %+v", s3)
-	}
-
 	// A bitmap too short to hold a bit reads it as false rather than failing: that is what an
 	// image predating the flag means.
 	short, err := parseFeatureBitmap("AQ==") // one byte, bits 16/17 are past its end
