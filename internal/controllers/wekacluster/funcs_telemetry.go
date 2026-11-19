@@ -492,30 +492,10 @@ func (r *wekaClusterReconcilerLoop) EnsureTelemetry(ctx context.Context) error {
 }
 
 // disableAutoStartTelemetryContainer sets the override to prevent weka from auto-provisioning telemetry container.
-// It only adds the override if the most recent entry already has the correct value.
-// weka debug override add --force always inserts a new row (not an upsert),
-// and Weka applies the last entry, so checking the tail is sufficient.
 func (r *wekaClusterReconcilerLoop) disableAutoStartTelemetryContainer(ctx context.Context, svc services.WekaService) error {
-	_, logger := instrumentation.CreateLogSpan(ctx, "disableAutoStartTelemetryContainer")
-	defer logger.End()
-
-	const key = "auto_start_telemetry_container"
-	const val = "false"
-
-	entries, err := svc.ListOverridesByKey(ctx, key)
-	if err != nil {
-		return errors.Wrap(err, "failed to list auto_start_telemetry_container overrides")
-	}
-
-	if len(entries) > 0 && entries[len(entries)-1].Value == val {
-		logger.Info("auto_start_telemetry_container override already present, skipping")
-		return nil
-	}
-
-	if err := svc.AddOverride(ctx, key, val, "weka-operator: disable telemetry container auto-start", true); err != nil {
+	if err := services.EnsureOverride(ctx, svc, "auto_start_telemetry_container", "false", "weka-operator: disable telemetry container auto-start"); err != nil {
 		return errors.Wrap(err, "failed to disable auto-start telemetry container")
 	}
-	logger.Info("Auto-start telemetry container disabled successfully")
 	return nil
 }
 

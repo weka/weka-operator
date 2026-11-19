@@ -53,7 +53,7 @@ func TestReconcileWekaHomeCacertOverride(t *testing.T) {
 		{name: "secret set, override present: no-op", secret: "wh-ca", entries: []services.WekaOverride{set}},
 		{name: "secret cleared, override present: removed", entries: []services.WekaOverride{set}, wantRemoved: []string{"7"}},
 		{name: "secret cleared, nothing set: no-op"},
-		// ensureOverride compares only the tail value and force-adds on mismatch, so a row left
+		// EnsureOverride compares only the tail value and force-adds on mismatch, so a row left
 		// by hand or by an older operator is shadowed, not replaced. weka honours the last row.
 		{name: "secret set, override present with a stale value: re-added, stale row left", secret: "wh-ca",
 			entries:   []services.WekaOverride{{OverrideID: "7", Key: "weka_cloud_ca_cert_path", Value: "/etc/ssl/other.pem", Enabled: true}},
