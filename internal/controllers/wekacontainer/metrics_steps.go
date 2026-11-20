@@ -224,7 +224,7 @@ func (r *containerReconcilerLoop) publishContainerStats(ctx context.Context, sam
 func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context) error {
 	podStatus, podStatusStartTime := r.getPodStatusInfo()
 	throttlingKey := fmt.Sprintf("RegisterContainerOnMetrics-%s", podStatus)
-	throttler := r.ThrottlingMap.WithPartition("container/" + r.container.Name)
+	throttler := r.ThrottlingMap.WithPartition(containerThrottlePartition(r.container))
 
 	if !throttler.ShouldRun(throttlingKey, &throttling.ThrottlingSettings{
 		Interval:                    config.Config.Metrics.Containers.PollingRate,
