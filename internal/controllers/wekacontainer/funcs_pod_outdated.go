@@ -22,10 +22,6 @@ import (
 
 var clearPodOutdatedThrottleKey = "clearPodOutdated"
 
-func containerThrottlePartition(name string) string {
-	return "container/" + name
-}
-
 func podConfigHash() string {
 	raw := config.Config.PodConfigVersion
 	if config.Config.EnablePodConfigCodeVersionRotation {
@@ -157,6 +153,6 @@ func (r *containerReconcilerLoop) rotateOnDiff(ctx context.Context, diff []strin
 	if err := r.deletePod(ctx, r.pod); err != nil {
 		return err
 	}
-	r.ThrottlingMap.WithPartition(containerThrottlePartition(r.container.Name)).Reset(clearPodOutdatedThrottleKey)
+	r.ThrottlingMap.WithPartition(containerThrottlePartition(r.container)).Reset(clearPodOutdatedThrottleKey)
 	return lifecycle.NewWaitError(errors.New("pod deleted to apply: " + strings.Join(diff, ", ")))
 }

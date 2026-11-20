@@ -246,7 +246,7 @@ var _ = Describe("pod outdated", func() {
 
 		clearThrottler := func(r *containerReconcilerLoop) (throttling.Throttler, *throttling.ThrottlingSettings) {
 			settings := &throttling.ThrottlingSettings{Interval: config.Consts.PodOutdatedCheckInterval, EnsureStepSuccess: true}
-			throttler := r.ThrottlingMap.WithPartition(containerThrottlePartition(r.container.Name))
+			throttler := r.ThrottlingMap.WithPartition(containerThrottlePartition(r.container))
 			throttler.SetNow(clearPodOutdatedThrottleKey)
 			Expect(throttler.ShouldRun(clearPodOutdatedThrottleKey, settings)).To(BeFalse())
 			return throttler, settings
@@ -342,7 +342,7 @@ var _ = Describe("pod outdated", func() {
 		It("does not re-stamp the throttle after a rotation while the old pod is terminating", func() {
 			r := newOutdated()
 			clearStep := activeStep(r, "clearPodOutdated")
-			throttler := r.ThrottlingMap.WithPartition(containerThrottlePartition(r.container.Name))
+			throttler := r.ThrottlingMap.WithPartition(containerThrottlePartition(r.container))
 			settings := &throttling.ThrottlingSettings{Interval: config.Consts.PodOutdatedCheckInterval, EnsureStepSuccess: true}
 			engine := lifecycle.StepsEngine{Throttler: throttler, Steps: []lifecycle.Step{clearStep}}
 			throttler.Reset(clearPodOutdatedThrottleKey)
@@ -370,6 +370,28 @@ var _ = Describe("pod outdated", func() {
 			Expect(r.clearPodOutdated(ctx)).To(Succeed())
 
 			Expect(storedContainer(r).Status.PodOutdated).To(BeTrue())
+		})
+	})
+
+	Describe("throttle partition", func() {
+		recordOnBoth := func(otherNamespace string) int {
+			shared := throttling.NewSyncMapThrottler()
+			for _, ns := range []string{"default", otherNamespace} {
+				c := newContainer(weka.WekaContainerModeDrive, "WekaCluster", 4)
+				c.Namespace = ns
+				r := newReconciler(c, newPod(""))
+				r.ThrottlingMap = shared
+				Expect(r.RecordEventThrottled(v1.EventTypeNormal, "Reason", "Action", "msg", time.Hour)).To(Succeed())
+			}
+			return eventCount()
+		}
+
+		It("does not share throttles between same-named containers in different namespaces", func() {
+			Expect(recordOnBoth("other")).To(Equal(2))
+		})
+
+		It("throttles the same container", func() {
+			Expect(recordOnBoth("default")).To(Equal(1))
 		})
 	})
 })
