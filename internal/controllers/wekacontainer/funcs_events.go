@@ -8,7 +8,12 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/weka/weka-operator/pkg/util"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
+
+func containerThrottlePartition(c *weka.WekaContainer) string {
+	return "container/" + c.Namespace + "/" + c.Name
+}
 
 func (r *containerReconcilerLoop) RecordEvent(eventtype, reason, action, message string) error {
 	if r.container == nil {
@@ -24,7 +29,7 @@ func (r *containerReconcilerLoop) RecordEvent(eventtype, reason, action, message
 }
 
 func (r *containerReconcilerLoop) RecordEventThrottled(eventtype, reason, action, message string, interval time.Duration) error {
-	throttler := r.ThrottlingMap.WithPartition("container/" + r.container.Name)
+	throttler := r.ThrottlingMap.WithPartition(containerThrottlePartition(r.container))
 
 	if !throttler.ShouldRun(eventtype+reason+action, &throttling.ThrottlingSettings{
 		Interval:                    interval,
