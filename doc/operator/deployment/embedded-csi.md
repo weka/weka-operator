@@ -181,8 +181,7 @@ Notes:
 - When driver loading finds the boot ID changed, it also removes every `topology.*.weka.io/accessible` label on the
   node (all CSI groups) before it continues. An image change alone does not.
 - A CSI node pod that is terminating counts as not ready.
-- The operator never deletes CSI node pods. The only exception is the upgrade cleanup of pre-DaemonSet pods, which
-  never touches DaemonSet pods.
+- The operator never deletes CSI node pods.
 
 The thresholds are set in the configuration WekaPolicy under `csi`:
 
