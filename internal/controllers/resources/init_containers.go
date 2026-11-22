@@ -6,6 +6,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/weka/weka-operator/internal/config"
+	weka "github.com/weka/weka-operator/pkg/weka-k8s-api/api/v1alpha1"
 )
 
 func addUIOLoaderInitContainer(pod *v1.Pod) *v1.Pod {
@@ -75,20 +76,43 @@ echo "UIO module loaded successfully"
 	return pod
 }
 
-// copyWekaVersionToContainer adds init containers to copy weka files from the target image
-// when the pod uses a different image (builder/loader). It parses the JSON instruction payload
-// to get targetImage and cliImage.
-func (f *PodFactory) copyWekaVersionToContainer(pod *v1.Pod) {
-	var payload struct {
-		TargetImage string `json:"targetImage"`
-		CliImage    string `json:"cliImage"`
-	}
-	if err := json.Unmarshal([]byte(f.container.Spec.Instructions.Payload), &payload); err != nil {
-		// Fallback for legacy single-image payload
-		payload.TargetImage = f.container.Spec.Instructions.Payload
-		payload.CliImage = f.container.Spec.Instructions.Payload
-	}
+// addDriverToolkitInitContainer fills the emptyDir usrsrc volume with the node kernel's headers from the Driver Toolkit image.
+func addDriverToolkitInitContainer(pod *v1.Pod, image string) {
+	const script = `test -d /usr/src/kernels/$(uname -r) || { echo "driver-toolkit image has no kernel headers for $(uname -r); available: $(ls /usr/src/kernels | tr '\n' ' ')" >&2; exit 1; }; mkdir -p /shared-usr-src/kernels && cp -a /usr/src/kernels/$(uname -r) /shared-usr-src/kernels/`
+	pod.Spec.InitContainers = append(pod.Spec.InitContainers, v1.Container{
+		Name:         "driver-toolkit",
+		Image:        image,
+		Command:      []string{"/bin/sh", "-c", script},
+		Resources:    HelperContainerResources(),
+		VolumeMounts: []v1.VolumeMount{{Name: "usrsrc", MountPath: "/shared-usr-src"}},
+	})
+}
 
+type copyFilesPayload struct {
+	TargetImage        string `json:"targetImage"`
+	CliImage           string `json:"cliImage"`
+	DriverToolkitImage string `json:"driverToolkitImage,omitempty"`
+}
+
+// copyFilesInstruction returns the parsed InstructionCopyWekaFilesToDriverLoader payload, or nil
+// when the container has no such instruction.
+func (f *PodFactory) copyFilesInstruction() *copyFilesPayload {
+	instructions := f.container.Spec.Instructions
+	if instructions == nil || instructions.Type != weka.InstructionCopyWekaFilesToDriverLoader {
+		return nil
+	}
+	var payload copyFilesPayload
+	if err := json.Unmarshal([]byte(instructions.Payload), &payload); err != nil {
+		// Fallback for legacy single-image payload
+		payload = copyFilesPayload{TargetImage: instructions.Payload, CliImage: instructions.Payload}
+	}
+	return &payload
+}
+
+// copyWekaVersionToContainer adds init containers to copy weka files from the target image
+// when the pod uses a different image (builder/loader).
+func (f *PodFactory) copyWekaVersionToContainer(pod *v1.Pod) {
+	payload := f.copyFilesInstruction()
 	sharedVolumeName := "shared-weka-version"
 	sharedVolumeMountPath := "/shared-weka-version"
 

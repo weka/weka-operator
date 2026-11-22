@@ -14,6 +14,12 @@ func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
 		f.copyWekaVersionToContainer(pod)
 	}
 
+	var dtkImage string
+	if instruction := f.copyFilesInstruction(); instruction != nil {
+		// Only drivers-builders on RHCOS nodes carry it (prepareContainerForPod); empty everywhere else.
+		dtkImage = instruction.DriverToolkitImage
+	}
+
 	if f.nodeInfo.IsCos() {
 		// in COS we can't load it in the drivers-loader pod because of /lib/modules override
 		addUIOLoaderInitContainer(pod)
@@ -120,6 +126,13 @@ func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
 		libModulesPath := "/lib/modules"
 		usrSrcPath := "/usr/src"
 
+		// RHCOS has no kernel-devel: /lib/modules/<kver>/build points at /usr/src/kernels/<kver>,
+		// which the driver-toolkit init container fills from the Driver Toolkit image.
+		usrSrcSource := corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: usrSrcPath}}
+		if dtkImage != "" {
+			usrSrcSource = corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}
+		}
+
 		// adding mount of headers only for case of drivers-related container
 		pod.Spec.Volumes = append(pod.Spec.Volumes,
 			corev1.Volume{
@@ -130,14 +143,7 @@ func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
 					},
 				},
 			},
-			corev1.Volume{
-				Name: "usrsrc",
-				VolumeSource: corev1.VolumeSource{
-					HostPath: &corev1.HostPathVolumeSource{
-						Path: "/usr/src",
-					},
-				},
-			},
+			corev1.Volume{Name: "usrsrc", VolumeSource: usrSrcSource},
 		)
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "libmodules",
@@ -148,5 +154,9 @@ func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
 			Name:      "usrsrc",
 			MountPath: usrSrcPath,
 		})
+
+		if dtkImage != "" {
+			addDriverToolkitInitContainer(pod, dtkImage)
+		}
 	}
 }

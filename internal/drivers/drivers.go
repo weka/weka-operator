@@ -6,10 +6,15 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
@@ -85,6 +90,51 @@ func GetBuilderImageForNode(node *v1.Node) (string, error) {
 	default:
 		return config.Config.BuilderImages.Default, nil
 	}
+}
+
+// RhcosVersion returns the RHCOS version from a node osImage such as
+// "Red Hat Enterprise Linux CoreOS 9.8.20261103-0 (Plow)", or "" when the node is not RHCOS.
+func RhcosVersion(osImage string) string {
+	rest, ok := strings.CutPrefix(osImage, "Red Hat Enterprise Linux CoreOS ")
+	if !ok {
+		return ""
+	}
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+// GetDriverToolkitImage returns the Driver Toolkit image reference for an RHCOS version, unchanged
+// (air-gapped mirrors resolve by digest). reader must be uncached: a cached client would start a
+// cluster-wide ImageStream informer.
+func GetDriverToolkitImage(ctx context.Context, reader client.Reader, rhcosVersion string) (string, error) {
+	is := &unstructured.Unstructured{}
+	is.SetGroupVersionKind(schema.GroupVersionKind{Group: "image.openshift.io", Version: "v1", Kind: "ImageStream"})
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: "openshift", Name: "driver-toolkit"}, is); err != nil {
+		return "", errors.Wrap(err, "failed to get imagestream openshift/driver-toolkit")
+	}
+
+	var parsed struct {
+		Status struct {
+			Tags []struct {
+				Tag   string `json:"tag"`
+				Items []struct {
+					DockerImageReference string `json:"dockerImageReference"`
+				} `json:"items"`
+			} `json:"tags"`
+		} `json:"status"`
+	}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(is.Object, &parsed); err != nil {
+		return "", errors.Wrap(err, "failed to decode imagestream openshift/driver-toolkit")
+	}
+	for _, tag := range parsed.Status.Tags {
+		if tag.Tag == rhcosVersion && len(tag.Items) > 0 && tag.Items[0].DockerImageReference != "" {
+			return tag.Items[0].DockerImageReference, nil
+		}
+	}
+	return "", fmt.Errorf("no driver-toolkit image for RHCOS %s in imagestream openshift/driver-toolkit", rhcosVersion)
 }
 
 // GetBuilderCliImage picks the image that supplies the weka CLI staged for the
