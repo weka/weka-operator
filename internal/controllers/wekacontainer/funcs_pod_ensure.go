@@ -184,6 +184,7 @@ func (r *containerReconcilerLoop) prepareContainerForPod(ctx context.Context, co
 	// For drivers-builder containers, resolve the builder image and set instructions
 	// before creating the pod so setDriverDependencies handles init containers uniformly
 	if container.IsDriversBuilder() {
+		var dtkImage string
 		if override := container.Annotations[operations.ImageOverrideAnnotation]; override != "" {
 			image = override
 		} else {
@@ -196,6 +197,12 @@ func (r *containerReconcilerLoop) prepareContainerForPod(ctx context.Context, co
 			if err != nil {
 				return "", errors.Wrap(err, "failed to pick drivers-builder image")
 			}
+			if rhcosVersion := drivers.RhcosVersion(node.Status.NodeInfo.OSImage); rhcosVersion != "" {
+				dtkImage, err = drivers.GetDriverToolkitImage(ctx, r.Manager.GetAPIReader(), rhcosVersion)
+				if err != nil {
+					return "", errors.Wrap(err, "failed to resolve driver toolkit image")
+				}
+			}
 		}
 
 		forceBuilderCli := services.GetSettings(ctx).Drivers.ForceBuilderCli
@@ -205,10 +212,14 @@ func (r *containerReconcilerLoop) prepareContainerForPod(ctx context.Context, co
 			return "", cliErr
 		}
 
-		payloadBytes, _ := json.Marshal(map[string]string{ //nolint:errcheck // error return value intentionally not checked
+		payload := map[string]string{
 			"targetImage": container.Spec.Image,
 			"cliImage":    cliImage,
-		})
+		}
+		if dtkImage != "" {
+			payload["driverToolkitImage"] = dtkImage
+		}
+		payloadBytes, _ := json.Marshal(payload) //nolint:errcheck // error return value intentionally not checked
 		container.Spec.Instructions = &weka.Instructions{
 			Type:    weka.InstructionCopyWekaFilesToDriverLoader,
 			Payload: string(payloadBytes),

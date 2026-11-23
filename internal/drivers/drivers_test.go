@@ -13,6 +13,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -169,6 +172,74 @@ var _ = Describe("Driver Image Selection", func() {
 					"Expected ubuntu22 builder for OS: %s", osImage)
 			}
 		})
+	})
+
+	Describe("RhcosVersion", func() {
+		It("extracts the version from an RHCOS osImage", func() {
+			Expect(RhcosVersion("Red Hat Enterprise Linux CoreOS 9.8.20261103-0 (Plow)")).To(Equal("9.8.20261103-0"))
+		})
+
+		It("rejects other operating systems", func() {
+			for _, osImage := range []string{
+				"Fedora CoreOS 41.20250101.3.0",
+				"Ubuntu 22.04.5 LTS",
+				"Red Hat Enterprise Linux 9.4 (Plow)",
+				"Red Hat Enterprise Linux CoreOS",
+				"",
+			} {
+				Expect(RhcosVersion(osImage)).To(BeEmpty(), osImage)
+			}
+		})
+	})
+
+	Describe("GetBuilderImageForNode on RHCOS", func() {
+		It("returns the default builder image", func() {
+			node := &corev1.Node{Status: corev1.NodeStatus{NodeInfo: corev1.NodeSystemInfo{OSImage: "Red Hat Enterprise Linux CoreOS 9.8.20261103-0 (Plow)"}}}
+			image, err := GetBuilderImageForNode(node)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(image).To(Equal("quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"))
+		})
+	})
+
+	Describe("GetDriverToolkitImage", func() {
+		const version = "9.8.20261103-0"
+		const ref = "quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:abc"
+		const noImage = "no driver-toolkit image for RHCOS " + version + " in imagestream openshift/driver-toolkit"
+
+		imageStream := func(tags ...any) *unstructured.Unstructured {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": "image.openshift.io/v1",
+				"kind":       "ImageStream",
+				"metadata":   map[string]any{"name": "driver-toolkit", "namespace": "openshift"},
+				"status":     map[string]any{"tags": tags},
+			}}
+		}
+		tag := func(name string, items ...any) any {
+			return map[string]any{"tag": name, "items": items}
+		}
+		item := func(image string) any { return map[string]any{"dockerImageReference": image} }
+
+		DescribeTable("resolves the reference",
+			func(is *unstructured.Unstructured, want, wantErr string) {
+				b := fake.NewClientBuilder()
+				if is != nil {
+					b = b.WithObjects(is)
+				}
+				got, err := GetDriverToolkitImage(context.Background(), b.Build(), version)
+				if wantErr != "" {
+					Expect(err).To(MatchError(ContainSubstring(wantErr)))
+					return
+				}
+				Expect(err).NotTo(HaveOccurred())
+				Expect(got).To(Equal(want))
+			},
+			Entry("tag found", imageStream(tag("other", item("x")), tag(version, item(ref), item("older"))), ref, ""),
+			Entry("tag missing", imageStream(tag("other", item("x"))), "", noImage),
+			Entry("tag with empty items", imageStream(tag(version)), "", noImage),
+			Entry("tag with empty reference", imageStream(tag(version, item(""))), "", noImage),
+			Entry("malformed reference", imageStream(tag(version, map[string]any{"dockerImageReference": int64(5)})), "", "failed to decode imagestream"),
+			Entry("imagestream missing", nil, "", "failed to get imagestream openshift/driver-toolkit"),
+		)
 	})
 
 	Describe("GetBuilderCliImage", func() {
