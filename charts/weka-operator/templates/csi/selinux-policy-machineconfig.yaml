@@ -1,5 +1,6 @@
 {{- if .Values.csi.installationEnabled }}
-{{- if .Capabilities.APIVersions.Has "security.openshift.io/v1/SecurityContextConstraints" }}
+{{- /* Hosted control planes (HCP / ROSA HCP) are OpenShift but have no MachineConfig kind. */}}
+{{- if and (.Capabilities.APIVersions.Has "security.openshift.io/v1/SecurityContextConstraints") (.Capabilities.APIVersions.Has "machineconfiguration.openshift.io/v1/MachineConfig") }}
 {{- range .Values.ocpCompatibility.csi.machineConfigLabels }}
 kind: MachineConfig
 apiVersion: machineconfiguration.openshift.io/v1
