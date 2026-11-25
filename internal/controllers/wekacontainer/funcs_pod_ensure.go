@@ -212,6 +212,12 @@ func (r *containerReconcilerLoop) prepareContainerForPod(ctx context.Context, co
 			return "", cliErr
 		}
 
+		// The build runs in the DTK image; the weka CLI is still staged by copy-cli from cliImage above,
+		// since the DTK has none.
+		if dtkImage != "" {
+			image = dtkImage
+		}
+
 		payload := map[string]string{
 			"targetImage": container.Spec.Image,
 			"cliImage":    cliImage,

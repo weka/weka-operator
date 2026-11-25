@@ -76,18 +76,6 @@ echo "UIO module loaded successfully"
 	return pod
 }
 
-// addDriverToolkitInitContainer fills the emptyDir usrsrc volume with the node kernel's headers from the Driver Toolkit image.
-func addDriverToolkitInitContainer(pod *v1.Pod, image string) {
-	const script = `test -d /usr/src/kernels/$(uname -r) || { echo "driver-toolkit image has no kernel headers for $(uname -r); available: $(ls /usr/src/kernels | tr '\n' ' ')" >&2; exit 1; }; mkdir -p /shared-usr-src/kernels && cp -a /usr/src/kernels/$(uname -r) /shared-usr-src/kernels/`
-	pod.Spec.InitContainers = append(pod.Spec.InitContainers, v1.Container{
-		Name:         "driver-toolkit",
-		Image:        image,
-		Command:      []string{"/bin/sh", "-c", script},
-		Resources:    HelperContainerResources(),
-		VolumeMounts: []v1.VolumeMount{{Name: "usrsrc", MountPath: "/shared-usr-src"}},
-	})
-}
-
 type copyFilesPayload struct {
 	TargetImage        string `json:"targetImage"`
 	CliImage           string `json:"cliImage"`

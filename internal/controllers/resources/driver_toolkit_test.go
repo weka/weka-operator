@@ -3,7 +3,6 @@ package resources
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -76,30 +75,22 @@ func findMount(c *corev1.Container, name string) *corev1.VolumeMount {
 	return nil
 }
 
-func TestDriverToolkitInitContainer(t *testing.T) {
+func TestDriverToolkitBuilder(t *testing.T) {
 	const dtk = "quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:abc"
 
 	t.Run("drivers-builder with DTK image", func(t *testing.T) {
 		pod := createPodWithDTK(t, weka.WekaContainerModeDriversBuilder, dtk)
 
-		init := findInitContainer(pod, "driver-toolkit")
-		if init == nil {
-			t.Fatalf("driver-toolkit init container missing")
+		if findInitContainer(pod, "driver-toolkit") != nil {
+			t.Errorf("unexpected driver-toolkit init container")
 		}
-		if init.Image != dtk {
-			t.Errorf("init image = %q, want %q", init.Image, dtk)
+		if v := findVolume(pod, "usrsrc"); v != nil {
+			t.Errorf("unexpected usrsrc volume %+v", v)
 		}
-		if !reflect.DeepEqual(init.Resources, HelperContainerResources()) {
-			t.Errorf("init resources = %v, want helper resources", init.Resources)
-		}
-		if m := findMount(init, "usrsrc"); m == nil || m.MountPath != "/shared-usr-src" {
-			t.Errorf("init container usrsrc mount = %+v, want /shared-usr-src", m)
-		}
-		if m := findMount(&pod.Spec.Containers[0], "usrsrc"); m == nil || m.MountPath != "/usr/src" {
-			t.Errorf("main container usrsrc mount = %+v, want /usr/src", m)
-		}
-		if v := findVolume(pod, "usrsrc"); v == nil || v.EmptyDir == nil {
-			t.Errorf("usrsrc volume = %+v, want emptyDir", v)
+		for _, m := range pod.Spec.Containers[0].VolumeMounts {
+			if m.MountPath == "/usr/src" {
+				t.Errorf("unexpected /usr/src mount %+v", m)
+			}
 		}
 		if v := findVolume(pod, "libmodules"); v == nil || v.HostPath == nil || v.HostPath.Path != "/lib/modules" {
 			t.Errorf("libmodules volume = %+v, want hostPath /lib/modules", v)
@@ -107,16 +98,20 @@ func TestDriverToolkitInitContainer(t *testing.T) {
 		if findInitContainer(pod, "copy-cli") == nil || findInitContainer(pod, "copy-weka-version") == nil {
 			t.Errorf("copy-cli/copy-weka-version init containers missing")
 		}
-		if findVolume(pod, "dtk") != nil {
-			t.Errorf("unexpected dtk volume")
+	})
+
+	t.Run("drivers-builder without DTK image", func(t *testing.T) {
+		pod := createPodWithDTK(t, weka.WekaContainerModeDriversBuilder, "")
+		if v := findVolume(pod, "usrsrc"); v == nil || v.HostPath == nil || v.HostPath.Path != "/usr/src" {
+			t.Errorf("usrsrc volume = %+v, want hostPath /usr/src", v)
+		}
+		if m := findMount(&pod.Spec.Containers[0], "usrsrc"); m == nil || m.MountPath != "/usr/src" {
+			t.Errorf("usrsrc mount = %+v, want /usr/src", m)
 		}
 	})
 
 	t.Run("drivers-loader without DTK image", func(t *testing.T) {
 		pod := createPodWithDTK(t, weka.WekaContainerModeDriversLoader, "")
-		if findInitContainer(pod, "driver-toolkit") != nil {
-			t.Errorf("unexpected driver-toolkit init container")
-		}
 		if v := findVolume(pod, "usrsrc"); v == nil || v.HostPath == nil || v.HostPath.Path != "/usr/src" {
 			t.Errorf("usrsrc volume = %+v, want hostPath /usr/src", v)
 		}

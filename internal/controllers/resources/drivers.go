@@ -124,15 +124,6 @@ func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
 		)
 	} else {
 		libModulesPath := "/lib/modules"
-		usrSrcPath := "/usr/src"
-
-		// RHCOS has no kernel-devel: /lib/modules/<kver>/build points at /usr/src/kernels/<kver>,
-		// which the driver-toolkit init container fills from the Driver Toolkit image.
-		usrSrcSource := corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: usrSrcPath}}
-		if dtkImage != "" {
-			usrSrcSource = corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}
-		}
-
 		// adding mount of headers only for case of drivers-related container
 		pod.Spec.Volumes = append(pod.Spec.Volumes,
 			corev1.Volume{
@@ -143,20 +134,23 @@ func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
 					},
 				},
 			},
-			corev1.Volume{Name: "usrsrc", VolumeSource: usrSrcSource},
 		)
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "libmodules",
 			MountPath: libModulesPath,
 			ReadOnly:  true,
 		})
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "usrsrc",
-			MountPath: usrSrcPath,
-		})
-
-		if dtkImage != "" {
-			addDriverToolkitInitContainer(pod, dtkImage)
+		// On RHCOS the builder runs in the Driver Toolkit image; its /usr/src/kernels/<kver> matches the node kernel,
+		// and the host's empty /usr/src would hide it.
+		if dtkImage == "" {
+			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+				Name:         "usrsrc",
+				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/usr/src"}},
+			})
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "usrsrc",
+				MountPath: "/usr/src",
+			})
 		}
 	}
 }
