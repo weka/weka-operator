@@ -202,20 +202,20 @@ func (r *containerReconcilerLoop) prepareContainerForPod(ctx context.Context, co
 				if err != nil {
 					return "", errors.Wrap(err, "failed to resolve driver toolkit image")
 				}
-				image = dtkImage
 			}
 		}
 
 		forceBuilderCli := services.GetSettings(ctx).Drivers.ForceBuilderCli
 
-		// The DTK image has no weka CLI, so it is taken from the weka image.
-		cliImage := container.Spec.Image
-		if dtkImage == "" {
-			var cliErr error
-			cliImage, cliErr = drivers.GetBuilderCliImage(ctx, container.Spec.Image, image, forceBuilderCli, r.GetFeatureFlags)
-			if cliErr != nil {
-				return "", cliErr
-			}
+		cliImage, cliErr := drivers.GetBuilderCliImage(ctx, container.Spec.Image, image, forceBuilderCli, r.GetFeatureFlags)
+		if cliErr != nil {
+			return "", cliErr
+		}
+
+		// The build runs in the DTK image; the weka CLI is still staged by copy-cli from cliImage above,
+		// since the DTK has none.
+		if dtkImage != "" {
+			image = dtkImage
 		}
 
 		payload := map[string]string{
