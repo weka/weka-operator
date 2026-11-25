@@ -222,7 +222,7 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "RemoveVirtualDrives")
 	defer logger.End()
 
-	if container.Spec.GetOverrides().SkipVirtualDrivesRemoval {
+	if r.CanSkipVirtualDrivesRemoval() {
 		logger.Info("Skipping virtual drive removal as requested via SkipVirtualDrivesRemoval override")
 		return nil
 	}
@@ -233,8 +233,7 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 		return nil
 	}
 
-	// Check if we have virtual drives allocated
-	if container.Status.Allocations == nil || len(container.Status.Allocations.VirtualDrives) == 0 {
+	if !r.HasVirtualDrives() {
 		logger.Debug("No virtual drives allocated to remove")
 		return nil
 	}
