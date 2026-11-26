@@ -16,9 +16,8 @@ single-pool container.
 - Greenfield: `planPoolFreshUniform` → `selectUniform` → `pickPreferringColocated`.
   The count and target fit stay the same; eligible co-located candidates rank first.
 - Increase: `planPoolUniformIncrease` uses `colocatedFirst` and
-  `takeFreshAtLevel`, preferring co-located, then not-deleting, then deleting
-  candidates. A freed mixed node can therefore win even while its old container
-  is terminating.
+  `takeFreshAtLevel`, preferring co-located candidates. Nodes with a drive
+  container still being deleted are excluded (`freshIneligibleReason`).
 - Separate placement remains necessary when drive types or shared CPU, hugepages
   or memory prevent a mixed fit. Delete/recreate co-locates only if both pools
   are short in the same plan; separated deletions can recreate separate containers.

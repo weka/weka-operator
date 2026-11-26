@@ -144,7 +144,8 @@ elsewhere you will see a pointer back to this section rather than a repeat.
   yet** in the growable FD set. Planning against that incomplete snapshot would grow-only
   **concentrate** the fixed total onto the already-placed FDs, so the operator emits
   `ClusterCapacityDeferred` and returns a no-op, retrying until it lands. Routine pod deletion never
-  triggers this.
+  triggers this. The same event also reports a plan that only waits for a deleted drive container
+  (its **CR** deleted) to finish leaving the one node that fits — see [§R1](#deletion-and-replanning).
 
 - **Applying a grow — depends on `enableDynamicDriveScalingForSharedDrives`.** **By default
   (`false`) existing containers are never grown in place** — every grow lands on **new** containers
@@ -208,7 +209,9 @@ planClusterCapacity():                         # stateless — recomputed from s
     planCompute(requiredComputeCores, inventory)  # sized on POST-drive headroom
 
     if plan.infeasible:
-        emit ClusterCapacityInfeasible; requeue          # create / grow NOTHING
+        if feasible with draining nodes counted:  emit ClusterCapacityDeferred; requeue 15s   # §R1
+        else:                                     emit ClusterCapacityInfeasible; requeue
+        # either way: create / grow NOTHING
     else:
         apply(growInPlace + createNew); emit per-decision events   # ClusterCapacityPlanned on success
 ```
@@ -729,10 +732,12 @@ planner's Step A looks for a spare node with ≥ T = 30 TiB free:
 | n2…n6 | 30 TiB | **unchanged** — no spec edits |
 | n1 (freed) or other spare | — | **CREATE** TLC **30 TiB** to restore the 6th FD |
 
-If n1 is still **draining** (its CR is deleted but the node hasn't freed its capacity yet), it is not
-counted as a spare — so no spare node is available at T. The plan is
-**`ClusterCapacityInfeasible`** ("cannot satisfy clusterCapacity — no spare node has 30720 GiB free"),
-and the operator retries. Once the drain completes, n1 becomes a spare and Step A places the
+If n1 is still **draining** (its CR is deleted but the old container is not gone yet), it is not
+counted as a spare: a new drive container placed there would evict itself while the old one still holds
+the node. When n1 is the only node that fits, the operator emits **`ClusterCapacityDeferred`** (Normal,
+"waiting for drive container(s) … to finish deleting before placing replacements") and retries every
+15s. If the plan would fail even with n1 counted, it is **`ClusterCapacityInfeasible`** as usual.
+Once the drain completes, n1 becomes a spare and Step A places the
 replacement FD cleanly. **Delete one container at a time and let each settle** before the next delete
 — that ensures a spare node is always available for the replacement.
 
@@ -994,7 +999,7 @@ advisories are suppressed for that reconcile (they describe placement that does 
 | Reason | Type | When it fires |
 |--------|------|---------------|
 | `ClusterCapacityPlanned` | Normal | A feasible plan that actually places capacity (≥1 create or grow) — a positive signal, e.g. after recovering from infeasible by adding a node. Steady-state reconciles stay silent. Example: *"clusterCapacity plan applied: creating 3 drive container(s) [2 mixed, 1 TLC] across 3 node(s) / 3 failure domain(s) @ ~10.7TiB/FD, placing T/Q 24.0/8.0 TiB; growing 1 existing container(s) (+T 2.0TiB, cores 6→8); compute 3 container(s), 24 cores on 3 node(s); minFdNum 11; target raw T/Q 24.0/12.0 TiB (placed 34.0TiB), protection 8+2+1"*. |
-| `ClusterCapacityDeferred` | Normal | A drive container is alive but never scheduled — planning deferred and retried (see [§Rules](#rules-that-apply-everywhere)). Routine pod deletion does **not** cause this. |
+| `ClusterCapacityDeferred` | Normal | Planning deferred and retried, for one of two reasons: a drive container is alive but never scheduled (see [§Rules](#rules-that-apply-everywhere)), or the only node that fits still hosts a deleted drive container that hasn't finished leaving; the message names it, and the retry is every 15s (see [§R1](#deletion-and-replanning)). Routine pod deletion does **not** cause this. |
 | `UnschedulableDriveContainer` | Warning | **Lands on the WekaContainer, not the Cluster.** The scheduler rejected the drive container's pod (`PodScheduled=False`/`Reason=Unschedulable`) for longer than the GC timeout, so it is deleted and its capacity re-placed on the next plan — possibly on a different node. Distinct from `ClusterCapacityDeferred` above: that fires while the pod might still schedule, this only once the scheduler has actually rejected it, so a pod merely `Pending` during a slow drive-signing step is left alone. |
 | `UnschedulableComputeContainer` | Warning | **Lands on the WekaContainer, not the Cluster.** The same rule applied to a compute container, so its cores are re-planned onto a node that can take them instead of being counted but never served. |
 | `ClusterCapacityShrink` | Normal | A pool's current capacity exceeds desired by **more than `maxOverProvisionFraction` × desired**. **Never auto-applied** — delete WekaContainers manually to shrink. (An in-cap over-provision from create-new rounding stays silent — see `ClusterCapacityOverProvisioned`.) |

@@ -531,6 +531,73 @@ func TestPlanClusterCapacityDefersOnTransientChurn(t *testing.T) {
 	})
 }
 
+// A plan that is infeasible only because the sole fitting node still hosts a drive container being deleted
+// is reported as ClusterCapacityDeferred (Normal) naming that container, with a short retry; without such a
+// node it stays ClusterCapacityInfeasible.
+func TestPlanClusterCapacityDefersWhileReplacedDriveContainerDeletes(t *testing.T) {
+	prev := globalconfig.Config.ClusterCapacity
+	globalconfig.Config.ClusterCapacity.TlcCapacityPerCoreGiB = 5 * tib
+	t.Cleanup(func() { globalconfig.Config.ClusterCapacity = prev })
+
+	// 3Ti => raw TLC int(3072×2/0.9) = 6826 GiB over MinFdNum 6 => 1138 GiB per failure domain.
+	containers := func() []*weka.WekaContainer {
+		var cs []*weka.WekaContainer
+		for i := 1; i <= 6; i++ {
+			n := "n" + string(rune('0'+i))
+			c := ownedDriveContainer("me", n, 1138, 1, 0)
+			c.Name = "drive-" + n
+			c.Status.NodeAffinity = weka.NodeName(n)
+			if i == 6 {
+				now := metav1.Now()
+				c.DeletionTimestamp = &now
+				c.Finalizers = []string{"x"}
+			}
+			cs = append(cs, &c, computeContainer(n, 1))
+		}
+		return cs
+	}
+	// n1..n5 are full; only n6, whose drive container is still being deleted, has free TLC. n6's CPU,
+	// hugepages and memory are all still held by the dying pod, so it fits only once that is given back.
+	newLoop := func(n6TlcGiB int) *wekaClusterReconcilerLoop {
+		r, _ := newCapacityLoop("3Ti", containers(), nil)
+		r.buildNodeInventoryFn = func(ctx context.Context) (map[string]string, []capacityplanner.NodeCapacity, map[string]bool, error) {
+			var inv []capacityplanner.NodeCapacity
+			computeNodes := map[string]bool{}
+			for i := 1; i <= 6; i++ {
+				n := "n" + string(rune('0'+i))
+				nc := capacityplanner.NodeCapacity{NodeName: n, FDValue: n, AllocatableCPU: 64, AvailableHugepagesMiB: 64 * 1024, AvailableMemoryMiB: 256 * 1024}
+				if i == 6 {
+					nc.TlcGiB = n6TlcGiB
+					nc.HasDeletingDriveContainer = true
+					nc.ReclaimableCPU, nc.ReclaimableHugepagesMiB, nc.ReclaimableMemoryMiB = nc.AllocatableCPU, nc.AvailableHugepagesMiB, nc.AvailableMemoryMiB
+					nc.AllocatableCPU, nc.AvailableHugepagesMiB, nc.AvailableMemoryMiB = 0, 0, 0
+				}
+				inv = append(inv, nc)
+				computeNodes[n] = true
+			}
+			return map[string]string{}, inv, computeNodes, nil
+		}
+		return r
+	}
+
+	r := newLoop(4 * tib)
+	_, err := r.planClusterCapacity(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "waiting for drive container(s) drive-n6 on n6 to finish deleting") {
+		t.Fatalf("want deferral naming drive-n6, got %v", err)
+	}
+	if ev := <-r.Recorder.(*events.FakeRecorder).Events; !strings.Contains(ev, "Normal "+reasonClusterCapacityDeferred) {
+		t.Errorf("want a Normal %s event, got %q", reasonClusterCapacityDeferred, ev)
+	}
+
+	r = newLoop(0) // nowhere to place, deletion or not
+	if _, err = r.planClusterCapacity(t.Context()); err == nil || !strings.Contains(err.Error(), "clusterCapacity infeasible") {
+		t.Fatalf("want a real infeasible error, got %v", err)
+	}
+	if ev := <-r.Recorder.(*events.FakeRecorder).Events; !strings.Contains(ev, "Warning "+reasonClusterCapacityInfeasible) {
+		t.Errorf("want a Warning %s event, got %q", reasonClusterCapacityInfeasible, ev)
+	}
+}
+
 func TestFormatCapacityPlanSummary(t *testing.T) {
 	scheme := capacityplanner.ProtectionScheme{StripeWidth: 8, RedundancyLevel: 2, HotSpare: 1}
 	desired := capacityplanner.DesiredCapacity{TlcRawGiB: 24 * tib}

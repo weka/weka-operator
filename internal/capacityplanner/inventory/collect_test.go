@@ -393,6 +393,38 @@ func zeroNodeResources() nodeResources {
 	}
 }
 
+// The pod of a drive container being deleted stays charged until it is gone, and what this cluster's
+// deletions give back to the clamped headroom is reported as reclaimable: on an over-committed node that is
+// less than the pod's request, and another cluster's deleting drive pod is not counted.
+func TestChargeForeignPods_RecordsDeletingDrivePodAsReclaimable(t *testing.T) {
+	deleting := func(name, ownerUID string) weka.WekaContainer {
+		c := ownedDriveContainer(ownerUID, "n1", 100*tib, 1, 4)
+		c.Name, c.Namespace = name, "default"
+		now := metav1.Now()
+		c.DeletionTimestamp = &now
+		c.Finalizers = []string{"x"}
+		return c
+	}
+	n1 := sharedDrivesNode(t, "n1", []domain.SharedDriveInfo{{Serial: "s1", CapacityGiB: 20 * tib, Type: "TLC"}})
+	own, other := deleting("drive-me", "cluster-me"), deleting("drive-other", "cluster-other")
+	// 64 CPUs allocatable, 52 + 8 + 8 = 68 charged: 0 free now, 4 once drive-me's pod is gone.
+	fakeClient := newInventoryTestClient(t, n1, &own, &other,
+		testPod("drive-me", "default", "n1", corev1.PodRunning, 8, 0, 0),
+		testPod("drive-other", "default", "n1", corev1.PodRunning, 8, 0, 0),
+		testPod("foreign", "default", "n1", corev1.PodRunning, 52, 0, 0))
+	cluster := &weka.WekaCluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-me", UID: "cluster-me"}}
+
+	_, inv, _, err := NewCollector(fakeClient).NodeInventory(context.Background(), cluster, []*weka.WekaContainer{&own}, testCons())
+	if err != nil {
+		t.Fatalf("NodeInventory: %v", err)
+	}
+	n1cap := invByName(inv)["n1"]
+	if !n1cap.HasDeletingDriveContainer || n1cap.AllocatableCPU != 0 || n1cap.ReclaimableCPU != 4 {
+		t.Errorf("n1 deleting=%v AllocatableCPU=%d ReclaimableCPU=%d, want true/0/4 (not 8: clamped; not 12: drive-other is another cluster's)",
+			n1cap.HasDeletingDriveContainer, n1cap.AllocatableCPU, n1cap.ReclaimableCPU)
+	}
+}
+
 // TestChargeForeignPods_ChargesForeignPod: a scheduled pod with no WekaContainer must still be charged
 // against node headroom — otherwise the planner sees full headroom and a placed container sits Pending.
 func TestChargeForeignPods_ChargesForeignPod(t *testing.T) {

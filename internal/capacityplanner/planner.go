@@ -219,8 +219,7 @@ type nodeState struct {
 	coresFree    int
 	hugepagesMiB int
 	memoryMiB    int
-	// hasDeletingDriveContainer mirrors NodeCapacity.HasDeletingDriveContainer; only deprioritizes the
-	// node in orderFreshFdGroups.
+	// hasDeletingDriveContainer mirrors NodeCapacity.HasDeletingDriveContainer; see freshIneligibleReason.
 	hasDeletingDriveContainer bool
 }
 
@@ -1613,7 +1612,7 @@ func rejectedNodesBreakdown(p poolKind, states map[string]*nodeState, poolUsed m
 
 	for _, rj := range rejectedNodes(p, states, poolUsed, cons) {
 		switch {
-		case strings.HasPrefix(rj.Binding, "already hosts"):
+		case strings.HasPrefix(rj.Binding, "already hosts"), strings.HasPrefix(rj.Binding, "ineligible"):
 			add(rj.Node, rj.Binding)
 		case rj.Binding == "drive capacity" && rj.FreeGiB == 0:
 			add(rj.Node, fmt.Sprintf("no %s drive capacity", p))
@@ -1910,36 +1909,42 @@ func resolveExactNewFds(p poolKind, targetFds int, existingDrives []ExistingCont
 type fdGroup struct {
 	nodes    []*nodeState // nodes in this FD, headroom desc (inherited from cands' order)
 	headroom int          // aggregate FD headroom (sum over its candidate nodes), for the fit check
-	// hasDeletingDriveContainer: a member node still hosts a this-cluster drive container being deleted;
-	// takeFreshAtLevel deprioritizes it so a replacement isn't recreated on the node it was just deleted from.
-	hasDeletingDriveContainer bool
 	// colocated: set by colocatedFirst when a member node already carries the OTHER pool's pending
-	// container. takeFreshAtLevel treats it as the PRIMARY preference (above not-deleting), since that
-	// just-freed node is exactly where both pools should co-locate as one mixed container.
+	// container. takeFreshAtLevel prefers it, since that node is where both pools should co-locate as one
+	// mixed container.
 	colocated bool
 }
 
-// takeFreshAtLevel returns up to k fresh candidate FDs that can host `level`, preferring FDs with no
-// deleting container over those that have one (each tier headroom-desc). A just-freed node re-enters the
-// fresh pool as the emptiest FD, so raw headroom alone would recreate the replacement right where it was
-// deleted; the `level` filter still lets a capable deleting FD win as a fallback over a too-small one.
+// takeFreshAtLevel returns up to k fresh candidate FDs that can host `level`, co-located FDs first (each
+// tier headroom-desc).
 func takeFreshAtLevel(fresh []*fdGroup, k, level int) []*fdGroup {
 	out := make([]*fdGroup, 0, k)
-	// Co-location is the PRIMARY key, not-deleting the SECONDARY. Tier order: colocated+notDeleting,
-	// colocated+deleting, notColocated+notDeleting, notColocated+deleting.
 	for _, wantColocated := range []bool{true, false} {
-		for _, wantDeleting := range []bool{false, true} {
-			for _, g := range fresh {
-				if len(out) >= k {
-					return out
-				}
-				if g.headroom >= level && g.colocated == wantColocated && g.hasDeletingDriveContainer == wantDeleting {
-					out = append(out, g)
-				}
+		for _, g := range fresh {
+			if len(out) >= k {
+				return out
+			}
+			if g.headroom >= level && g.colocated == wantColocated {
+				out = append(out, g)
 			}
 		}
 	}
 	return out
+}
+
+// freshIneligibleReason is why a node cannot start a new container in this plan, "" when it can. A node
+// still hosting this cluster's drive container being deleted is barred until that container is gone: a
+// drive container placed there evicts itself (enforceNodeAffinity "scheduling race") while the old one
+// still claims the node, and planning around the old pod's still-charged resources splits mixed
+// replacements into single-type ones.
+func (ns *nodeState) freshIneligibleReason() string {
+	if ns.nc.IneligibleReason != "" {
+		return ns.nc.IneligibleReason
+	}
+	if ns.hasDeletingDriveContainer {
+		return "drive container still being deleted"
+	}
+	return ""
 }
 
 // orderFreshFdGroups returns FDs with placeable headroom for pool p (candidate nodes not in poolNodeUsed,
@@ -1953,7 +1958,7 @@ func orderFreshFdGroups(p poolKind, states map[string]*nodeState, poolNodeUsed m
 		}
 		// Ineligible nodes never start a fresh FD here; existingFdsAsChosen still counts one that already
 		// hosts a container in this pool, so a cordoned backend's existing drives stay in the plan.
-		if ns.nc.IneligibleReason != "" {
+		if ns.freshIneligibleReason() != "" {
 			continue
 		}
 		if ns.nodeHeadroom(p, cons, true) >= cons.MinChunkSizeGiB {
@@ -1978,9 +1983,6 @@ func orderFreshFdGroups(p poolKind, states map[string]*nodeState, poolNodeUsed m
 		}
 		g.nodes = append(g.nodes, ns)
 		g.headroom += ns.nodeHeadroom(p, cons, true)
-		if ns.hasDeletingDriveContainer {
-			g.hasDeletingDriveContainer = true
-		}
 	}
 	return order
 }
@@ -2036,7 +2038,7 @@ func colocatedFirst(groups []*fdGroup, preferNodes map[string]struct{}) []*fdGro
 	back := make([]*fdGroup, 0, len(groups))
 	for _, g := range groups {
 		if isColocated(g) {
-			g.colocated = true // primary tier in takeFreshAtLevel (above not-deleting)
+			g.colocated = true // primary tier in takeFreshAtLevel
 			front = append(front, g)
 		} else {
 			back = append(back, g)
@@ -2059,7 +2061,7 @@ func countPoolCapableNodes(states map[string]*nodeState, poolUsed map[string]str
 		if capacity <= 0 {
 			continue
 		}
-		if ns.nc.IneligibleReason != "" {
+		if ns.freshIneligibleReason() != "" {
 			if _, used := poolUsed[name]; !used {
 				continue
 			}

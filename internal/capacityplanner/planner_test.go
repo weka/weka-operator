@@ -560,8 +560,9 @@ func Test_UniformIncrease_TLCplusQLC_CoLocatesNewFDs(t *testing.T) {
 }
 
 // Both pools short, scaling off, freed mixed node's old QLC container still terminating vs. a finalized
-// freed TLC-only node: co-location must still win, landing TLC on the freed mixed node (regression for takeFreshAtLevel's ranking).
-func Test_UniformIncrease_BothShort_CoLocatesOnFreedNode_EvenWhileTerminating(t *testing.T) {
+// freed TLC-only node: nothing is placed (not even a TLC-only split onto fh6) until the old container is
+// gone; then co-location wins, landing TLC on the freed mixed node (regression for takeFreshAtLevel's ranking).
+func Test_UniformIncrease_BothShort_CoLocatesOnFreedNode_AfterTermination(t *testing.T) {
 	s := ProtectionScheme{StripeWidth: 3, RedundancyLevel: 2, HotSpare: 0} // minFd = 5
 	cons := testCons()
 	cons.AllowInPlaceGrowth = false // matches the live cluster default (no conversion of occupied nodes)
@@ -591,7 +592,14 @@ func Test_UniformIncrease_BothShort_CoLocatesOnFreedNode_EvenWhileTerminating(t 
 		curT += c.TlcGiB
 		curQ += c.QlcGiB
 	}
-	plan := planCap(DesiredCapacity{TlcRawGiB: curT + 1157, QlcRawGiB: curQ + 4053}, s, existingDrives, inv, cons)
+	desired := DesiredCapacity{TlcRawGiB: curT + 1157, QlcRawGiB: curQ + 4053}
+	plan := planCap(desired, s, existingDrives, inv, cons)
+	if plan.Infeasible == "" {
+		t.Fatalf("while fmix's container is terminating, want infeasible (nothing applied); got %+v", plan.Create)
+	}
+
+	inv[len(inv)-2].HasDeletingDriveContainer = false // fmix's old container is gone
+	plan = planCap(desired, s, existingDrives, inv, cons)
 	if plan.Infeasible != "" {
 		t.Fatalf("unexpected infeasible: %s", plan.Infeasible)
 	}
@@ -3373,8 +3381,8 @@ func Test_UniformIncrease_ScalingDisabled_NoSpare_Infeasible(t *testing.T) {
 	}
 }
 
-// A deleting container's node re-enters the fresh-candidate pool as the highest-headroom node and would
-// win by pure headroom-desc; deprioritization must instead land the restored FD on a genuinely free node.
+// A deleting container's node has the most headroom and would win by pure headroom-desc; it must be
+// skipped so the restored FD lands on a genuinely free node.
 func Test_GrowRestore_PrefersCleanNodeOverDeletingNode(t *testing.T) {
 	s := testScheme() // minFdNum = 6
 	cons := testCons()
@@ -3402,9 +3410,23 @@ func Test_GrowRestore_PrefersCleanNodeOverDeletingNode(t *testing.T) {
 	}
 }
 
-// The deprioritization is last-resort, not an exclusion: when the deleting node is the only candidate
-// that fits, the planner must still restore there rather than go infeasible.
-func Test_GrowRestore_FallsBackToDeletingNodeWhenSoleCandidate(t *testing.T) {
+// The infeasibility breakdown names an ineligible node's reason as is, not as a capacity shortfall.
+func Test_InfeasibleBreakdown_ShowsIneligibleReason(t *testing.T) {
+	inv := nodes(5, 30*tib, 0, 64, "n")
+	ndel := node("ndel", 30*tib, 0, 64)
+	ndel.HasDeletingDriveContainer = true
+	inv = append(inv, ndel)
+
+	plan := planCap(DesiredCapacity{TlcRawGiB: 60 * tib}, testScheme(), nil, inv, testCons()) // minFdNum 6
+	if !strings.Contains(plan.Infeasible, "ndel: ineligible (drive container still being deleted)") ||
+		strings.Contains(plan.Infeasible, "limits usable") {
+		t.Fatalf("want ndel listed with its ineligible reason, got: %s", plan.Infeasible)
+	}
+}
+
+// A node whose drive container is still being deleted is not a candidate, even when it is the only one
+// that fits: the plan is infeasible until that container is gone, then restores there.
+func Test_GrowRestore_WaitsForDeletingNodeWhenSoleCandidate(t *testing.T) {
 	s := testScheme()
 	cons := testCons()
 	var existingDrives []ExistingContainer
@@ -3419,14 +3441,14 @@ func Test_GrowRestore_FallsBackToDeletingNodeWhenSoleCandidate(t *testing.T) {
 	inv = append(inv, ndel, nsmall)
 
 	plan := planCap(DesiredCapacity{TlcRawGiB: 180 * tib}, s, existingDrives, inv, cons)
-	if plan.Infeasible != "" {
-		t.Fatalf("must restore on the deleting node when it is the only capable candidate; got infeasible: %s", plan.Infeasible)
+	if plan.Infeasible == "" {
+		t.Fatalf("while ndel's container is being deleted, want infeasible (nothing applied); got %+v", plan.Create)
 	}
-	if len(plan.Create) != 1 {
-		t.Fatalf("want exactly 1 new FD, got %d", len(plan.Create))
-	}
-	if got := plan.Create[0].Node; got != "ndel" {
-		t.Fatalf("want fallback onto the only capable (deleting) node ndel, got %q", got)
+
+	inv[len(inv)-2].HasDeletingDriveContainer = false // the old container is gone
+	plan = planCap(DesiredCapacity{TlcRawGiB: 180 * tib}, s, existingDrives, inv, cons)
+	if plan.Infeasible != "" || len(plan.Create) != 1 || plan.Create[0].Node != "ndel" {
+		t.Fatalf("once ndel is free, want 1 new FD on ndel; got %+v (infeasible %q)", plan.Create, plan.Infeasible)
 	}
 }
 

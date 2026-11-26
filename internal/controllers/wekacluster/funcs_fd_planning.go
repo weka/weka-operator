@@ -3,6 +3,7 @@ package wekacluster
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -113,6 +114,12 @@ func (r *wekaClusterReconcilerLoop) planClusterCapacity(ctx context.Context) (*c
 	// the shrink/heterogeneous-growth/over-provision advisories (they would just be noise on a plan
 	// that creates/grows nothing).
 	if plan.Infeasible != "" {
+		if feasibleOnceDeletionsFinish(desired, s, existingDrives, existingCompute, nodeInv, computeNodes, cons) {
+			msg := fmt.Sprintf("deferring clusterCapacity planning: waiting for drive container(s) %s to finish deleting before placing replacements",
+				strings.Join(deletingDriveContainers(r.containers), ", "))
+			r.emitPlannerEvent(reasonClusterCapacityDeferred, msg)
+			return nil, lifecycle.NewWaitErrorWithDuration(fmt.Errorf("%s", msg), 15*time.Second)
+		}
 		r.emitPlannerEvent(reasonClusterCapacityInfeasible, plan.Infeasible)
 		return nil, lifecycle.NewWaitErrorWithDuration(fmt.Errorf("clusterCapacity infeasible: %s", plan.Infeasible), time.Minute)
 	}
@@ -298,6 +305,40 @@ func firstUnscheduledDriveContainer(containers []*weka.WekaContainer) (string, b
 		}
 	}
 	return "", false
+}
+
+// feasibleOnceDeletionsFinish reports whether an infeasible plan is blocked only by nodes still hosting
+// this cluster's drive container being deleted: the same plan succeeds with those nodes counted as
+// available and the dying pods' CPU, hugepages and memory given back.
+func feasibleOnceDeletionsFinish(desired capacityplanner.DesiredCapacity, s capacityplanner.ProtectionScheme,
+	existingDrives []capacityplanner.ExistingContainer, existingCompute []capacityplanner.ExistingComputeContainer,
+	nodeInv []capacityplanner.NodeCapacity, computeNodes map[string]bool, cons *capacityplanner.CapacityConstraints,
+) bool {
+	freed := slices.Clone(nodeInv)
+	anyDeleting := false
+	for i := range freed {
+		n := &freed[i]
+		if !n.HasDeletingDriveContainer {
+			continue
+		}
+		anyDeleting = true
+		n.HasDeletingDriveContainer = false
+		n.AllocatableCPU += n.ReclaimableCPU
+		n.AvailableHugepagesMiB += n.ReclaimableHugepagesMiB
+		n.AvailableMemoryMiB += n.ReclaimableMemoryMiB
+	}
+	return anyDeleting && capacityplanner.PlanCapacity(desired, s, existingDrives, existingCompute, freed, computeNodes, cons).Infeasible == ""
+}
+
+// deletingDriveContainers lists this cluster's drive containers being deleted as "name on node".
+func deletingDriveContainers(containers []*weka.WekaContainer) []string {
+	var out []string
+	for _, c := range containers {
+		if inventory.IsDeletingDriveContainer(c) && c.GetNodeAffinity() != "" {
+			out = append(out, fmt.Sprintf("%s on %s", c.Name, c.GetNodeAffinity()))
+		}
+	}
+	return out
 }
 
 // noopCapacityPlan builds a no-op CapacityPlan carrying this cluster's current compute sizing (from its
