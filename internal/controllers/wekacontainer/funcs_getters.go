@@ -103,12 +103,20 @@ func (r *containerReconcilerLoop) CanSkipDrivesForceResign() bool {
 	return r.container.Spec.GetOverrides().SkipDrivesForceResign
 }
 
+func (r *containerReconcilerLoop) CanSkipVirtualDrivesRemoval() bool {
+	return r.container.Spec.GetOverrides().SkipVirtualDrivesRemoval
+}
+
 func (r *containerReconcilerLoop) HasStatusNodeAffinity() bool {
 	return r.container.Status.NodeAffinity != ""
 }
 
 func (r *containerReconcilerLoop) HasNodeAffinity() bool {
 	return r.container.GetNodeAffinity() != ""
+}
+
+func (r *containerReconcilerLoop) HasVirtualDrives() bool {
+	return r.container.Status.Allocations != nil && len(r.container.Status.Allocations.VirtualDrives) > 0
 }
 
 // NodeHasFullDrivesAnnotation returns true if the weka-full-drives annotation key is present

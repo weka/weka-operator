@@ -303,6 +303,8 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.IsDriveContainer,
 				r.container.UsesDriveSharing,
 				r.HasNodeAffinity,
+				r.HasVirtualDrives,
+				lifecycle.IsNotFunc(r.CanSkipVirtualDrivesRemoval),
 			},
 		},
 		&lifecycle.SimpleStep{
