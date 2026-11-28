@@ -21,8 +21,14 @@ type NodeCapacity struct {
 	// FDValue is the failure-domain key: label value in label-based mode, else the node name (auto mode).
 	FDValue string
 	// HasDeletingDriveContainer: node still runs a this-cluster drive container pending deletion —
-	// excluded from existingDrives but still charged; deprioritizes but doesn't exclude fresh placement.
+	// excluded from existingDrives but still charged, and barred from new placement until it is gone.
 	HasDeletingDriveContainer bool
+	// Reclaimable*: the headroom this node gains once this cluster's drive containers being deleted on it
+	// are gone (clamped like the fields above, so never more than their pods hold). Only used to judge
+	// whether a plan would fit once those deletions finish.
+	ReclaimableCPU          int
+	ReclaimableHugepagesMiB int
+	ReclaimableMemoryMiB    int
 	// IneligibleReason is why this node cannot receive a new container right now (cordoned/not
 	// ready/untolerated taint), "" when it can — see resources.NodeIneligibleReason. Existing containers on
 	// the node still count against capacity; only new placement must skip it, since a node-pinned leg has no

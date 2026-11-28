@@ -208,9 +208,10 @@ func (c Collector) nodeInventoryFromLists(ctx context.Context, cluster *weka.Wek
 	tolerations := resources.GetWekaPodTolerationsForCluster(cluster)
 
 	// Nodes hosting THIS cluster's drive container being deleted: excluded from existingDrives, so its
-	// TLC/QLC capacity re-enters the fresh-candidate pool — but while its pod lives, cores/hugepages/memory
-	// stay charged via chargeForeignPods. Flagged so the planner deprioritizes fresh placement.
+	// TLC/QLC capacity is freed — but while its pod lives, cores/hugepages/memory stay charged via
+	// chargeForeignPods. Flagged so the planner keeps new containers off the node until it is gone.
 	deletingDriveNodes := nodesWithDeletingDriveContainer(ownContainers)
+	ownDeletingPods := ownDeletingDrivePodsByNode(ownContainers, consumed)
 
 	// Drive candidates: nodes with usable shared-drive capacity, carrying TLC/QLC headroom and an FD key.
 	fdByNode := map[string]string{}
@@ -240,6 +241,7 @@ func (c Collector) nodeInventoryFromLists(ctx context.Context, cluster *weka.Wek
 		tlcGiB := max(0, physTLC-consumed.tlc[node.Name])
 		qlcGiB := max(0, physQLC-consumed.qlc[node.Name])
 		cpu, hugepagesMiB, memoryMiB := nodeHeadroom(node, consumed)
+		freedCPU, freedHugepagesMiB, freedMemoryMiB := nodeHeadroomWithout(node, consumed, ownDeletingPods[node.Name])
 		topo := topos[node.Name]
 		driveInv = append(driveInv, capacityplanner.NodeCapacity{
 			NodeName:                  node.Name,
@@ -252,6 +254,9 @@ func (c Collector) nodeInventoryFromLists(ctx context.Context, cluster *weka.Wek
 			IsHt:                      topo.IsHt,
 			FullPcpusOnly:             topo.FullPcpusOnly,
 			HasDeletingDriveContainer: deletingDriveNodes[node.Name],
+			ReclaimableCPU:            freedCPU - cpu,
+			ReclaimableHugepagesMiB:   freedHugepagesMiB - hugepagesMiB,
+			ReclaimableMemoryMiB:      freedMemoryMiB - memoryMiB,
 			IneligibleReason:          resources.NodeIneligibleReason(node, tolerations),
 		})
 	}
@@ -463,15 +468,49 @@ func ExistingCompute(ctx context.Context, ownContainers []*weka.WekaContainer) [
 // other scheduled pod via chargeForeignPods. Both charge cluster-wide, so every node key is complete.
 type nodeResources struct {
 	tlc, qlc, cores, hugepages, memory map[string]int
+	// deletingDrivePods: the pod of every drive container being deleted, keyed for aggregateContainerResources
+	// and filled with its requests by chargeForeignPods, which still charges it.
+	deletingDrivePods map[podKey]podRequests
+}
+
+// podRequests is what one pod holds on its node.
+type podRequests struct {
+	node                           string
+	cores, hugepagesMiB, memoryMiB int
 }
 
 // nodeHeadroom returns node's free CPU (cores), hugepages (MiB), and memory (MiB): allocatable minus
 // whatever consumed already charges against it.
 func nodeHeadroom(node *corev1.Node, consumed nodeResources) (cpu, hugepagesMiB, memoryMiB int) {
-	cpu = max(0, int(node.Status.Allocatable.Cpu().Value())-consumed.cores[node.Name])
-	hugepagesMiB = max(0, nodeAllocatableHugepagesMiB(node)-consumed.hugepages[node.Name])
-	memoryMiB = max(0, nodeAllocatableMemoryMiB(node)-consumed.memory[node.Name])
+	return nodeHeadroomWithout(node, consumed, podRequests{})
+}
+
+// nodeHeadroomWithout is nodeHeadroom once the pods summed in gone have released their requests. Each value
+// is clamped at 0 like nodeHeadroom, so on an over-committed node the difference is less than gone itself.
+func nodeHeadroomWithout(node *corev1.Node, consumed nodeResources, gone podRequests) (cpu, hugepagesMiB, memoryMiB int) {
+	cpu = max(0, int(node.Status.Allocatable.Cpu().Value())-consumed.cores[node.Name]+gone.cores)
+	hugepagesMiB = max(0, nodeAllocatableHugepagesMiB(node)-consumed.hugepages[node.Name]+gone.hugepagesMiB)
+	memoryMiB = max(0, nodeAllocatableMemoryMiB(node)-consumed.memory[node.Name]+gone.memoryMiB)
 	return cpu, hugepagesMiB, memoryMiB
+}
+
+// ownDeletingDrivePodsByNode sums, per node, what the pods of this cluster's drive containers being deleted
+// still hold. Other clusters' deletions are left out: this cluster's deferral only waits for its own.
+func ownDeletingDrivePodsByNode(ownContainers []*weka.WekaContainer, consumed nodeResources) map[string]podRequests {
+	out := map[string]podRequests{}
+	for _, c := range ownContainers {
+		r, ok := consumed.deletingDrivePods[containerPodKey(c)]
+		if !ok || r.node == "" {
+			continue // not a deleting drive container, or its pod is already gone
+		}
+		sum := out[r.node]
+		sum.node = r.node
+		sum.cores += r.cores
+		sum.hugepagesMiB += r.hugepagesMiB
+		sum.memoryMiB += r.memoryMiB
+		out[r.node] = sum
+	}
+	return out
 }
 
 // podKey identifies a Pod by name/namespace, recognizing a WekaContainer's own pod without a second API
@@ -564,6 +603,10 @@ func (c Collector) chargeForeignPods(ctx context.Context, res *nodeResources, ch
 		res.cores[pod.Spec.NodeName] += cpu
 		res.hugepages[pod.Spec.NodeName] += hugepagesMiB
 		res.memory[pod.Spec.NodeName] += memoryMiB
+		key := podKey{Namespace: pod.Namespace, Name: pod.Name}
+		if _, deleting := res.deletingDrivePods[key]; deleting {
+			res.deletingDrivePods[key] = podRequests{node: pod.Spec.NodeName, cores: cpu, hugepagesMiB: hugepagesMiB, memoryMiB: memoryMiB}
+		}
 	}
 	return nil
 }
@@ -693,11 +736,16 @@ func aggregateContainerResources(containers []weka.WekaContainer, cons *capacity
 		cores:     map[string]int{},
 		hugepages: map[string]int{},
 		memory:    map[string]int{},
+
+		deletingDrivePods: map[podKey]podRequests{},
 	}
 	charged = map[podKey]bool{}
 	for i := range containers {
 		c := &containers[i]
 		if c.IsMarkedForDeletion() {
+			if IsDeletingDriveContainer(c) {
+				res.deletingDrivePods[containerPodKey(c)] = podRequests{}
+			}
 			continue
 		}
 		node := string(c.GetNodeAffinity())

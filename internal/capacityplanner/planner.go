@@ -57,6 +57,8 @@ type CapacityConstraints struct {
 	TlcCapacityPerCoreGiB int
 	QlcCapacityPerCoreGiB int
 	MinChunkSizeGiB       int
+	// EnforceMinDrivesPerTypePerCore mirrors the allocator's per-type minimum (see MinCapacityShortfall).
+	EnforceMinDrivesPerTypePerCore bool
 	// ImbalanceFactor gates the heterogeneous "balanced fresh" growth fallback (detectImbalance): when a
 	// fresh per-FD chunk would be >= ImbalanceFactor × the existing per-FD average, abandon the dwarfed
 	// existing FDs for a fresh uniform layout instead. <= 0 disables the fallback.
@@ -217,8 +219,7 @@ type nodeState struct {
 	coresFree    int
 	hugepagesMiB int
 	memoryMiB    int
-	// hasDeletingDriveContainer mirrors NodeCapacity.HasDeletingDriveContainer; only deprioritizes the
-	// node in orderFreshFdGroups.
+	// hasDeletingDriveContainer mirrors NodeCapacity.HasDeletingDriveContainer; see freshIneligibleReason.
 	hasDeletingDriveContainer bool
 }
 
@@ -499,6 +500,39 @@ func PlanCapacity(
 		cores, derived, reason, fixes := pinCores(n.TlcGiB, n.QlcGiB)
 		if reason != "" {
 			setInfeasible(&plan, &InfeasibilityReport{Reason: reason, Binding: "driveCores", Fixes: fixes})
+			return plan
+		}
+		// The allocator would refuse this container. Grown containers are not checked: the allocator skips
+		// its minimum on reallocation.
+		if binding, needed := MinCapacityShortfall(n.TlcGiB, n.QlcGiB, cores, cons); binding != "" {
+			binds, fixes := "drive capacity", []string(nil)
+			if desired.DriveCores > derived {
+				binds, fixes = "driveCores", []string{"lower driveCores or unset it to auto-size from capacity"}
+			}
+			if (binding == "TLC" || binding == "QLC") && n.TlcGiB > 0 && n.QlcGiB > 0 {
+				fixes = append(fixes,
+					fmt.Sprintf("raise the %s share of this cluster's driveTypesRatio", binding),
+					"set the helm value driveSharing.enforceMinDrivesPerTypePerCore=false (applies to all clusters)")
+			}
+			fixes = append(fixes, "raise clusterCapacity so each drive container holds more")
+			drives := fmt.Sprintf("%d virtual drives of %d GiB each", cores, cons.MinChunkSizeGiB)
+			var need string
+			switch binding {
+			case "total":
+				need = fmt.Sprintf("it needs at least %d GiB in total (%s)", needed, drives)
+			case "drives":
+				need = fmt.Sprintf("it needs %s, but its TLC and QLC split into only %d",
+					drives, n.TlcGiB/cons.MinChunkSizeGiB+n.QlcGiB/cons.MinChunkSizeGiB)
+			default:
+				need = fmt.Sprintf("with enforceMinDrivesPerTypePerCore=true it needs at least %d GiB of %s (%s)", needed, binding, drives)
+			}
+			setInfeasible(&plan, &InfeasibilityReport{
+				Reason: fmt.Sprintf(
+					"each new drive container would get %d GiB TLC + %d GiB QLC and %d drive cores; %s. Fix: %s",
+					n.TlcGiB, n.QlcGiB, cores, need, strings.Join(fixes, "; or ")),
+				Binding: binds,
+				Fixes:   fixes,
+			})
 			return plan
 		}
 		// When driveCores is pinned ABOVE the capacity-derived count, the extra cores (and their
@@ -1313,14 +1347,16 @@ func planPoolUniformIncrease(
 	// Preferred: cover delta with k new FDs sized to CeilDiv(delta, k). Iterate k ascending from kMin
 	// (fewest FDs within maxPerFdCap) so as few, as-large FDs as possible are used. kMax caps the count at
 	// what T0-cloning would use. detectImbalance/freshCountAtLeast push k up rather than failing outright.
+	// Ceil, as existing FDs were sized: floor would cap a replacement 1 GiB below the FD it replaces.
 	maxPerFdCap := 0
 	if minFd > 0 {
-		maxPerFdCap = desiredRaw / minFd
+		maxPerFdCap = util.CeilDiv(desiredRaw, minFd)
 	}
 	if maxPerFdCap > 0 {
 		existingAvg := poolAvg(existingDrives, p)
-		kMin := max(1, util.CeilDiv(delta, maxPerFdCap))       // fewest FDs (largest per-FD within the ceiling)
-		kMax := min(util.CeilDiv(delta, T0), len(freshGroups)) // count cap: no more FDs than T0-cloning would use
+		kMin := max(1, minFd-numExisting, util.CeilDiv(delta, maxPerFdCap)) // fewest FDs, but enough to restore minFd
+		// count cap: no more FDs than T0-cloning would use, unless more are needed to restore minFd
+		kMax := min(max(util.CeilDiv(delta, T0), minFd-numExisting), len(freshGroups))
 		for k := kMin; k <= kMax; k++ {
 			perFd := util.CeilDiv(delta, k)
 			if perFd < cons.MinChunkSizeGiB {
@@ -1412,7 +1448,7 @@ func planPoolUniformIncrease(
 		// just to describe WHY the frozen layout cannot reach the target.
 		maxPerFdCap := 0
 		if minFd > 0 {
-			maxPerFdCap = desiredRaw / minFd
+			maxPerFdCap = util.CeilDiv(desiredRaw, minFd)
 		}
 		kNeeded := util.CeilDiv(delta, T0)
 		kAvail := freshCountAtLeast(T0)
@@ -1576,7 +1612,7 @@ func rejectedNodesBreakdown(p poolKind, states map[string]*nodeState, poolUsed m
 
 	for _, rj := range rejectedNodes(p, states, poolUsed, cons) {
 		switch {
-		case strings.HasPrefix(rj.Binding, "already hosts"):
+		case strings.HasPrefix(rj.Binding, "already hosts"), strings.HasPrefix(rj.Binding, "ineligible"):
 			add(rj.Node, rj.Binding)
 		case rj.Binding == "drive capacity" && rj.FreeGiB == 0:
 			add(rj.Node, fmt.Sprintf("no %s drive capacity", p))
@@ -1873,36 +1909,42 @@ func resolveExactNewFds(p poolKind, targetFds int, existingDrives []ExistingCont
 type fdGroup struct {
 	nodes    []*nodeState // nodes in this FD, headroom desc (inherited from cands' order)
 	headroom int          // aggregate FD headroom (sum over its candidate nodes), for the fit check
-	// hasDeletingDriveContainer: a member node still hosts a this-cluster drive container being deleted;
-	// takeFreshAtLevel deprioritizes it so a replacement isn't recreated on the node it was just deleted from.
-	hasDeletingDriveContainer bool
 	// colocated: set by colocatedFirst when a member node already carries the OTHER pool's pending
-	// container. takeFreshAtLevel treats it as the PRIMARY preference (above not-deleting), since that
-	// just-freed node is exactly where both pools should co-locate as one mixed container.
+	// container. takeFreshAtLevel prefers it, since that node is where both pools should co-locate as one
+	// mixed container.
 	colocated bool
 }
 
-// takeFreshAtLevel returns up to k fresh candidate FDs that can host `level`, preferring FDs with no
-// deleting container over those that have one (each tier headroom-desc). A just-freed node re-enters the
-// fresh pool as the emptiest FD, so raw headroom alone would recreate the replacement right where it was
-// deleted; the `level` filter still lets a capable deleting FD win as a fallback over a too-small one.
+// takeFreshAtLevel returns up to k fresh candidate FDs that can host `level`, co-located FDs first (each
+// tier headroom-desc).
 func takeFreshAtLevel(fresh []*fdGroup, k, level int) []*fdGroup {
 	out := make([]*fdGroup, 0, k)
-	// Co-location is the PRIMARY key, not-deleting the SECONDARY. Tier order: colocated+notDeleting,
-	// colocated+deleting, notColocated+notDeleting, notColocated+deleting.
 	for _, wantColocated := range []bool{true, false} {
-		for _, wantDeleting := range []bool{false, true} {
-			for _, g := range fresh {
-				if len(out) >= k {
-					return out
-				}
-				if g.headroom >= level && g.colocated == wantColocated && g.hasDeletingDriveContainer == wantDeleting {
-					out = append(out, g)
-				}
+		for _, g := range fresh {
+			if len(out) >= k {
+				return out
+			}
+			if g.headroom >= level && g.colocated == wantColocated {
+				out = append(out, g)
 			}
 		}
 	}
 	return out
+}
+
+// freshIneligibleReason is why a node cannot start a new container in this plan, "" when it can. A node
+// still hosting this cluster's drive container being deleted is barred until that container is gone: a
+// drive container placed there evicts itself (enforceNodeAffinity "scheduling race") while the old one
+// still claims the node, and planning around the old pod's still-charged resources splits mixed
+// replacements into single-type ones.
+func (ns *nodeState) freshIneligibleReason() string {
+	if ns.nc.IneligibleReason != "" {
+		return ns.nc.IneligibleReason
+	}
+	if ns.hasDeletingDriveContainer {
+		return "drive container still being deleted"
+	}
+	return ""
 }
 
 // orderFreshFdGroups returns FDs with placeable headroom for pool p (candidate nodes not in poolNodeUsed,
@@ -1916,7 +1958,7 @@ func orderFreshFdGroups(p poolKind, states map[string]*nodeState, poolNodeUsed m
 		}
 		// Ineligible nodes never start a fresh FD here; existingFdsAsChosen still counts one that already
 		// hosts a container in this pool, so a cordoned backend's existing drives stay in the plan.
-		if ns.nc.IneligibleReason != "" {
+		if ns.freshIneligibleReason() != "" {
 			continue
 		}
 		if ns.nodeHeadroom(p, cons, true) >= cons.MinChunkSizeGiB {
@@ -1941,9 +1983,6 @@ func orderFreshFdGroups(p poolKind, states map[string]*nodeState, poolNodeUsed m
 		}
 		g.nodes = append(g.nodes, ns)
 		g.headroom += ns.nodeHeadroom(p, cons, true)
-		if ns.hasDeletingDriveContainer {
-			g.hasDeletingDriveContainer = true
-		}
 	}
 	return order
 }
@@ -1999,7 +2038,7 @@ func colocatedFirst(groups []*fdGroup, preferNodes map[string]struct{}) []*fdGro
 	back := make([]*fdGroup, 0, len(groups))
 	for _, g := range groups {
 		if isColocated(g) {
-			g.colocated = true // primary tier in takeFreshAtLevel (above not-deleting)
+			g.colocated = true // primary tier in takeFreshAtLevel
 			front = append(front, g)
 		} else {
 			back = append(back, g)
@@ -2022,7 +2061,7 @@ func countPoolCapableNodes(states map[string]*nodeState, poolUsed map[string]str
 		if capacity <= 0 {
 			continue
 		}
-		if ns.nc.IneligibleReason != "" {
+		if ns.freshIneligibleReason() != "" {
 			if _, used := poolUsed[name]; !used {
 				continue
 			}

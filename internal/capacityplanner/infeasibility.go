@@ -71,8 +71,8 @@ func rejectedNodes(p poolKind, states map[string]*nodeState, poolUsed map[string
 			out = append(out, NodeRejection{Node: name, Binding: fmt.Sprintf("already hosts a %s container", p)})
 			continue
 		}
-		if ns.nc.IneligibleReason != "" {
-			out = append(out, NodeRejection{Node: name, Binding: fmt.Sprintf("ineligible (%s)", ns.nc.IneligibleReason)})
+		if reason := ns.freshIneligibleReason(); reason != "" {
+			out = append(out, NodeRejection{Node: name, Binding: fmt.Sprintf("ineligible (%s)", reason)})
 			continue
 		}
 		h, binding := ns.nodeHeadroomBinding(p, cons, true)
