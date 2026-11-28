@@ -1,0 +1,29 @@
+# WekaManualOperation forcing the type of one specific drive by serial. Select only the drive's node.
+# An op with driveTypeOverrides replaces that node's whole rule set, so repeat any node-wide rules
+# (e.g. from sign-shared-drives-type-override.yaml) here, and don't run both ops against this node at
+# the same time: whichever is applied last wins. See doc/operator/operations/drive-signing.md.
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: sign-shared-drives-override-serial
+  namespace: weka-operator-system
+spec:
+  action: sign-drives
+  payload:
+    signDrivesPayload:
+      type: all-not-root
+      nodeSelector:
+        kubernetes.io/hostname: <node>
+      shared: true
+      driveTypeOverrides:
+        rules:
+          # Force one specific drive (serial exactly as recorded in weka.io/weka-shared-drives) to QLC.
+          # The first matching rule wins and a shadowed rule raises no warning, so keep it ahead of the
+          # broader rules below.
+          - serial: "S5XYNS0T123456"
+            type: QLC
+          # Node-wide rules repeated from sign-shared-drives-type-override.yaml.
+          - model: "SAMSUNG MZWLO7T6HBLA-00A07"
+            type: QLC
+          - capacityGiB: 3500
+            type: TLC

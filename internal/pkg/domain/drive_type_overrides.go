@@ -22,8 +22,8 @@ const (
 // rules). Rules are evaluated in order; the first match on a drive wins its Type, but a rule
 // shadowed by an earlier match on every drive it applies to still counts as matched — reporting
 // it as unmatched would be a false positive. Model matches case-insensitively (trimmed);
-// CapacityGiB matches exactly; when both are set on a rule, both must match. Rules whose Type
-// isn't exactly "TLC" or "QLC" are ignored.
+// CapacityGiB matches exactly; Serial matches exactly; all set fields of a rule must
+// match. Rules whose Type isn't exactly "TLC" or "QLC" are ignored.
 func ApplyDriveTypeOverrides(drives []SharedDriveInfo, rules []v1alpha1.DriveTypeOverrideRule) (out []SharedDriveInfo, changed int, unmatchedRules []int) {
 	out = make([]SharedDriveInfo, len(drives))
 	copy(out, drives)
@@ -64,8 +64,8 @@ func ApplyDriveTypeOverrides(drives []SharedDriveInfo, rules []v1alpha1.DriveTyp
 	return out, changed, unmatchedRules
 }
 
-// driveTypeOverrideRuleMatches reports whether rule matches drive. At least one of Model or
-// CapacityGiB must be set on the rule (enforced by CRD validation); when both are set, both
+// driveTypeOverrideRuleMatches reports whether rule matches drive. At least one of Model,
+// CapacityGiB or Serial must be set on the rule (enforced by CRD validation); all set fields
 // must match.
 func driveTypeOverrideRuleMatches(rule v1alpha1.DriveTypeOverrideRule, drive SharedDriveInfo) bool {
 	// Trimmed once and reused below: a whitespace-only Model must count as "no constraint", not
@@ -82,8 +82,11 @@ func driveTypeOverrideRuleMatches(rule v1alpha1.DriveTypeOverrideRule, drive Sha
 			return false
 		}
 	}
+	if rule.Serial != "" && rule.Serial != drive.Serial {
+		return false
+	}
 	// A rule that constrains nothing matches nothing, rather than everything.
-	return ruleModel != "" || rule.CapacityGiB != 0
+	return ruleModel != "" || rule.CapacityGiB != 0 || rule.Serial != ""
 }
 
 // ReadDriveTypeOverrides reads the override rules from the node annotation.
